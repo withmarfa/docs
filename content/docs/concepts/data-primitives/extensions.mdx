@@ -1,6 +1,87 @@
 ---
 title: Extensions
-description: Sidecar data attached to items by namespace.
+description: Namespaced sidecar data attached to items.
 ---
 
-Placeholder. Ports `concepts/extensions.mdx`.
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Extensions are namespaced JSON objects attached to an item. They're for **sidecar state** — data that belongs to a specific app, bound to the parent item's lifecycle, without its own identity.
+
+## Shape
+
+Each extension lives at a namespace on an item:
+
+```
+GET    /items/{id}/extensions                # all extensions visible to the caller
+GET    /items/{id}/extensions/{namespace}    # one namespace
+PUT    /items/{id}/extensions/{namespace}    # replace the namespace
+DELETE /items/{id}/extensions/{namespace}    # remove
+```
+
+For list responses, the per-item endpoints above are an N+1 trap. Use `GET /items?include=extensions` (see [Items — Lists are lean](/docs/concepts/data-primitives/items#lists-are-lean-by-default)) to hydrate extensions inline for a batch, filtered by the same permission rule.
+
+Example:
+
+```json
+PUT /items/{id}/extensions/readwise.reading_progress
+{
+  "offset": 1234,
+  "percent": 45,
+  "modified_at": "2026-04-12T14:30:00Z"
+}
+```
+
+## Namespace conventions
+
+| Pattern | Who writes | Scope |
+|---|---|---|
+| `<app-name>.*` | The app itself | Private to the app by default; other apps can be granted read or read+write access per namespace. |
+| `<publisher>.*` | A community publisher | Same shape as app namespaces; scoped to the publisher's handle. |
+| `user.*` | The space owner | User-defined state. |
+
+Namespace access is controlled by the credential's `extension_permissions`:
+
+```json
+"extension_permissions": {
+  "readwise.*": "write",
+  "other-app.ai_summary": "read"
+}
+```
+
+Wildcards are supported. A credential with `extension_permissions: {}` can't read or write any extension — the app must declare each namespace it needs.
+
+## When to use extensions vs a custom type
+
+The test: **does the data have identity of its own — can it meaningfully be listed, queried, or referenced separately from its parent?**
+
+- **Yes → custom type.** Register a type, create an item, link it to the parent with an edge (`derived-from`, `references`, `supersedes`). The data has its own id, provenance, lifecycle. Multiple instances per parent coexist. Queryable as a first-class type.
+- **No → extension.** Bound to the parent. Deleting the parent deletes it. No independent identity.
+
+### Examples
+
+| Data | Home | Reasoning |
+|---|---|---|
+| AI-generated summary of a note | New `core.note`, linked via `derived-from` or `supersedes` | Multiple apps may produce different summaries; each has its own provenance; they coexist or chain |
+| Study card derived from a highlight | Custom type (`<app>.study_card`), `derived-from` edge to the highlight | Has its own review lifecycle; apps surface lists of cards on their own |
+| Reading progress within an app | Extension in the reading app's namespace | Ephemeral per-session; bound to the parent; private to the app |
+| Sync-agent bookkeeping | Extension in the agent's namespace | Strictly private state |
+| OCR-extracted text from an image | Extension in the writing app's namespace | Sidecar to the image |
+
+The payoff: when multiple apps produce the same kind of structured content (three AI tools all generating cleaner versions of the same note), custom types let them coexist cleanly. Extensions would force overwrites — one namespace key, one value.
+
+## Legitimate uses
+
+- **Ephemeral per-session state.** Reading position, last-viewed timestamp, scroll offset. Rewritten frequently. Bound to the parent's lifecycle.
+- **Private app bookkeeping.** Sync-agent file hashes, rate-limit counters. Data with no meaning outside the writing app.
+
+## What not to use extensions for
+
+- **Structured content with its own identity.** Use a custom type.
+- **Cross-app shared state.** The semantics drift; apps write the same namespace with different intentions; last-writer-wins collisions lose information.
+- **Sync cursors.** A sync agent's per-root cursor is **agent-local state** — it lives on the agent's own disk, not on any item in the platform. Extensions are for sidecar state attached to a specific item; sync cursors don't belong to an item.
+
+## Permissions reminder
+
+<Callout type="info">
+  Extensions are **not** returned in normal `GET /items` responses — a client must explicitly request a namespace it has permission for. Extensions can't leak via generic reads. A credential without `extension_permissions` for a namespace gets `403 forbidden` on that request, regardless of its type permissions on the parent item.
+</Callout>
