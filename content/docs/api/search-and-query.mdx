@@ -1,6 +1,137 @@
 ---
 title: Search and query
-description: Filter grammar with examples.
+description: Full-text search across a tenant plus the filter language for item list and search queries.
 ---
 
-Placeholder. Phase 4 content port.
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Two capabilities share this surface:
+
+- **Filter language** — narrow a list of items by field, property, tag, or edge.
+- **Full-text search** — find items by keyword across their content.
+
+Both use the same `filter` parameter grammar. Both return paginated item lists.
+
+## Listing items
+
+`GET /items` accepts type / state / tag / tier / edge / backref / filter narrowing plus pagination. A few characteristic examples:
+
+```
+GET /items
+GET /items?type=core.note&state=active
+GET /items?tier=library&tags=to-read
+GET /items?edge[parent-of]=<parent-id>
+GET /items?filter=properties.author eq "George Orwell"
+```
+
+The full parameter list and response shape are in the API reference. A few semantics worth knowing:
+
+- **`type`** — matches subtypes via inheritance. `type=core.media` returns `core.media.book`, `core.media.article`, etc.
+- **`since`** and **`until`** — operate on the item's effective time (`timestamp`, falling back to `created_at`), not `updated_at`.
+- **`include`** — off by default to keep list responses lean. See [Including extras](#including-extras) below.
+- **`tier`** — `library`, `feed`, or omitted (returns both slices).
+
+<Callout type="info">
+  Cursors are stable within the cursor's lifetime (24h typical) — concurrent writes don't shift pages already returned. Paginate by passing `cursor` back as a query parameter.
+</Callout>
+
+## Including extras
+
+`GET /items` returns the minimum item shape by default — no edges, no metadata, no extensions. The `?include=` parameter is the escape hatch: name what you need and the server batches it inline. A naive "fetch the extras per item" loop is an N+1 trap; `?include=` collapses it to one request.
+
+Currently supported values (comma-separated):
+
+- `?include=edges` — hydrates outbound edges per item, grouped by edge type. Same shape as single-item responses.
+- `?include=metadata` — wraps each entry as `{ item, metadata }` so tags travel inline.
+- `?include=extensions` — hydrates extension namespaces per item, filtered by caller permissions (same rule as `GET /items/:id/extensions`).
+
+Combinations work. `?include=edges,extensions` is the typical "rendering a rich list view" shape: one request, everything the UI needs, no per-item follow-ups.
+
+The TypeScript SDK exposes typed helpers — `client.items.listWithMetadata`, `client.items.listWithExtensions` — that call these under the hood. Prefer them over assembling raw query strings.
+
+## Full-text search
+
+`GET /search` accepts `q` plus the same filter parameters as `/items`:
+
+```
+GET /search?q=orwell
+GET /search?q=orwell&type=core.bookmark&state=active
+GET /search?q=orwell&tier=library
+GET /search?q=orwell&tags=fiction,classic
+```
+
+Index scope: all textual properties of the item (body, title, description, etc.) plus tags. Ranking by relevance, with recency boost configurable per tenant. `q` narrows by text match, filter parameters narrow further.
+
+`tags` accepts a comma-separated list with AND semantics — items must have every listed tag.
+
+<Callout type="info">
+  Result ordering is stable; the absolute `score` value isn't guaranteed across index rebuilds. Rely on order, not magnitude.
+</Callout>
+
+## Filter language
+
+The `filter` parameter accepts expressions over system fields, properties, and metadata.
+
+### Grammar
+
+```
+expression := condition (AND condition)* | condition (OR condition)*
+condition  := field operator value | field operator | edge-clause
+
+field      := "properties." name | "metadata." name | <system-field>
+operator   := eq | neq | gt | gte | lt | lte | contains | starts_with | exists | not_exists
+value      := number | string | boolean | null
+
+edge-clause := "edge[" edge_type "]" ("eq" target_id | "exists")
+             | "backref[" edge_type "]" ("eq" source_id | "exists")
+```
+
+System fields recognised: `id`, `type`, `source`, `timestamp`, `created_at`, `updated_at`, `tier`, `device`, `version`.
+
+### Examples
+
+```
+properties.author eq "George Orwell"
+state eq "active" AND properties.language eq "en"
+tags contains "to-read" AND tier eq "library"
+edge[references] exists
+edge[authored-by] eq "person-id"
+backref[parent-of] eq "child-id"
+properties.word_count gt 1000 AND tags contains "longread"
+```
+
+### Operators
+
+| Operator | Applies to | Meaning |
+|---|---|---|
+| `eq`, `neq` | strings, numbers, booleans, null | Equality. |
+| `gt`, `gte`, `lt`, `lte` | numbers, datetimes | Range. |
+| `contains` | arrays (e.g. `tags`) | Membership. |
+| `starts_with` | strings | Prefix match. |
+| `exists`, `not_exists` | any | Field presence (with value ≠ null). |
+
+### Combining conditions
+
+Conditions join with `AND` or `OR`. You can't mix `AND` and `OR` within a single expression — use one or the other. For complex logic, break into multiple queries or chain via a client-side join.
+
+### Edge shorthand
+
+`edge[X]=Y` as a query parameter is equivalent to `filter=edge[X] eq "Y"`. Both return items that have an outbound edge of type `X` targeting `Y`. Use the shorthand when only one edge clause is needed.
+
+`backref[X]=Y` is the inbound equivalent.
+
+## Quoting and escaping
+
+String values in the filter language use double quotes: `"George Orwell"`. Double quotes inside a string are escaped with a backslash.
+
+The `filter` query parameter value must be URL-encoded in the request line.
+
+## Paginating search results
+
+Search results use `limit` and `offset` pagination rather than cursors:
+
+```
+GET /search?q=orwell&limit=50&offset=50
+```
+
+Offset pagination is stable for the lifetime of a given query.
