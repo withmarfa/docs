@@ -1,6 +1,68 @@
 ---
 title: Runtime substrates
-description: Hosted vs local substrates and the parity sheet.
+description: The two substrates that run integrations — Cloudflare (hosted) and Node + Postgres (local).
 ---
 
-Placeholder. Phase 4 content port.
+Two substrates run integrations: **hosted** (Cloudflare) and **local** (Node + Postgres). The choice is per-deployment, set by the operator via `MARFA_INTEGRATION_RUNTIME` — it's not per-Connection and it's not per-Integration. Integration code (the `handlers.ts` module) is portable: the same code runs on either substrate without modification. Where they differ is the operational shape underneath the SDK.
+
+The manifest's `runtime_compatibility` enum also accepts `self-hosted` as a third tier. No wired substrate currently dispatches against it; see [Integrations](/docs/concepts/connections/integrations) for the manifest-level vocabulary.
+
+## The two substrates
+
+### Hosted — Cloudflare
+
+For deployments running against a Cloudflare account. Each integration deploys as a Cloudflare Worker. Per-Connection state lives in a Durable Object. Scheduled polls fire from Cron Triggers; reactive runs and inbound webhooks flow through Cloudflare Queues. Inbound webhook receipts hit a single control-plane Worker (`@withmarfa/runtime-control`) which verifies the signature and routes onto the right per-Integration queue.
+
+Set with `MARFA_INTEGRATION_RUNTIME=hosted`. Requires `CLOUDFLARE_QUEUES_REACTIVE_RUN_URL` + `CLOUDFLARE_QUEUES_API_TOKEN` for the reactive-run bridge to fire (otherwise the bridge boots in disabled mode and only schedule + inbound-webhook traffic reaches the Workers).
+
+### Local — Node + Postgres
+
+The default substrate for self-hosters: a fresh `docker compose up` works without a Cloudflare account. The same handler code runs in a `worker_thread` pool inside the Marfa server process; per-Connection state lives in the connection's `connection.runtime` extension; pg-boss drives the cron and queue layers off the Postgres instance the rest of the server already uses. Inbound webhooks hit `POST /runtime/webhook/:connection_id` on the Marfa server directly — same verification adapters (`@withmarfa/webhooks`) the hosted substrate uses, just no remote hop.
+
+Set with `MARFA_INTEGRATION_RUNTIME=local` (or leave it unset — `local` is the default). **Requires Postgres** — SQLite self-hosts must flip to `=hosted` until they migrate. Operator footprint is two containers: server + Postgres. No Redis, no extra binary, no Postgres extension dependency.
+
+## Where they differ — semantic parity sheet
+
+The substrates are designed for parity at the handler-author surface. The differences below live underneath the SDK and rarely surface to integration code; they exist as documented operational realities rather than gotchas.
+
+| Surface | Hosted (Cloudflare) | Local (Node + Postgres) | Notes |
+|---|---|---|---|
+| **Cron precision** | One-minute floor (Cron Trigger granularity) | One-minute floor (pg-boss `schedule()` granularity) | Equivalent. |
+| **Queue retry policy** | Workers Queues defaults — exponential backoff, max-attempts ceiling, DLQ routing | pg-boss defaults configured to approximate the same shape | Not bit-identical but close. Operators tuning retries should consult `pg-boss`'s `retryLimit` / `retryDelay` rather than the Workers Queues equivalent. |
+| **Per-Connection state durability** | Durable Object storage (eventually consistent) | Postgres rows under transactions (strict consistency) | Local is *stronger*. A handler that wrote a cursor and then crashed sees the write on retry — both substrates honour that. |
+| **Idempotency cache** | Workers KV — edge-distributed, eventual reads | Postgres row keyed on (`subscription_id`, `delivery_id`) inside the connection's `connection.runtime` extension | Local has strict consistency by virtue of Postgres. Hosted has eventual reads but the 3600s TTL is wide enough that the eventual-consistency lag is invisible in practice. |
+| **Service bindings** | Control-plane Worker calls per-Integration Worker over a Cloudflare service binding | Collapses to an in-memory function call inside the server process | Not a parity issue — the seam disappears. |
+| **Adversarial isolation** | Workers' isolate boundary — strong isolation | `worker_thread` — fault isolation, not adversarial | Local self-host treats operator-installed integrations as trusted (same posture as installing an npm package in the host app). For untrusted code, run hosted. |
+| **Per-Connection serialisation** | Durable Object single-writer guarantee | Postgres advisory lock on `hashtext(connection_id)` | Equivalent semantics — at most one handler running per Connection at any given time on either substrate. |
+| **Resource limits** | Workers' platform-enforced CPU + memory caps | `worker_thread` `resourceLimits` — `maxOldGenerationSizeMb`, `maxYoungGenerationSizeMb`, `stackSizeMb`, set per integration | Tunable on local; fixed on hosted. Defaults are tuned for the in-tree integrations and operators can lift them per-deployment if a heavier handler lands. |
+| **Multi-instance coordination** | Per-Worker — Workers' deployment model handles this transparently | Postgres advisory locks (`SELECT pg_try_advisory_lock`) + pg-boss's `SELECT ... FOR UPDATE SKIP LOCKED` job leasing | Local is multi-instance safe out of the box. The reactive-run bridge runs under a single advisory lock so two server instances never fan out the same event twice. |
+
+## Picking a substrate
+
+You don't pick per-Integration — the manifest's `runtime_compatibility` field declares which substrates an integration supports, and the operator's `MARFA_INTEGRATION_RUNTIME` setting picks which substrate the deployment runs.
+
+- **Self-hosted Marfa** defaults to `local` so a fresh `docker compose up` works without a Cloudflare account. Operators who *want* Cloudflare can set `MARFA_INTEGRATION_RUNTIME=hosted` and wire the Cloudflare bridge env vars; integrations declaring `["hosted"]` then become eligible.
+- **Cloudflare-fronted Marfa** runs `hosted` against the operator's Cloudflare account. Integrations declaring `runtime_compatibility: ["hosted"]` or `["hosted", "local"]` are eligible.
+- **The sync integration** declares `runtime_compatibility: ["local"]` only — it has no hosted path.
+
+## Local substrate operator notes
+
+- `MARFA_INTEGRATION_RUNTIME=local` (or the env var unset — `local` is the default) initialises pg-boss against `DATABASE_URL` and registers handlers from every integration's `dist/local.js`. Set the var to `hosted` to delegate to the Cloudflare bridge instead.
+- pg-boss creates its own schema (`pgboss` by default) inside the same Postgres instance. No extra database, no extra credential.
+- The reactive-run bridge subscribes to the in-process pubsub — the same firehose the Cloudflare bridge consumes when running hosted. One substrate runs per server; the `MARFA_INTEGRATION_RUNTIME` value selects which.
+- `POST /runtime/webhook/:connection_id` is mounted publicly (no bearer token); verification happens inside the route via the subscription's HMAC secret. The route lives only when `MARFA_INTEGRATION_RUNTIME=local`; with hosted, inbound webhooks continue routing through the Cloudflare control plane.
+- Per-Connection state lives under the `connection.runtime` reserved extension on the connection's `system.connection` item. The hosted substrate uses the same namespace, so handler-visible state has the same shape on either substrate.
+- Workers crash → pool replaces. A handler that throws repeatedly takes its `worker_thread` with it; the next dispatch lands on a fresh thread. Other integrations' pools are untouched.
+
+## Authoring against either substrate
+
+The handler module is the same on both substrates. Per-substrate divergence lives in the *entry* files:
+
+- **`handlers.ts`** — registers schedule, webhook, and item-event handlers. Substrate-agnostic.
+- **`manifest.ts`** — exports the `IntegrationManifest`, including `runtime_compatibility`.
+- **`worker.ts`** — Cloudflare Workers entry. Re-exports `PerConnectionState` plus the handlers.
+- **`local.ts`** — local-runtime entry. Registers handlers and exports the manifest.
+
+Both entry files call `registerHandlers()` from the integration's own `handlers.ts`, which seeds `@withmarfa/runtime-sdk`'s in-process handler registry. The substrate then dispatches against that registry. Substrate-specific concerns — Durable Object storage proxies, `worker_thread` boot, queue wiring — sit outside the handler module entirely.
+
+Importing `@withmarfa/runtime-sdk/cloudflare` from inside `handlers.ts` defeats portability. Substrate-specific imports belong in `worker.ts`.

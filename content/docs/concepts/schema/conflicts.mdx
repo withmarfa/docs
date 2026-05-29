@@ -1,6 +1,112 @@
 ---
 title: Conflicts
-description: merge_policy declaration and per-core-type defaults.
+description: How concurrent edits resolve — per-type merge policy, keep-both semantics, and the 409 envelope.
 ---
 
-Placeholder. Phase 4 content port.
+import { Callout } from 'fumadocs-ui/components/callout';
+
+When two clients edit the same item from the same starting version, the second write fails with a `version_conflict`. Resolution is client-side, layered over the existing 409 envelope and item primitives — no server enforcement, no new endpoints, no new edge types.
+
+The shape of resolution is **declared on each type** via a `merge_policy` block. Long-text user-authored fields (`body`, `notes`; `note` on `core.highlight`) keep both copies. Everything else is last-writer-wins. Custom types inherit or override.
+
+## Detection
+
+`PATCH /items/{id}` with a stale `version` returns `409 version_conflict`. The response carries the three-way context the client needs to resolve, plus the type's resolved merge policy:
+
+```json
+{
+  "error": {
+    "code": "version_conflict",
+    "message": "Version 3 is stale; current version is 5"
+  },
+  "current": {
+    "version": 5,
+    "properties": { "body": "...", "title": "..." }
+  },
+  "ancestor": {
+    "version": 3,
+    "properties": { "body": "...", "title": "..." }
+  },
+  "conflicting_fields": ["body"],
+  "merge_policy": {
+    "fields": { "body": "keep_both_copies", "notes": "keep_both_copies" },
+    "default": "last_writer_wins"
+  }
+}
+```
+
+- `current` — the server's state at the time of the conflict.
+- `ancestor` — the version the client was working from.
+- `conflicting_fields` — fields where the client's update conflicts with server-side changes.
+- `merge_policy` — the type's resolved policy, with inheritance applied. Always present.
+
+The server resolves inheritance and emits the policy on every conflict response. Clients don't fetch the type schema or maintain a policy cache — the answer travels with the conflict.
+
+## Resolution strategies
+
+Three modes, picked by the SDK caller.
+
+- **`auto`** (default) — apply the type's `merge_policy` per conflicting field. `last_writer_wins` fields take the server's value; `keep_both_copies` fields spawn a sibling item (see [Keep-both semantics](#keep-both-semantics)). Non-conflicting client changes apply normally; the update retries with the server's version.
+- **`manual`** — surface the error to the app with the full three-way payload. The app decides.
+- **`callback`** — the SDK invokes a per-call resolver with the three-way context plus `conflictingFields`; the resolver returns the properties to apply.
+
+`auto` is the right default for almost every app. Use `callback` when the merge logic depends on app-specific semantics that aren't expressible at the type level.
+
+## The `merge_policy` declaration
+
+`merge_policy` is a top-level block on each type's JSON, alongside `display_hints` and `version_policy`:
+
+```json
+"merge_policy": {
+  "fields": {
+    "body": "keep_both_copies",
+    "notes": "keep_both_copies"
+  },
+  "default": "last_writer_wins"
+}
+```
+
+The shape is uniform: a `fields` object mapping field names to strategies, plus a `default` for unlisted fields. Two strategies are defined — `last_writer_wins` and `keep_both_copies`.
+
+Inheritance behaves the same as `display_hints` and `version_policy`. A subtype's `merge_policy` merges field-by-field over its parent's: child entries in `fields` override parent entries for the same field; child `default` replaces parent `default`. A subtype that omits `merge_policy` entirely inherits the parent's wholesale.
+
+Fields named in `merge_policy.fields` must exist in the type's `fields` map; unknown strategy values are rejected on `POST /types`.
+
+## Keep-both semantics
+
+When `auto` resolution sees a `keep_both_copies` field in `conflicting_fields`, the SDK:
+
+1. Calls `items.create` with a new item of the same type — populated from the client's in-flight values for the keep-both fields and the server's `current` values for everything else, tagged `conflicted-copy` inline on the create.
+2. Lets the original item retain the server's winning state for the conflicted keep-both fields. Non-keep-both client changes still apply normally via the usual auto-merge path.
+3. Emits a `conflictAutoMerged` event with `{ itemId, mergedItemId, conflictedCopyId?, fields, strategy }` so the app can surface the outcome — typically a toast: "Your edit saved as a conflicted copy — the older version is preserved alongside it."
+
+The `conflicted-copy` tag is the existing tag-API primitive; no new edge type, no new endpoint. Apps surface conflicted copies the same way they surface any other tagged item.
+
+<Callout type="info">
+  Keep-both doubles the write count on the conflicting `PATCH`: one `items.create` for the sibling plus the original `items.update` retry. Two writes versus the current one. At expected conflict rates this is negligible — conflicts are rare per item — but it's worth knowing if you're modelling write throughput.
+</Callout>
+
+## Defaults
+
+The principle for the core type set: `body` and `notes` keep both copies; everything else is last-writer-wins. `core.highlight` uses `note` (singular) as the equivalent long-text field.
+
+| Type | Keep-both fields | Default |
+|---|---|---|
+| `core.note` | `body`, `notes` | `last_writer_wins` |
+| `core.bookmark` | `body`, `notes` | `last_writer_wins` |
+| `core.task` | `body`, `notes` | `last_writer_wins` |
+| `core.event` | `notes` | `last_writer_wins` |
+| `core.highlight` | `note` | `last_writer_wins` |
+| `core.media` and subtypes | `body`, `notes` | `last_writer_wins` |
+| `core.entity` and subtypes | — | `last_writer_wins` |
+| `core.file` and subtypes | — | `last_writer_wins` |
+
+Fields not listed in a type's `merge_policy.fields` fall through to `default`. A type with no `merge_policy` block at all behaves as `last_writer_wins` everywhere — the safe fallback for fields the type maintainers haven't classified.
+
+The principle is narrow on purpose. Long-text fields are where two parallel edits are most likely to encode independently meaningful content — losing one is a real data-loss event. Scalars, enums, timestamps, and identifiers are conventional metadata where last-writer-wins matches user intent and avoids the noise of a sibling per edit.
+
+## Cross-references
+
+- [Versions](/docs/concepts/schema/versions) — the snapshot history that makes recovery possible even when policy decides one side wins.
+- [Errors — version_conflict](/docs/api/errors#version-conflict) — the 409 response shape in the error catalogue.
+- [Types — Merge policy](/docs/concepts/data-primitives/types#merge-policy) — pointer back to the type-side declaration.
