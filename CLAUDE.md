@@ -2,8 +2,6 @@
 
 Public documentation site at `docs.marfa.so`. Built with [Fumadocs](https://fumadocs.dev) on [TanStack Start](https://tanstack.com/start), deployed to Cloudflare Workers via `@cloudflare/vite-plugin`.
 
-Vault Surface: [[Marfa Docs]] in `~/aic-vault/Projects/marfa-TCC02/Surfaces/Marfa Docs.md` — principle + intent.
-
 Docs MCP convention: when working on documented surfaces (types, edges, runtime substrates, connections, auth flows), query the docs MCP at `https://docs.marfa.so/mcp` (or use `marfa docs search "<query>"` from CLI) before re-deriving from source. After changing a public surface, update the relevant docs page in the same PR.
 
 ## Framework
@@ -104,4 +102,4 @@ The docs are grounded in six rules. Any edit that violates one is a bug.
 
 ## Conventions
 
-Cross-repo conventions (American English, Conventional Commits with scope, TypeScript ESM, Prettier single quotes, no personal infra) come from the operator dev surface at `~/aic-local/Dev/MarfaHQ/WithMarfa/.claude/CLAUDE.md`.
+Cross-repo conventions (American English, Conventional Commits with scope, TypeScript ESM, Prettier single quotes, no personal infra) come from the parent `.claude/CLAUDE.md`.
