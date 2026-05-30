@@ -1,6 +1,141 @@
 ---
 title: Building a client
-description: Patterns for building on top of an SDK.
+description: Patterns for apps, CLIs, and integrations that consume a Marfa server.
 ---
 
-Placeholder. Phase 4 content port.
+A client is anything that talks to a Marfa server through an SDK: an app, a CLI, an MCP server, a sync agent, a scheduled job. Clients are not deployment modes — they're authenticated consumers.
+
+This page walks through the pattern using the Marfa MCP server (`@withmarfa/mcp`) as the worked example. The same pattern applies to CLIs, Raycast extensions, mobile apps, ingest agents, and any other consumer.
+
+## Anatomy of a client
+
+Every client has three things:
+
+1. **A credential.** One API key (or OAuth grant) with scoped permissions.
+2. **An SDK connection.** Typically the TypeScript or Swift SDK, instantiated once and reused.
+3. **An entry point.** A CLI command, an MCP tool, an HTTP handler, a scheduled task.
+
+That's it. Clients are thin — all the typed-data logic lives in Marfa, not in the client.
+
+## Worked example: `@withmarfa/mcp`
+
+The Marfa MCP server exposes the Marfa API as MCP tools for Claude and other MCP consumers. A thin TypeScript wrapper around the SDK.
+
+### Skeleton
+
+```typescript
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { MarfaClient } from "@withmarfa/sdk";
+
+const client = new MarfaClient({
+  url: process.env.MARFA_API_URL!,
+  apiKey: process.env.MARFA_API_KEY!,
+});
+
+const server = new McpServer({ name: "marfa", version: "x.y.z" });
+
+server.tool(
+  "create_item",
+  { /* JSON schema for tool input */ },
+  async (input) => {
+    const item = await client.items.create(input);
+    return { content: [{ type: "text", text: JSON.stringify(item) }] };
+  }
+);
+
+// ... register the rest of the tools ...
+
+await server.connect(new StdioServerTransport());
+```
+
+### The whole client is thin
+
+The MCP server registers one tool per SDK method. Each tool is a handler that:
+
+1. Parses input according to a tool-specific schema.
+2. Calls one SDK method.
+3. Returns the result as JSON.
+
+No business logic. No caching. No duplicated validation. The SDK handles the network and typed serialisation; the server handles schema and permissions. The client is the glue.
+
+### Credentials and scope
+
+The MCP server is configured per user via environment variables (`MARFA_API_URL`, `MARFA_API_KEY`). Each end-user has their own API key, scoped to their own tenant. The server itself is stateless — starting a new instance with a different key talks to a different tenant.
+
+If you want per-user LLM access with explicit consent, register your client as an OAuth client and use the Authorization Code + PKCE flow instead of static API keys. The MCP server then runs as a public client, exchanges the user's code for tokens, and refreshes as needed.
+
+### LLM-friendly tool descriptions
+
+The MCP server pays close attention to tool descriptions and input schemas because LLMs read them heavily. Drift there is more expensive than in human-facing docs. The same principle applies to any client exposing Marfa capabilities to an LLM:
+
+- Use the actual type and edge names (`core.note`, `in-thread`, `parent-of`) — the LLM has seen them in these docs.
+- Describe what a field does, not just its type. "`tier: library | feed` — curated library vs high-volume feed" is useful; "`tier: string`" alone isn't.
+- Call out enum values explicitly. "`state: active | archived | trashed`" beats "`state: string`".
+
+## Patterns by client kind
+
+### Interactive app (iOS, macOS, web)
+
+- Use the SDK in the app's data layer. Map SDK types into your view models.
+- For long-running UIs, subscribe to `/events` via the SDK's SSE iterator. Update the view model when events arrive for items you're displaying.
+- Store the API key (or OAuth tokens) in the platform's secure store (Keychain on Apple, Credential Manager on web).
+
+### CLI
+
+- Load the API key from `MARFA_API_KEY` or a config file (`~/.marfa/<instance>.json`).
+- Provide one command per meaningful workflow: `my items list`, `my items create`, `my import`. Thin wrappers around SDK calls.
+- Print results as tables for humans, JSON for machines (controlled by `--json` or detecting non-TTY stdout).
+
+### Ingest agent / sync daemon
+
+- Long-running process with a single API key scoped to the types it writes.
+- For pull-based syncs: a scheduled loop calling `GET /items?source=X&updated_after=...`.
+- For push-based: watch the source (a folder, a feed, an inbox) and `POST /items` as new data appears. Set `source_id` on each item — the server resolves `(source, source_id)` as a natural key, so re-posts upsert rather than duplicate. See [Items — natural-key upsert](/docs/concepts/data-primitives/items#natural-key-upsert).
+- Set `default_tier=feed` on the credential — ingested items typically land in the high-volume feed slice, not the curated library.
+
+### MCP server
+
+- Pattern above. Thin, stateless, one tool per SDK method.
+- Run under the LLM host's process manager (Claude Desktop, Claude Code, Goose).
+
+### Integration / webhook consumer
+
+- Register a webhook via `client.webhooks.create`.
+- Accept webhook POSTs, verify the HMAC signature, process asynchronously.
+- No need for an SDK on the webhook-receiving side unless you're calling back into Marfa from the handler.
+
+## Optional titles
+
+Several core types carry `title` as an optional property (`core.note`, `core.bookmark`, most `core.media.*`). Apps whose UI exposes a title field write it directly. Apps whose UI doesn't surface a title — a WYSIWYG notes app where the user types straight into the body, a messages-style capture app — have three consistent patterns:
+
+- **Leave null, derive at render.** Persist `title: null`. Compute a display title from the first line of `body` at render time. Simplest; follows body edits naturally; nothing to keep in sync.
+- **Derive on save, persist.** Compute a title from the body on each save and write it into `title`. Other apps see the title directly without needing to know the derivation rule.
+- **Leave blank.** Don't derive. Other apps fall back to body content when they need a display string.
+
+Generic readers should tolerate `title: null` on types where it's optional — fall back to `body` (or the equivalent primary text field for the type) for display. The choice of pattern is app-local, not a schema concern.
+
+## What doesn't go in Marfa
+
+The platform is for user-content data — items some other client might meaningfully read. Three categories of data don't belong on it:
+
+- **App settings.** Theme, default model, UI preferences, layout state. They have no cross-app meaning. Use the OS's normal mechanism — `UserDefaults` on macOS, `localStorage` on web, iCloud Key-Value Storage if cross-device sync is wanted.
+- **Sync cursors.** A sync agent's per-root cursor is **agent-local state**. It lives on the agent's own disk, not on any item in the platform. Same for crawlers, scrapers, or any client tracking external-source position.
+- **Ephemeral session state.** Current scroll position, undo stack, in-flight network state. Stays in the app's memory.
+
+The rule: if it isn't user-content data that some other client might meaningfully read, it doesn't belong on the data layer.
+
+Per-item state attached to a parent (reading progress within a reading app, OCR-extracted text from an image) is a different question — that's an [extension](/docs/concepts/data-primitives/extensions), not an item.
+
+## What clients should not do
+
+- **Don't cache item contents across sessions without a sync mechanism.** If your client is long-lived and needs reactive state, use SSE; don't roll a stale-check poll.
+- **Don't re-implement permissions client-side.** The server enforces; your job is to surface what the server returned.
+- **Don't hide error codes from callers.** Propagate `MarfaError` (or its localized equivalent) — don't wrap in generic errors that lose the `code`.
+- **Don't hard-code tenant ids.** They're implicit from the credential; URLs never carry them.
+
+## Testing a client
+
+Start a local Marfa server (see [Configuration](/docs/self-hosting/run/configuration) for how to run one). Create a fresh API key, set it as `MARFA_API_KEY`, and run your client against `http://localhost:8600`.
+
+The `conformance` suite is useful as a smoke check: run it against the same server to confirm it's behaving correctly before running your client against it.
