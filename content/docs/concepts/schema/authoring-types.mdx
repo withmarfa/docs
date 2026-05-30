@@ -1,6 +1,130 @@
 ---
 title: Authoring types
-description: The rubric, SDK helper, semver diff, and reserved field names.
+description: The inherit-vs-sibling rubric, semver diff, SDK helper, reserved field names, error shapes.
 ---
 
-Placeholder. Phase 4 content port.
+Registering a type is a structured operation. The platform has correctness rails to keep registrations honest at scale — useful to any author, whether writing TypeScript directly, building visually in the console, or working through Claude Code or another AI assistant.
+
+## The inherit-vs-sibling rubric
+
+The most common authoring decision: should this be a sibling type (its own shape, optionally `compatible-with`) or a child of an existing type?
+
+**Inherit only if every ancestor field is semantically required for your type. Otherwise sibling.**
+
+Why this rule, in this direction:
+
+- A bad inheritance choice is hard to recover from. Children cannot redefine ancestor fields. If you decide later that your type's `body` should mean something different from `core.note.body`, you cannot fix it without re-publishing under a different identifier.
+- Sibling is recoverable. You can always add inheritance later if the semantic alignment becomes real. You cannot remove inheritance later without breaking consumers.
+- AI-assisted authoring tends toward over-inheritance — it's the kind of structure a model recognises and reaches for. Defaulting to sibling counter-balances that.
+
+If the rubric tells you sibling, declare `compatible-with` if your shape really is a structural superset. The platform verifies the claim at registration.
+
+## Cross-discoverability and the inheritance choice
+
+The rubric above is about correctness. A second consideration sometimes pulls in the other direction: discoverability by generic readers.
+
+Children appear in parent-type queries automatically — `?type=core.bookmark` returns both `core.bookmark` items and items of any type that inherits from it. Generic readers — feed apps, search interfaces, AI assistants browsing across a whole space — find your items without knowing your type exists.
+
+Siblings with `compatible-with` do not appear in parent-type queries. The declaration is a trustworthy claim that consumers *can* read your items via the parent shape, but they have to know your type identifier and query for it directly.
+
+If your items should be discoverable by readers expecting the parent shape, prefer inheritance even when the correctness rubric leans sibling. If the shape genuinely diverges and inheritance would force you to redefine ancestor fields, stay sibling and accept that generic readers find your items only when they enumerate known compatible types.
+
+## When a subtype earns its place
+
+Whether you're inheriting or just nesting names, a subtype is justified only when:
+
+1. **Convergent shape across instances of the kind.** Multiple instances of the subtype share fields that the parent doesn't carry.
+2. **Queryable or renderable separately by consumer apps.** A consumer can do something different with the subtype than with the parent — different UI, different filter, different processing.
+3. **Differentiating fields aren't already on the parent.** If everything that distinguishes the subtype is already in the parent, the subtype is just a label.
+
+A worked counter-example: there is no `core.file.document`. PDFs, Word docs, plain text, EPUBs — they don't share fields beyond what `core.file` already carries (`blob_ref`, `mime_type`). A generic file viewer reads them all the same way through `mime_type`. There's no consensus shape to add. So `core.file` stops at `image`, `audio`, `video` — each of which carries additional fields (`width`, `height`, `duration`).
+
+Apply the same test to your own subtypes. If you can't fill in all three points, prefer a flat sibling.
+
+## Server-side semver diff
+
+The load-bearing rail. When you submit a new version of a type, the server computes the structural diff against the prior version and rejects the registration if the version bump doesn't match the diff class:
+
+| Diff | Required bump |
+|---|---|
+| Description-only | Patch |
+| New optional field; new enum value | Minor |
+| Field removed; required-tightened; type narrowed | Major |
+
+Mismatched bumps return `400 version_bump_mismatch` with details on which fields drove the diff class.
+
+Without this rail, version bumps drift over time. Convention alone (style guides, CLAUDE.md notes) helps but is advisory; only the registration-time check enforces. The platform stays honest by construction because every author hits the same gate.
+
+The same mechanism applies across all four installable kinds in the [marketplace](/docs/concepts/lifecycle/marketplace) — type, mapping, integration, automation.
+
+## `defineType()`
+
+The SDK helper for authoring in TypeScript. Takes a Zod schema and metadata; validates at build time; produces both the runtime registration call and a registry entry.
+
+```typescript
+import { defineType } from '@withmarfa/sdk'
+import { z } from 'zod'
+
+export const MealPlan = defineType({
+  id: 'carla.meal_plan',
+  description: 'A weekly meal plan.',
+  parent: undefined,
+  compatible_with: [],
+  schema: z.object({
+    week_of: z.string().datetime(),
+    meals: z.array(
+      z.object({
+        day: z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']),
+        title: z.string(),
+        notes: z.string().optional(),
+      })
+    ),
+  }),
+})
+```
+
+Build-time validation catches schema mistakes before they hit the server. The runtime side calls `POST /types` and surfaces the server's error shape directly when the registration is rejected.
+
+One file per type, predictable layout. AI-assisted authoring works well when there's a consistent shape to follow — `defineType()` is that shape.
+
+## Generated TypeScript registry
+
+Codegen emits a single human-readable file (or small set) listing every type's name, fields, parent, and one-line description. The first place an author looks when extending an existing type, and the source of truth that consumer apps import from.
+
+The generated registry is the artefact `defineType()` calls feed; it's also the artefact community-published types add to when consumers install them.
+
+## Reserved field names
+
+A handful of field names are reserved across every type, regardless of who authored it. They live as top-level columns on the item wire shape and carry platform-wide meaning — the capturing device, the user-meaningful timestamp, the natural-key identifier, and so on. A custom type cannot redeclare them as properties; registration is rejected `400 property_shadows_field`.
+
+| Field | Meaning |
+|---|---|
+| `device` | Capturing host label (`"MacBook Pro"`, `"iphone-aic-15"`) — see [Provenance](/docs/concepts/lifecycle/provenance). |
+| `source_id` | Upstream system's stable identifier — the natural-key half of `(source, source_id)`. |
+| `timestamp` | User-meaningful time for the item (e.g. when a photo was taken). |
+| `capture_latitude`, `capture_longitude` | Where the device was at item creation. |
+| `version`, `schema_version` | Server-managed integers (mutation count, type-schema version). |
+| `tier`, `state` | Curation axis (`library` / `feed`) and lifecycle axis (`active` / `archived` / `trashed`). |
+| `source` | Credential-stamped origin — non-forgeable in server-synced mode. |
+| `id`, `type`, `tenant_id`, `properties`, `created_at`, `updated_at` | Structural keys on the wire shape. |
+
+If your type carries a concept that overlaps semantically with one of these (e.g. an audio input device for a voice-capture type), set the first-class field directly when it matches and pick a more specific property name when it doesn't (`input_device`, `audio_input`, etc.). The rule prevents two values coexisting under the same key with nothing telling downstream consumers which is authoritative.
+
+## Error shapes
+
+Quality of error responses is part of the authoring surface. Specific over generic.
+
+| Code | When | Detail |
+|---|---|---|
+| `400 inheritance_violation` | Child redefines an ancestor field. | Lists the conflicting field and ancestor type. |
+| `400 property_shadows_field` | A property name shadows a first-class Item field. | Lists every colliding `fields.<name>`. |
+| `400 compatibility_violation` | `compatible-with` claim doesn't hold. | Lists missing or mismatched fields under the declared mappings. |
+| `400 version_bump_mismatch` | Diff class doesn't match the submitted version bump. | Lists the fields that drove the actual diff class. |
+| `400 reserved_namespace` | Non-platform credential tries to register `core.*` or `system.*`. | Names the reserved root. |
+| `400 invalid_handle` | Reserved word, malformed handle, or unowned handle in a `<publisher>.<type>` registration. | Names the rule that failed. |
+
+A registration that fails any of these returns the structured error and writes nothing. Refining the schema and resubmitting is the workflow.
+
+## Why server-side enforcement matters
+
+Convention helps; enforcement holds the line. Across enough authors over enough time, the rubric drifts and version bumps slip — unless the server is the gate. Documenting the rules here is the human-readable half; the server-side checks are the load-bearing half.

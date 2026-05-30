@@ -1,6 +1,197 @@
 ---
 title: Bulk operations
-description: Three-shape framing and decision aid.
+description: Three endpoints for moving data and mutating many items at once.
 ---
 
-Placeholder. Phase 4 content port.
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn">
+  All `/items/bulk*` and `/edges/bulk` endpoints are admin-only. The server stamps `source` from the credential — bulk writes cannot forge provenance, and only platform admins can mass-mutate across sources. Third-party integrations writing many items should use `POST /items` with `source_id` per item: the server upserts on `(source, source_id)`, so re-posts merge in place without needing a bulk endpoint. See [Items — natural-key upsert](/docs/concepts/data-primitives/items#natural-key-upsert).
+</Callout>
+
+Three shapes cover every bulk flow.
+
+| Endpoint | Use when |
+|---|---|
+| `POST /items/bulk` — **list-in, items** | The caller holds the payload — an importer, a reconciler, a replay of an external source. |
+| `POST /items/bulk_action` — **filter-in, items** | The target set is defined by a filter — "archive everything tagged wip", "purge every trashed item older than 90 days". |
+| `POST /edges/bulk` — **list-in, edges** | Edges whose source and target exist already — replies, attachment links, a reply tree being migrated after its items landed. |
+
+A fourth endpoint, `POST /admin/restore-archive`, ingests a tar.gz produced by `GET /export?format=archive`. It sits under Admin because it is a tenant-restore operation, not an item-level write.
+
+<Callout type="info">
+  Every bulk endpoint writes **one aggregate audit entry per call** and defaults `emit_events: false`. Per-item or per-edge webhook fanout is an opt-in flag — bulk calls should not flood subscribers.
+</Callout>
+
+## Inline edges on items.bulk vs standalone edges.bulk
+
+Both ways of writing edges alongside items exist. Pick based on whether source and target live in the same batch.
+
+| Situation | Endpoint |
+| --- | --- |
+| Edge source and target both in the same bulk-items payload | Inline `edges` block on `/items/bulk` |
+| Edge source or target was created in an earlier batch (or already existed) | Separate `/edges/bulk` pass after items land |
+| Mode-transition migration at tenant scale (Local → Marfa, iCloud → Marfa) | `/items/bulk` first, then `/edges/bulk` — cross-batch edges can't ride inline |
+
+## `POST /items/bulk`
+
+Admin-only. Up to 5000 items per call.
+
+### Modes
+
+- **`upsert`** (default) — match existing rows by `(source, source_id)` and update in place. Properties merge shallow-ly, last-writer-wins per key. Tags replace if provided. Edges union-merge if provided. Unprovided fields leave the existing row alone.
+- **`create_only`** — matching rows surface as `skipped`, not updated. Preserves the old `/import` semantic.
+
+### Atomic flag
+
+`atomic: true` (default) wraps the batch in one transaction — any failure rolls back every write in the call. `atomic: false` runs per-item, returning per-item outcomes and continuing past errors.
+
+<Callout type="warn">
+  `source` is server-stamped from the credential. Any caller-supplied `source` is silently overwritten — bulk writes cannot forge provenance.
+</Callout>
+
+### Outcomes
+
+Every response carries per-item `results`:
+
+```json
+{
+  "counts": { "created": 42, "updated": 3, "skipped": 1, "errored": 0 },
+  "results": [
+    { "index": 0, "outcome": "created", "id": "itm_abc" },
+    { "index": 1, "outcome": "updated", "id": "itm_def" },
+    { "index": 2, "outcome": "skipped", "reason": "duplicate_source" },
+    { "index": 3, "outcome": "errored",
+      "error": { "code": "invalid_type", "message": "..." } }
+  ]
+}
+```
+
+### Inline edges
+
+Each item may carry an `edges` block: a map from `edge_type` to target-item ids. Edges are created in the same transaction as the item, with **replace-all** semantics per edge type — any edge type listed wipes existing outbound edges of that type before the new set is created. Unmentioned edge types are untouched.
+
+This path only works when source and target both land in the same call. For cross-batch edges — the target exists already, or lands in a separate bulk call — use `/edges/bulk`.
+
+## `POST /edges/bulk`
+
+Admin-only. Up to 5000 edges per call.
+
+Sibling to `/items/bulk` for the graph half of tenant migrations. Items created in an earlier bulk call exist on the server; a second pass through `/edges/bulk` wires them together without having to hold source and target in the same payload.
+
+### Modes
+
+- **`upsert`** (default) — match existing rows by `(source_id, target_id, edge_type)` and replace `properties` in place. Non-matching rows are created.
+- **`create_only`** — matching rows surface as `skipped` with reason `"duplicate_edge"`. Useful for replayable migrations where the same edge set may be pushed twice.
+
+### Validation
+
+Every edge runs the same rules as `POST /edges`: edge type registered, source and target exist and belong to the caller's tenant, source and target type constraints satisfied, cardinality respected, no cycle on `parent-of` or `supersedes`. Violations surface per-edge in `atomic: false` mode or abort the batch in `atomic: true` mode.
+
+### Events
+
+`emit_events: true` fires an `edge.created` webhook per newly-created edge. `updated` outcomes emit nothing — the pubsub enum has no `edge.updated` variant; consumers that need to observe property replaces should re-fetch the edge after a bulk call.
+
+## `POST /items/bulk_action`
+
+Applies one action to every item matching a filter. Six actions, discriminated on `action`.
+
+| `action` | Params | Auth | Confirm |
+| --- | --- | --- | --- |
+| `transition` | `state: "active" \| "archived" \| "trashed"` | write-access per matched type | — |
+| `purge` | — | **admin-only** (hard 403) | `"confirm": "PURGE"` |
+| `update_tags` | `add?`, `remove?` (at least one non-empty) | write-access per matched type | — |
+| `update_tier` | `tier: "library" \| "feed"` | write-access per matched type | — |
+| `update_properties` | `patch: object` (shallow-merged into properties) | write-access per matched type | — |
+| `update_timestamp` | `timestamp: ISO 8601` | write-access per matched type | — |
+
+Non-admin callers see their match set narrowed to types they hold `write` on — consistent with `GET /items`. `purge` is the exception and returns 403 for non-admin regardless of filter.
+
+### Filter grammar
+
+The `filter` field accepts the same grammar as `GET /items` — see [Search and query](/docs/api/search-and-query).
+
+```json
+{
+  "type": "core.note",
+  "state": "active",
+  "source": "raindrop",
+  "tier": "library",
+  "tags": ["scratch"],
+  "since": "2025-01-01T00:00:00Z",
+  "until": "2026-01-01T00:00:00Z",
+  "filter": "edge[about] eq \"itm_xyz\""
+}
+```
+
+### Safety rails
+
+- **`dry_run: true`** returns matched ids and count without writing. Synchronous, returns 200.
+- **`max_items`** caps the match set (default 10000, hard ceiling 50000). Going over returns `400 bulk_cap_exceeded`.
+- **`confirm: "PURGE"`** is required on the purge action. Missing it returns `400 bulk_confirmation_required`.
+- **`Idempotency-Key`** header (optional) — retrying a `POST` with the same key returns the original job, not a duplicate. Scoped per tenant.
+
+### Async behaviour
+
+Non-dry-run calls return **202 Accepted** with a job envelope. The server queues the work and an in-process worker runs it through to a terminal status. Poll `GET /items/bulk_action/jobs/{id}` until `status` is `completed`, `failed`, or `cancelled`. SDKs (TypeScript, Swift) hide the polling — `client.items.bulkAction(input)` resolves with the same `BulkActionResult` shape regardless of size.
+
+```json
+// 202 response shape
+{
+  "id": "0192a5be-2c5f-7d8b-9a23-4f5e6c1a2b3c",
+  "action": "purge",
+  "status": "queued",
+  "matched": 1234,
+  "processed": 0,
+  "succeeded": 0,
+  "errored": 0
+}
+```
+
+Cancel mid-flight via `DELETE /items/bulk_action/jobs/{id}`. The worker observes the flag between chunks (typically within seconds) and stops; partial progress (`processed` / `succeeded` / `errored`) is preserved on the row.
+
+Job rows live for 7 days after they reach a terminal state, then a sweep deletes them. Polling a long-gone job id returns `404 bulk_job_not_found`.
+
+### Wiping a scratch tenant
+
+```bash
+# Preview first — dry-run stays synchronous (200 with the result inline)
+curl -X POST "$MARFA_API_URL/items/bulk_action" \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "action": "purge", "filter": {}, "dry_run": true, "confirm": "PURGE" }'
+
+# Real thing — returns 202 with a job id
+JOB=$(curl -s -X POST "$MARFA_API_URL/items/bulk_action" \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "action": "purge", "filter": {}, "confirm": "PURGE" }' | jq -r .id)
+
+# Poll until terminal
+while true; do
+  STATE=$(curl -s "$MARFA_API_URL/items/bulk_action/jobs/$JOB" \
+    -H "Authorization: Bearer $MARFA_API_KEY" | jq -r .status)
+  case $STATE in
+    completed|failed|cancelled) echo "Final: $STATE"; break ;;
+    *) sleep 1 ;;
+  esac
+done
+```
+
+## Archive restore
+
+`POST /admin/restore-archive` accepts a tar.gz produced by `GET /export?format=archive`. The body is `application/gzip`; the response is JSON counts.
+
+```bash
+# Export and restore in one pipe, against the same tenant
+curl -s "$MARFA_API_URL/export?format=archive" \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -o snapshot.tar.gz
+
+curl -X POST "$MARFA_API_URL/admin/restore-archive" \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -H "Content-Type: application/gzip" \
+  --data-binary @snapshot.tar.gz
+```
+
+Item rows dedup on `(source, source_id)`; blobs are content-addressed and register idempotently. Tenant migration between Marfa instances is export-then-restore.

@@ -1,6 +1,843 @@
 ---
 title: Swift SDK
-description: Three client modes for Apple platforms.
+description: Three client modes for Apple platforms with Swift 6 concurrency.
 ---
 
-Placeholder. Phase 4 content port.
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The Swift SDK is a Swift Package Manager library for Apple platforms. It exposes three client modes over the same API surface — a remote HTTP client, a pure-local on-device store, and a synced mode that queues writes locally and replays them against a server. Swift 6 concurrency throughout.
+
+Repository: [`withmarfa/swift-sdk`](https://github.com/withmarfa/swift-sdk). Pin to the major version that tracks your server.
+
+Platforms: iOS 26+, iPadOS 26+, macOS 26+, watchOS 26+, tvOS 26+, visionOS 26+. On-device storage uses SwiftData — no third-party runtime dependencies.
+
+## Install
+
+In `Package.swift`:
+
+```swift
+dependencies: [
+  .package(url: "https://github.com/withmarfa/swift-sdk.git", from: "x.y.z"),
+]
+```
+
+Or in Xcode: **File → Add Package Dependencies → `https://github.com/withmarfa/swift-sdk.git`**.
+
+## Three client modes
+
+One SDK, three factories. Pick the one that matches your app:
+
+<Tabs items={['Remote', 'Pure-local', 'Synced']}>
+  <Tab value="Remote">
+    A thin typed HTTP client. Every call hits the server.
+
+    ```swift
+    import MarfaSDK
+
+    let client = MarfaClient(
+      url: URL(string: "https://marfa.example.com")!,
+      apiKey: "marfa_k1_..."
+    )
+
+    let note = try await client.items.create(
+      CreateItemInput(type: "core.note", properties: ["body": .string("Hello")])
+    )
+    ```
+
+    Best for: server-first apps, scripts, CI, server-to-server integrations.
+  </Tab>
+  <Tab value="Pure-local">
+    SwiftData-backed on-device store. No server, no API key. Same namespace surface — every call resolves against the local store.
+
+    ```swift
+    let client = try await MarfaClient.local(path: "/path/to/store.sqlite")
+
+    let note = try await client.items.create(
+      CreateItemInput(type: "core.note", properties: ["body": .string("Offline")])
+    )
+    ```
+
+    Best for: offline-first apps, privacy-first apps, prototyping before adding a server.
+
+    <Callout type="info">
+      Server-only namespaces — `blobs`, `types`, `keys`, `webhooks` — throw `LocalModeUnsupportedError` on a pure-local client. `client.blobs.url(hash:)` is the lone exception; it returns a constructed URL without touching the network.
+    </Callout>
+
+    <Callout type="info">
+      For iCloud sync, build the container yourself with `MarfaModelContainer.make(path:cloudKitDatabase: .automatic(containerIdentifier: "iCloud.example.app"))` and pass it to `MarfaClient.local(container:)`. The schema is CloudKit-compatible from day one.
+    </Callout>
+  </Tab>
+  <Tab value="Synced">
+    Writes hit the local store first (optimistic) and replay against the server in the background. SSE keeps the local store fresh from the server.
+
+    ```swift
+    let client = try await MarfaClient.synced(
+      url: URL(string: "https://marfa.example.com")!,
+      apiKey: "marfa_k1_...",
+      storePath: "/path/to/store.sqlite"
+    )
+
+    await client.syncEngine?.start()
+
+    // Writes are instant and durable even offline
+    let note = try await client.items.create(
+      CreateItemInput(type: "core.note", properties: ["body": .string("Hello")])
+    )
+    ```
+
+    Best for: user-facing apps that need instant UI, offline tolerance, and multi-device consistency.
+  </Tab>
+</Tabs>
+
+Two more factories cover common auth patterns:
+
+- `MarfaClient.fromEnvironment()` — reads `MARFA_API_URL` and `MARFA_API_KEY`. Returns `nil` if unset. (Parity with the TypeScript SDK's `MarfaClient.fromEnvironment()`.)
+- `MarfaClient.fromKeychain(service:account:url:accessGroup:)` — loads the API key from the system Keychain. Pair with `client.saveToKeychain(service:account:accessGroup:)` to persist one.
+
+## Configuration
+
+`ClientConfiguration` controls retry, timeout, conflict strategy, and CDN routing:
+
+```swift
+var config = ClientConfiguration(url: url, apiKey: key)
+config.conflictStrategy = .auto         // or .manual, .callback
+config.timeoutInterval = 30
+config.resourceTimeout = 120
+config.cdnBaseURL = URL(string: "https://cdn.marfa.example.com")  // optional
+config.debugLogging = true              // full-body logging at .private
+
+let client = MarfaClient(configuration: config)
+```
+
+`retryPolicy` on the configuration controls retry behavior for transient errors — bounded exponential backoff with jitter.
+
+## Authentication
+
+API keys are the simplest path — embed or seed via `fromKeychain(...)` and move on. Third-party apps that want per-user consent use [OAuth 2.1 with PKCE](/docs/api/authentication#oauth-2-1) instead. The SDK doesn't ship a built-in OAuth client — it's an integration pattern — but the Keychain helpers handle token storage and rotation once you've exchanged for tokens.
+
+### OAuth 2.1 with ASWebAuthenticationSession
+
+Four moving parts: `ASWebAuthenticationSession` for the authorize redirect, `URLSession` for the token exchange, the SDK's Keychain helpers for persistence, and a catch on `UnauthorizedError` to trigger refresh.
+
+**1. Launch the authorize flow.** Generate a PKCE verifier + challenge, build `/auth/authorize`, and let `ASWebAuthenticationSession` handle the redirect back.
+
+```swift
+import AuthenticationServices
+import CryptoKit
+
+let verifier = randomURLSafeBase64(bytes: 32)
+let challenge = Data(SHA256.hash(data: Data(verifier.utf8)))
+  .base64EncodedString()
+  .replacingOccurrences(of: "=", with: "")
+  .replacingOccurrences(of: "+", with: "-")
+  .replacingOccurrences(of: "/", with: "_")
+
+var authorize = URLComponents(string: "\(serverURL)/auth/authorize")!
+authorize.queryItems = [
+  .init(name: "client_id",             value: clientId),
+  .init(name: "redirect_uri",          value: "\(scheme)://callback"),
+  .init(name: "response_type",         value: "code"),
+  .init(name: "scope",                 value: "core.note:read core.note:write"),
+  .init(name: "state",                 value: randomURLSafeBase64(bytes: 16)),
+  .init(name: "code_challenge",        value: challenge),
+  .init(name: "code_challenge_method", value: "S256"),
+]
+
+let session = ASWebAuthenticationSession(
+  url: authorize.url!,
+  callbackURLScheme: scheme
+) { callbackURL, error in
+  // Parse `code` and verify `state` round-trips, then POST /auth/oauth2/token below.
+}
+session.presentationContextProvider = contextProvider
+session.start()
+```
+
+**2. Exchange the code for tokens** via `POST /auth/oauth2/token` with `grant_type=authorization_code`, the `code`, and the original `code_verifier`. The response carries `access_token` (`marfa_at_...`), `refresh_token` (`marfa_rt_...`), and `expires_in`.
+
+**3. Persist the access token via the SDK's Keychain helper** — it becomes the API key for subsequent calls. Store the refresh token separately (same service, different account).
+
+```swift
+let client = MarfaClient(url: serverURL, apiKey: tokens.accessToken)
+try await client.saveToKeychain(service: "marfa.oauth", account: "access_token")
+// refresh_token stored with account: "refresh_token" via SecureStorage of your choosing
+```
+
+On subsequent launches, rehydrate without the auth flow:
+
+```swift
+let client = try await MarfaClient.fromKeychain(
+  service: "marfa.oauth",
+  account: "access_token",
+  url: serverURL
+)
+```
+
+**4. Refresh on expiry.** Any SDK call can throw `UnauthorizedError` when the access token expires. Catch it, exchange the refresh token for a new pair, overwrite the Keychain entries, and retry:
+
+```swift
+do {
+  return try await client.items.list(filters: .init(type: "core.note"))
+} catch is UnauthorizedError {
+  try await refreshTokens()  // POST /auth/oauth2/token, grant_type=refresh_token
+  return try await client.items.list(filters: .init(type: "core.note"))
+}
+```
+
+<Callout type="info">
+  Refresh tokens rotate on every exchange — the prior refresh token is invalidated. Reusing a rotated token returns `400 token_reuse_detected`; the app must restart the authorize flow. Store the latest pair atomically.
+</Callout>
+
+<Callout type="warn">
+  `ASWebAuthenticationSession` requires a UI host — a `UIWindow` on iOS, `NSWindow` on macOS. Server-side Swift, background extensions, and command-line tools cannot run this flow; they must use an API key.
+</Callout>
+
+See [Authentication — OAuth 2.1](/docs/api/authentication#oauth-2-1) for the full endpoint reference, scope grammar, consent-screen behavior, and refresh-token rotation rules.
+
+## Data access
+
+### Namespaces
+
+The client exposes one property per resource, plus top-level `search` and `health`:
+
+- `client.items` — item CRUD, transitions, versions, stats
+- `client.metadata` — tags, metadata merge operations
+- `client.extensions` — namespaced sidecar data
+- `client.edges` — edges and custom edge types
+- `client.blobs` — upload, download, URLs
+- `client.types` — type schema listing and registration
+- `client.keys` — API key management (admin)
+- `client.webhooks` — webhook registration and deliveries
+- `client.search(query:filters:)` — full-text search
+- `client.health()` — server reachability check
+
+### Items
+
+```swift
+let note = try await client.items.create(
+  CreateItemInput(
+    type: "core.note",
+    properties: ["body": .string("Hello"), "title": .string("First note")],
+    tier: .library,
+    tags: ["intro"]
+  )
+)
+
+let fetched = try await client.items.get(id: note.id)
+
+let page = try await client.items.list(
+  filters: ListFilters(type: "core.note", state: .active, limit: 50)
+)
+// page.data: [Item], page.cursor: String?, page.hasMore: Bool
+
+try await client.items.update(
+  id: note.id,
+  properties: ["body": .string("Updated")],
+  options: UpdateOptions(version: note.version)
+)
+
+try await client.items.transition(id: note.id, to: "archived")
+try await client.items.delete(id: note.id)     // → trashed
+try await client.items.restore(id: note.id)    // trashed → active
+```
+
+`items.list` returns `PaginatedResult<Item>` with `data`, `cursor`, `hasMore`. Two `AsyncSequence` helpers walk every page automatically — `client.items.all(filters:)` yields `Item`, and `client.items.allWithMetadata(filters:)` yields `ItemWithMetadata` pairs for views that render tags or favorite flags alongside the item.
+
+```swift
+for try await item in client.items.all(filters: ListFilters(type: "core.note")) {
+  // processed page-by-page; no manual cursor handling
+}
+```
+
+### Edges
+
+```swift
+let edge = try await client.edges.create(
+  source: note.id,
+  target: person.id,
+  edgeType: "about"
+)
+
+let outbound = try await client.edges.listFromSource(sourceId: note.id)
+let inbound  = try await client.edges.listToTarget(targetId: person.id, edgeType: "about")
+
+// Global tenant-scoped listing across all items, by edge type.
+let allReplies = try await client.edges.list(edgeType: "in-thread")
+
+try await client.edges.delete(id: edge.id)
+```
+
+#### Batched backrefs
+
+`edges.listToTargets(targetIds:edgeType:limit:)` resolves inbound edges for many targets in one call:
+
+```swift
+let backrefs = try await client.edges.listToTargets(
+  targetIds: items.map(\.id),
+  edgeType: "in-thread"
+)
+// backrefs: [String: [Edge]] — keyed by target id
+backrefs["msg-1"]?.count   // reply count for msg-1
+```
+
+In synced and pure-local modes this is one SQL query against the local store. In remote mode it fans out via a bounded `TaskGroup`; cap concurrency via `ClientConfiguration.maxBackrefBatchConcurrency` (default 8). Empty `targetIds` short-circuits to `[:]`, duplicate ids are deduplicated, and unknown ids map to an empty array.
+
+#### Atomic item + edges
+
+```swift
+let highlight = try await client.items.create(
+  CreateItemInput(
+    type: "core.highlight",
+    properties: [
+      "text": .string("important passage"),
+      "locator_type": .string("offset"),
+      "start_location": .int(123),
+      "end_location": .int(189)
+    ],
+    edges: [
+      CreateItemEdge(edgeType: "references", direction: .outbound, otherId: documentId)
+    ]
+  )
+)
+```
+
+Item and edges land in one transaction.
+
+#### Custom edge types
+
+Mirrors the TypeScript SDK's `client.edges.types.*`. Admin-gated server-side.
+
+```swift
+try await client.edges.edgeTypes.create(
+  CreateEdgeTypeInput(
+    id: "team.commented-on",
+    cardinality: .manyToMany,
+    sourceTypeConstraints: ["core.note"],
+    targetTypeConstraints: ["core.note"]
+  )
+)
+
+let types = try await client.edges.edgeTypes.list()
+try await client.edges.edgeTypes.delete(id: "team.commented-on")
+```
+
+#### Bulk writes and chunked iteration
+
+Admin-only bulk surfaces match the [bulk operations](/docs/api/bulk-operations) shape. Pure-local clients iterate through the local store and return per-record outcomes; synced clients enqueue a single replay record; network clients round-trip straight through.
+
+```swift
+// Items
+let items = try await client.items.bulk(BulkInput(items: payload))
+
+// Edges — sibling endpoint for graph-half migrations
+let edges = try await client.edges.bulk(BulkEdgeInput(edges: edgePayload))
+```
+
+For inputs larger than the server's 5000 per-call cap, the Swift SDK provides client-side chunking helpers — `items.bulkAll` and `edges.bulkAll`. Both clamp `batchSize` to `[1, 5000]`, aggregate per-record outcomes with absolute indices preserved, and accept an optional `progressHandler` for UI wiring.
+
+```swift
+let result = try await client.edges.bulkAll(
+  largeEdgeSet,
+  batchSize: 500,
+  progressHandler: { completed, total in
+    await progressModel.update(completed: completed, total: total)
+  }
+)
+```
+
+Cross-batch atomicity does not hold — each batch's `atomic: true` guarantee stops at its own server transaction. Callers needing strict all-or-nothing semantics across a run larger than one batch reconcile failures out-of-band.
+
+`items.bulkAction(_:)` is the filter-driven sibling of `items.bulk` — instead of taking a list of records, it applies one action across every item matching a `BulkActionFilter`. Use it to archive, trash, restore, purge, retag, flip tier, patch properties, or bump `updated_at` across a server-side slice without fetching ids first.
+
+```swift
+let result = try await client.items.bulkAction(
+  .transition(
+    filter: BulkActionFilter(type: "core.note", state: .active, tags: ["stale"]),
+    state: .archived,
+    options: BulkActionOptions(dryRun: true, maxItems: 1000)
+  )
+)
+// result.matched / .succeeded / .errored / .dryRun
+```
+
+`BulkActionInput` is a discriminated enum — `.transition`, `.purge`, `.updateTags`, `.updateLibrary`, `.updateProperties`, `.updateTimestamp`. Purge requires `options.confirm == "PURGE"`. Synced clients queue the action for replay; pure-local clients apply it in a single local-store transaction.
+
+In remote mode, `bulkAction(_:options:)` polls the server-side job until it reaches a terminal status — `completed`, `failed`, or `cancelled`. Surface progress to the UI by passing `BulkActionPollOptions(onProgress:)`:
+
+```swift
+let result = try await client.items.bulkAction(
+  .purge(filter: BulkActionFilter(type: "core.scratch"), options: .init(confirm: "PURGE")),
+  options: BulkActionPollOptions(onProgress: { job in
+    Task { await viewModel.update(processed: job.processed, of: job.matched) }
+  })
+)
+```
+
+For explicit-control flows (returning a job id to an LLM, driving polling from a long-lived UI), `bulkActionAsync(_:)` POSTs and returns the `BulkActionJob` envelope without polling; `bulkActionStatus(jobId:)` and `bulkActionCancel(jobId:)` wrap the GET / DELETE endpoints. Cancellation throws `BulkJobCancelledError`; a failed job throws `BulkJobFailedError` carrying the worker's reason.
+
+### Metadata
+
+```swift
+let metadata = try await client.metadata.get(itemId: note.id)
+try await client.metadata.addTags(itemId: note.id, tags: ["urgent"])
+try await client.metadata.removeTag(itemId: note.id, tag: "urgent")
+try await client.metadata.set(itemId: note.id, input: MetadataInput(tags: ["work"]))
+try await client.metadata.merge(itemId: note.id, input: MetadataInput(tags: ["q2"]))
+
+// Distinct tags across the tenant, with usage counts.
+let tags = try await client.metadata.listTags()
+```
+
+`metadata.listTags()` is mode-aware. In synced and pure-local modes the call fetches metadata rows whose parent item is not trashed and buckets the tags in Swift; in remote mode it hits `GET /metadata/tags`. Either way the return shape is `[TagWithCount]` ordered `count DESC, tag ASC`. Local-mode reads short-circuit the network round-trip.
+
+The `tier` field sits on the item itself, not in metadata. Set it on create via `CreateItemInput.tier`, or flip it post-creation via `items.update(id:properties:options:)` with `UpdateOptions(tier: .library)`. Tier-only updates don't conflict — tier is metadata-axis, last-writer-wins. `system.*` items have no tier; the field is optional in the SDK shape (`Tier?`).
+
+#### Consuming per-item metadata in UIs
+
+Two paths, depending on client mode:
+
+- **Synced / pure-local mode.** Apps render lists of items with their tags or favorite flag — a timeline, a grid, a detail view. Use the SDK's reactive layer rather than polling. In Swift, `store.queryItemsWithMetadata(filters:)` returns an `@Observable ItemsWithMetadataQuery` that re-emits `[ItemWithMetadata]` pairs whenever any matching item or metadata row changes. The query reads from the local SQLite store, so no network round-trip per view frame. See [SwiftUI reactive queries](#swiftui-reactive-queries) for the full list.
+
+- **Remote-only mode.** Fetch pairs in bulk via `client.items.listWithMetadata(filters:)` (wire: `GET /items?include=metadata`). For ad-hoc single-item lookups use `client.metadata.get(itemId:)`.
+
+### Extensions
+
+Namespaced sidecar data. Writes route through the mutation queue in synced mode.
+
+```swift
+try await client.extensions.set(
+  itemId: note.id,
+  namespace: "my-app.reading_progress",
+  data: ["offset": .int(1234), "percent": .double(45)]
+)
+
+let all  = try await client.extensions.getAll(itemId: note.id)
+let one  = try await client.extensions.get(itemId: note.id, namespace: "my-app.reading_progress")
+try await client.extensions.delete(itemId: note.id, namespace: "my-app.reading_progress")
+```
+
+### Blobs
+
+```swift
+let response = try await client.blobs.upload(data: imageBytes, mimeType: "image/png")
+// response.hash, response.url
+
+let (bytes, contentType) = try await client.blobs.download(hash: response.hash)
+let exists = try await client.blobs.exists(hash: response.hash)
+let url = client.blobs.url(hash: response.hash)
+let signed = try await client.blobs.presignedURL(hash: response.hash, ttl: 300)
+```
+
+`upload` accepts an optional `onProgress: (@Sendable (Int64, Int64) -> Void)?` for network-only clients that want inline byte-progress updates. The callback fires on the `URLSession` delegate queue with `(bytesSent, totalBytes)` — hop to the main actor yourself if you're driving SwiftUI state from it. Synced-mode clients ignore the callback; progress for queued uploads arrives via [`BlobUploadProgressQuery`](#blob-upload-progress) on the reactive layer instead.
+
+```swift
+let response = try await client.blobs.upload(
+  data: imageBytes,
+  mimeType: "image/png",
+  onProgress: { sent, total in
+    print("\(sent) / \(total)")
+  }
+)
+```
+
+<Callout type="warn">
+  Blob operations require a live server. A pure-local client throws `LocalModeUnsupportedError` for every blob method except `url(hash:)`. The same guard applies to `client.types`, `client.keys`, and `client.webhooks`.
+</Callout>
+
+### Search
+
+```swift
+let results = try await client.search(
+  query: "orwell",
+  filters: SearchFilters(type: "core.bookmark", tier: .library)
+)
+
+// Tag filtering — AND semantics, matching ListFilters.tags.
+let tagged = try await client.search(
+  query: "orwell",
+  filters: SearchFilters(tags: ["fiction", "classic"])
+)
+```
+
+`SearchFilters.tier` is a `TierFilter?` — pass `.library` or `.feed` to narrow, or omit (`nil`) to return both. There's no `.all` synonym; `nil` already expresses that. `SearchFilters.tags` requires items to have every listed tag. `system.*` items are excluded from search by default; opt in with an explicit `type: "system.<X>"` filter.
+
+## Typed models
+
+Every core type has a generated typed wrapper: `CoreNote`, `CoreBookmark`, `CoreTask`, `CoreHighlight`, `CoreEvent`, `CoreMedia` and its eight subtypes, `CoreEntity` / `CoreEntityPerson` / `CoreEntityPlace`, `CoreFile` / `CoreFileImage` / `CoreFileAudio` / `CoreFileVideo`. 21 in total.
+
+Each wrapper conforms to the `MarfaItem` protocol — `typeIdentifier`, a failable `init?(from: Item)` that validates the type string and required fields, typed property accessors, and `toProperties()` for creating new items.
+
+```swift
+let item = try await client.items.get(id: noteId)
+
+guard let note = CoreNote(from: item) else {
+  throw UnexpectedType()
+}
+
+print(note.body)           // typed String — required
+print(note.title ?? "")    // typed String? — optional
+print(note.version)        // from MarfaItem default accessors
+
+// To create a new item from a domain type:
+let newItem = try await client.items.create(
+  CreateItemInput(type: CoreNote.typeIdentifier, properties: note.toProperties())
+)
+```
+
+Subtype-aware: `CoreMediaArticle(from: item)` returns `nil` unless `item.type == "core.media.article"`. Required fields are non-optional (`CoreMediaArticle.title`, `.body`); optional fields surface as `T?`.
+
+### Custom-type codegen
+
+Apps that register their own types (`myapp.booking`, `myapp.user`, …) can generate Swift wrappers in the same shape as `CoreNote` and friends. The generated structs conform to `MarfaItem`, expose typed property accessors, a failable `init?(from: Item)`, and `toProperties()` for round-trip with `client.items.create` / `update`. Parent fields are flat-inlined, so a `myapp.booking` extending `core.note` exposes `body`, `title`, and the booking-specific fields on the same struct.
+
+**1. Configure.** Drop a `marfa-codegen.json` at your repo root:
+
+```jsonc
+{
+  "schema": 1,
+  "source": { "mode": "local", "directory": "MarfaTypes" },
+  "output": { "directory": "Sources/MyApp/MarfaTypes/Generated", "accessLevel": "public" },
+  "types": { "include": ["myapp.*"] }
+}
+```
+
+Drop one `<type.id>.json` file per type under `MarfaTypes/`:
+
+```json
+{
+  "id": "myapp.booking",
+  "parent": "core.note",
+  "version": 1,
+  "fields": {
+    "start_at": { "type": "string", "format": "datetime" },
+    "party_size": { "type": "integer" }
+  },
+  "required": ["start_at"]
+}
+```
+
+For `"mode": "live"`, replace `directory` with `cacheDirectory` and let the sync executable populate the cache from `GET /types`.
+
+**2. Generate.** Three entry points:
+
+```bash
+# SwiftPM command plugin — sandboxed, one shot.
+swift package --allow-writing-to-package-directory generate-marfa-custom-types
+
+# Same plugin, but pull schemas from a live server first.
+swift package --allow-writing-to-package-directory --allow-network-connections all \
+  generate-marfa-custom-types --sync
+
+# Executables — CI-friendly, no sandbox prompts.
+swift run codegen-custom-types
+MARFA_API_URL=… MARFA_API_KEY=… swift run sync-custom-types
+```
+
+The `--sync` flow and `sync-custom-types` executable both call `GET /types`, so `MARFA_API_KEY` must carry the `list_types` permission. Pure-local codegen needs no credentials. `core.*` ids are always excluded from generation regardless of include/exclude globs — core wrappers ship with the SDK, so a misconfigured glob can't clobber them.
+
+**3. Use the generated types.**
+
+```swift
+import SwiftUI
+import MarfaSDK
+
+struct BookingDetail: View {
+  let item: Item
+
+  var body: some View {
+    if let booking = MyappBooking(from: item) {
+      VStack(alignment: .leading) {
+        Text(booking.title ?? "Untitled")
+        Text(booking.startAt)
+        Text("Party of \(booking.partySize ?? 0)")
+      }
+    } else {
+      Text("Not a booking")
+    }
+  }
+}
+
+let created = try await client.items.create(
+  CreateItemInput(
+    type: MyappBooking.typeIdentifier,
+    properties: [
+      "start_at": .string("2026-05-01T18:00:00Z"),
+      "party_size": .int(4),
+      "body": .string("Dinner with J and S"),
+    ]
+  )
+)
+```
+
+**4. Keep generated files fresh.** Commit the generated files. Add a freshness check to CI so a schema drift fails the build instead of going unnoticed:
+
+```yaml
+- run: |
+    swift run codegen-custom-types
+    git diff --exit-code -- Sources/MyApp/MarfaTypes/Generated
+```
+
+## SwiftUI reactive queries
+
+On a pure-local or synced client, `client.makeStore()` returns a `MarfaStore` — a `@MainActor @Observable` factory for live queries driven by `ModelContext.didSave` with a short debounce window and a `FetchDescriptor` refetch per save.
+
+```swift
+import SwiftUI
+import MarfaSDK
+
+struct NotesView: View {
+  @State private var store: MarfaStore?
+  @State private var query: ItemQuery?
+
+  var body: some View {
+    List(query?.items ?? [], id: \.id) { item in
+      Text(item.properties["body"]?.stringValue ?? "")
+    }
+    .task {
+      let client = try? await MarfaClient.local(path: dbPath)
+      self.store = client?.makeStore()
+      self.query = store?.query(filters: ListFilters(type: "core.note"))
+    }
+  }
+}
+```
+
+The query classes:
+
+- `ItemQuery` — `[Item]` matching a `ListFilters`
+- `TypedItemQuery<T: MarfaItem>` — `[T]` — e.g. `TypedItemQuery<CoreNote>`
+- `SingleItemQuery` — one item by id; `nil` when purged
+- `ItemsWithMetadataQuery` — `[ItemWithMetadata]` pairs — item plus its metadata row. Re-runs when either the items or item-metadata tables change. Use when a view needs per-item tags or favorite flags alongside the item (replaces hand-rolling a cache subscribed to `SyncEngine.events`).
+- `EdgesQuery` — outbound edges for a `sourceId`, optionally filtered by `edgeType`. A second initialiser takes only an `edgeType` to track **all edges of a type** across the local store — `store.queryEdges(ofType: "in-thread")` for taxonomy-style "every reply" surfaces.
+- `TagsQuery` — `[TagWithCount]` for the whole tenant. Re-runs the tag aggregation when items or metadata change.
+- `BackrefsQuery` — `[String: [Edge]]` keyed by target id. Re-runs when edges change.
+- `PendingMutationsQuery` — `[PendingMutationSummary]` for the mutation queue. See [Pending mutations](#pending-mutations).
+- `BlobUploadProgressQuery` — `[String: BlobUploadProgress]` keyed by content hash. See [Blob upload progress](#blob-upload-progress).
+
+All are `@Observable @MainActor`. Views observe them directly — no `ObservableObject`, no manual Combine plumbing. Each query exposes its data property (`items`, `item`, `edges`, `tags`, or `edgesByTarget`), `isLoading`, and `error`. Call `stop()` to tear down the underlying observation.
+
+<Callout type="info">
+  `TagsQuery` and `ItemsWithMetadataQuery` both re-run their aggregations on every relevant write. They're tuned for UI-scale surfaces, not unbounded analytics.
+</Callout>
+
+Network-only clients return `nil` from `makeStore()` — the reactive layer only materialises when a local store is configured.
+
+### Pending mutations
+
+`store.queryPendingMutations()` vends a `PendingMutationsQuery` over the local mutation queue — every write that's been enqueued but not yet replayed to the server. Use it to render per-item "syncing" badges, queue-depth banners, or retry toasts without subscribing to `SyncEngine.events` and reimplementing the projection.
+
+Each entry is a `PendingMutationSummary` with `id`, `kind` (e.g. `.createItem`, `.uploadBlob`, `.setMetadata`), `itemId`, `createdAt`, and a projected `status`:
+
+- `.pending` — queued, not yet attempted.
+- `.inFlight` — the sync engine is issuing the transport call right now.
+- `.retrying(attemptCount: Int, lastError: String)` — a transient failure, will retry on the next drain cycle.
+
+The query refreshes on every `ModelContext.didSave`. Returns `nil` on clients without a mutation queue (network-only mode).
+
+### Blob upload progress
+
+`store.queryBlobUploadProgress()` vends a `BlobUploadProgressQuery` that projects the four `.blobUpload*` sync events into a dict keyed by content hash. Use it for global upload HUDs or per-attachment progress bars without reading the raw event stream.
+
+Entries are evicted on `.completed` — apps wanting a "recently completed" fade should snapshot the final value in their own view layer. `.failed` entries linger so a consumer can render a retry affordance; a subsequent transient retry overwrites the entry with a fresh `.uploading(0, total)`. Returns `nil` on clients without a sync engine (network-only and pure-local modes).
+
+## Sync engine
+
+In synced mode, `client.syncEngine` is non-nil. Start it when your app is ready to sync:
+
+```swift
+await client.syncEngine?.start()
+```
+
+The engine:
+
+1. Watches `NWPathMonitor` via `ConnectionStateManager` and opens an SSE stream on `GET /events` when the path goes online.
+2. Applies SSE events into the local store. Persists `Last-Event-ID` so reconnection resumes from the correct point.
+3. Drains the `MutationQueue` both when the stream is idle and within a short debounce window of any new enqueue, replaying local writes against the server. The mutation queue captures per-call `UpdateOptions.conflict` so the chosen strategy applies on replay; the `.callback` resolver closure is call-site-only and degrades to `.auto` on replay because closures aren't serialisable.
+4. On failure, records the attempt against the queue record and retries on the next reachability cycle.
+
+`stop()` tears the engine down gracefully.
+
+### Proactive drain
+
+The engine listens on `MutationQueue.drainRequests` and schedules a replay within `drainDebounceInterval` of each enqueue while the connection is online — a device that's online but idle no longer holds pending writes until the next SSE reconnect. Offline, connecting, and syncing states short out: the queue sits silently, the post-SSE-close drain picks up, or an in-flight drain coalesces the burst respectively. Tune via `SyncEngine.init(drainDebounceInterval:)` (default `.milliseconds(150)`).
+
+### Sync events
+
+Subscribe to `client.syncEngine?.events` for typed sync activity:
+
+```swift
+for await event in client.syncEngine?.events ?? .init({ _ in }) {
+  switch event {
+  case .synced(let at):                          // every successful drain
+  case .failed(let error):                       // last error during a drain
+  case .conflictAutoMerged(let payload):         // replay auto-merged a 409
+  case .itemCreated(let id):
+  case .itemUpdated(let id):
+  case .itemDeleted(let id):
+  case .edgeCreated(let id):
+  case .edgeDeleted(let id):
+  case .mutationDropped(let kind, let itemId,
+                        let attempt, let error): // permanent failure; queue record removed
+  case .blobUploadStarted(let hash, let total):
+  case .blobUploadProgress(let hash, let sent, let total):
+  case .blobUploadCompleted(let hash):
+  case .blobUploadFailed(let hash, let error):
+  }
+}
+```
+
+The four `.blobUpload*` cases are the raw signal that `BlobUploadProgressQuery` projects into its observable dict — most apps subscribe to the query, not the events directly. `.mutationDropped` fires when a queued mutation exhausts its retries and is removed permanently. Multi-subscriber — each access to `events` returns a fresh stream; past events are not replayed to late subscribers.
+
+### End-to-end subscription
+
+Own the lifecycle from a single place — typically an `@Observable` service or a SwiftUI `.task { }` — so the subscriber task cancels when the view goes away and the sync engine stops when the app backgrounds.
+
+```swift
+import MarfaSDK
+import Observation
+
+@MainActor
+@Observable
+final class SyncActivity {
+  private(set) var lastSyncedAt: Date?
+  private(set) var lastError: Error?
+  private(set) var pendingConflictedCopies: [String] = []
+
+  private var client: MarfaClient?
+  private var task: Task<Void, Never>?
+
+  // 1. Create — on app launch / sign-in.
+  func start(client: MarfaClient) async {
+    self.client = client
+    await client.syncEngine?.start()
+
+    // 2. Subscribe — each access to `events` is a fresh stream.
+    task = Task { [weak self] in
+      guard let events = client.syncEngine?.events else { return }
+      for await event in events {
+        guard !Task.isCancelled else { break }
+        await self?.handle(event)
+      }
+    }
+  }
+
+  // 3. Handle — side-effect into observable state.
+  private func handle(_ event: SyncEvent) {
+    switch event {
+    case .synced(let at):
+      lastSyncedAt = at
+      lastError = nil
+    case .failed(let error):
+      lastError = error
+    case .conflictAutoMerged(let payload):
+      if let sibling = payload.conflictedCopyId {
+        pendingConflictedCopies.append(sibling)
+      }
+    case .itemCreated, .itemUpdated, .itemDeleted,
+         .edgeCreated, .edgeDeleted, .mutationDropped,
+         .blobUploadStarted, .blobUploadProgress,
+         .blobUploadCompleted, .blobUploadFailed:
+      break   // SwiftData-backed MarfaStore queries pick these up automatically
+    }
+  }
+
+  // 4. Tear down — on sign-out / app termination.
+  func stop() async {
+    task?.cancel()
+    task = nil
+    await client?.syncEngine?.stop()
+    client = nil
+  }
+}
+```
+
+The SDK's reactive queries already update when SSE writes land in the local store, so most views don't need to observe `events` directly. Subscribe when you need *sync-lifecycle* side effects — a "last synced" footer, a conflict toast, a sign-out-on-auth-failure hook.
+
+See [Realtime](/docs/api/realtime) for the underlying SSE contract, event catalog, and `Last-Event-ID` semantics.
+
+### Local IDs (UUIDv7)
+
+`LocalStore.createItem` mints a UUIDv7 by default — RFC 9562, timestamp-prefixed, globally unique. Pass `CreateItemInput.id` explicitly to override (still encouraged for callers that need to reference the new id before `createItem` returns; both paths produce server-compatible IDs).
+
+## Conflict handling
+
+See [Errors — version_conflict](/docs/api/errors#version-conflict) for the enriched 409 payload and [Conflicts](/docs/concepts/schema/conflicts) for the resolution model. The Swift SDK exposes the three modes as `ClientConfiguration.conflictStrategy` and `UpdateOptions.conflict`.
+
+```swift
+try await client.items.update(
+  id: note.id,
+  properties: ["body": .string("...")],
+  options: UpdateOptions(
+    version: note.version,
+    conflict: .callback,
+    resolve: { conflict in
+      return mergeManually(conflict)
+    }
+  )
+)
+```
+
+`.auto` (default), `.manual` (throws `ConflictError` with `current`, `ancestor`, `conflictingFields`, `clientPatch`, `mergePolicy`), and `.callback` are the three modes.
+
+`.auto` is policy-aware. The SDK reads the type's `merge_policy` directly from the 409 response and resolves each conflicting field per its strategy. `last_writer_wins` fields take the server's value; `keep_both_copies` fields spawn a sibling item of the same type, tagged `conflicted-copy`, populated from the client's in-flight values for the keep-both fields and the server's `current` values for the rest. The original item retains the server's winning state for the conflicted keep-both fields; non-keep-both client changes apply normally.
+
+The `SyncEngine.events` stream emits `.conflictAutoMerged(payload:)` whenever a replay auto-merge fires:
+
+```swift
+public struct ConflictAutoMergedPayload: Sendable {
+  public let itemId: String           // the original item
+  public let mergedItemId: String     // the original item id (post-retry)
+  public let conflictedCopyId: String?  // the new sibling, when keep-both spawned one
+  public let fields: [String]         // the conflicting fields
+  public let strategy: ConflictResolutionOutcome  // .lastWriterWins, .keepBothCopies, .mixed
+}
+```
+
+Apps typically toast when `conflictedCopyId != nil` — the user's in-flight edit was preserved as a sibling rather than discarded.
+
+In synced mode the chosen `conflict` strategy is captured with the queued mutation so it applies on replay against any 409 the server returns. The `.callback` resolver closure can't be queued (closures aren't `Codable`); on replay, `.callback` degrades to `.auto`.
+
+## Errors
+
+Errors are subclasses of a base `MarfaError`. Pattern-match on the subclass:
+
+```swift
+do {
+  _ = try await client.items.get(id: "bogus")
+} catch let error as NotFoundError {
+  // missing item
+} catch let error as ConflictError {
+  // error.current, error.ancestor, error.conflictingFields
+} catch let error as LocalModeUnsupportedError {
+  // remote-only call (blobs, types, keys, webhooks) on a pure-local client
+} catch let error as MarfaError {
+  // everything else — error.code (String), error.message, error.status, error.details
+}
+```
+
+<Callout type="info">
+  `MarfaError.code` is a `String`, not an enum. Branch on the subclass where one exists; fall through to `MarfaError` and inspect `code` for anything else. Error codes are stable strings (`"version_conflict"`, `"rate_limited"`) — branch on them, not on the message.
+</Callout>
+
+Subclasses: `NotFoundError`, `ValidationError`, `UnauthorizedError`, `ForbiddenError`, `ConflictError`, `NetworkError`, `ResponseDecodingError`, `LocalModeUnsupportedError`.
+
+## Testing
+
+`MarfaSDKTestSupport` ships as a separate product alongside `MarfaSDK` and provides scaffolding for unit tests:
+
+- `MockTransport` — stub for the `Transport` protocol. Queue responses, assert on captured requests.
+- `InMemoryKeychain` — in-memory `SecureStorage` substitute. SPM test binaries run unsigned and can't reach the real Keychain.
+- `MarfaSDKTest.makeInMemoryClient()` — pure-local `MarfaClient` backed by an in-memory `ModelContainer`. Drop-in replacement for `MarfaClient.local(path:)` in test setups; sidesteps the cross-test container issues that show up when sharing a file-backed store across cases in the same process.
+
+Add `MarfaSDKTestSupport` as a dependency on your test target only. The product is non-semver-stable across SDK minor versions and is not intended for production code.
+
+The `Transport` protocol is public. `MockTransport` exists primarily for mocking the network in unit tests; the production `MarfaClient` init always instantiates `URLSessionTransport`. The protocol includes `rawUpload(method:path:body:contentType:query:onBytesSent:)` — the progress-aware upload hook that forwards `URLSessionTaskDelegate.didSendBodyData` — so stubs exercising byte-progress code paths (e.g. against `BlobUploadProgressQuery`) can drive those callbacks deterministically from a mock.
+
+## Concurrency model
+
+- `MarfaClient` is `Sendable` — safe to pass across actors.
+- Namespace methods are `async throws` and don't require caller isolation.
+- `LocalStore`, `MutationQueue`, `SyncEngine`, `ConnectionStateManager` are Swift actors. Shared state is actor-isolated; callers never synchronise manually.
+- `MarfaStore` and query classes are `@MainActor @Observable` — observe them directly from SwiftUI views.
+- The whole package builds under Swift 6 strict concurrency with zero `@unchecked Sendable` leaks in the public surface.

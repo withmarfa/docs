@@ -1,6 +1,386 @@
 ---
 title: TypeScript SDK
-description: "@withmarfa/sdk for Node and browser environments."
+description: "@withmarfa/sdk — the TypeScript client for a Marfa server."
 ---
 
-Placeholder. Phase 4 content port.
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The TypeScript SDK is an ES module, published on npm as `@withmarfa/sdk`. Works in Node.js, Bun, Deno, and modern browsers (with a compatible `fetch`). Depends on `@withmarfa/shared` for wire types and validation primitives.
+
+Electron consumers should pre-externalise the SDK using `externalizeDepsPlugin` from `electron-vite` — same one-line config the broader ESM ecosystem uses.
+
+## Install
+
+```bash
+pnpm add @withmarfa/sdk
+# or
+npm install @withmarfa/sdk
+# or
+bun add @withmarfa/sdk
+```
+
+## Connect
+
+```typescript
+import { MarfaClient } from "@withmarfa/sdk";
+
+const client = new MarfaClient({
+  url: "https://marfa.example.com",
+  apiKey: process.env.MARFA_API_KEY!,
+});
+```
+
+### Configuration
+
+```typescript
+interface ClientConfig {
+  url: string;
+  apiKey: string;
+  fetch?: typeof fetch;        // override for custom transport (e.g. retry middleware)
+  timeoutMs?: number;          // default 30000
+  conflictStrategy?: "auto" | "manual" | "callback";   // default "auto"
+  cdnBaseUrl?: string;         // optional CDN prefix for blob URLs
+}
+```
+
+The `callback` strategy pairs with a per-call resolver — see [Conflict handling](#conflict-handling).
+
+## Namespaces
+
+The client exposes one namespace per resource:
+
+- `client.items` — create, read, list, update, delete, transition
+- `client.edges` — create, update properties, delete, list, edge types
+- `client.metadata` — tags, tier, state mutations
+- `client.blobs` — upload, download, presigned URL, exists
+- `client.types` — list, register, describe, delete (custom types)
+- `client.keys` — create, list, get, update, revoke (admin scope)
+- `client.webhooks` — create, list, get, update, delete, deliveries
+- `client.tenants` — current, config
+- `client.connections` — list, get, configure, pause, resume, uninstall
+- `client.admin` — operator surface (system-tenant admin)
+- `client.auth` — sign-in flows plus `account.{requestDelete, confirmDelete, cancel}` post-sign-in lifecycle
+- `client.profile` — current user profile
+
+### Items
+
+```typescript
+const note = await client.items.create({
+  type: "core.note",
+  properties: { body: "Hello, Marfa", title: "First note" },
+  tags: ["intro"],
+  tier: "library",
+  source_id: "intro-001",        // optional; enables natural-key upsert on re-create
+});
+
+const one = await client.items.get(note.id);
+const { data, nextCursor } = await client.items.list({
+  type: "core.note",
+  state: "active",
+  limit: 50,
+});
+
+await client.items.update(
+  note.id,
+  { body: "Updated content" },          // properties to merge
+  { version: note.version },            // optimistic concurrency, no upfront GET
+);
+
+await client.items.transition(note.id, "archived");
+await client.items.delete(note.id);         // → trashed
+await client.items.restore(note.id);        // ← restore from trashed
+```
+
+#### Natural-key upsert
+
+When `create()` is called with both `source_id` and a credential-stamped `source` that already resolve an existing non-trashed row in the tenant, the server short-circuits to update — properties shallow-merge, tags replace if provided, edges replace per-type if provided. The HTTP status flips from `201` to `200`; the SDK returns the updated item either way. See [Items — natural-key upsert](/docs/concepts/data-primitives/items#natural-key-upsert) for the wider semantics.
+
+#### Update signature
+
+`items.update(id, properties, options?)`. The second argument is the property bag itself — `{ body: "..." }` — not a wrapping object with a `properties` key. The optional third argument carries flow control: `version` for optimistic concurrency, `conflict` to override the strategy per call, `resolve` for the callback resolver.
+
+```typescript
+await client.items.update(id, { body: "..." }, { version: 7 });
+```
+
+Conflict-resolution behaviour is unchanged. A 409 from the server still resolves through the configured `conflictStrategy`; the lazy type fetch on `keep_both_copies` paths still happens automatically. Pass `type` in options only if you also want to skip that specific lazy fetch.
+
+### Edges
+
+```typescript
+await client.edges.create({
+  source_id: note.id,
+  target_id: person.id,
+  edge_type: "about",
+});
+
+const outbound = await client.items.edges(note.id);            // edges from note
+const inbound  = await client.items.backrefs(person.id);       // edges to person
+
+// Global tenant-scoped listing across all items, by edge type.
+const allReplies = await client.edges.list({ edge_type: "in-thread" });
+
+await client.edges.delete(edgeId);
+await client.edges.update(edgeId, { properties: { position: 3 } });
+
+const edgeTypes = await client.edges.types.list();
+```
+
+### Atomic item + edges
+
+```typescript
+const highlight = await client.items.create({
+  type: "core.highlight",
+  properties: { text: "important passage", locator_type: "offset", start_location: 123, end_location: 189 },
+  edges: { references: [documentId] },
+});
+```
+
+Item and edges land in a single transaction.
+
+### Bulk writes
+
+`client.items.bulk` and `client.edges.bulk` are **admin-only**. The server stamps `source` from the credential, so only platform admins can bulk-write across sources — they're the ingest / migration primitive, not the every-day integration path. Third-party integrations writing many items should call `client.items.create` with `source_id` per item; `(source, source_id)` is the natural upsert key, so re-posts merge in place. See [Natural-key upsert](#natural-key-upsert) above.
+
+`client.items.bulkAction` is a filter-driven mass-mutation primitive — `purge` is admin-only; the other five verbs require write access on every matched type.
+
+```typescript
+// Admin-only. For third-party flows, prefer natural-key upsert (see above).
+await client.items.bulk({ items: payload });
+await client.edges.bulk({ edges: edgePayload });
+await client.items.bulkAction({ action: "transition", state: "archived", filter: { tags: ["wip"] } });
+```
+
+Behind the scenes, `bulkAction` POSTs, gets a 202 + job envelope from the server, and polls until the worker reaches a terminal status — then resolves with the same `BulkActionResult` shape callers got from the historical synchronous endpoint. Pass options to surface progress to a UI:
+
+```typescript
+const result = await client.items.bulkAction(
+  { action: "purge", confirm: "PURGE", filter: { type: "core.scratch" } },
+  { onProgress: (job) => console.log(`[${job.processed}/${job.matched}]`) },
+);
+```
+
+Need explicit control? `client.items.bulkActionAsync(input)` returns the queued envelope without polling; `bulkActionStatus(jobId)` and `bulkActionCancel(jobId)` are thin wrappers over the GET / DELETE endpoints.
+
+Semantics and outcome shape are documented on [Bulk operations](/docs/api/bulk-operations); the SDK methods are thin wrappers.
+
+### Metadata
+
+```typescript
+const metadata = await client.metadata.get(note.id);
+await client.metadata.addTags(note.id, ["urgent"]);
+await client.metadata.removeTag(note.id, "urgent");
+await client.metadata.set(note.id, { tags: ["work"] });
+await client.metadata.merge(note.id, { tags: ["q2-planning"] });
+
+// Distinct tags across the tenant, with usage counts.
+const tags = await client.metadata.listTags();
+```
+
+The `tier` field sits on the item itself, not in metadata — set it on create with `tier: "library"` or `tier: "feed"`, or flip it post-creation via `items.update(id, {}, { tier: "library" })`. Tier-only updates don't conflict — tier is metadata-axis, last-writer-wins. `system.*` items have no tier; the field is optional in the wire shape.
+
+### Blobs
+
+```typescript
+const { hash } = await client.blobs.upload(fileBytes, "image/png");
+const bytes = await client.blobs.download(hash);            // ArrayBuffer
+const ok   = await client.blobs.exists(hash);
+const url  = client.blobs.url(hash);                        // CDN when configured, API otherwise
+```
+
+### Search
+
+```typescript
+const results = await client.search("orwell", { type: "core.bookmark" });
+const tagged  = await client.search("orwell", { tags: ["fiction", "classic"] }); // AND
+```
+
+## Conflict handling
+
+The TypeScript SDK exposes the three modes as `conflictStrategy` on the client config and `UpdateOptions.conflict` per call. See [Conflicts](/docs/concepts/schema/conflicts) for the resolution model, keep-both semantics, and per-core-type defaults; [Errors — version_conflict](/docs/api/errors#version-conflict) for the 409 payload.
+
+```typescript
+await client.items.update(
+  id,
+  { body: "..." },
+  {
+    version: 3,
+    conflict: "callback",
+    resolve: async ({ current, ancestor, clientPatch, conflictingFields, mergePolicy }) => {
+      return { ...current.properties, ...clientPatch };
+    },
+  },
+);
+```
+
+The `callback` strategy invokes a resolver with the three-way context plus the type's resolved `mergePolicy`; `auto` (default) and `manual` need no resolver. A client-level `conflictStrategy` sets the default; `UpdateOptions` overrides it per call.
+
+When `auto` runs the SDK emits a `conflictAutoMerged` event:
+
+```typescript
+{
+  itemId: string;            // the original item
+  mergedItemId: string;      // the original item id (post-retry)
+  conflictedCopyId?: string; // the new sibling, when keep-both spawned one
+  fields: string[];          // the conflicting fields
+  strategy: Record<string, "last_writer_wins" | "keep_both_copies">;
+                             // per-field: which merge policy resolved each conflict
+}
+```
+
+Apps typically toast on `conflictedCopyId` being present — the user's in-flight edit was preserved as a sibling rather than discarded.
+
+## Errors
+
+Typed error classes you can instanceof-check:
+
+```typescript
+import {
+  MarfaError,
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+  UnauthorizedError,
+  ForbiddenError,
+} from "@withmarfa/sdk";
+
+try {
+  await client.items.get("bogus");
+} catch (err) {
+  if (err instanceof NotFoundError) {
+    // err.code === "item_not_found"
+  }
+  throw err;
+}
+```
+
+All error classes extend `MarfaError`, which carries `code`, `message`, `status`, and optionally `details`. Branch on `err.code` (stable string) rather than message wording.
+
+## OAuth helpers (`@withmarfa/sdk/auth`)
+
+A separately-exported subpath for apps that authenticate users through Marfa rather than holding an API key. Mirrors the OAuth 2.1 + Device Authorization Grant flows documented under [Authentication](/docs/api/authentication).
+
+```typescript
+import {
+  MarfaAuth,
+  startDeviceFlow,
+  OAuthError,
+  generatePkcePair,
+  type TokenProvider,
+  MemoryTokenStorage,
+  LocalStorageTokenStorage,
+} from "@withmarfa/sdk/auth";
+```
+
+### `MarfaAuth`
+
+The high-level helper for the Authorization Code + PKCE flow. Generates the PKCE verifier, builds the authorize URL, exchanges the redirected code for tokens, and refreshes on demand. Pair it with a `TokenStorage` to persist the resulting token pair.
+
+```typescript
+const auth = new MarfaAuth({
+  baseUrl: "https://marfa.example.com",
+  clientId: "my-app",
+  redirectUri: "https://myapp.example.com/oauth/callback",
+  scope: ["core.note:read", "core.note:write"],
+  storage: new LocalStorageTokenStorage("my-app.tokens"),
+});
+
+// 1. Send the user to authorize
+window.location.href = await auth.buildAuthorizeUrl();
+
+// 2. On redirect back, exchange the `code` query param
+const tokens = await auth.handleCallback(window.location.href);
+
+// 3. Use the access token. Auto-refresh on 401 via a TokenProvider:
+const tokenProvider: TokenProvider = () => auth.getAccessToken();
+const client = new MarfaClient({
+  url: "https://marfa.example.com",
+  tokenProvider,                     // alternative to a static apiKey
+});
+```
+
+### `startDeviceFlow`
+
+For headless and CLI contexts. Implements RFC 8628 — initiate, display the `verification_uri` + `user_code`, poll until the user approves.
+
+```typescript
+import { startDeviceFlow } from "@withmarfa/sdk/auth";
+
+const session = await startDeviceFlow({
+  baseUrl: "https://marfa.example.com",
+  clientId: "my-cli",
+  scope: ["core.bookmark:read"],
+});
+
+console.log(`Open ${session.verificationUri} and enter ${session.userCode}`);
+const tokens = await session.poll();   // resolves once the user approves
+```
+
+### Token storages
+
+`MemoryTokenStorage` (per-process; default), `LocalStorageTokenStorage` (browser), and `SecureStorageTokenStorage` (Keychain on macOS, Credential Locker on Windows, libsecret on Linux — when running under Node) are bundled. Custom backends implement the `TokenStorage` interface — `read`, `write`, `clear`.
+
+### `OAuthError`
+
+Thrown by every helper. Carries the OAuth `error` code (`invalid_grant`, `slow_down`, `expired_token`, `access_denied`, etc.) and the optional `error_description`. Apps branch on `err.code` to decide between user-facing messaging and re-flow logic.
+
+### PKCE primitives
+
+`generatePkcePair()` returns `{ verifier, challenge, method: "S256" }` for callers that need to drive the flow themselves rather than through `MarfaAuth`. The verifier is a 128-byte URL-safe random string.
+
+## Webhook signature verification
+
+The top-level `verifyWebhookSignature` helper validates an incoming inbound-webhook receipt against the subscription's secret. Wraps the same canonical `X-Marfa-Signature` header check the server runs — handy for any consumer that wants to verify a forwarded payload (gateway, CI runner) without pulling in the full server.
+
+```typescript
+import { verifyWebhookSignature } from "@withmarfa/sdk";
+
+const ok = await verifyWebhookSignature({
+  body: rawRequestBody,         // ArrayBuffer or string
+  headers: incomingHeaders,
+  secret: subscriptionSecret,
+});
+```
+
+Returns a `{ verified: true; deliveryId?: string }` shape on success and `{ verified: false; reason: string }` on failure.
+
+## Realtime
+
+The TypeScript SDK doesn't wrap SSE — consumers connect to [`GET /events`](/docs/api/realtime) directly with the browser's `EventSource` API (in a browser) or with `fetch` + a streaming body reader (in Node.js / Bun / Deno). The realtime page documents the event catalogue, `Last-Event-ID` reconnection, filtering parameters, and the catch-up strategy.
+
+## Versioning
+
+The TypeScript SDK follows semver. Major-version bumps mean breaking wire or API changes. Minor bumps add capabilities. Patch bumps are bug fixes.
+
+The SDK's major version tracks the server it was built against.
+
+## Browser use
+
+The SDK works in browsers that support `fetch`, `TextDecoder`, and `ReadableStream`. No polyfills needed for evergreen browsers. For older targets, bring your own polyfill.
+
+When making requests from a browser, ensure the Marfa server's `CORS_ORIGINS` includes your origin (see [Configuration](/docs/self-hosting/run/configuration)).
+
+## Electron
+
+`@withmarfa/sdk` is ESM-only. Electron's main process bundle needs the SDK marked as an externalised dependency so it stays as a real `import` at runtime rather than being inlined.
+
+Use the `externalizeDepsPlugin` from `electron-vite`. It reads `package.json` and externalises every `dependency` automatically — `@withmarfa/sdk` and `@withmarfa/shared` are covered as long as they're listed as runtime dependencies, not `devDependencies`.
+
+```typescript
+// electron.vite.config.ts
+import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+
+export default defineConfig({
+  main: {
+    plugins: [externalizeDepsPlugin()],
+  },
+  preload: {
+    plugins: [externalizeDepsPlugin()],
+  },
+  renderer: {
+    // Renderer is web-shaped; the SDK works without externalisation here.
+  },
+});
+```
+
+Hold the credential in the main process — `safeStorage` on macOS (Keychain), DPAPI on Windows, libsecret on Linux. Treat the renderer as the UI layer and route SDK calls through IPC.

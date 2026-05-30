@@ -1,6 +1,48 @@
 ---
 title: Versions
-description: Thinning windows, per-type overrides, and restore semantics.
+description: Per-item version history with time-aware thinning and a hard cap.
 ---
 
-Placeholder. Phase 4 content port.
+Every `PATCH /items/{id}` increments the item's `version` and persists a snapshot of the prior state. The server keeps those snapshots so clients can read history and recover from unintended overwrites, but thins them over time so a frequently-edited item doesn't accumulate unbounded storage.
+
+For per-field policy on concurrent edits, see [Conflicts](/docs/concepts/schema/conflicts).
+
+## Version snapshots
+
+List snapshots via `GET /items/{id}/versions`. Each snapshot carries:
+
+- The version number.
+- The timestamp of the update that produced it.
+- The full properties at that version.
+- The credential (`source`) that wrote it.
+
+Snapshots are per-item and per-space; edges and extensions don't snapshot.
+
+## Thinning policy
+
+Snapshots are thinned on a rolling schedule with four windows, configured via environment variables:
+
+| Window | Retention | Variable |
+|---|---|---|
+| Recent | Every snapshot kept | `VERSION_RECENT_DAYS` |
+| Daily | One snapshot per calendar day (UTC) | `VERSION_DAILY_SNAPSHOT_DAYS` |
+| Weekly | One snapshot per ISO week | `VERSION_WEEKLY_SNAPSHOT_DAYS` |
+| Beyond weekly | Dropped | — |
+
+The most recent snapshot is never thinned, even if all windows expire — an item always has at least its latest pre-update state available.
+
+## Hard cap
+
+`VERSION_MAX_VERSIONS` caps the snapshot count per item. When kept snapshots exceed the cap, the oldest are dropped first — even inside the recent window. Protects against pathological edit loops.
+
+## When thinning runs
+
+The thinning job runs on a server-wide interval controlled by `VERSION_THINNING_INTERVAL_MS`. Thinning is advisory — snapshot reads see whatever survives the most recent run. See [Configuration](/docs/self-hosting/run/configuration) for the full variable list and defaults.
+
+## Per-type overrides
+
+Types can declare their own `version_policy` block that overrides any of the four fields per-type. Custom `core.highlight` snapshots might keep history tighter than bulky `core.file.video` metadata; the per-type policy merges field-by-field over the global defaults.
+
+## Restoring from a version
+
+The server doesn't expose a one-shot "revert to version N" endpoint. Restoring means fetching the snapshot at version N and re-sending its properties through `PATCH /items/{id}` — the restore becomes a new forward version, preserving audit continuity.

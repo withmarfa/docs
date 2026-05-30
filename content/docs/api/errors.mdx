@@ -1,6 +1,91 @@
 ---
 title: Errors
-description: Cross-cutting error catalog grouped by HTTP status.
+description: Error response shape, codes, and how to handle them.
 ---
 
-Placeholder. Phase 4 content port.
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+
+Every error response follows the same shape:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "Required property 'body' is missing",
+    "details": { "field": "body" }
+  }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `code` | Machine-readable. Stable. Use this to branch in code. |
+| `message` | Human-readable. Don't branch on this — wording may change. |
+| `details` | Optional structured context (the conflicting field, the constraint that failed, etc.). Shape varies by code. |
+
+The HTTP status reflects the error class but the `code` is the authoritative identifier — two codes can share the same status.
+
+## Error codes
+
+Every endpoint's response shapes — including the set of error codes it returns — are declared in the API reference tab. The list here is the cross-cutting catalogue: stable `code` strings that clients branch on, grouped by HTTP status.
+
+<Accordions type="single">
+  <Accordion title="400 — validation and constraint failures">
+    `validation_error`, `missing_required_field`, `invalid_type`, `invalid_id`, `invalid_transition`, `invalid_request`, `invalid_grant`, `invalid_client`, `invalid_scope`, `token_reuse_detected`, `inheritance_violation`, `edge_constraint_violation`, `edge_cycle`, `invalid_properties`, `invalid_schema`.
+
+    Highlights:
+    - `invalid_transition` — a lifecycle transition isn't allowed (e.g. `trashed` → `archived`). See [Lifecycle](/docs/concepts/lifecycle/lifecycle).
+    - `edge_constraint_violation` — cardinality, type constraint, or duplicate. See [Edges](/docs/concepts/data-primitives/edges).
+    - `token_reuse_detected` — OAuth refresh token reused after its successor issued. Both tokens now invalid; restart the authorization flow.
+  </Accordion>
+  <Accordion title="401 — authentication">
+    `unauthorized` (missing or invalid bearer token), `expired_token` (OAuth access token expired — refresh it).
+  </Accordion>
+  <Accordion title="403 — permissions">
+    `forbidden`, `type_not_permitted`, `edge_permission_denied`, `core_type_immutable`.
+
+    `edge_permission_denied` fires when an edge mutation misses either the type write or the edge-type write — the dual-gate rule in [Permissions](/docs/api/permissions).
+  </Accordion>
+  <Accordion title="404 — not found">
+    `not_found`, `item_not_found`, `blob_not_found`, `type_not_found`, `edge_not_found`, `edge_type_not_found`, `webhook_not_found`.
+
+    `item_not_found` also fires when an item exists but isn't visible to this credential — don't leak existence.
+  </Accordion>
+  <Accordion title="409 — conflicts">
+    `conflict`, `version_conflict`, `duplicate_source`, `type_already_exists`, `type_in_use`.
+
+    `version_conflict` is the one with an enriched payload — see [below](#version-conflict). `duplicate_source` fires inside `POST /items/bulk` with `mode: create_only` as a per-item outcome reason — when `(source, source_id)` already exists and the caller asked not to update. The single-item `POST /items` path no longer returns 409 on duplicate `(source, source_id)`; it short-circuits to update and returns `200` instead — see [Items — natural-key upsert](/docs/concepts/data-primitives/items#natural-key-upsert).
+  </Accordion>
+  <Accordion title="413 and 429">
+    `blob_too_large` — exceeds the configured upload size limit. `rate_limited` — see [Rate limiting](/docs/api/rate-limiting).
+  </Accordion>
+</Accordions>
+
+## Version conflict
+
+<Callout type="warn">
+  `version_conflict` is the one error whose payload carries enough context to auto-resolve. Clients should branch on `err.code === "version_conflict"` before falling through to a generic error handler.
+</Callout>
+
+A `PATCH /items/{id}` whose `version` is stale returns `409 version_conflict` with an enriched payload — the server's `current` state, the `ancestor` the client was working from, the list of `conflicting_fields`, and the type's resolved `merge_policy`. Three resolution strategies are picked client-side: `auto` applies the merge policy per field, `manual` surfaces the three-way context to the app, `callback` delegates to a per-call resolver.
+
+See [Conflicts](/docs/concepts/schema/conflicts) for the full payload shape, the keep-both semantics, the per-core-type defaults, and the resolution flow. Edges don't conflict per-field — they're atomic; constraint violations (e.g. a second `in-thread` where only one is allowed) are hard errors. Metadata conflicts (tags, tier, state) auto-merge server-side.
+
+## Handling errors
+
+```typescript
+try {
+  await client.items.update(id, { properties: { body: "..." }, version: 3 });
+} catch (err) {
+  if (err.code === "version_conflict") {
+    // retry with err.current.version
+  } else if (err.code === "rate_limited") {
+    // back off
+  } else {
+    throw err;
+  }
+}
+```
+
+Branch on `err.code`, not on HTTP status or error message.

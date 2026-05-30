@@ -3,4 +3,94 @@ title: Deployment
 description: Deploy-script semantics, reverse proxy, log rotation, and health monitoring.
 ---
 
-Placeholder. Phase 4 content port.
+import { Callout } from 'fumadocs-ui/components/callout';
+
+This page covers getting a Marfa server onto a host and keeping it running: the deploy script, database migrations, running Marfa as a supervised service, and the operational concerns around it — reverse proxy, log rotation, and health monitoring.
+
+For the full environment-variable reference, see [Configuration](/docs/self-hosting/run/configuration).
+
+## Prerequisites
+
+- A host you can reach over SSH.
+- A clone of the repository on the host — the deploy script pulls into it.
+- `pnpm` installed on the host.
+- Postgres, if you run the `pg` dialect (recommended for multi-tenant or multi-app deployments). SQLite needs nothing extra.
+
+## The deploy script
+
+`deploy.sh` at the repository root deploys over SSH: it pulls the target branch into the source tree, builds, runs migrations, restarts the service(s), and health-checks each one. It is entirely environment-driven — nothing host-specific is baked in.
+
+```bash
+./deploy.sh                # deploy the latest main
+./deploy.sh --rollback     # roll back to the previous SHA
+./deploy.sh --host myhost  # override the SSH host
+```
+
+### Configuration
+
+All inputs come from the environment:
+
+| Variable | Purpose |
+|---|---|
+| `DEPLOY_HOST` | SSH host. Required — or pass `--host`. |
+| `SERVICE_DIR` | Source tree on the host (default `$HOME/marfa`). |
+| `REPO_BRANCH` | Branch to deploy (default `main`). |
+| `DEPLOY_SERVICE_NAMES` | Comma-separated service names. |
+| `DEPLOY_SERVICE_LABELS` | Comma-separated service-manager labels, one per service. |
+| `DEPLOY_SERVICE_PORTS` | Comma-separated health-check ports, one per service. |
+| `DEPLOY_SERVICE_DB_URLS` | Comma-separated Postgres URLs, one per service — the migration targets. |
+
+The four `DEPLOY_SERVICE_*` lists are parallel: the Nth entry of each describes the same service. Most deployments run a single service. The list form lets one source tree drive several instances — for example a primary instance alongside a [conformance](/docs/self-hosting/operate/conformance) instance — from a single deploy.
+
+### What a deploy does
+
+1. Pulls `REPO_BRANCH` into `SERVICE_DIR` on the host.
+2. Runs `pnpm install --frozen-lockfile && pnpm build`.
+3. Runs `pnpm --filter @withmarfa/server migrate` against each service's database.
+4. Writes a `version.json` recording the current and previous commit SHA.
+5. Restarts each service and polls its `/health` endpoint.
+
+<Callout type="warn">
+  **Migrations are forward-only.** `--rollback` reverts the source tree to the previous SHA but does not undo schema changes. If a rollback also has to undo a migration, that is a manual operator step.
+</Callout>
+
+## Running Marfa as a service
+
+Run the server under a process supervisor so it restarts on crash and on boot — `launchd` on macOS, `systemd` on Linux. The supervisor:
+
+- Sets the environment (see [Configuration](/docs/self-hosting/run/configuration)).
+- Sets the working directory to the source tree.
+- Restarts the process if it exits.
+- Redirects stdout and stderr to log files.
+
+`deploy.sh` restarts services by the labels passed in `DEPLOY_SERVICE_LABELS`, so those must match the supervisor's unit/label names.
+
+## Reverse proxy
+
+Marfa serves plain HTTP. Put a reverse proxy in front of it for TLS termination and a stable hostname. [Caddy](https://caddyserver.com) is a good fit — it provisions and renews Let's Encrypt certificates automatically:
+
+```
+marfa.example.com {
+    reverse_proxy localhost:8600
+}
+```
+
+When Marfa runs behind a TLS-terminating proxy, set `ENABLE_HSTS=true` so it emits a `Strict-Transport-Security` header. If the proxy needs its `X-Forwarded-For` header trusted, set `TRUSTED_PROXY_CIDRS` to the proxy's address range — see [Configuration](/docs/self-hosting/run/configuration).
+
+## Log rotation
+
+The server logs structured JSON to stdout and stderr, one object per line. The supervisor redirects those to files, which grow unbounded without rotation.
+
+Any standard rotation tool works — `newsyslog` on macOS, `logrotate` on Linux. Because the server writes with `O_APPEND`, an inode-preserving truncate (or copy-truncate) rotates the file with no restart and no file-descriptor orphaning. Rotated JSON stays parseable with `jq`.
+
+## Health monitoring
+
+Every Marfa server exposes `GET /health`, returning HTTP 200 with an `ok` body. Point an uptime monitor at it:
+
+| Check | Value |
+|---|---|
+| Endpoint | `http://<host>:<port>/health` |
+| Expect | HTTP 200, body contains `ok` |
+| Interval | 60 seconds is a reasonable default |
+
+For 500-error alerting, set `ERROR_WEBHOOK_URL` to a webhook — a chat incoming-webhook, or an uptime tool's push URL. The server debounces to at most one notification per error type per minute; tune the delivery timeout with `MARFA_ERROR_WEBHOOK_TIMEOUT_MS`.

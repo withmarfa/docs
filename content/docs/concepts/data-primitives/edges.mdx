@@ -1,6 +1,196 @@
 ---
 title: Edges
-description: Typed relationships between items.
+description: First-class typed relationships between items.
 ---
 
-Placeholder. Ports `concepts/edges.mdx`.
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Relationships between items are **first-class typed edges**, not embedded references. An edge has a source item, a target item, an edge type, and an optional `properties` object. Edges are stored separately from items and queryable from both ends.
+
+## Edge shape
+
+```json
+{
+  "id": "edge-uuid",
+  "tenant_id": "tenant-uuid",
+  "source_id": "item-uuid",
+  "target_id": "item-uuid",
+  "edge_type": "about",
+  "properties": { "position": 3 },
+  "created_at": "...",
+  "updated_at": "..."
+}
+```
+
+Edges sit in the same space as their source and target items. Cross-space edges don't exist.
+
+## Querying edges
+
+Edges are queryable from either direction, filtered by type.
+
+```
+GET /items/{id}/edges                  # outbound edges (this item as source)
+GET /items/{id}/edges?edge_type=about  # filter by type
+GET /items/{id}/backrefs               # inbound edges (this item as target)
+GET /items/{id}/backrefs?edge_type=in-thread
+```
+
+The query language shorthand filters items by edge membership:
+
+```
+GET /items?edge[references]=<doc-id>    # items that reference this doc
+GET /items?backref[parent-of]=<parent-id>  # items that have this parent
+```
+
+### Listing edges by type
+
+For taxonomy-style traversals — "every reply", "every annotation", "every parent-of edge" — list edges globally across the space:
+
+```
+GET /edges?edge_type=in-thread         # all in-thread edges
+GET /edges?edge_type=parent-of,about   # multiple types (comma-separated, max 10)
+```
+
+Cursor + limit pagination, identical to the per-item edge listings. Space-scoped.
+
+This replaces the walk-every-item N+1 pattern that clients otherwise have to write to count or display all edges of a type. SDKs expose it as `client.edges.list({ edge_type })`.
+
+## Core edge types
+
+Eight types ship in the core set. Each has documented constraints.
+
+| Type | Semantics | Cardinality |
+|---|---|---|
+| `about` | Source is about the target. Topical link. | many-to-many |
+| `parent-of` | Source is the parent of the target. Each target has at most one parent. Also the membership relation for groups and folders. | one-to-many |
+| `in-thread` | Source is a member of the thread represented by the target. Carries a `position` property. Source is in at most one thread. | many-to-one |
+| `attached-to` | Source is an attachment (a file or media item) belonging to the target. | many-to-many |
+| `references` | Source explicitly references the target. Covers wikilink-style mentions and the highlight-on-a-passage case. | many-to-many |
+| `authored-by` | Source was authored by the target (usually a `core.entity.person`). | many-to-many |
+| `derived-from` | Source was produced from the target. Both items remain valid in parallel. | many-to-many |
+| `supersedes` | Source replaces target as the current version. Linear chains only. | one-to-one |
+
+Cardinalities are enforced at edge-creation time. Creating a second `parent-of` edge with the same target (child), or a second `in-thread` edge with the same source (member), is rejected with `400 edge_constraint_violation`.
+
+## `derived-from` vs `supersedes`
+
+Both point backward from a new item to an older one. They mean different things.
+
+- **`derived-from`** — "this came from that; both are still valid." Multiple derivations from the same source coexist. Use for AI-generated alternatives, transformations, parallel takes.
+- **`supersedes`** — "this replaces that as the current version." Linear chain, no branching. Cycles are rejected at edge-creation time. Use when one version is meant to take over from another.
+
+Both can coexist on the same item. An AI-cleaned version of a note can be `derived-from` AND `supersedes` the original — it was produced from it and replaces it.
+
+## Cleanup, derivation, and replacement patterns
+
+When one item produces another — an AI cleanup pass, a transcoder, a translator, a refinement — the choice of edge depends on the relationship being modelled. Four core edges apply, each capturing a different aspect:
+
+| Edge | Means | Use when |
+|---|---|---|
+| `derived-from` | B was produced from A; both remain valid in parallel. | AI alternatives, transformations, or parallel takes that should coexist. |
+| `supersedes` | B replaces A as the current version; linear chain. | Cleanup or refinement where the new version is meant to take over from the old. |
+| `in-thread` | B is a member of the thread represented by A; carries `position`. | An ordered iteration history of cleanup passes you want to keep navigable. |
+| `parent-of` | B is grouped under A as a child. | Cleanup that produces grouped children under a host item. |
+
+These aren't mutually exclusive. An AI-cleaned version of a transcript can be `derived-from` the raw (provenance), `supersedes` the raw (replaces as current), AND `in-thread` a series of cleanup attempts (iteration history). The combination expresses what the integration is actually modelling.
+
+`supersedes` carries the cleanest semantic for replacement — the predecessor still exists (Marfa doesn't delete A) but B is the "current" version. Use it when versions chain linearly with clear succession.
+
+## Cascade on delete
+
+Each edge type declares a `cascade_on_delete` behaviour:
+
+| Behaviour | Meaning |
+|---|---|
+| `cascade` | Deleting the source or target cascades: connected items are also deleted. |
+| `orphan` | Deleting one endpoint leaves the other in place; the edge is removed. |
+| `block` | Deleting an endpoint with existing edges is rejected. |
+
+`parent-of` cascades by default (deleting a parent deletes children). Other core edge types default to `orphan`.
+
+## Threads are implicit
+
+<Callout type="info">
+  There is no `core.thread` type. A thread is whatever item is the target of a bunch of `in-thread` edges — its type gives the thread its semantics.
+</Callout>
+
+Example target types:
+
+- A chain of reply notes: `core.note` items `in-thread` to an opener `core.note`.
+- An ordered reading queue: `core.bookmark` items `in-thread` to an app-registered `app.reading_list`.
+- A timeline of a trip: various types `in-thread` to a `core.event` (the trip).
+
+The `in-thread` edge is many-to-one on the source side: each item can be in at most one thread. Ordering uses the edge's `position` property. Query a thread:
+
+```
+GET /items?edge[in-thread]=<target-id>&sort=edge.position
+```
+
+## Grouping
+
+Three grouping primitives, each with a narrow purpose.
+
+- **Tags** — flat labels for cross-cutting classification. See [Metadata](/docs/concepts/data-primitives/metadata).
+- **Threads** — ordered sequences via `in-thread` edges. Single membership per source.
+- **`parent-of` hierarchy** — tree structure. Source is parent, target is child. Used both for natural hierarchy (folders, projects) and for app-registered group items (a `karakeep.list`, an `albo.collection`, a `user.wine_cellar`) — group is the parent, members are children.
+
+Collection-like features in apps register a custom group type and use `parent-of` edges to connect members. The core stays out of the opinionation business on "what is a collection" — apps answer that differently.
+
+### Folders vs tags vs edges
+
+Each grouping primitive answers a different question:
+
+- **Folders** — where the bytes live. The [sync agent](/docs/sdks-and-clients/sync) stores each file's root-relative path as `source_id`, so a folder query is a `source_id starts_with "..."` filter. Good at what filesystems are good at: familiar mental model for organising files on disk, cheap prefix queries.
+- **Tags** — flat cross-cutting labels that travel with the item regardless of where the file moves on disk. Use when grouping needs to be portable across folder reorganisations.
+- **Edges** — typed, directional relationships between items the query layer can traverse. Use when grouping needs first-class data treatment — "all notes about Project X" (an `about` edge), "every reply in this thread" (an `in-thread` edge), "every member of this collection" (a `parent-of` edge from the group item).
+
+Tags and edges are independent of where files sit in the folder tree.
+
+## Custom edge types
+
+Apps register their own edge types when the core set doesn't fit:
+
+```json
+POST /edges/types
+{
+  "id": "app.shops-for",
+  "cardinality": "many-to-one",
+  "source_type_constraints": ["app.shopping_list_item"],
+  "target_type_constraints": ["*"],
+  "cascade_on_delete": "orphan",
+  "property_schema": {
+    "quantity": { "type": "integer" }
+  }
+}
+```
+
+Admin only. Core edge names are reserved and collide with `409 conflict`. Custom edge types don't inherit. See the API reference for the full schema.
+
+## Atomic item + edges write
+
+A single `POST /items` call creates the item and its edges in one transaction:
+
+```json
+POST /items
+{
+  "type": "core.highlight",
+  "properties": { "text": "...", "locator_type": "offset", "start_location": 2341, "end_location": 2367 },
+  "edges": {
+    "references": ["<document-id>"]
+  }
+}
+```
+
+Either the whole write succeeds or nothing is persisted.
+
+## Permissions
+
+Edge writes are **dual-gated**: the caller needs both write permission on the source item's type AND write permission on the edge type. Admin keys bypass both. See [Permissions](/docs/api/permissions).
+
+## Reading across edges
+
+The filter language doesn't do graph traversal — an edge clause narrows the item list by edge membership, but it doesn't return the connected items. Reading an item's edge targets is a two-step flow: fetch the item (which hydrates edges inline), then fetch the targets by id.
+
+This is a real trade-off. Polymorphic references where one item points at some other typed item — a shopping-list entry that references a book, a wine bottle, or a gadget — carry the ceremony of that second call. In exchange, edges are queryable from both ends, constrained per type, and space-scoped alongside items.
+
+Clients that need a single round-trip batch-fetch targets after the first response and join client-side.

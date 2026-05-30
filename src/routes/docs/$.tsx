@@ -1,4 +1,4 @@
-import { createFileRoute, notFound } from '@tanstack/react-router';
+import { createFileRoute, notFound, redirect } from '@tanstack/react-router';
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
 import { createServerFn } from '@tanstack/react-start';
 import { slugsToMarkdownPath, source } from '@/lib/source';
@@ -17,10 +17,24 @@ import { useFumadocsLoader } from 'fumadocs-core/source/client';
 import { Suspense } from 'react';
 import { useMDXComponents } from '@/components/mdx';
 
+// Legacy URL redirects — old Mintlify URLs that drifted during the Fumadocs
+// port. Keep the entries here so a stale link out in the wild still lands on
+// the right canonical page.
+const REDIRECTS: Record<string, string> = {
+  // /docs/concepts/library → /docs/concepts/lifecycle/tier
+  // The page is canonically about the Tier axis; the old URL leaked an
+  // internal namespace name. See Docs Content Evaluation for the rationale.
+  'concepts/library': '/docs/concepts/lifecycle/tier',
+};
+
 export const Route = createFileRoute('/docs/$')({
   component: Page,
   loader: async ({ params }) => {
-    const slugs = params._splat?.split('/') ?? [];
+    const splat = params._splat ?? '';
+    if (REDIRECTS[splat]) {
+      throw redirect({ href: REDIRECTS[splat], statusCode: 301 });
+    }
+    const slugs = splat.split('/');
     const data = await serverLoader({ data: slugs });
     await clientLoader.preload(data.path);
     return data;
