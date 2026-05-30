@@ -3,4 +3,221 @@ title: Configuration
 description: Environment variable reference grouped by surface.
 ---
 
-Placeholder. Phase 4 content port.
+The Marfa server is configured entirely via environment variables. No config file. Every variable has a sensible default — typical local-dev is zero-config.
+
+## Server
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `8600` | TCP port the HTTP server listens on. |
+| `CORS_ORIGINS` | _(none)_ | Comma-separated allowed origins for browser callers. Localhost origins are always allowed automatically when any value is set. |
+| `ENABLE_HSTS` | `false` | Add a `Strict-Transport-Security` header. Enable only when serving behind TLS. |
+| `AUTH_MODE` | `keys` | `keys` (API-key-only) or `hosted` (multi-tenant with user accounts + OAuth). |
+| `RATE_LIMIT_ENABLED` | `true` | Set to `false` to disable rate limiting entirely. |
+| `RATE_LIMIT_REQUESTS` | `1000` | Cap per credential per `RATE_LIMIT_WINDOW_MS` window. |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | Window size in milliseconds for the per-credential limiter. Default 1 minute. |
+| `MAX_SUBSCRIPTION_LISTENERS` | `100` | Cap on concurrent SSE / pubsub subscribers per process. EventEmitter throws once exceeded. |
+| `TRUSTED_PROXY_CIDRS` | _(none)_ | Comma-separated CIDRs (e.g. `10.0.0.0/8,127.0.0.1/32`) for opt-in `x-forwarded-for` trust. When unset, the header is ignored and the connection peer address is used; spoofing is impossible. When set, the chain is walked right-to-left, skipping trusted hops. Malformed CIDRs throw at startup. |
+| `API_KEY_SALT` | _(required in production)_ | Salt for hashing API keys at rest. Must be a long random string. Changing it invalidates every existing key. |
+| `MARFA_RLS_ENFORCE` | `false` | When `true`, each tenant-bounded request runs through a Drizzle transaction that sets `SET LOCAL ROLE marfa_app` + `set_config('marfa.tenant_id', $tenant, true)` so the per-table Postgres RLS policies actually filter queries (defense-in-depth beneath the application-layer tenant scoping). Leave at the default for single-tenant self-hosts and the SQLite dialect; enable on multi-tenant Postgres deployments. Platform-admin keys (no `tenant_id`), anonymous routes, and streaming responses (`/events`, `/export`) bypass the wrapper. |
+
+## Storage
+
+### Database
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DB_DIALECT` | `sqlite` | `sqlite` or `pg`. |
+| `SQLITE_PATH` | `./data/marfa.db` | SQLite database file path. Created if absent. Ignored when dialect is `pg`. |
+| `DATABASE_URL` | _(required when `pg`)_ | Postgres connection string. |
+
+SQLite is perfectly fine for single-tenant self-hosts. Postgres is recommended for multi-tenant, multi-app, high-traffic deployments.
+
+### Blobs
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `BLOB_BACKEND` | `filesystem` | `filesystem` or `s3`. |
+| `BLOB_PATH` | `./data/blobs` | Root directory when backend is `filesystem`. |
+| `MAX_BLOB_SIZE` | `52428800` | Maximum blob upload size in bytes (50MB). Uploads exceeding this return HTTP 413 `blob_too_large`. |
+| `S3_BUCKET` | _(required when `s3`)_ | Bucket name. |
+| `S3_REGION` | _(required when `s3`)_ | AWS region or S3-compatible region identifier. |
+| `S3_ACCESS_KEY_ID` | _(optional)_ | Credentials. If omitted, falls back to standard AWS credential chain (IAM role, instance metadata, `~/.aws/credentials`). |
+| `S3_SECRET_ACCESS_KEY` | _(optional)_ | Credentials. |
+| `S3_ENDPOINT` | _(none)_ | Custom S3-compatible endpoint (MinIO, R2, etc.). |
+| `CDN_BASE_URL` | _(none)_ | Public CDN prefix rewritten onto blob URLs in responses. |
+
+#### Cloudflare R2 example
+
+R2 is S3-compatible. Use the dedicated R2 access key (Cloudflare dashboard → R2 → Manage API Tokens), the bucket's account-scoped endpoint, and any region string — R2 ignores the region but the SDK requires one (`auto` is the convention).
+
+```bash
+BLOB_BACKEND=s3
+S3_BUCKET=your-bucket-name
+S3_REGION=auto
+S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+S3_ACCESS_KEY_ID=<r2-access-key-id>
+S3_SECRET_ACCESS_KEY=<r2-secret-access-key>
+```
+
+The same shape works for any S3-compatible object store (MinIO, Backblaze B2, Wasabi).
+
+## Retention and lifecycle
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AUDIT_RETENTION_DAYS` | `90` | Audit log entries older than this are deleted. |
+| `AUDIT_CLEANUP_INTERVAL_MS` | `86400000` | How often the audit cleanup job runs (ms). Default daily. |
+| `TRASH_RETENTION_DAYS` | `60` | Days a trashed item survives before it's hard-deleted by the trash purger. `0` disables the job. See [Lifecycle](/docs/concepts/lifecycle/lifecycle). |
+| `TRASH_PURGE_INTERVAL_MS` | `86400000` | How often the trash purge job runs (ms). Default daily. |
+| `MARFA_EVENT_LOG_RETENTION_HOURS` | `168` | Retention in hours for the SSE event log (default 7 days). Controls how far back a client's SSE replay cursor can reach. Malformed values fall back to the default, with a warning logged at startup. |
+| `VERSION_RECENT_DAYS` | `30` | Keep all version snapshots within this window. |
+| `VERSION_DAILY_SNAPSHOT_DAYS` | `90` | Thin to one snapshot per day in this window. |
+| `VERSION_WEEKLY_SNAPSHOT_DAYS` | `365` | Thin to one snapshot per week in this window. |
+| `VERSION_MAX_VERSIONS` | `500` | Hard cap per item; oldest snapshots are dropped. |
+| `VERSION_THINNING_INTERVAL_MS` | `3600000` | How often the version-thinning job runs. Default hourly. |
+| `AUTH_SESSION_CLEANUP_INTERVAL_MS` | `3600000` | How often the Better Auth session cleanup sweep drops `auth_session` rows past their `expires_at`. Instance-wide, not tenant-scoped — Better Auth owns the session TTL. |
+
+## Authentication (Better Auth + OAuth)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MARFA_AUTH_BASE_URL` | `http://localhost:<PORT>` | Issuer URL the better-auth instance is reached at. Drives cookie domains and the OAuth issuer field on the discovery doc. Set to your public origin (e.g. `https://marfa.example.com`) in production. |
+| `MARFA_AUTH_ALLOW_SIGNUP` | `false` | When `true`, exposes the email + password sign-up endpoint at `/auth/sign-up/email`. Single-user self-hosts flip this on for the initial admin account, then back off. |
+| `MARFA_AUTH_SECRET` | _(required in production)_ | Shared secret for cookie signing. Falls back to a per-process ephemeral secret in dev. |
+| `MARFA_OIDC_PROVIDERS` | `[]` | JSON array configuring federated sign-in providers. Each entry: `{ providerId, clientId, clientSecret, discoveryUrl?, scopes? }`. Surfaces a "Sign in with `<providerId>`" button on the sign-in page. |
+
+## Account lifecycle
+
+User-initiated account deletion runs a grace-window cascade. See [Account lifecycle](/docs/self-hosting/operate/account-lifecycle) for the flow; the levers below tune timing.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MARFA_ACCOUNT_DELETION_GRACE_DAYS` | `30` | Days between `pending_deletion_at` and hard-delete. `0` disables the purger entirely (accounts stay `pending_deletion` forever) — testing only. |
+| `MARFA_ACCOUNT_DELETION_PURGE_INTERVAL_MS` | `3600000` | Cadence (ms) of the `PendingDeletePurger` sweep tick. First sweep runs 15 s after server start. |
+| `MARFA_ACCOUNT_DELETE_CANCEL_COOLDOWN_MS` | `3600000` | Per-account throttle on the security-notice email emitted when a sign-in is blocked against a pending-deletion account. `0` disables the throttle. |
+
+## Email transport
+
+Transactional email (sign-up verification, forgot-password, account-deletion confirm + cancel). Default is unconfigured — email-dependent flows return HTTP `503 email_transport_not_configured` until an operator picks a backend.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MARFA_EMAIL_BACKEND` | `none` | `cloudflare`, `smtp`, or `none`. `none` short-circuits every email-dependent flow with a clean 503 — preferable to silent dead-letter. |
+| `MARFA_EMAIL_FROM` | `Marfa <hello@mail.marfa.so>` | Visible sender. For the `cloudflare` backend the address MUST end in `@mail.marfa.so` (the verified Cloudflare Email sending domain); a boot-time guard fails loud on mismatch. Override for self-hosts. |
+| `MARFA_EMAIL_REPLY_TO` | _(none)_ | Optional `Reply-To` header. Point at a monitored inbox so user replies don't bounce silently. |
+| `CLOUDFLARE_ACCOUNT_ID` | _(required for `cloudflare`)_ | Account id the Cloudflare Email Service send call posts to. |
+| `CLOUDFLARE_EMAIL_API_TOKEN` | _(required for `cloudflare`)_ | API token with the "Send Email" permission on the account. Mint as a dedicated send-only token for least-privilege. |
+| `MARFA_SMTP_HOST` | _(required for `smtp`)_ | SMTP server hostname. |
+| `MARFA_SMTP_PORT` | `587` | SMTP server port. `465` for implicit TLS, `587` for STARTTLS. |
+| `MARFA_SMTP_USER` | _(none)_ | SMTP auth username. |
+| `MARFA_SMTP_PASS` | _(none)_ | SMTP auth password. |
+| `MARFA_SMTP_SECURE` | _(unset)_ | `true` for implicit TLS (port 465); leave unset for STARTTLS on 587. |
+
+The Cloudflare backend has no documented send-time idempotency header — a transient retry can produce duplicate deliveries. Acceptable for the transactional flows wired today (each ships a single-use token; a second send is semantically harmless).
+
+## Per-tenant quotas
+
+Default ceilings applied to every tenant. Per-tenant overrides in `tenant_quotas` rows take precedence; unset = unlimited (no enforcement).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MARFA_DEFAULT_QUOTA_ITEMS` | _(none)_ | Default cap on `items` per tenant. `POST /items` returns `429 quota_exceeded` on overrun. |
+| `MARFA_DEFAULT_QUOTA_WEBHOOKS` | _(none)_ | Default cap on `webhooks` per tenant. Gated on `POST /webhooks`. |
+| `MARFA_DEFAULT_QUOTA_BLOBS` | _(none)_ | Default cap on registered blob metadata rows per tenant. Gated on `POST /blobs`. |
+| `MARFA_DEFAULT_QUOTA_STORAGE_BYTES` | _(none)_ | Default cap on the `SUM(size)` of registered blobs per tenant. Gated on `POST /blobs` alongside the row count. |
+| `MARFA_DEFAULT_QUOTA_RATE_PER_MINUTE` | _(none)_ | Per-tenant per-minute request cap. Layered on top of the per-credential rate limiter — a noisy single credential is bounded by the credential cap; a tenant's collective fleet is bounded by the tenant cap. Tenant-cap changes propagate within 60 s. |
+
+Errors carry `details: { resource, limit, current }` so SDK / CLI / operator alerts can wire off the shape.
+
+## Connections runtime (Cloudflare control plane)
+
+The Connections build runs Integration Workers on Cloudflare. The server reaches them through these.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CLOUDFLARE_QUEUES_REACTIVE_RUN_URL` | _(none)_ | HTTPS endpoint of the control-plane Worker that fans reactive events out to subscribed Integration Workers. |
+| `CLOUDFLARE_QUEUES_API_TOKEN` | _(none)_ | Bearer token presented to the control-plane Worker. Pair with `CLOUDFLARE_QUEUES_REACTIVE_RUN_URL`. |
+| `MARFA_RUNTIME_BROKER_KEY` | _(none)_ | Shared signing key used by the runtime-credential broker. The control-plane Worker mints short-lived per-connection credentials with this key; the server validates them on incoming Worker callbacks. |
+| `MARFA_INTEGRATION_RUNTIME` | `local` | Where Integration Workers run. `local` (default) runs them in-process for self-hosters without Cloudflare. `hosted` routes to the Cloudflare control plane (requires the three vars above). |
+
+## Observability
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ERROR_WEBHOOK_URL` | _(none)_ | Receives an HTTP POST on every server `500` error. Debounced per error class per minute. Useful for alerting. |
+| `VERSION_SNAPSHOT_INTERVAL_MS` | `600000` | How often the version-snapshot job runs (ms). Default 10 minutes. Snapshots are emitted on item updates; this controls the back-stop sweep. |
+
+Structured logs are always emitted to stdout as JSON lines. Each log carries a UUIDv7 `request_id` that's also returned in the `X-Request-Id` response header.
+
+`GET /health` returns database and blob-backend reachability with latency metrics. `GET /metrics` (admin) returns per-tenant counts and rates.
+
+## Minimal self-host
+
+The smallest working server:
+
+```bash
+export API_KEY_SALT="$(openssl rand -hex 32)"
+export PORT=8600
+node dist/index.js
+```
+
+Hits SQLite on disk, filesystem blobs in `./data/blobs`, rate-limited at 1000 req/min per credential. Bootstrap the first admin key:
+
+```bash
+curl -X POST http://localhost:8600/keys \
+  -H "Content-Type: application/json" \
+  -d '{"label":"admin","role":"admin","source":"bootstrap"}'
+```
+
+Capture the `key` field from the response. That's your admin credential.
+
+## Production-shape self-host
+
+```bash
+export API_KEY_SALT="<long random string, stable across restarts>"
+export PORT=8600
+export AUTH_MODE=keys
+export DB_DIALECT=pg
+export DATABASE_URL="postgres://marfa:<password>@<host>:5432/marfa"
+export BLOB_BACKEND=s3
+export S3_BUCKET=my-marfa-blobs
+export S3_REGION=eu-west-2
+export CDN_BASE_URL=https://cdn.example.com
+export CORS_ORIGINS=https://app.example.com,https://console.example.com
+export ENABLE_HSTS=true
+export ERROR_WEBHOOK_URL=https://alerts.example.com/marfa
+node dist/index.js
+```
+
+Behind a reverse proxy (nginx, Caddy, Traefik) terminating TLS.
+
+## Reverse proxy
+
+If the server sits behind a reverse proxy, the proxy must pass through:
+
+- The `Authorization` header.
+- The raw request body (unbuffered) for webhook signature verification and SSE streaming.
+- `text/event-stream` responses without buffering. Disable response buffering for `/events`.
+
+SSE connections are long-lived. Set read timeouts to at least 120 seconds.
+
+Set `TRUSTED_PROXY_CIDRS` to the CIDR of your proxy so the rate limiter and any future per-IP logic see the real client IP rather than the proxy's address. Without it, `x-forwarded-for` is ignored as a precaution against spoofing.
+
+## Migration scripts
+
+One-shot scripts that ride alongside the server, used during upgrades. They take their own environment variables — set them only when running the script, not on the long-running server process.
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `SYNC_JSON_PATH` | `migrate:sync-json-to-connection` | Path to the legacy `~/.marfa/sync.json` file that the migration reads from. Defaults to `~/.marfa/sync.json`. |
+| `SYNC_CONNECTION_PATH` | `migrate:sync-json-to-connection` | Output path for the produced `connection_*.json` sentinel file. |
+
+Run with `pnpm --filter @withmarfa/server migrate:sync-json-to-connection`. See the script source in `packages/server/src/scripts/` for invocation details.
+
+## What is not configurable
+
+- **Core types.** Registered at startup from the bundled registry.
+- **Reserved namespaces.** `core.*`, `system.*`, and `marfa.*` are hard-coded and only writable by platform-flagged credentials.
+
+These are deliberate — surfacing them as knobs would encourage drift between deployments.

@@ -1,6 +1,99 @@
 ---
 title: Hosted mode
-description: Running Marfa as a multi-tenant hosted service.
+description: Multi-tenant Marfa deployments with Better Auth sign-up, sessions, and OAuth.
 ---
 
-Placeholder. Phase 4 content port.
+import { Callout } from 'fumadocs-ui/components/callout';
+
+`AUTH_MODE` selects how the server authenticates callers. Two values:
+
+- **`keys`** (default) — every tenant exists because someone created its admin key. Tenant provisioning is a manual server-side operation; there is no public sign-up flow. Suitable for self-hosted single-tenant setups, internal multi-tenant deployments where admins provision tenants out-of-band, and development.
+- **`hosted`** — a managed-service shape. Better Auth's email + password sign-up endpoint is mounted, sign-up creates a user + tenant atomically, sessions are issued as HTTP-only cookies, and OAuth Authorization-Code + PKCE flows are available for third-party clients. Suitable for cloud deployments intended to serve end-users without operator involvement per sign-up.
+
+API keys work the same way in both modes — once a user has a tenant, they can mint scoped keys via `POST /keys`. The difference is whether a public endpoint provisions accounts.
+
+## Enabling hosted mode
+
+```bash
+export AUTH_MODE=hosted
+export MARFA_AUTH_BASE_URL=https://marfa.example.com   # your public origin
+export MARFA_AUTH_SECRET="<long random secret>"        # required in production
+export MARFA_AUTH_ALLOW_SIGNUP=true                    # opens public sign-up
+```
+
+At boot the server mounts Better Auth's HTTP surface under `/auth/*`:
+
+- **`POST /auth/sign-up/email`** — creates a user record, a tenant, and a session cookie. No auth required when `MARFA_AUTH_ALLOW_SIGNUP=true`.
+- **`POST /auth/sign-in/email`** — issues a session cookie for an existing user.
+- **`POST /auth/sign-out`** — clears the session cookie and invalidates the row.
+- **`GET /auth/session`** — returns the current session details (the authenticated user, tenant, key roles).
+- **OAuth surface** — `/auth/authorize`, `/auth/oauth2/token`, `/auth/oauth2/register` (Dynamic Client Registration), plus the Device Authorization endpoints for CLI / Raycast flows. See [Authentication](/docs/api/authentication).
+
+Hosted mode requires a storage backend that supports the Better Auth tables (`auth_user`, `auth_session`, `auth_account`, `auth_passkey`) and the Marfa tables (`tenants`, `users`, `api_keys`). Both Postgres and SQLite work; multi-tenant production should use Postgres.
+
+<Callout type="info">
+  **Legacy `POST /auth/signup` is retired.** Earlier builds exposed a provider-identity sign-up payload (`provider` + `provider_account_id`); that endpoint was removed in favour of Better Auth's canonical sign-up flow. Existing integrations that still call `/auth/signup` get an HTTP 404.
+</Callout>
+
+## Sign-up payload
+
+```json
+POST /auth/sign-up/email
+{
+  "email": "user@example.com",
+  "password": "<at least 8 chars>",
+  "name": "Optional display name"
+}
+```
+
+Response (201) includes the new user, the session token (set as an HTTP-only cookie too), and the user's tenant id:
+
+```json
+{
+  "user": { "id": "...", "email": "user@example.com", "name": "..." },
+  "session": { "token": "...", "expiresAt": "..." },
+  "tenant": { "id": "...", "name": "user@example.com's tenant" }
+}
+```
+
+The server creates the tenant transactionally with the user. There is no separate tenant-provisioning step.
+
+### Federated sign-up (OIDC)
+
+Set `MARFA_OIDC_PROVIDERS` to a JSON array of provider configs and Better Auth surfaces "Sign in with `<providerId>`" on the sign-in page. Each entry:
+
+```json
+{
+  "providerId": "google",
+  "clientId": "...",
+  "clientSecret": "...",
+  "discoveryUrl": "https://accounts.google.com/.well-known/openid-configuration",
+  "scopes": ["openid", "email", "profile"]
+}
+```
+
+Successful federated sign-in creates the same user + tenant shape; OIDC `sub` claim is recorded in `auth_account` for subsequent matching.
+
+## Tenant model
+
+One tenant per user. A user signing up always owns exactly one tenant; users who want separate personal and work spaces sign up with different email addresses.
+
+Cross-tenant sharing is an explicit grant per scope, the same as in `keys` mode. See [Spaces](/docs/concepts/identity/spaces).
+
+## API keys in hosted mode
+
+Sessions authenticate browser callers; API keys authenticate programmatic ones (CLI, MCP, server-to-server). Inside a signed-in session, a user mints scoped keys via `POST /keys` using `client.keys.create`. The CLI (`my keys create`) and the SDK's `client.keys.*` surface work the same way they do in `keys` mode.
+
+For third-party app integration, the user goes through OAuth Authorization-Code + PKCE rather than handing over a static key — see [Authentication](/docs/api/authentication#oauth-2-1).
+
+## Operating a hosted deployment
+
+Beyond `AUTH_MODE=hosted`, the additional operational requirements are:
+
+- **TLS everywhere.** Sign-up posts credentials; HTTPS is non-optional. Set `ENABLE_HSTS=true` behind a TLS terminator.
+- **Durable Postgres.** SQLite is viable for single-instance hosted but multi-user contention and multi-instance deployment quickly argue for Postgres. Configure `DB_DIALECT=pg` and `DATABASE_URL`.
+- **Rate limit `/auth/sign-up/email`, `/auth/sign-in/email`, and `/auth/oauth2/token`.** The per-credential rate limiter doesn't help on unauthenticated routes. Tighten these at the reverse proxy or upstream gateway to guard against enumeration and credential-stuffing.
+- **Email transport configured.** Sign-up verification, forgot-password, and account-deletion confirmation all require working email. See `MARFA_EMAIL_BACKEND` in [Configuration](/docs/self-hosting/run/configuration). Unconfigured email returns a clean `503 email_transport_not_configured` from the affected routes.
+- **Blob storage reachable from every instance.** Hosted deployments usually run behind a load balancer; use `BLOB_BACKEND=s3` rather than filesystem to avoid per-host divergence.
+
+See [Configuration](/docs/self-hosting/run/configuration) for the full variable set and [Account lifecycle](/docs/self-hosting/operate/account-lifecycle) for the user-initiated deletion flow that hosted mode enables.

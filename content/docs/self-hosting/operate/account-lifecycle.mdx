@@ -1,6 +1,115 @@
 ---
 title: Account lifecycle
-description: Lifecycle walk-through with audit-row catalog.
+description: Account deletion on hosted Marfa — request, email-confirm, 30-day grace window, permanent purge with audit redaction.
 ---
 
-Placeholder. Phase 4 content port.
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+
+Hosted-mode Marfa exposes a user-initiated account deletion flow for GDPR right-to-erasure compliance. The lifecycle is:
+
+<Steps>
+  <Step>
+    **Request.** The signed-in user initiates deletion. The server mints a single-use confirmation token (1-hour TTL), sends a confirmation email, and returns HTTP 202. The account stays in `active` state until the link is clicked — re-issuing the request inside the TTL re-uses the same token (idempotent).
+  </Step>
+  <Step>
+    **Confirm via email link.** Clicking the link transitions `auth_user.deletion_state` from `active` to `pending_deletion`, stamps `pending_deletion_at`, revokes every API key in the tenant, drops every active session, and emails a cancellation link valid for the full grace window.
+  </Step>
+  <Step>
+    **Grace window (30 days by default).** The user can cancel at any point during the grace period. Two cancel paths: clicking the cancel link from the pending-deletion email (or from the email sent when they attempt to sign in), or `POST /auth/account/delete/cancel` from a re-authenticated session.
+  </Step>
+  <Step>
+    **Permanent purge.** When `pending_deletion_at + grace_days < now()`, the `PendingDeletePurger` background sweep cascades: tears down the tenant's connection oauth tokens, leased tokens, inbound webhooks, edges, items (which cascade metadata + versions), blobs, API keys, outbound webhooks, tenant quotas, in-flight `auth_verification` tokens, the `users` row, the `tenants` row, then redacts the user's audit trail and deletes the `auth_user` row.
+  </Step>
+</Steps>
+
+## What the user sees
+
+| Action | Surface |
+| --- | --- |
+| Initiate from CLI | `my auth delete-account [--yes]` |
+| Initiate from a programmatic client | `client.auth.account.requestDelete()` (TypeScript SDK) or `POST /auth/account/delete` |
+| Confirm | Click the link in the confirmation email — single-use, 1-hour TTL |
+| Cancel via session | `client.auth.account.cancel()` or `POST /auth/account/delete/cancel` |
+| Cancel via link | Click the cancel link in the pending-deletion email (or the security-notice email sent when someone attempts to sign in to a pending account) |
+| Sign-in during grace | Returns a generic `401` matching the wrong-credentials response — the account's pending-deletion state is not surfaced to the sign-in caller. A security-notice email goes to the account address with a fresh cancel link. |
+
+The CLI verb is initiation-only by design. Confirmation and cancellation are email-link flows so the user always has to prove control of the inbox at the consequential moments.
+
+## Sign-in-during-grace behavior
+
+The deletion-guard middleware intercepts sign-in attempts against a pending-deletion account before Better Auth's credential check completes. The response is a generic `401 invalid_credentials` — the same shape returned for a wrong password — so the surface deliberately does not enumerate which accounts are scheduled for deletion. Two side effects ride the interception:
+
+- A `auth.account.sign_in_blocked_pending_deletion` audit row is written.
+- A security-notice email is dispatched to the account's address with copy along the lines of *"Someone tried to sign in to your Marfa account. It is scheduled for deletion — click the link below to cancel."* The link is the same single-use cancel URL emitted on initial confirm.
+
+A per-account cooldown (default 1 hour) throttles repeat sends, so a sign-in flood against a pending-deletion address cannot mint fresh cancel emails on every attempt. Tune via `MARFA_ACCOUNT_DELETE_CANCEL_COOLDOWN_MS` — see [Configuration](/docs/self-hosting/run/configuration).
+
+## What gets deleted
+
+Every artefact scoped to the user's tenant:
+
+- All items, regardless of state (including trashed)
+- All metadata, item versions, edges
+- All blobs (per-tenant rows; the content-addressed file on the storage backend is removed when its last metadata row goes)
+- Every API key for the tenant
+- Outbound and inbound webhooks
+- Connection OAuth tokens and leased tokens
+- Per-tenant quota overrides
+- The `users` profile row and the `tenants` row itself
+- The `auth_user` row, which cascades to drop `auth_session`, `auth_account`, and `auth_passkey` rows
+
+The cascade runs as a single transaction; rollback on failure leaves the account in `pending_deletion` for the next purger tick to retry.
+
+## What's preserved (audit redaction)
+
+The `audit_log` table is **not** truncated. Existing rows tied to the deleted account stay in place, but their `details` JSON is rewritten to a sentinel:
+
+```json
+{ "redacted": true, "user_id_sha256": "<sha256 of auth_user.id>" }
+```
+
+The row's `action`, `resource_id`, `tenant_id`, and `timestamp` survive. This preserves the forensic chain — operators querying who did what when can still see the action sequence — without retaining personally identifying payload. The chain remains queryable by the hashed-id sentinel if a future investigation needs to correlate redacted rows across actions.
+
+The audit rows specific to the deletion lifecycle:
+
+| Action | Triggered by | Notes |
+| --- | --- | --- |
+| `auth.account.delete_requested` | `POST /auth/account/delete` success | Written on initiate. Redacted by the post-purge sweep. |
+| `auth.account.delete_confirmed` | Clicking the confirm link | Written on confirm. Redacted by the post-purge sweep. |
+| `auth.account.delete_cancelled` | Cancel via session or link, when `cancelPendingDeletion` matched a row | `details.source` = `"session"` or `"link"`. Redacted by the post-purge sweep. |
+| `auth.account.cancel_attempted_but_already_purged` | Cancel route reached, but `cancelPendingDeletion` matched zero rows (the cascade won the TOCTOU race) | `details.source` = `"session"` or `"link"`. Honest trail entry — the standard `delete_cancelled` row would lie about a cancel that never happened. |
+| `auth.account.sign_in_blocked_pending_deletion` | Deletion-guard middleware intercepts a sign-in attempt against a pending-deletion account | Emitted from middleware so it's path-agnostic across Better Auth's various sign-in endpoints. |
+| `auth.account.hard_deleted` | Cascade transaction commits | Written inside the cascade transaction so the row commits atomically with the deletion and survives the same-transaction redaction sweep. `details.redacted: false` marks it as the one row in the chain that keeps its `details` payload. |
+
+`auth.grant.created` / `auth.grant.revoked` (OAuth grant lifecycle) are tracked separately — see [Authentication](/docs/api/authentication).
+
+## Operator perspective
+
+During the grace window, the account is visible to platform-admin tooling as a regular tenant in `pending_deletion`:
+
+- `my platform tenants show <id>` returns the tenant row.
+- `my platform tenants metrics <id>` still returns counts (the data is still there until the purger runs).
+- The tenant's `auth_user.deletion_state` is `pending_deletion`; sign-in attempts on the account return a generic `401` (the same shape as wrong credentials) and trigger a security-notice email subject to the per-account cooldown.
+
+After the purger sweeps, the tenant is gone:
+
+- `my platform tenants show <id>` returns 404.
+- Items, blobs, keys all return 404 to any reader.
+- The audit trail remains, with redacted `details` payloads.
+
+There is no operator command to force-purge a pending account *ahead* of its grace window — accounts only become eligible once `pending_deletion_at + grace_days` has elapsed. To force the next sweep without waiting for the 1-hour cadence (e.g. an account just passed its grace window and the operator wants the cleanup now), use [`my platform account-deletion purge-now`](/docs/self-hosting/operate/platform#forcing-a-pending-delete-sweep). Operator read of pending tokens for support-driven recovery is a separate deferred surface and not part of this build.
+
+## Configuration
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `MARFA_ACCOUNT_DELETION_GRACE_DAYS` | `30` | Days between `pending_deletion_at` and hard-delete. `0` disables the purger entirely (accounts stay `pending_deletion` forever); useful only for testing. |
+| `MARFA_ACCOUNT_DELETION_PURGE_INTERVAL_MS` | `3600000` (1h) | Cadence of the `PendingDeletePurger` sweep tick. The first sweep runs 15s after server start. |
+| `MARFA_ACCOUNT_DELETE_CANCEL_COOLDOWN_MS` | `3600000` (1h) | Per-account throttle on the security-notice email emitted by the deletion-guard middleware on a blocked sign-in. `0` disables the throttle (every blocked sign-in mints a fresh email). |
+
+The purger runs cluster-coordinated: an outer named lock (`account-deletion-purge`) keeps one instance running the sweep at any time; a per-account inner lock (`account-delete:<auth_user_id>`) prevents a cancel from racing the cascade.
+
+## Related
+
+- [Self-hosting — Platform](/docs/self-hosting/operate/platform) — operator surfaces for managing tenants. Account deletion is **user-initiated**, not admin-initiated; the platform commands do not include a "delete tenant" verb.
+- [Self-hosting — Hosted mode](/docs/self-hosting/run/hosted-mode) — the auth model this lifecycle plugs into.
