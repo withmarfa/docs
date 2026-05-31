@@ -98,7 +98,7 @@ The docs are grounded in six rules. Any edit that violates one is a bug.
 
 ## Deployment
 
-`docs.marfa.so` is a Cloudflare Worker. `pnpm deploy` runs `pnpm build && wrangler deploy`. Custom domain wired in `wrangler.jsonc`. Account: `marfa` (use `wrangler-marfa` helper to set the token).
+`docs.marfa.so` is a Cloudflare Worker. `pnpm deploy` runs `pnpm build && wrangler deploy`. Custom domain wired in `wrangler.jsonc`. Account: `marfa` (set `CLOUDFLARE_API_TOKEN` to a marfa-account token before deploying).
 
 ## Conventions
 
