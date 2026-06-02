@@ -13,18 +13,22 @@ import {
 } from 'fumadocs-ui/layouts/docs/page';
 import { baseOptions } from '@/lib/layout.shared';
 import { gitConfig } from '@/lib/shared';
-import { useFumadocsLoader } from 'fumadocs-core/source/client';
+import {
+  useFumadocsLoader,
+  deserializePageTree,
+  type SerializedPageTree,
+} from 'fumadocs-core/source/client';
 import { Suspense } from 'react';
 import { useMDXComponents } from '@/components/mdx';
+import { APIPage } from '@/components/api-page';
 
 // Legacy URL redirects — old Mintlify URLs that drifted during the Fumadocs
 // port. Keep the entries here so a stale link out in the wild still lands on
 // the right canonical page.
 const REDIRECTS: Record<string, string> = {
-  // /docs/concepts/library → /docs/concepts/lifecycle/tier
-  // The page is canonically about the Tier axis; the old URL leaked an
+  // The Tier page is canonically about the Tier axis; the old URL leaked an
   // internal namespace name. See Docs Content Evaluation for the rationale.
-  'concepts/library': '/docs/concepts/lifecycle/tier',
+  'concepts/library': '/docs/guides/core-model/tier',
 };
 
 export const Route = createFileRoute('/docs/$')({
@@ -36,7 +40,9 @@ export const Route = createFileRoute('/docs/$')({
     }
     const slugs = splat.split('/');
     const data = await serverLoader({ data: slugs });
-    await clientLoader.preload(data.path);
+    if (data.kind === 'docs') {
+      await clientLoader.preload(data.path);
+    }
     return data;
   },
 });
@@ -49,17 +55,29 @@ const serverLoader = createServerFn({
     const page = source.getPage(slugs);
     if (!page) throw notFound();
 
+    const pageTree = await source.serializePageTree(source.getPageTree());
+
+    if (page.type === 'openapi') {
+      return {
+        kind: 'openapi' as const,
+        title: page.data.title ?? '',
+        description: page.data.description ?? '',
+        apiProps: await page.data.getClientAPIPageProps(),
+        pageTree,
+      };
+    }
+
     return {
+      kind: 'docs' as const,
       path: page.path,
       markdownUrl: slugsToMarkdownPath(page.slugs).url,
-      pageTree: await source.serializePageTree(source.getPageTree()),
+      pageTree,
     };
   });
 
 const clientLoader = browserCollections.docs.createClientLoader({
   component(
     { toc, frontmatter, default: MDX },
-    // you can define props for the component
     {
       markdownUrl,
       path,
@@ -88,7 +106,46 @@ const clientLoader = browserCollections.docs.createClientLoader({
 });
 
 function Page() {
-  const { path, pageTree, markdownUrl } = useFumadocsLoader(Route.useLoaderData());
+  const data = Route.useLoaderData();
+
+  if (data.kind === 'openapi') {
+    return <OpenAPIView data={data} />;
+  }
+  return <DocsView data={data} />;
+}
+
+function OpenAPIView({
+  data,
+}: {
+  data: {
+    title: string;
+    description: string;
+    apiProps: Parameters<typeof APIPage>[0];
+    pageTree: SerializedPageTree;
+  };
+}) {
+  const pageTree = deserializePageTree(data.pageTree);
+  return (
+    <DocsLayout {...baseOptions()} tree={pageTree}>
+      <DocsPage full>
+        <DocsTitle>{data.title}</DocsTitle>
+        {data.description ? <DocsDescription>{data.description}</DocsDescription> : null}
+        <DocsBody>
+          <Suspense>
+            <APIPage {...data.apiProps} />
+          </Suspense>
+        </DocsBody>
+      </DocsPage>
+    </DocsLayout>
+  );
+}
+
+function DocsView({
+  data,
+}: {
+  data: { kind: 'docs'; path: string; markdownUrl: string; pageTree: SerializedPageTree };
+}) {
+  const { path, pageTree, markdownUrl } = useFumadocsLoader(data);
 
   return (
     <DocsLayout {...baseOptions()} tree={pageTree}>

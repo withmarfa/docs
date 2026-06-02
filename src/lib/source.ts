@@ -2,12 +2,18 @@ import { loader } from 'fumadocs-core/source';
 import { docs } from 'collections/server';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { docsRoute } from './shared';
+import { openapi } from './openapi';
 
-export const source = loader({
-  source: docs.toFumadocsSource(),
-  baseUrl: docsRoute,
-  plugins: [lucideIconsPlugin()],
-});
+export const source = loader(
+  {
+    docs: docs.toFumadocsSource(),
+    openapi: await openapi.staticSource({ baseDir: 'api-reference' }),
+  },
+  {
+    baseUrl: docsRoute,
+    plugins: [openapi.loaderPlugin(), lucideIconsPlugin()],
+  },
+);
 
 export function markdownPathToSlugs(segs: string[]) {
   if (segs.length === 0) return [];
@@ -33,9 +39,11 @@ export function slugsToMarkdownPath(slugs: string[]) {
 }
 
 export async function getLLMText(page: (typeof source)['$inferPage']) {
-  const processed = await page.data.getText('processed');
+  // OpenAPI pages are virtual and carry no source markdown.
+  const body =
+    'getText' in page.data ? await page.data.getText('processed') : (page.data.description ?? '');
 
   return `# ${page.data.title} (${page.url})
 
-${processed}`;
+${body}`;
 }
