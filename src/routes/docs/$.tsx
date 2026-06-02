@@ -25,18 +25,52 @@ import { APIPage } from '@/components/api-page';
 // Legacy URL redirects — old Mintlify URLs that drifted during the Fumadocs
 // port. Keep the entries here so a stale link out in the wild still lands on
 // the right canonical page.
-const REDIRECTS: Record<string, string> = {
-  // The Tier page is canonically about the Tier axis; the old URL leaked an
-  // internal namespace name. See Docs Content Evaluation for the rationale.
-  'concepts/library': '/docs/guides/core-model/tier',
+// The pre-restructure docs lived under /docs/concepts/*, /docs/api/*, and
+// /docs/sdks-and-clients/*. Map those to the current structure so old links and
+// bookmarks 301 to the right page instead of 404ing.
+const LEGACY_EXACT: Record<string, string> = {
+  // `library` leaked an internal namespace name; the page is canonically Tier.
+  'concepts/library': 'guides/core-model/tier',
+  'concepts/lifecycle/lifecycle': 'guides/core-model/lifecycle',
+  'concepts/lifecycle/marketplace': 'guides/connections/marketplace',
+  'concepts/lifecycle/provenance': 'guides/core-model/provenance',
+  'concepts/lifecycle/tier': 'guides/core-model/tier',
+  'api/authentication': 'guides/auth/authentication',
+  'api/bulk-operations': 'guides/querying/bulk-operations',
+  'api/errors': 'guides/operations/errors',
+  'api/inbound-webhooks': 'guides/realtime/inbound-webhooks',
+  'api/permissions': 'guides/auth/permissions',
+  'api/rate-limiting': 'guides/operations/rate-limiting',
+  'api/realtime': 'guides/realtime/realtime',
+  'api/search-and-query': 'guides/querying/search-and-query',
+  'api/webhooks': 'guides/realtime/webhooks',
+  'self-hosting/run/deployment-modes': 'guides/identity/deployment-modes',
 };
+
+const LEGACY_PREFIXES: [string, string][] = [
+  ['concepts/data-primitives/', 'guides/core-model/'],
+  ['concepts/connections/', 'guides/connections/'],
+  ['concepts/identity/', 'guides/identity/'],
+  ['concepts/schema/', 'guides/schema/'],
+  ['sdks-and-clients/', 'sdks/'],
+];
+
+function legacyTarget(splat: string): string | null {
+  const exact = LEGACY_EXACT[splat];
+  if (exact) return `/docs/${exact}`;
+  for (const [from, to] of LEGACY_PREFIXES) {
+    if (splat.startsWith(from)) return `/docs/${to}${splat.slice(from.length)}`;
+  }
+  return null;
+}
 
 export const Route = createFileRoute('/docs/$')({
   component: Page,
   loader: async ({ params }) => {
     const splat = params._splat ?? '';
-    if (REDIRECTS[splat]) {
-      throw redirect({ href: REDIRECTS[splat], statusCode: 301 });
+    const legacy = legacyTarget(splat);
+    if (legacy) {
+      throw redirect({ href: legacy, statusCode: 301 });
     }
     const slugs = splat.split('/');
     const data = await serverLoader({ data: slugs });
