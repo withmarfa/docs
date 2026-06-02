@@ -44,7 +44,7 @@ import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
 ## Navigation hierarchy
 
-Hierarchy lives in `meta.json` files per folder; each defines `title` and `pages` (an ordered list of slugs). Top-level groups: **Get started** / **Concepts** (sub-grouped: Data primitives / Schema / Identity / Lifecycle / Connections) / **API** / **SDKs and Clients** / **Self-hosting** (sub-grouped: Run / Operate).
+Hierarchy lives in `meta.json` files per folder; each defines `title`, `pages` (an ordered list of slugs), and `root: true` on the five top-level folders that become navbar tabs. The five tabs render across a top navbar (Fumadocs notebook layout, `nav.mode: 'top'` + `tabMode: 'navbar'`); each swaps the sidebar to its own tree. Tabs: **Get started** (overview, quickstart) / **Guides** (sub-grouped: Core model · Schema & types · Identity & spaces · Auth & permissions · Querying & data · Realtime & events · Connections & integrations · Operations) / **API reference** (OpenAPI-driven) / **SDKs** / **Self-hosting** (a self-host quickstart, then sub-grouped: Run / Operate).
 
 Adding a page: drop the `.mdx` file in the right folder, register it in the folder's `meta.json`. No central manifest.
 
@@ -95,6 +95,18 @@ The docs are grounded in six rules. Any edit that violates one is a bug.
 - **Examples minimal.** One curl / one SDK snippet per endpoint unless more adds information.
 - **Direct, declarative voice.** State the rule; don't hedge. No filler intensifiers (genuinely, really, actually, fundamentally, very, quite, basically).
 - **No personal infrastructure** — never internal hostnames, private IPs, launchd labels, or vault paths.
+
+## Formatting standards
+
+The anti-junk guardrail: the markup discipline every page holds to, and the rubric reviews enforce. The Principles govern content shape; the Style governs voice; these govern markup. A page can be on-voice and well-structured and still read as junk if it ignores them. They also govern the OpenAPI operation-description trim, since a spec description is a docs sentence and follows the same rules.
+
+- **Headings are plain text.** No inline code, backticks, links, or other markup in a heading, not even a literal identifier. If a code token wants to live in the heading, rephrase so it sits in the body instead.
+- **Inline code is for literal code only.** The test is location, not importance: backtick a token the reader would copy verbatim, including type ids, field names, env vars, paths, route fragments, header names, CLI flags, literal values, code symbols, and the like. A package or product name keeps its backticks inside a code block, command, or import (`pnpm add @withmarfa/sdk`); the same name in prose is plain text (the TypeScript SDK, Marfa, the API reference), never `@withmarfa/sdk` or `marfa`.
+- **One page-opening pattern.** Frontmatter `title` and a one-line `description`, then straight into the first `##` section. The theme renders the description as the lead, so the body never repeats it as a paragraph and never opens with preamble or "in this guide".
+- **Code blocks are for code.** A fenced block means runnable or copyable code. To make a note or a single value stand out, use a `<Callout>` or inline code, never a fence. (Choosing a scannable layout for a catalogue is Principle 4; this rule is only about not abusing a fence.)
+- **Links carry their meaning.** Link text states where it goes, never "click here" or a bare pasted URL. Internal links are relative paths so the `.md`-twin and self-hosted instances resolve them, never absolute `docs.marfa.so` URLs.
+- **Em-dash restraint.** At most one em-dash per sentence, and never two in one sentence doing different jobs. Use it for a parenthetical aside; use a colon to introduce, a comma to separate, a full stop to end. If a dash swaps for one of those with no loss, swap it.
+- **No needless nesting.** Flat unless the hierarchy is load-bearing; more than two levels of in-page nesting needs a reason. Don't bury a list under a heading under an accordion under a tab when one flat section says it once.
 
 ## Deployment
 
