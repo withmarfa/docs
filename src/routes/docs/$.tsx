@@ -159,13 +159,19 @@ function DocsView({
 }) {
   const { path, pageTree, markdownUrl } = useFumadocsLoader(data);
 
+  // The API reference (including its overview index, which is a regular MDX
+  // page) shows its resource sections open so there are no folder toggles, to
+  // match the endpoint pages. Other tabs collapse to top-level groups so the
+  // active trail is easy to scan.
+  const defaultOpenLevel = data.path.startsWith('api-reference') ? 6 : 0;
+
   return (
     <DocsLayout
       {...baseOptions()}
       nav={{ ...baseOptions().nav, mode: 'top' }}
       tree={pageTree}
       tabMode="navbar"
-      sidebar={{ defaultOpenLevel: 0 }}
+      sidebar={{ defaultOpenLevel }}
     >
       <Suspense>{clientLoader.useContent(path, { markdownUrl, path })}</Suspense>
     </DocsLayout>

@@ -7,7 +7,7 @@ import { openapi } from './openapi';
 export const source = loader(
   {
     docs: docs.toFumadocsSource(),
-    openapi: await openapi.staticSource({ baseDir: 'api-reference' }),
+    openapi: await openapi.staticSource({ baseDir: 'api-reference', groupBy: 'tag' }),
   },
   {
     baseUrl: docsRoute,
