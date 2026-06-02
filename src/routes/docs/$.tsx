@@ -88,14 +88,18 @@ const clientLoader = browserCollections.docs.createClientLoader({
   ) {
     return (
       <DocsPage toc={toc}>
-        <DocsTitle>{frontmatter.title}</DocsTitle>
-        <DocsDescription>{frontmatter.description}</DocsDescription>
-        <div className="flex flex-row gap-2 items-center border-b -mt-4 pb-6">
-          <MarkdownCopyButton markdownUrl={markdownUrl} />
-          <ViewOptionsPopover
-            markdownUrl={markdownUrl}
-            githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/content/docs/${path}`}
-          />
+        <div className="flex flex-row items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <DocsTitle>{frontmatter.title}</DocsTitle>
+            <DocsDescription>{frontmatter.description}</DocsDescription>
+          </div>
+          <div className="flex flex-row gap-2 items-center shrink-0">
+            <MarkdownCopyButton markdownUrl={markdownUrl} />
+            <ViewOptionsPopover
+              markdownUrl={markdownUrl}
+              githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/content/docs/${path}`}
+            />
+          </div>
         </div>
         <DocsBody>
           <MDX components={useMDXComponents()} />
@@ -126,7 +130,7 @@ function OpenAPIView({
 }) {
   const pageTree = deserializePageTree(data.pageTree);
   return (
-    <DocsLayout {...baseOptions()} tree={pageTree} tabMode="auto" tabs={{}}>
+    <DocsLayout {...baseOptions()} tree={pageTree} tabMode="auto" tabs={{}} sidebar={{ defaultOpenLevel: 6 }}>
       <DocsPage full>
         <DocsTitle>{data.title}</DocsTitle>
         {data.description ? <DocsDescription>{data.description}</DocsDescription> : null}
@@ -150,7 +154,7 @@ function DocsView({
   const { path, pageTree, markdownUrl } = useFumadocsLoader(data);
 
   return (
-    <DocsLayout {...baseOptions()} tree={pageTree} tabMode="auto" tabs={{}}>
+    <DocsLayout {...baseOptions()} tree={pageTree} tabMode="auto" tabs={{}} sidebar={{ defaultOpenLevel: 6 }}>
       <Suspense>{clientLoader.useContent(path, { markdownUrl, path })}</Suspense>
     </DocsLayout>
   );
