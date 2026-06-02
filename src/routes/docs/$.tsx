@@ -132,7 +132,9 @@ function OpenAPIView({
         {data.description ? <DocsDescription>{data.description}</DocsDescription> : null}
         <DocsBody>
           <Suspense>
-            <APIPage {...data.apiProps} />
+            {/* Title + description come from DocsTitle/DocsDescription above —
+                suppress the component's own copies so they don't repeat. */}
+            <APIPage {...data.apiProps} showTitle={false} showDescription={false} />
           </Suspense>
         </DocsBody>
       </DocsPage>
