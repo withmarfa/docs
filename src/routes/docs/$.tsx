@@ -1,5 +1,5 @@
 import { createFileRoute, notFound, redirect } from '@tanstack/react-router';
-import { DocsLayout } from 'fumadocs-ui/layouts/docs';
+import { DocsLayout } from 'fumadocs-ui/layouts/notebook';
 import { createServerFn } from '@tanstack/react-start';
 import { slugsToMarkdownPath, source } from '@/lib/source';
 import browserCollections from 'collections/browser';
@@ -10,7 +10,7 @@ import {
   DocsTitle,
   MarkdownCopyButton,
   ViewOptionsPopover,
-} from 'fumadocs-ui/layouts/docs/page';
+} from 'fumadocs-ui/layouts/notebook/page';
 import { baseOptions } from '@/lib/layout.shared';
 import { gitConfig } from '@/lib/shared';
 import {
@@ -130,7 +130,13 @@ function OpenAPIView({
 }) {
   const pageTree = deserializePageTree(data.pageTree);
   return (
-    <DocsLayout {...baseOptions()} tree={pageTree} tabMode="auto" tabs={{}} sidebar={{ defaultOpenLevel: 6 }}>
+    <DocsLayout
+      {...baseOptions()}
+      nav={{ ...baseOptions().nav, mode: 'top' }}
+      tree={pageTree}
+      tabMode="navbar"
+      sidebar={{ defaultOpenLevel: 6 }}
+    >
       <DocsPage full>
         <DocsTitle>{data.title}</DocsTitle>
         {data.description ? <DocsDescription>{data.description}</DocsDescription> : null}
@@ -154,7 +160,13 @@ function DocsView({
   const { path, pageTree, markdownUrl } = useFumadocsLoader(data);
 
   return (
-    <DocsLayout {...baseOptions()} tree={pageTree} tabMode="auto" tabs={{}} sidebar={{ defaultOpenLevel: 6 }}>
+    <DocsLayout
+      {...baseOptions()}
+      nav={{ ...baseOptions().nav, mode: 'top' }}
+      tree={pageTree}
+      tabMode="navbar"
+      sidebar={{ defaultOpenLevel: 0 }}
+    >
       <Suspense>{clientLoader.useContent(path, { markdownUrl, path })}</Suspense>
     </DocsLayout>
   );
