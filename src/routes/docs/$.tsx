@@ -126,7 +126,7 @@ function OpenAPIView({
 }) {
   const pageTree = deserializePageTree(data.pageTree);
   return (
-    <DocsLayout {...baseOptions()} tree={pageTree}>
+    <DocsLayout {...baseOptions()} tree={pageTree} tabMode="auto" tabs={{}}>
       <DocsPage full>
         <DocsTitle>{data.title}</DocsTitle>
         {data.description ? <DocsDescription>{data.description}</DocsDescription> : null}
@@ -148,7 +148,7 @@ function DocsView({
   const { path, pageTree, markdownUrl } = useFumadocsLoader(data);
 
   return (
-    <DocsLayout {...baseOptions()} tree={pageTree}>
+    <DocsLayout {...baseOptions()} tree={pageTree} tabMode="auto" tabs={{}}>
       <Suspense>{clientLoader.useContent(path, { markdownUrl, path })}</Suspense>
     </DocsLayout>
   );
