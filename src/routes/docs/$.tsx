@@ -2,17 +2,17 @@ import { createFileRoute, notFound, redirect } from '@tanstack/react-router';
 import { DocsLayout } from 'fumadocs-ui/layouts/notebook';
 import { createServerFn } from '@tanstack/react-start';
 import { slugsToMarkdownPath, source } from '@/lib/source';
+import { regroupApiReference } from '@/lib/api-reference-tree';
 import browserCollections from 'collections/browser';
 import {
   DocsBody,
   DocsDescription,
   DocsPage,
   DocsTitle,
-  MarkdownCopyButton,
-  ViewOptionsPopover,
 } from 'fumadocs-ui/layouts/notebook/page';
 import { baseOptions } from '@/lib/layout.shared';
 import { gitConfig } from '@/lib/shared';
+import { PageActions } from '@/components/page-actions';
 import {
   useFumadocsLoader,
   deserializePageTree,
@@ -55,7 +55,9 @@ const serverLoader = createServerFn({
     const page = source.getPage(slugs);
     if (!page) throw notFound();
 
-    const pageTree = await source.serializePageTree(source.getPageTree());
+    const pageTree = await source.serializePageTree(
+      regroupApiReference(source.getPageTree()),
+    );
 
     if (page.type === 'openapi') {
       return {
@@ -94,8 +96,7 @@ const clientLoader = browserCollections.docs.createClientLoader({
             <DocsDescription>{frontmatter.description}</DocsDescription>
           </div>
           <div className="flex flex-row gap-2 items-center shrink-0">
-            <MarkdownCopyButton markdownUrl={markdownUrl} />
-            <ViewOptionsPopover
+            <PageActions
               markdownUrl={markdownUrl}
               githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/content/docs/${path}`}
             />
@@ -135,7 +136,7 @@ function OpenAPIView({
       nav={{ ...baseOptions().nav, mode: 'top' }}
       tree={pageTree}
       tabMode="navbar"
-      sidebar={{ defaultOpenLevel: 6 }}
+      sidebar={{ defaultOpenLevel: 0, collapsible: false }}
     >
       <DocsPage full>
         <DocsTitle>{data.title}</DocsTitle>
@@ -159,19 +160,16 @@ function DocsView({
 }) {
   const { path, pageTree, markdownUrl } = useFumadocsLoader(data);
 
-  // The API reference (including its overview index, which is a regular MDX
-  // page) shows its resource sections open so there are no folder toggles, to
-  // match the endpoint pages. Other tabs collapse to top-level groups so the
-  // active trail is easy to scan.
-  const defaultOpenLevel = data.path.startsWith('api-reference') ? 6 : 0;
-
+  // Folders collapse to their headers by default; the active trail auto-opens.
+  // In the API reference this means the five section headers show with their
+  // resource folders collapsed until you open one (or land on an endpoint).
   return (
     <DocsLayout
       {...baseOptions()}
       nav={{ ...baseOptions().nav, mode: 'top' }}
       tree={pageTree}
       tabMode="navbar"
-      sidebar={{ defaultOpenLevel }}
+      sidebar={{ defaultOpenLevel: 0, collapsible: false }}
     >
       <Suspense>{clientLoader.useContent(path, { markdownUrl, path })}</Suspense>
     </DocsLayout>
