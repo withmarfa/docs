@@ -55,6 +55,9 @@ const LEGACY_EXACT: Record<string, string> = {
   'guides/operations/errors': 'api-reference/errors',
   'guides/operations/rate-limiting': 'api-reference/rate-limits',
   'self-hosting/run/deployment-modes': 'guides/identity/deployment-modes',
+  // The self-host quickstart moved into Introduction as Quickstart (self-hosted);
+  // the Self-hosting tab now lands on the section overview at `/self-hosting`.
+  'self-hosting/self-host-quickstart': 'self-hosting',
   // The Introduction landing absorbed the old Overview page.
   'get-started/overview': 'introduction',
   'introduction/overview': 'introduction',
@@ -164,12 +167,12 @@ const clientLoader = browserCollections.docs.createClientLoader({
         toc={toc.length > 1 ? toc : []}
         tableOfContent={{ enabled: true }}
         tableOfContentPopover={{ enabled: toc.length > 1 }}
+        footer={{ component: <PageFooter className="mt-12" /> }}
       >
+        {/* Title and the Copy button share the top row; the description spans the
+            full content width on its own line below, like a lead paragraph. */}
         <div className="flex flex-row items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <DocsTitle>{frontmatter.title}</DocsTitle>
-            <DocsDescription>{frontmatter.description}</DocsDescription>
-          </div>
+          <DocsTitle className="min-w-0">{frontmatter.title}</DocsTitle>
           <div className="flex flex-row gap-2 items-center shrink-0">
             <PageActions
               markdownUrl={markdownUrl}
@@ -177,6 +180,9 @@ const clientLoader = browserCollections.docs.createClientLoader({
             />
           </div>
         </div>
+        {frontmatter.description ? (
+          <DocsDescription>{frontmatter.description}</DocsDescription>
+        ) : null}
         <DocsBody>
           <MDX components={useMDXComponents()} />
         </DocsBody>
@@ -223,7 +229,7 @@ function OpenAPIView({
         // centred body and extends into this reserved space.
         tableOfContent={{ enabled: true }}
         toc={[]}
-        footer={{ component: <PageFooter className="mt-8" /> }}
+        footer={{ component: <PageFooter className="mt-12" /> }}
       >
         {/* The breadcrumb, title, body, and footer are each centred at 680px (in
             app.css) so they sit screen-centred like a narrative page; the code

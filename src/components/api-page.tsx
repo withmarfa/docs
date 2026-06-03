@@ -9,8 +9,11 @@ import { createClientAPIPage } from 'fumadocs-openapi/ui/create-client';
 // Capping it at a readable width here — independent of the overall page width —
 // pins the code rail to the right and keeps the prose at a comfortable measure.
 //
-// The slot order below mirrors fumadocs-openapi's default exactly; keep it in sync
-// when bumping the package (a new slot won't appear automatically).
+// Slot order: the operation description renders directly under the page heading,
+// above the request playground — so an endpoint page opens with a sentence of
+// context like every other page, not straight into the POST block. Otherwise the
+// order mirrors fumadocs-openapi's default; keep it in sync when bumping the
+// package (a new slot won't appear automatically).
 export const APIPage = createClientAPIPage({
   content: {
     renderOperationLayout: (slots) => (
@@ -22,8 +25,8 @@ export const APIPage = createClientAPIPage({
       <div className="@container flex flex-col gap-y-4 @5xl:grid @5xl:grid-cols-[minmax(0,1fr)_minmax(0,680px)_minmax(0,1fr)] @5xl:items-start @5xl:gap-x-12">
         <div className="mx-auto w-full max-w-[680px] @5xl:col-start-2 @5xl:mx-0 @5xl:max-w-none">
           {slots.header}
-          {slots.apiPlayground}
           {slots.description}
+          {slots.apiPlayground}
           {slots.authSchemes}
           {slots.parameters}
           {slots.body}
