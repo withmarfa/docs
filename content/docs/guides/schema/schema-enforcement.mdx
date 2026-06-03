@@ -1,0 +1,105 @@
+---
+title: Schema enforcement
+description: Always-on validation plus three optional console-controlled levers.
+---
+
+Schema validation and credential scopes are the always-on floor. Beyond that, three optional levers in the web console let operators tighten enforcement where they care.
+
+## Always on
+
+Every write goes through two checks before it lands.
+
+**Schema validation.** Required fields present, fields the right type, known properties shaped correctly. Validation runs on every `POST /items` and `PATCH /items/{id}`. By default, **unknown properties are accepted** — the server preserves them on the item but doesn't enforce shape on them. This is forward-compatibility for schemas that evolve. Strict mode (below) flips this default per type per space.
+
+**Permissions per credential.** Each credential is scoped to specific types, edges, extensions. Writes outside the credential's scope are rejected with `403 forbidden` before validation runs.
+
+These cannot be turned off. They are not the levers — they are the floor.
+
+## The three optional levers
+
+All three live on `TenantConfig.enforcement` and are written via `PUT /tenants/me/config`. Each defaults off; flip on per-type to tighten validation. Per-credential overrides ride on `ApiKey.enforcement_override`.
+
+### Strict mode per type
+
+For a given type in a space, reject unknown properties at write time.
+
+```
+PUT /tenants/me/config
+{
+  "enforcement": {
+    "strict_mode": { "types": ["core.note", "myapp.todo"] }
+  }
+}
+```
+
+With this set, a `POST /items` of type `core.note` carrying `properties.weird_extra` returns `400 invalid_properties` with `code: "unknown_property"`. Without strict mode, the same write succeeds and the property is preserved silently.
+
+The default is off because not enforcing forward-compat lets old clients keep writing while new clients add new fields. Switch it on when you want hard guarantees — typically late in a system's life, when the schema is stable and you want to catch drift.
+
+### Source allow-list on writes
+
+For a given type in a space, only allow writes from credentials whose `source` is in the allow-list.
+
+```
+PUT /tenants/me/config
+{
+  "enforcement": {
+    "source_allowlist": {
+      "types": ["core.note"],
+      "sources": ["My Notes App", "Marfa Web Console"]
+    }
+  }
+}
+```
+
+Stricter than the credential's own scope. A credential that holds `write core.note` is still rejected with `403 forbidden` if its `source` isn't in the allow-list. Useful when a space decides only specific apps should be authoritative for a given type.
+
+### Source filter on reads
+
+For a given type in a space, narrow read results to a specified set of sources.
+
+```
+PUT /tenants/me/config
+{
+  "enforcement": {
+    "source_filter": {
+      "types": ["core.note"],
+      "sources": ["My Notes App"]
+    }
+  }
+}
+```
+
+Filter-on-read, not enforcement-on-write. Items from other sources still exist in the space and are returned to credentials with explicit access; the filter narrows the default `GET /items?type=core.note` view. Useful when a space has accumulated noise from many sources and wants the default UI to show only the ones it cares about.
+
+## Per-credential overrides
+
+Any of the three levers can be overridden per credential by setting `ApiKey.enforcement_override` to an `EnforcementSettings` object with the same shape as the space-level default. The effective lever set for a write is the space-level default merged with the per-credential override — setting `strict_mode` on a credential does not clear the space's `source_allowlist`.
+
+```
+POST /keys
+{
+  "label": "Notes app key",
+  "type_permissions": { "core.note": "write" },
+  "enforcement_override": {
+    "strict_mode": { "types": ["core.note"] }
+  }
+}
+```
+
+Per-credential is the power-user surface; the space-level default covers the common case.
+
+## Server-side semver diff at type registration
+
+A separate enforcement axis, applied only at `POST /types`. The full surface — diff classes, required bumps, mismatched-bump errors — lives on [Authoring types](/docs/guides/schema/authoring-types#server-side-semver-diff).
+
+## What's enforced where
+
+| Check | When it runs | Always on |
+|---|---|---|
+| Schema validation | Every write to `POST /items` / `PATCH /items/{id}` | Yes |
+| Credential scope | Every write | Yes |
+| Strict mode (unknown property rejection) | Every write to a strict-mode type | Configurable |
+| Source allow-list | Every write to an allow-listed type | Configurable |
+| Source read filter | Every read of a filtered type | Configurable |
+| Server-side semver diff | `POST /types` only | Yes (cannot be disabled) |

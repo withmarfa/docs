@@ -1,0 +1,72 @@
+---
+title: Inbound webhooks
+description: Public receipt endpoints for Integration connectors — verification, dedup, dispatch, and replay.
+---
+
+Inbound webhooks are how third-party services push events into Marfa. When an Integration connector declares `triggers: webhook` in its manifest, the platform exposes a public receipt endpoint per Connection. Senders POST events; the platform verifies, deduplicates, and dispatches to the per-Integration Worker.
+
+This is the inverse of [outbound webhooks](/docs/guides/realtime/webhooks): outbound delivers Marfa item events to URLs the tenant registers; inbound accepts events from external services into Marfa.
+
+## Receipt endpoint
+
+```
+POST /webhooks/inbound/{connection_id}
+```
+
+Hosted on the Cloudflare control plane (`runtime-control`). The `connection_id` is the `system.connection` id created when the user installed the Integration. The path is published once per Connection and the sender configures it on their side; rotating it requires re-installing the Connection.
+
+The receipt accepts whatever body shape the sender ships — JSON, form-encoded, raw bytes — and reads it as `ArrayBuffer` for signature verification. The body is preserved byte-for-byte through to the per-Integration Worker.
+
+## Signature verification
+
+Signatures are checked against the adapter named in `webhook_verification.method` on the Connection's manifest. Six adapters ship with the platform:
+
+| Method | What it verifies |
+|---|---|
+| `hmac-sha256` | Generic HMAC-SHA256 over the raw body, with timestamp anti-replay (5-minute default window). The default for connectors that don't have a sender-specific quirk to honour. |
+| `slack` | Slack's `v0` signing scheme — concat timestamp + body, HMAC-SHA256 with the signing secret, prefix `v0=`, compare in constant time. |
+| `stripe` | Stripe's `t=...,v1=...` format — extract timestamp + signatures, HMAC-SHA256 over `t.body`, accept any matching `v1` signature. |
+| `github` | GitHub's `sha256=...` format — strip the prefix, HMAC-SHA256 the raw body, constant-time compare. |
+| `google-channel` | Google's `channels.watch` push notifications — verifies the `X-Goog-Channel-Token` header against the per-channel secret persisted on the Connection when the watch was created. Used by connectors subscribing to Google APIs that support `channels.watch`. |
+| `cloudflare-email` | Cloudflare Email Worker → server bridge for inbound-email integrations — verifies an HMAC-SHA256 signature stamped on the bridge payload by the Email Worker. Used by connectors that capture email via Cloudflare Email Routing. |
+
+Adapters live in [`@withmarfa/webhooks`](https://www.npmjs.com/package/@withmarfa/webhooks) — Web Crypto only, consumed by both the Cloudflare control plane and the server so signature behavior cannot drift between runtimes. Failed verification returns `401 invalid_signature`; the body is not forwarded.
+
+The verification method is declared in the Integration manifest, not on a per-receipt basis. Senders see exactly the verification path the connector author intended.
+
+## Deduplication
+
+Each verified receipt carries a sender-supplied delivery id (extracted from the relevant header per adapter — Stripe's `Stripe-Webhook-Id`, GitHub's `X-GitHub-Delivery`, etc.). The platform caches the id in KV for 1 hour; replays of the same `(connection_id, delivery_id)` return `200 ok` without re-dispatching. Callers can safely retry on transient failures.
+
+Adapters that don't expose a canonical delivery-id header fall back to a request-time identifier — replay protection still works, but the window is per-attempt rather than per-event.
+
+## Dispatch
+
+After verification and dedup, the platform enqueues a `WebhookHandlerInput` envelope on the per-Integration queue:
+
+- `connection_id` — the Connection that owns the subscription.
+- `external_delivery_id` — the sender's delivery id (or the request-time fallback).
+- `headers` — the full request header set, surfaced to the handler.
+- `body` — the raw bytes, decoded from `body_base64` at the SDK seam into an `ArrayBuffer`.
+
+Each Integration declaring a `webhook` trigger gets its own per-Integration webhook-receipt queue: Cloudflare Queues permit a single consumer per queue, so the control plane routes envelopes by `integration_name` to the matching producer binding. A shared receipt queue remains as a fallback for the one legacy in-tree connector that pre-dates the routing change. The per-Integration Worker reads its dedicated queue, dispatches to the connector's `handleWebhook` function, and acks the message on success. Failed dispatches retry per-message with exponential backoff up to the queue's max-attempts ceiling, then route to the per-Connection DLQ.
+
+## Failures and the DLQ
+
+Each Connection has its own dead-letter queue. A receipt that exhausts its retry budget — handler keeps returning `retry: true`, or throws on every retried attempt — lands in the DLQ rather than disappearing.
+
+Operators inspect failed deliveries through the Connection's audit row and the `system.activity` rows the handler emits at `severity: error`. Each DLQ entry preserves the verified envelope plus the failure reason.
+
+## Manual replay
+
+Operators can re-dispatch a failed delivery once the underlying problem is fixed:
+
+```
+POST /connections/{connection_id}/inbound-webhooks/{webhook_id}/deliveries/{event_id}/retry
+```
+
+Re-dispatch preserves the original envelope verbatim — verification is not re-run (the receipt is already trusted), but dedup is bypassed (the operator is intentionally re-delivering). Use to recover from a connector-side bug after deploying the fix.
+
+## Subscription management
+
+Subscriptions are part of the Connection's lifecycle, not a separate resource. They're created at install time when the manifest declares `triggers: webhook`, and they're revoked when the Connection is uninstalled. The CRUD surface — list subscriptions, inspect a delivery, replay — sits under `/connections/{id}/inbound-webhooks/...`. See the API reference for the full set.

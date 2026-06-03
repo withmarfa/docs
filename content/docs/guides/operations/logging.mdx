@@ -1,0 +1,80 @@
+---
+title: Logging and request IDs
+description: How Marfa surfaces observability — request IDs, structured log entries, and the conventions SDKs follow.
+---
+
+Every request the Marfa server handles emits one structured log entry tagged with a request ID. SDKs generate their own matching entries client-side, using the same ID so a stuck mutation can be traced end-to-end without cross-referencing clocks.
+
+## Request IDs
+
+The Marfa server reads the `X-Request-ID` header on every inbound request. If present and well-formed, it's preserved as-is; otherwise the server generates a fresh UUIDv7. Either way, the resolved value is echoed back in the response's `X-Request-ID` header and stamped on the server's log entry for that request.
+
+| Scenario | Resulting `request_id` |
+|---|---|
+| Client sends a valid `X-Request-ID` | Client-provided value |
+| Client sends no header | Server-generated UUIDv7 |
+| Client sends a malformed header | Server-generated UUIDv7 (silent fallback) |
+
+"Well-formed" means 1–128 characters matching `[A-Za-z0-9_-]`. This covers UUIDv7, UUIDv4, Datadog trace IDs, and most conventional correlation-key formats. Values outside this pattern are silently replaced — the response header shows the effective ID, so a dropped value is self-diagnosable.
+
+## Server log entries
+
+Each handled request writes one JSON line to stdout at response time:
+
+```json
+{
+  "timestamp": "2026-04-18T19:23:15.190Z",
+  "request_id": "019d1234-5678-7abc-8def-1234567890ab",
+  "method": "PATCH",
+  "path": "/items/019da086-d675-7cd8-ba3f-3dc4e6e7bd42",
+  "status": 404,
+  "duration_ms": 0.88,
+  "key_id": "019da20c-1959-7047-b7e0-d71473ec60ec",
+  "error_code": "item_not_found"
+}
+```
+
+| Field | Always present | Notes |
+|---|---|---|
+| `timestamp` | Yes | ISO 8601 UTC with millisecond precision |
+| `request_id` | Yes | The resolved value above |
+| `method` | Yes | HTTP method |
+| `path` | Yes | Request path (query string excluded) |
+| `status` | Yes | HTTP response status |
+| `duration_ms` | Yes | Wall time in the handler, two decimal places |
+| `key_id` | When authenticated | ID of the credential that authorized the request |
+| `error_code` | When `status >= 400` and handler set `X-Error-Code` | Machine-readable code — the same string you'd pattern-match in the response body |
+
+Operational errors (handler crashes, unhandled exceptions) emit a second line at level `error` with a human message and stack; they share the same `request_id`.
+
+## Client-side conventions
+
+The Swift SDK stamps an `X-Request-ID` on every request via `URLSessionTransport` and preserves it across in-request retries. Its own `os.Logger` entries use the same ID, so pairing a server 400 with the client's request that caused it is a one-line grep.
+
+Swift SDK log entries follow an `event.name key=value` shape on subsystem `sdk.marfa`:
+
+```
+http.request  method=PATCH path=/items/<id> request_id=<uuidv7>
+http.response method=PATCH path=/items/<id> status=400 request_id=<uuidv7>
+sync.mutation.dropped kind=updateItem item_id=<uuidv7> attempt=1 status=400 code=validation_error
+```
+
+Categories: `transport`, `sse`, `sync`, `keychain`. Keys:
+
+- `request_id` — matches the server's `request_id`
+- `method`, `path`, `status` — mirror HTTP semantics
+- `kind` — the mutation-queue kind (`createItem`, `updateItem`, `createEdge`, …)
+- `item_id`, `attempt` — sync-specific
+- `code` — server's error `code` when applicable
+
+Apps built on the SDK are encouraged to mirror this shape on their own subsystems (e.g. `acme.marfa.notes`). The [Swift SDK page](/docs/sdks/swift) documents the full set.
+
+The TypeScript SDK delegates to consumer logging; it doesn't stamp request IDs today. Callers that want correlation should set `X-Request-ID` on each outbound request and log it themselves.
+
+## Privacy (Swift)
+
+The Swift SDK logs request IDs, paths, statuses, error codes, and mutation kinds at `privacy: .public` — they're diagnostic, not sensitive. Bearer tokens and request/response bodies are `.private` and only logged when `ClientConfiguration.debugLogging` is explicitly enabled.
+
+## Reporting errors
+
+Including the `request_id` (or the response's `X-Request-ID` header value) in a bug report lets operators match the client-observed failure to the exact server log entry without guesswork. It's the single most useful piece of context for any API bug report.

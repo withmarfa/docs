@@ -22,8 +22,15 @@ export default defineConfig({
   ],
   resolve: {
     tsconfigPaths: true,
+    // Force a single React instance — fumadocs-openapi's UI otherwise pulls a
+    // second copy under the workerd SSR environment, nulling React's dispatcher.
+    dedupe: ['react', 'react-dom'],
     alias: {
       tslib: 'tslib/tslib.es6.js',
     },
+  },
+  ssr: {
+    // Bundle the OpenAPI UI into the SSR build so it shares the app's React.
+    noExternal: ['fumadocs-openapi'],
   },
 });

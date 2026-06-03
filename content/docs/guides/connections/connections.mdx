@@ -1,0 +1,54 @@
+---
+title: Connections
+description: How Marfa talks to apps and external services — the system.connection type and its two kinds.
+---
+
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+
+A Connection is an approved relationship between a Marfa space and an external authority. It carries the credentials, scopes, and operational state needed for that relationship to function. Connections are first-class items in the `system.*` namespace; they appear in listings, audit logs, and the console alongside everything else.
+
+The same shape covers two distinct relationships, discriminated by the `kind` field on `system.connection`.
+
+## The two kinds
+
+| Kind | What it represents | Example |
+|---|---|---|
+| `app` | A user's authorization of an external OAuth client to call Marfa on their behalf. | A "Sign in with Marfa" grant from a third-party note-taking app. |
+| `integration` | A connector, hosted or local, that reads or writes Marfa on the user's behalf. Carries credential references and runtime state. | A Google Calendar two-way sync; an RSS feed poller; a GitHub webhook receiver. |
+
+Lifecycle is bounded to `active` or `revoked` — Connections do not carry the universal three-state (`active` / `archived` / `trashed`), and they have no tier dimension. The `transition` endpoint enforces this.
+
+## What a Connection carries
+
+Both kinds share a `status` (`active` or `revoked`), a `granted_at` timestamp, and a `last_used_at` timestamp. Beyond that, fields differ by kind.
+
+<Accordions type="single">
+  <Accordion title="app">
+    Carries `client_id` (the OAuth client) and `scopes` (the granted scope strings). Created by the consent flow on `/auth/authorize`. Revocable from the user's grants surface.
+  </Accordion>
+
+  <Accordion title="integration">
+    Carries `integration_ref` (pointing at a `system.integration` — the manifest), `credential_ref` (pointing at a `system.credential` holding the integration's API key or upstream token), `direction` (`read` / `write` / `both`), `triggers` (an array of `schedule` / `webhook` / `item-event` / `manual` declarations), and `configuration` (a per-Integration JSON config bag). Optional `attached_device` points at a `system.device` when the connector runs on a specific local host. Runtime state lives in `runtime_status` (`healthy` / `degraded` / `failing` / `paused` / `reauth_required`) alongside the timing fields `last_sync_at`, `next_run_at`, and `last_error_at`. The `feed_activity` boolean controls whether this Connection's activity rows are stamped `tier: feed`. Runtime state is server-stamped — clients don't write `runtime_status` directly.
+  </Accordion>
+</Accordions>
+
+## How a Connection comes into being
+
+Two distinct flows produce Connections, depending on the kind.
+
+- **Sign in with Marfa** creates `app`-kind Connections. The user lands on a consent screen, approves the requested scopes, and the server creates the grant record plus the OAuth token pair. See [Authentication](/docs/guides/auth/authentication).
+- **Installing an Integration** creates `integration`-kind Connections. The user installs an Integration (a published manifest), the server runs an install pipeline that mints a runtime credential, persists the Connection, and — for OAuth-backed connectors — kicks off a callback flow to bootstrap the upstream tokens. See [Integrations](/docs/guides/connections/integrations).
+
+Both flows produce the same `system.connection` shape; the kind discriminator and the populated fields differ.
+
+## Why one type for two relationships
+
+A Connection is, in every case, an authority approval the platform needs to track for revocation, observability, and audit. Folding both kinds under one type collapses two credential management surfaces into one: list, inspect, and revoke work the same way for a user-granted app and a Calendar integration. Kind-specific state lives in fields that only apply when the kind is set; the universal shape (status, lifecycle, audit, listability) is uniform.
+
+## Permissions
+
+`system.connection` permissions are scoped per kind via the standard type-permission system. A credential may hold `read system.connection` to inspect grants without holding `write system.connection`, which the platform reserves for the install pipeline and revocation flows.
+
+## Activity
+
+Operator-visible state on a Connection — sync progress, errors, reauthorization prompts — surfaces through `system.activity` items attributed to the Connection rather than fields on the Connection itself. See [Activity](/docs/guides/connections/activity).

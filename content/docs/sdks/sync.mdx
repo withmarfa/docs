@@ -1,0 +1,225 @@
+---
+title: Sync agent
+description: Mirror local folders into Marfa. Files on disk become typed items; edits round-trip both ways.
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The sync agent is a translation layer between files on disk and typed Marfa items. Unlike transport layers — Syncthing, iCloud Drive, Obsidian Sync — that move bytes between machines, the sync agent interprets files as typed data so other Marfa clients can read, write, and reason over them. Published to npm as `@withmarfa/sync`; the CLI binary is `marfa-sync`.
+
+The engine is UI-agnostic. The CLI drives it over a loopback HTTP control surface; menu-bar and desktop UIs use the same surface.
+
+## Install
+
+```bash
+npm install -g @withmarfa/sync
+```
+
+Installs the `marfa-sync` binary on your `PATH`. Confirm with `marfa-sync --help`.
+
+## Quick start
+
+<Steps>
+  <Step>
+    **Start the agent against a folder.**
+
+    ```bash
+    marfa-sync start <folder> --url <api-url> --key <api-key>
+    ```
+
+    Watches the folder, registers it as the first root, and begins reconciling against the server.
+  </Step>
+  <Step>
+    **Optionally run as a daemon.** Pass `--daemon` to install a launchd service so the engine survives terminal sessions:
+
+    ```bash
+    marfa-sync start <folder> --daemon --url <api-url> --key <api-key>
+    ```
+  </Step>
+  <Step>
+    **Confirm it's running.**
+
+    ```bash
+    marfa-sync status
+    ```
+
+    Reports per-root sync state, open conflicts, and the engine's HTTP port.
+  </Step>
+</Steps>
+
+## Configuration
+
+Configuration merges from three sources in priority order: CLI flags, environment variables, then `~/.marfa/sync.json`.
+
+| Variable | Description |
+| --- | --- |
+| `MARFA_API_URL` | Marfa server URL |
+| `MARFA_API_KEY` | API key for authentication |
+
+The credential's `default_tier` shapes what tier items the agent writes. `items.bulk` is admin-only — a standard-scoped credential gets a one-time warning and the engine downshifts to per-item creates for the rest of the session.
+
+## Adding roots
+
+The agent watches one or more roots. Manage them at runtime:
+
+| Command | Purpose |
+| --- | --- |
+| `marfa-sync roots add <path> [--debounce <ms>]` | Register a new root. Returns its id. |
+| `marfa-sync roots list` | List registered roots with sync state. |
+| `marfa-sync roots rm <id>` | Stop watching a root. Items already on the server are not deleted. |
+
+Each root carries a self-contained `<root>/.marfa/` tree — config, mapping rules, ignore patterns, SQLite bookkeeping, status snapshot, conflict copies. The structure parallels `.git`: per-root state stays with the folder, engine-wide state lives at `~/.marfa/`.
+
+## Item types and mapping rules
+
+When a file is pushed, the agent decides what type the resulting Marfa item carries. Resolution order, first match wins:
+
+1. Frontmatter `type:` if present (text files only)
+2. User rules from `<root>/.marfa/mappings.json`
+3. Built-in mime defaults (`image/*` → `core.file.image`, audio, video)
+4. Fallback: `core.file`
+
+User rules let the agent promote files to richer types based on path, mime, or frontmatter shape. Example — turn every `.md` file in `Notes/` into a `core.note`, with title taken from the first H1 and body from the post-frontmatter content:
+
+```json
+{
+  "rules": [
+    {
+      "id": "notes",
+      "match": { "glob": "Notes/**/*.md" },
+      "transform": {
+        "type": "core.note",
+        "tier": "library",
+        "propertyExtractors": [
+          { "kind": "first-h1", "into": "title" },
+          { "kind": "body-after-frontmatter", "into": "body" },
+          { "kind": "frontmatter-key", "key": "tags", "into": "tags" }
+        ]
+      }
+    }
+  ]
+}
+```
+
+Match predicates: `glob` (gitignore-style), `mime`, `frontmatter` (key/value match, or `true` for presence). All present predicates AND together.
+
+## Folder structure
+
+<Callout type="info">
+  **Paths are properties, not graph structure.** The agent stores each file's root-relative path as the item's `source_id` (e.g. `Daily/2026/05/08.md`). It does not fabricate folder items with `parent-of` edges, and there is no `core.folder` type.
+</Callout>
+
+Filesystem hierarchy is metadata about where bytes sit on disk — not data about the items themselves. Treating it as a property rather than as a graph keeps item counts honest, sidesteps two-way maintenance of a folder tree the user already maintains on disk, and matches how the other surface clients (Notes, Messages, Mailbox) model their content: no first-class folder primitive, hierarchy expressed through other means.
+
+### Querying by folder
+
+`source_id` is a system field on every item, so the standard filter language reaches it directly. To list everything under a folder, use a `starts_with` prefix match:
+
+```
+source_id starts_with "Daily/"
+```
+
+Combine with type, tier, or other filters as normal:
+
+```
+type eq "core.note" AND source_id starts_with "Daily/2026/" AND tier eq "library"
+```
+
+See [Search and query](/docs/guides/querying/search-and-query) for the full filter language and operator set. A folder view in any Marfa client is a saved query of this shape — no graph traversal needed.
+
+### Cross-device behavior
+
+`source_id` is relative to the vault root, so the same logical vault on a different machine produces the same `source_id` values regardless of where on disk it lives. A Mac with the vault at `~/Notes/` and a Mac with it at `/Volumes/Work/Notes/` both produce `source_id = "Daily/2026/05/08.md"` for the same file. Absolute paths live only in the agent's local `state.db` and never reach the server.
+
+A folder query (`source_id starts_with "Daily/"`) returns the same items regardless of which device synced them. Folder structure is portable across the user's devices for free.
+
+### Removing the agent removes the items
+
+Items the agent creates are stamped with a `source` that resolves to the agent's `system.connection` row. Revoking that Connection cascades deletion of every item it authored — no separate "delete this folder" operation exists or is needed. To stop syncing one root without dropping the others, `marfa-sync roots rm <id>` stops watching but **does not delete the items already on the server**; to delete the items, revoke the Connection or trash them through the standard item lifecycle.
+
+## Rename detection
+
+Renaming a file inside a watched root preserves the Marfa item id, its edges, and its version history. The agent matches the new path's inode against recently-unlinked paths in a 5-second window to recognize the rename, then updates the item's source path on the server in place. No delete-and-recreate, no orphan edges.
+
+Cross-volume moves fall through to delete + create cleanly (different inodes). Renames that span longer than 5 seconds — for example, an engine crash between unlink and add — fall through the same way.
+
+## Conflict handling
+
+When the server and disk diverge on the same item, the agent snapshots the conflicting local copy to `<root>/.marfa/conflicts/<basename>.<id>.<ext>`, force-pushes the local version to preserve it in version history, pulls the server's version to the canonical path, and emits a `conflict-opened` event.
+
+Resolve in one of two ways:
+
+- Edit the canonical file and delete the conflict file — the watcher picks up the unlink and closes the conflict.
+- Run `marfa-sync resolve <conflict-id> --keep local|server`. `local` copies the conflict file over the canonical path and re-pushes; `server` simply deletes the conflict file.
+
+The same 8-hex `conflict-id` appears in the conflict filename, `status.json`, and the CLI command — no translation step between surfaces.
+
+## Supported filesystems
+
+The agent's stance on filesystems known to misbehave under continuous watching is "warn and allow": register the root, surface a `root-warned` event so a UI can show the warning inline, and let the user proceed with eyes open.
+
+<Accordions type="single">
+  <Accordion title="iCloud Drive (macOS) — warned">
+    Detected by path-prefix against the system iCloud container. iCloud's eviction and redownload cycle generates spurious filesystem events the agent cannot distinguish from genuine writes, so real-time sync is unreliable. Move the folder out of iCloud Drive for reliable two-way sync.
+  </Accordion>
+  <Accordion title="Network mounts (SMB, CIFS, NFS, AFP, WebDAV, FTP) — warned">
+    Detected by inspecting active mounts. Push (local-to-server) works fine; bidirectional real-time does not, because remote writes don't always trigger filesystem-change events on macOS or Linux.
+  </Accordion>
+  <Accordion title="Symlinks — not followed">
+    The watcher and the initial scan don't traverse symlinks, so a symlink inside a watched root is invisible to the agent. There is no recursion, so no cycle risk.
+  </Accordion>
+</Accordions>
+
+## Engine events
+
+The agent exposes a server-sent-events stream tailable via `marfa-sync events`. Each event is a typed record.
+
+| Event | Fires on |
+| --- | --- |
+| `file-synced` | File pushed or pulled successfully. Carries `direction` and `action` (`created`, `updated`, `deleted`, `renamed`). |
+| `file-failed` | Push or pull failed. Carries `reason`. |
+| `conflict-opened` | New conflict detected; conflict file written to `.marfa/conflicts/`. |
+| `conflict-resolved` | User picked a winner or deleted the conflict file. |
+| `root-added` / `root-removed` | Root configuration changed at runtime. |
+| `root-warned` | Filesystem caveat surfaced at root-add or recovery. |
+| `root-resync-started` / `root-resync-finished` | Full root rescan in progress. |
+
+## Command reference
+
+| Command | Purpose |
+| --- | --- |
+| `marfa-sync start <folder> [--daemon] [--url <api-url>] [--key <api-key>] [--types <path>]` | Start the engine and register the folder as a root. |
+| `marfa-sync stop` | Stop the daemonised engine. |
+| `marfa-sync status [--json]` | Report engine and per-root state. |
+| `marfa-sync stats [--json]` | Show engine runtime stats — pending events, totals processed, circuit-breaker state. |
+| `marfa-sync roots add <path> [--debounce <ms>]` | Register a new root at runtime. |
+| `marfa-sync roots list` | List registered roots. |
+| `marfa-sync roots rm <id>` | Remove a root from the watch set. |
+| `marfa-sync resync <root-id>` | Re-scan a root from scratch and reconcile against the server. |
+| `marfa-sync resolve <conflict-id> --keep local\|server` | Resolve an open conflict by choosing a winner. |
+| `marfa-sync events` | Tail the engine event stream. |
+
+`status` queries the loopback HTTP surface first and falls back to per-root `<root>/.marfa/status.json` when the engine isn't reachable. Every other command requires the engine to be running.
+
+## Troubleshooting
+
+<Accordions type="single">
+  <Accordion title="I added a root but nothing syncs.">
+    Check the API key is valid (`marfa-sync status` shows the engine state and any auth errors). Confirm the folder isn't on a warned filesystem — `root-warned` events surface in `marfa-sync events`. If `mappings.json` is in use, verify the rules actually match the files in the folder; a file with no matching rule and no frontmatter `type:` falls through to the `core.file` fallback, which the agent skips for text content.
+  </Accordion>
+  <Accordion title="I renamed a file but it appeared as a new item.">
+    The rename-detection window is 5 seconds. Renames that span longer — for example, a crash between the unlink and the add — fall through to delete + create. Cross-volume moves do the same because the inode changes. To recover the original item's edges and history, restore from the version history or delete the new item and rename within the window.
+  </Accordion>
+  <Accordion title="A folder of mine isn't appearing as a folder in Marfa.">
+    Folder structure isn't modeled as items. See [Folder structure](#folder-structure) above — query items by `source_id` prefix to list everything under a folder.
+  </Accordion>
+  <Accordion title="How do I move the agent to a new machine?">
+    Copy `~/.marfa/sync.json` to the new machine. The state SQLite databases under each `<root>/.marfa/` repopulate on first `marfa-sync start`. The Marfa items already live on the server; nothing has to migrate.
+  </Accordion>
+</Accordions>
+
+## Repo
+
+Source at [`withmarfa/sync`](https://github.com/withmarfa/sync). Engine internals, mapping rule schema, the loopback HTTP control surface, and the conflict-resolution state machine live in the repo's `CLAUDE.md`.

@@ -1,0 +1,91 @@
+---
+title: Namespaces
+description: Reserved roots, app vs publisher, identifiers, and compatible-with.
+---
+
+Every type identifier sits in one of five namespace tiers. The first segment of the identifier — the **root** — tells a reader (or parser) the shape at first glance.
+
+## The five tiers
+
+| Namespace | Purpose |
+|---|---|
+| `core.*` | Platform-shipped, immutable, narrow. Reference types and universal content kinds. |
+| `system.*` | Platform-internal operational types. Devices, credentials, webhooks, app identities. |
+| `app.<app-name>.<type>` | App-published types. Three segments. Available in any space that uses the app. |
+| `user.<type>` | Unpublished personal types. Space-scoped; never published to the registry. |
+| `<publisher>.<type>` | Community-published types. Two segments. Installable from the registry. |
+
+## Reserved roots
+
+The roots `core`, `system`, `app`, `user`, and `marfa` are reserved. They cannot be claimed as publisher handles.
+
+`core.*` and `system.*` are platform-only at registration: only Marfa-platform credentials can register types in these namespaces. Reserved-root claims by ordinary credentials are rejected at `POST /types`.
+
+## App vs publisher
+
+`app.` separates app trust from publisher trust. A publisher named `obsidian` cannot impersonate the Obsidian app — the Obsidian app would publish under `app.obsidian.*` (registered through a `system.app` identity), while a community publisher publishes under `obsidian.*` (registered through a publisher handle). Two distinct trust contexts; two distinct namespaces.
+
+That asymmetry is why `app.<app-name>.<type>` is three segments and `<publisher>.<type>` is two. The reserved-root rule disambiguates: any first segment that isn't a reserved root is a publisher handle.
+
+## Worked examples
+
+| Identifier | Tier | Reading |
+|---|---|---|
+| `core.note` | `core` | A platform-shipped type. |
+| `core.entity.person` | `core` | A platform-shipped subtype of `core.entity`. |
+| `system.device` | `system` | A platform-internal operational type. |
+| `app.obsidian.daily_note` | `app` | A type published by the registered Obsidian app. |
+| `user.recipe` | `user` | A personal type, scoped to one space. |
+| `nadia.meal_plan` | `<publisher>` | A type published by the publisher with handle `nadia`. |
+| `readwise.reader_document` | `<publisher>` | A type published by the publisher with handle `readwise`. |
+
+## Sibling vs child
+
+A custom type can be a **sibling** of another type (its own shape, optionally declaring `compatible-with`) or a **child** that inherits.
+
+Both are first-class. The default is sibling. Inheritance is a stronger commitment — children cannot redefine ancestor fields, so a bad inheritance choice is hard to recover from. Sibling is recoverable; you can always add inheritance later.
+
+The rubric: inherit only if every ancestor field is semantically required for your type. Otherwise sibling, optionally `compatible-with`. The full rubric lives on [Authoring types](/docs/guides/schema/authoring-types).
+
+User types are flat by convention but can extend via inheritance where it earns its place. The same applies to publisher and app types — flat is the default; nest when the structural relationship is real.
+
+### Declaring compatibility
+
+A sibling type can declare `compatible-with: <other-type>` to assert that its shape is a structural superset. Optionally with name mappings:
+
+```json
+POST /types
+{
+  "id": "carla.meal_plan",
+  "compatible_with": [
+    { "type": "core.task", "field_mappings": { "due_at": "scheduled_for" } }
+  ],
+  "fields": {
+    "scheduled_for": { "type": "datetime" },
+    ...
+  }
+}
+```
+
+The platform verifies the claim at registration. If `carla.meal_plan` doesn't actually have everything `core.task` requires (under the declared mappings), the registration is rejected with `422 compatible_with_violation`.
+
+`compatible-with` is server-checked, not a free-text tag. Consumers can rely on it.
+
+### Inheritance
+
+Single-parent. Additive-only. Children may add fields; cannot redefine or reshape ancestor fields.
+
+```
+core.bookmark         (parent)
+└── readwise.reader_document   (child — inherits everything, adds new fields)
+```
+
+Reads inherit down: `GET /items?type=core.bookmark` returns both parents and children. Writes require the exact type — a credential with `write core.bookmark` cannot update a `readwise.reader_document` without that scope.
+
+## Domain verification
+
+Domain verification is a badge on a single canonical handle, not a parallel namespace. `nadia.meal_plan` and `dev.nadia.meal_plan` do not coexist as different things. The verified-domain badge sits next to the publisher handle in the marketplace UI; the type identifier stays singular.
+
+## Identifiers
+
+Type identifiers use dots only. No forward slashes. Segments are lowercase, snake_case for multi-word components: `demo.web_gallery`, not `demo/web-gallery` or `demo.WebGallery`.

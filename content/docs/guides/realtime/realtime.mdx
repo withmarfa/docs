@@ -1,0 +1,154 @@
+---
+title: Realtime
+description: Server-Sent Events for live updates, with reconnection via Last-Event-ID.
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+
+Marfa emits live events on a per-tenant Server-Sent Events stream. Clients that need to reflect changes in real time subscribe to `GET /events`.
+
+## Connecting
+
+```http
+GET /events HTTP/1.1
+Host: marfa.example.com
+Authorization: Bearer <token>
+Accept: text/event-stream
+```
+
+The connection stays open. The server streams events as they occur, each on its own SSE record:
+
+```
+id: 4521
+event: item.created
+data: {"type":"item.created","item":{"id":"019d...","type":"core.note","properties":{ ... }}}
+
+id: 4522
+event: edge.created
+data: {"type":"edge.created","edge":{"id":"...","edge_type":"about","source_id":"...","target_id":"..."}}
+
+: ping
+```
+
+Each `data` payload is a JSON envelope: `{ type, item }` for item events (the full item under `item`, plus `metadata` when metadata changed) and `{ type, edge }` for edge events. The `id` is a monotonically increasing integer — persist the most recent one and send it back as `Last-Event-ID` to resume after a drop.
+
+Comments (lines starting with `:`) are heartbeats. The server sends one every ~30 seconds. Treat an idle stream longer than 60s as disconnected and reconnect.
+
+## Event types
+
+Payloads are filtered by the subscriber's permissions — the server won't stream events for items or edges the credential can't read.
+
+<Accordions type="single">
+  <Accordion title="Event catalog (quick reference)">
+    Every payload includes the event `type`; item events nest the resource under `item`, edge events under `edge`.
+
+    | Event | Resource in `data` |
+    |---|---|
+    | `item.created` | The full item, under `item`. |
+    | `item.updated` | The full item after update, under `item`. |
+    | `item.state_changed` | The full item after transition, under `item`. |
+    | `item.deleted` | `item`: `{ id, type }`. |
+    | `item.restored` | The full item after restore, under `item`. |
+    | `edge.created` | The full edge, under `edge`. |
+    | `edge.deleted` | `edge`: `{ id, edge_type, source_id, target_id }`. |
+    | `metadata.changed` | `{ item_id, tags, tier, state }`. |
+  </Accordion>
+</Accordions>
+
+## Filtering
+
+Clients can subscribe to a subset of events:
+
+```
+GET /events?event=item.created,item.updated
+GET /events?type=core.note                 # item events only for this type (and subtypes)
+GET /events?edge_type=in-thread            # edge events only for this type
+```
+
+Filters apply on the server; unwanted events never leave the stream.
+
+## Reconnecting after a drop
+
+On reconnect, the client sends the `Last-Event-ID` header with the last event id it received:
+
+```http
+GET /events HTTP/1.1
+Last-Event-ID: 4521
+```
+
+The server replays events that occurred after that id from its event log, then transitions to live streaming. This is gapless for events within the log's retention window (default 7 days).
+
+The `EventSource` API in browsers handles `Last-Event-ID` automatically. Non-browser clients (SDKs, server-to-server consumers) should persist the most recent event id and re-send it on reconnect.
+
+## When the event log is stale
+
+If `Last-Event-ID` is older than the event log retention window, the server replies with a terminal event indicating the gap. The `data` payload carries the oldest id the log can still replay (`min_retained_id`) and the id the client asked to resume from (`requested`):
+
+```
+event: catchup_too_old
+data: {"type":"catchup_too_old","min_retained_id":"...","requested":"..."}
+```
+
+Clients should recover by falling back to an incremental `GET /items?since=<timestamp>&limit=...` sweep (paginated), then reconnect to live streaming.
+
+This path doesn't surface deletes — items deleted during the gap aren't returned. A subsequent SSE delete event will reconcile on receipt. Clients that need deterministic delete reconciliation after long outages should keep the SSE stream within retention or re-seed the local store.
+
+## Catch-up strategy
+
+A typical sync engine follows this pattern:
+
+<Steps>
+
+<Step>
+
+### First connection
+
+Connect to `GET /events` without `Last-Event-ID`. Persist the most recent id received.
+
+</Step>
+
+<Step>
+
+### Live streaming
+
+Apply events as they arrive. Persist `Last-Event-ID` on each event.
+
+</Step>
+
+<Step>
+
+### Reconnect on disconnect
+
+Send persisted `Last-Event-ID`. Server replays from that point.
+
+</Step>
+
+<Step>
+
+### Handle the stale-cursor signal
+
+When the server emits a terminal `catchup_too_old` event, fall back to `GET /items?since=<last_sync_timestamp>` with pagination. Reconnect live after catch-up completes.
+
+</Step>
+
+</Steps>
+
+## Keepalive
+
+The server sends `:ping` comment frames every ~30 seconds. Clients should close the connection and reconnect if no event (including pings) arrives for > 60 seconds — the connection is likely dead even if the TCP socket is open.
+
+## Scale
+
+SSE is single-process on the emitting server. For deployments behind load balancers or multi-instance setups, configure sticky sessions or use the webhook delivery system instead — webhooks are durable and don't require persistent connections.
+
+## SSE vs webhooks
+
+| Use case | Use |
+|---|---|
+| Live UI that updates as data changes | SSE |
+| Long-running server ingesting events | SSE (or webhooks with a local queue) |
+| Triggering workflows in external systems | Webhooks |
+| Integrating with services that expect HTTP POST | Webhooks |
+
+Both fire on the same event surface — an item creation produces both an SSE event and a webhook delivery. Use whichever matches your consumer.

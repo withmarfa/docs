@@ -1,0 +1,132 @@
+---
+title: Webhooks
+description: Durable outbound event delivery with HMAC signatures and retry.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+
+Webhooks push events to a URL you control. Use them for integration with external systems, workflow triggers, and one-way pipelines that don't need an always-on connection.
+
+## Registering a webhook
+
+Register via `POST /webhooks` with the target URL, the event kinds to subscribe to, an optional type filter, and an HMAC secret.
+
+<Accordions type="single">
+  <Accordion title="Example request and fields">
+    ```json
+    POST /webhooks
+    {
+      "url": "https://example.com/marfa/hooks",
+      "events": ["item.created", "item.updated", "edge.created"],
+      "type_filter": ["core.note", "core.bookmark.*"],
+      "secret": "wh_abc123..."
+    }
+    ```
+
+    | Field | Meaning |
+    |---|---|
+    | `url` | HTTPS endpoint to POST events to. HTTP allowed for local-development targets. |
+    | `events` | Array of event names. See [event types](#event-types). Wildcard `*` accepted. |
+    | `type_filter` | Optional. Filter item events to these types only. Pattern supports `*` and `parent.*`. |
+    | `secret` | HMAC signing key. Auto-generated if omitted. Returned only in the creation response — retrieve it then, store securely. |
+    | `disabled` | Optional boolean. Webhook registered but inactive. |
+  </Accordion>
+</Accordions>
+
+## Event types
+
+Webhooks deliver the same event surface as SSE. See the [Realtime event catalog](/docs/guides/realtime/realtime#event-types) for the full list and payload shapes.
+
+Each delivery carries:
+
+```http
+POST /your/url HTTP/1.1
+Content-Type: application/json
+X-Marfa-Event: item.created
+X-Marfa-Signature: t=1712345678,v1=abc123...
+
+{"event":"item.created","item":{"id":"019d...","type":"core.note",...}}
+```
+
+`X-Marfa-Event` names the event kind; `X-Marfa-Signature` carries the timestamp and HMAC. The payload body identifies the affected record by its `item.id` (or `edge.id`).
+
+## Signature verification
+
+Every delivery is signed with HMAC-SHA256 over `timestamp + "." + raw_body`.
+
+Verify:
+
+```typescript
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verifyWebhook(
+  header: string,        // value of X-Marfa-Signature
+  rawBody: string,
+  secret: string,
+): boolean {
+  const parts = Object.fromEntries(
+    header.split(",").map((kv) => kv.split("=") as [string, string])
+  );
+  const timestamp = parts.t;
+  const received = parts.v1;
+  if (!timestamp || !received) return false;
+
+  // Reject deliveries older than 5 minutes to mitigate replay.
+  const age = Math.floor(Date.now() / 1000) - Number(timestamp);
+  if (age > 300 || age < -60) return false;
+
+  const expected = createHmac("sha256", secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest("hex");
+
+  return timingSafeEqual(
+    Buffer.from(received, "hex"),
+    Buffer.from(expected, "hex"),
+  );
+}
+```
+
+Reject any request that fails verification. Always verify against the **raw** request body; JSON-parsing then re-serializing changes whitespace and breaks the signature.
+
+## Delivery semantics
+
+- **At-least-once.** A successful `2xx` response is required to mark the delivery complete. Timeouts and non-2xx responses trigger retries.
+- **Best-effort immediate dispatch.** Initial delivery is attempted on event publication and typically lands sub-second; if the immediate attempt fails or times out, the durable retry queue takes over. Receivers see no behavioral difference between the two paths — the HMAC signature, headers, and body are byte-identical.
+- **Durable retry.** Deliveries persist in the server's delivery queue across restarts. No in-memory state.
+- **Backoff.** A failed attempt retries on a fixed schedule of 1s, 5s, then 25s, for four attempts total (the per-webhook `max_attempts` default). A receiver's `Retry-After` header overrides the next delay, capped at five minutes. After the final attempt, the delivery is marked `failed` and surfaced via `GET /webhooks/{id}/deliveries`.
+- **Idempotency.** Retries reuse the same signed body, so the affected record's `item.id` (or `edge.id`) is stable across attempts. Deduplicate on that id plus the `X-Marfa-Event` kind.
+
+<Callout type="warn">
+  Ordering is not guaranteed. Webhooks can arrive out of order when one delivery retries and subsequent ones don't. Apps that need ordered processing should use [SSE](/docs/guides/realtime/realtime), whose event ids are monotonic, or re-fetch the affected record server-side to get its current state.
+</Callout>
+
+## Managing webhooks
+
+Standard CRUD plus delivery-history endpoints — see the Webhooks API reference for full shapes.
+
+<Accordions type="single">
+  <Accordion title="Management endpoints (quick reference)">
+    ```
+    GET    /webhooks                        # list
+    GET    /webhooks/{id}                   # retrieve
+    PATCH  /webhooks/{id}                   # update URL, events, filters, disabled flag
+    DELETE /webhooks/{id}                   # remove
+
+    GET /webhooks/{id}/deliveries                        # pending + terminal
+    GET /webhooks/{id}/deliveries?status=failed
+    POST /webhooks/{id}/deliveries/{delivery_id}/retry   # force retry (admin)
+    ```
+  </Accordion>
+</Accordions>
+
+## Scope
+
+Webhooks are tenant-scoped. A non-admin credential can only register and inspect webhooks in its own tenant. Admin credentials see tenant-wide webhooks.
+
+## Good practice
+
+- **Respond 2xx immediately.** Accept the event into a local queue, return 200, process asynchronously. Long-running processing during the HTTP response triggers timeouts and retries.
+- **Verify signatures before trusting payload content.** An unverified request body is just an arbitrary HTTP POST to your endpoint.
+- **Deduplicate on the record id.** At-least-once delivery means the same event may arrive more than once. Track the affected `item.id` (or `edge.id`) with the `X-Marfa-Event` kind to drop repeats.
+- **Retry on your end for transient downstream failures.** If your consumer fails to process an event after signature verification, don't return 5xx — Marfa will retry. Instead, return 200 and enqueue locally for your own retry.

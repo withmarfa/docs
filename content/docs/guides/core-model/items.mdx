@@ -1,0 +1,68 @@
+---
+title: Items
+description: The atomic unit of data in Marfa.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An item is the unit of data. Every record — a note, a book, a person, a photo, a type an app invents — is an item. Whatever its type, every item has the same four layers.
+
+| Layer | Holds | Written by |
+|---|---|---|
+| **System fields** | Identity, timing, provenance, versioning | The server |
+| **Properties** | Typed content, validated against the type schema | Your app |
+| **Metadata** | Tags, tier, lifecycle state — the universal layer | Your app |
+| **Extensions** | Namespaced sidecar state from other apps | Any app, per namespace |
+
+## System fields
+
+The server sets these and rejects them in request bodies. Names, types, and nullability live in the [API reference](/docs/api-reference) — that is the source of truth. Four carry semantics worth knowing before you read the spec:
+
+- **`timestamp` vs `created_at`** — `timestamp` is the user-meaningful time (when the photo was taken, when the event happened); `created_at` is when the item reached Marfa. `timestamp` defaults to `created_at`.
+- **`source`** — stamped from the credential server-side and not forgeable. See [Provenance](/docs/guides/core-model/provenance).
+- **`source_id`** — the upstream system's stable id for this record. With `source`, it forms the natural key that makes `POST /items` idempotent.
+- **`version`** — starts at 1, increments on every update, and drives optimistic concurrency on [`PATCH`](/docs/guides/operations/errors).
+
+System fields are reserved on every type — a custom schema cannot redeclare them as properties. See [Reserved field names](/docs/guides/schema/authoring-types).
+
+## Properties
+
+Typed JSON, validated against the item's type schema. Schema fields are enforced on write; unknown fields are preserved, so a schema can grow without breaking older writers. Properties are type-specific: a `core.note` has `body`, a `core.media.book` has `title`, `author`, `isbn`. See [Types](/docs/guides/core-model/types).
+
+## Metadata
+
+Every item carries the metadata layer, whatever its type.
+
+| Field | Values | Purpose |
+|---|---|---|
+| `tags` | string array | Flat, kebab-case labels. Some prefixes carry conventions — see [Metadata](/docs/guides/core-model/metadata). |
+| `tier` | `library` · `feed` | The curated-library vs high-volume-feed axis. See [Tier](/docs/guides/core-model/tier). |
+| `state` | `active` · `archived` · `trashed` | Lifecycle. See [Lifecycle](/docs/guides/core-model/lifecycle). |
+
+<Callout type="info">
+  The metadata layer is closed — types can't extend it. The three fields hold concepts with system-wide consequences: labels, the curation axis, and lifecycle. Anything else always-present belongs in `properties`. Only items carry metadata; edges and attachments don't.
+</Callout>
+
+## Extensions
+
+Namespaced sidecar state other apps attach to an item — a reader's progress, a UI's last-viewed time. Extensions are state, not content with its own identity.
+
+```json
+"extensions": {
+  "readwise-reader.reading_progress": { "offset": 1234, "percent": 45 }
+}
+```
+
+They live at their own endpoints and respect per-namespace permissions. See [Extensions](/docs/guides/core-model/extensions) for when to reach for an extension over a custom type.
+
+## Attachments
+
+Every item has an `attachments` array for secondary binaries bound to its lifecycle — a transcript on a video, a cover on a book. Each entry references a content-addressed blob (`blob_ref`), its `mime_type`, an optional `title`, and an optional `role`.
+
+When the secondary content is its own item — queryable on its own, or linked from more than one host — use an [`attached-to` edge](/docs/guides/core-model/edges) instead. The rule of thumb: bound to the host → `attachments[]`; independent item that belongs to a host → edge.
+
+## Relationships, lists, and writes
+
+- **Relationships are [edges](/docs/guides/core-model/edges)**, not fields on the item. Single-item reads hydrate edges inline; list reads opt in with `?include=edges` — see [Search and query](/docs/guides/querying/search-and-query).
+- **Lists are lean.** `GET /items` returns the bare item — no edges, metadata, or extensions until you ask via `?include=`.
+- **Writes can be atomic and idempotent.** One `POST /items` creates an item and its outbound edges in a single transaction, and is idempotent on `(source, source_id)` — a re-delivered batch updates in place instead of duplicating. See [Edges](/docs/guides/core-model/edges) and the [API reference](/docs/api-reference).
