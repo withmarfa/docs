@@ -225,9 +225,6 @@ function OpenAPIView({
         <div className="flex flex-row items-start justify-between gap-4">
           <div className="min-w-0">
             <DocsTitle>{data.title}</DocsTitle>
-            {data.description ? (
-              <DocsDescription>{data.description}</DocsDescription>
-            ) : null}
           </div>
           <div className="shrink-0">
             <PageActions markdownUrl={data.markdownUrl} />
@@ -235,9 +232,11 @@ function OpenAPIView({
         </div>
         <DocsBody>
           <Suspense>
-            {/* Title + description come from DocsTitle/DocsDescription above —
-                suppress the component's own copies so they don't repeat. */}
-            <APIPage {...data.apiProps} showTitle={false} showDescription={false} />
+            {/* Title comes from DocsTitle above (paired with the Copy button).
+                Let APIPage render the operation description through its own
+                markdown pipeline so inline `code` renders as code, not raw
+                backticks. */}
+            <APIPage {...data.apiProps} showTitle={false} />
           </Suspense>
         </DocsBody>
       </DocsPage>
