@@ -83,7 +83,7 @@ const { data, nextCursor } = await client.items.list({
 await client.items.update(
   note.id,
   { body: "Updated content" },          // properties to merge
-  { version: note.version },            // optimistic concurrency, no upfront GET
+  { expectedVersion: note.version },    // optimistic concurrency, no upfront GET
 );
 
 await client.items.transition(note.id, "archived");
@@ -93,17 +93,17 @@ await client.items.restore(note.id);        // ← restore from trashed
 
 #### Natural-key upsert
 
-When `create()` is called with both `source_id` and a credential-stamped `source` that already resolve an existing non-trashed row in the tenant, the server short-circuits to update — properties shallow-merge, tags replace if provided, edges replace per-type if provided. The HTTP status flips from `201` to `200`; the SDK returns the updated item either way. See [Items — natural-key upsert](/docs/guides/core-model/items#natural-key-upsert) for the wider semantics.
+When `create()` is called with both `source_id` and a credential-stamped `source` that already resolve an existing non-trashed row in the tenant, the server short-circuits to update — properties shallow-merge, tags replace if provided, edges replace per-type if provided. The HTTP status flips from `201` to `200`; the SDK returns the updated item either way. See [Items — relationships, lists, and writes](/docs/guides/core-model/items#relationships-lists-and-writes) for the wider semantics.
 
 #### Update signature
 
-`items.update(id, properties, options?)`. The second argument is the property bag itself — `{ body: "..." }` — not a wrapping object with a `properties` key. The optional third argument carries flow control: `version` for optimistic concurrency, `conflict` to override the strategy per call, `resolve` for the callback resolver.
+`items.update(id, properties, options?)`. The second argument is the property bag itself — `{ body: "..." }` — not a wrapping object with a `properties` key. The optional third argument carries flow control: `expectedVersion` for optimistic concurrency, `conflict` to override the strategy per call, `resolve` for the callback resolver.
 
 ```typescript
-await client.items.update(id, { body: "..." }, { version: 7 });
+await client.items.update(id, { body: "..." }, { expectedVersion: 7 });
 ```
 
-Conflict-resolution behaviour is unchanged. A 409 from the server still resolves through the configured `conflictStrategy`; the lazy type fetch on `keep_both_copies` paths still happens automatically. Pass `type` in options only if you also want to skip that specific lazy fetch.
+Conflict-resolution behavior is unchanged. A 409 from the server still resolves through the configured `conflictStrategy`; the lazy type fetch on `keep_both_copies` paths still happens automatically. Pass `type` in options only if you also want to skip that specific lazy fetch.
 
 ### Edges
 
@@ -204,7 +204,7 @@ await client.items.update(
   id,
   { body: "..." },
   {
-    version: 3,
+    expectedVersion: 3,
     conflict: "callback",
     resolve: async ({ current, ancestor, clientPatch, conflictingFields, mergePolicy }) => {
       return { ...current.properties, ...clientPatch };
@@ -256,77 +256,80 @@ try {
 
 All error classes extend `MarfaError`, which carries `code`, `message`, `status`, and optionally `details`. Branch on `err.code` (stable string) rather than message wording.
 
-## OAuth helpers (`@withmarfa/sdk/auth`)
+## OAuth helpers
 
-A separately-exported subpath for apps that authenticate users through Marfa rather than holding an API key. Mirrors the OAuth 2.1 + Device Authorization Grant flows documented under [Authentication](/docs/guides/auth/authentication).
+The `@withmarfa/sdk/auth` subpath is a separately-exported entry point for apps that authenticate users through Marfa rather than holding an API key. Mirrors the OAuth 2.1 + Device Authorization Grant flows documented under [Authentication](/docs/guides/auth/authentication).
 
 ```typescript
 import {
   MarfaAuth,
   startDeviceFlow,
   OAuthError,
-  generatePkcePair,
+  generateCodeVerifier,
+  computeCodeChallenge,
+  generateState,
   type TokenProvider,
-  MemoryTokenStorage,
+  InMemoryTokenStorage,
   LocalStorageTokenStorage,
 } from "@withmarfa/sdk/auth";
 ```
 
-### `MarfaAuth`
+### MarfaAuth
 
-The high-level helper for the Authorization Code + PKCE flow. Generates the PKCE verifier, builds the authorize URL, exchanges the redirected code for tokens, and refreshes on demand. Pair it with a `TokenStorage` to persist the resulting token pair.
+The high-level helper for the Authorization Code + PKCE flow. Generates the PKCE verifier, builds the authorize URL, exchanges the redirected code for a token provider, and refreshes on demand. Pair it with a `TokenStorage` to persist the resulting tokens.
 
 ```typescript
 const auth = new MarfaAuth({
-  baseUrl: "https://marfa.example.com",
+  issuer: "https://marfa.example.com",
   clientId: "my-app",
   redirectUri: "https://myapp.example.com/oauth/callback",
-  scope: ["core.note:read", "core.note:write"],
-  storage: new LocalStorageTokenStorage("my-app.tokens"),
+  scopes: ["core.note:read", "core.note:write"],
+  storage: new LocalStorageTokenStorage(),
 });
 
 // 1. Send the user to authorize
 window.location.href = await auth.buildAuthorizeUrl();
 
-// 2. On redirect back, exchange the `code` query param
-const tokens = await auth.handleCallback(window.location.href);
+// 2. On redirect back, exchange the `code` query param for a token provider
+const tokenProvider = await auth.handleCallback(window.location.href);
 
-// 3. Use the access token. Auto-refresh on 401 via a TokenProvider:
-const tokenProvider: TokenProvider = () => auth.getAccessToken();
+// 3. Pass the provider to the client; it refreshes on 401 transparently.
 const client = new MarfaClient({
   url: "https://marfa.example.com",
   tokenProvider,                     // alternative to a static apiKey
 });
 ```
 
-### `startDeviceFlow`
+On a later page load, `auth.restore()` returns a `TokenProvider` (or `null` if no session is persisted) without re-running the flow.
 
-For headless and CLI contexts. Implements RFC 8628 — initiate, display the `verification_uri` + `user_code`, poll until the user approves.
+### startDeviceFlow
+
+For headless and CLI contexts. Implements RFC 8628 — initiate, display the `verification_uri` and `user_code`, poll until the user approves.
 
 ```typescript
 import { startDeviceFlow } from "@withmarfa/sdk/auth";
 
-const session = await startDeviceFlow({
-  baseUrl: "https://marfa.example.com",
+const handle = await startDeviceFlow({
+  issuer: "https://marfa.example.com",
   clientId: "my-cli",
-  scope: ["core.bookmark:read"],
+  scopes: ["core.bookmark:read"],
 });
 
-console.log(`Open ${session.verificationUri} and enter ${session.userCode}`);
-const tokens = await session.poll();   // resolves once the user approves
+console.log(`Open ${handle.verification_uri} and enter ${handle.user_code}`);
+const tokenProvider = await handle.pollForToken();   // resolves once the user approves
 ```
 
 ### Token storages
 
-`MemoryTokenStorage` (per-process; default), `LocalStorageTokenStorage` (browser), and `SecureStorageTokenStorage` (Keychain on macOS, Credential Locker on Windows, libsecret on Linux — when running under Node) are bundled. Custom backends implement the `TokenStorage` interface — `read`, `write`, `clear`.
+The SDK bundles `InMemoryTokenStorage` (per-process; the default in Node) and `LocalStorageTokenStorage` (browser). Custom backends implement the `TokenStorage` interface.
 
-### `OAuthError`
+### OAuthError
 
 Thrown by every helper. Carries the OAuth `error` code (`invalid_grant`, `slow_down`, `expired_token`, `access_denied`, etc.) and the optional `error_description`. Apps branch on `err.code` to decide between user-facing messaging and re-flow logic.
 
 ### PKCE primitives
 
-`generatePkcePair()` returns `{ verifier, challenge, method: "S256" }` for callers that need to drive the flow themselves rather than through `MarfaAuth`. The verifier is a 128-byte URL-safe random string.
+`generateCodeVerifier()`, `computeCodeChallenge(verifier)`, and `generateState()` are exported for callers that need to drive the flow themselves rather than through `MarfaAuth`.
 
 ## Webhook signature verification
 
@@ -335,18 +338,18 @@ The top-level `verifyWebhookSignature` helper validates an incoming inbound-webh
 ```typescript
 import { verifyWebhookSignature } from "@withmarfa/sdk";
 
-const ok = await verifyWebhookSignature({
-  body: rawRequestBody,         // ArrayBuffer or string
-  headers: incomingHeaders,
+const result = await verifyWebhookSignature({
+  header: signatureHeader,      // the X-Marfa-Signature value
+  rawBody: rawRequestBody,      // ArrayBuffer or string
   secret: subscriptionSecret,
 });
 ```
 
-Returns a `{ verified: true; deliveryId?: string }` shape on success and `{ verified: false; reason: string }` on failure.
+Returns `{ valid: true }` on success and `{ valid: false; reason: string }` on failure.
 
 ## Realtime
 
-The TypeScript SDK doesn't wrap SSE — consumers connect to [`GET /events`](/docs/guides/realtime/realtime) directly with the browser's `EventSource` API (in a browser) or with `fetch` + a streaming body reader (in Node.js / Bun / Deno). The realtime page documents the event catalogue, `Last-Event-ID` reconnection, filtering parameters, and the catch-up strategy.
+The TypeScript SDK doesn't wrap SSE — consumers connect to [`GET /events`](/docs/guides/realtime/realtime) directly with the browser's `EventSource` API (in a browser) or with `fetch` + a streaming body reader (in Node.js / Bun / Deno). The realtime page documents the event catalog, `Last-Event-ID` reconnection, filtering parameters, and the catch-up strategy.
 
 ## Versioning
 

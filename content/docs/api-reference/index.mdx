@@ -26,7 +26,7 @@ See [Items](/docs/guides/core-model/items) for the four-layer model.
 
 First-class typed relationships. `POST / DELETE / GET /edges` plus the per-item shorthand at `/items/{id}/edges` and `/items/{id}/backrefs`. Cross-cutting taxonomies — every `in-thread` edge, every `parent-of` — list via `GET /edges?edge_type=...` rather than walking items.
 
-Reach for edges when modelling relationships that need to be queryable from both directions, constrained per type, or atomically created alongside the item. Edge writes are dual-gated — see [Permissions](/docs/guides/auth/permissions).
+Reach for edges when modeling relationships that need to be queryable from both directions, constrained per type, or atomically created alongside the item. Edge writes are dual-gated — see [Permissions](/docs/guides/auth/permissions).
 
 ```bash
 curl -X POST $MARFA_API_URL/edges \
@@ -91,11 +91,22 @@ curl $MARFA_API_URL/types \
   -H "Authorization: Bearer $MARFA_API_KEY"
 ```
 
+## Search
+
+Full-text and filtered retrieval across items. `GET /search` runs a full-text query, narrowed by the same filter grammar as `GET /items` and ordered by relevance. There is no semantic or vector layer — matching is lexical.
+
+Reach for search when the user types a query string; reach for `GET /items` with filters when you already know the type, tier, or tag you want. The filter grammar is shared between both — see [Search and query](/docs/guides/querying/search-and-query).
+
+```bash
+curl "$MARFA_API_URL/search?q=hello&type=core.note" \
+  -H "Authorization: Bearer $MARFA_API_KEY"
+```
+
 ## Edge types
 
-Custom edge-type registration. `GET /edges/types` lists registered edge types; `POST /edges/types` registers a new one (admin-only). Core edge types are reserved and reject collisions with `409 conflict`.
+Custom edge-type registration. `GET /edge-types` lists registered edge types; `POST /edge-types` registers a new one (admin-only). Core edge types are reserved and reject collisions with `409 conflict`.
 
-Reach for edge types when the core eight (`about`, `parent-of`, `in-thread`, `attached-to`, `references`, `authored-by`, `derived-from`, `supersedes`) don't fit and you need a custom semantic — `app.shops-for`, `team.commented-on`. Custom edge types declare their cardinality, source/target type constraints, cascade behaviour, and optional property schema.
+Reach for edge types when the core eight (`about`, `parent-of`, `in-thread`, `attached-to`, `references`, `authored-by`, `derived-from`, `supersedes`) don't fit and you need a custom semantic — `app.shops-for`, `team.commented-on`. Custom edge types declare their cardinality, source/target type constraints, cascade behavior, and optional property schema.
 
 ## Keys
 
@@ -112,6 +123,19 @@ curl -X POST $MARFA_API_URL/keys \
 
 See [Authentication](/docs/guides/auth/authentication) for key fields and bootstrap rules.
 
+## Profile
+
+The calling user's own record. `GET /profile/me` returns the profile bound to the credential; `PATCH /profile/me` updates the mutable fields; `POST` and `DELETE /profile/me/avatar` manage the avatar blob.
+
+Reach for profile when rendering account UI, resolving the signed-in user's handle, or letting a user edit their display name and avatar. The credential identifies the user, so no id is passed.
+
+```bash
+curl $MARFA_API_URL/profile/me \
+  -H "Authorization: Bearer $MARFA_API_KEY"
+```
+
+See [Profile](/docs/guides/identity/profile) for the full field set and the OIDC userinfo endpoint.
+
 ## Webhooks
 
 Outbound event delivery. `POST /webhooks` registers a subscription; `GET /webhooks` lists them; `PATCH /webhooks/{id}` updates URL or filters; `DELETE /webhooks/{id}` removes. Each subscription carries an HMAC secret returned only at creation; the full delivery history lives at `GET /webhooks/{id}/deliveries`.
@@ -127,20 +151,33 @@ curl -X POST $MARFA_API_URL/webhooks \
 
 See [Webhooks](/docs/guides/realtime/webhooks) for HMAC verification and retry semantics.
 
+## Events
+
+The live change stream. `GET /events` holds open a Server-Sent Events connection and streams item and edge changes as they occur, filtered by event name and resumable with `Last-Event-ID`.
+
+Reach for events when a same-app UI needs to reflect changes in real time without polling. For delivery to an external system over HTTP POST, use webhooks instead. The stream is read-only.
+
+```bash
+curl -N "$MARFA_API_URL/events?event=item.created,item.updated" \
+  -H "Authorization: Bearer $MARFA_API_KEY"
+```
+
+See [Realtime](/docs/guides/realtime/realtime) for the event catalog and reconnection semantics.
+
 ## Connections
 
-Authority approvals. `GET /items?type=system.connection` lists every Connection in a tenant (the items route is the canonical listing — `system.connection` items are items). The Connection-specific surface — install, uninstall, pause, resume, runtime configuration, activity, DLQ replay — sits under `/connections/{id}/*`.
+Authority approvals. `GET /items?type=system.connection` lists every Connection in a tenant (the items route is the canonical listing — `system.connection` items are items). The Connection-specific surface — install, uninstall, leased tokens, and inbound-webhook subscriptions — sits under `/connections/{id}/*`. Lifecycle changes like pause and resume run through the item's `state` transition, not a dedicated route.
 
-Reach for connections when managing OAuth grants from third-party apps, installing or configuring Integrations, or inspecting cross-tenant shares. The three kinds (`app`, `integration`, `tenant`) share one type — list / inspect / revoke is uniform across all three. See [Connections](/docs/guides/connections/connections).
+Reach for connections when managing OAuth grants from third-party apps, or installing and configuring Integrations. The two kinds (`app`, `integration`) share one type, so list, inspect, and revoke are uniform across both. See [Connections](/docs/guides/connections/connections).
 
 ## Bulk
 
-Tenant-scale mutations. `POST /items/bulk` accepts up to 5000 items per call for list-in-items writes; `POST /edges/bulk` does the same for edges; `POST /items/bulk_action` applies one action (`transition`, `purge`, `update_tags`, `update_tier`, `update_properties`, `update_timestamp`) to every item matching a filter. All bulk endpoints are admin-only.
+Tenant-scale mutations. `POST /items/bulk` accepts up to 5000 items per call for list-in-items writes; `POST /edges/bulk` does the same for edges; `POST /items/bulk-actions` applies one action (`transition`, `purge`, `update_tags`, `update_tier`, `update_properties`, `update_timestamp`) to every item matching a filter. All bulk endpoints are admin-only.
 
-Reach for bulk when running tenant migrations, mass-archiving by filter, or restoring from a `GET /export` archive. Third-party integrations writing many items should use `POST /items` with `source_id` instead — natural-key upsert handles the de-dup. See [Bulk operations](/docs/guides/querying/bulk-operations) for the three shapes and async behaviour.
+Reach for bulk when running tenant migrations, mass-archiving by filter, or restoring from a `GET /export` archive. Third-party integrations writing many items should use `POST /items` with `source_id` instead — natural-key upsert handles the de-dup. See [Bulk operations](/docs/guides/querying/bulk-operations) for the three shapes and async behavior.
 
 ## Admin
 
 Platform-operator surfaces. `GET /admin/tenants`, `POST /admin/tenants/{id}/suspend`, `GET /audit`, `POST /admin/restore-archive`, plus the account-deletion sweep at `POST /admin/account-deletion/purge-now`. Gated on platform-admin keys (`is_platform: true`); non-platform credentials get `403 forbidden`.
 
-Reach for admin when running a hosted Marfa instance — managing tenants, inspecting cross-tenant audit logs, forcing pending-delete sweeps. The CLI exposes these as `my platform tenants ...` — see [Self-hosting → Platform](/docs/self-hosting/operate/platform) for the operator-facing walkthrough.
+Reach for admin when running a hosted Marfa instance — managing tenants, inspecting cross-tenant audit logs, forcing pending-delete sweeps. The CLI exposes these under `marfa platform tenants ...`. See [Platform operations](/docs/self-hosting/operate/platform) for the operator-facing walkthrough.

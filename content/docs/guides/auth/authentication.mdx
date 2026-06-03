@@ -26,7 +26,7 @@ Bearer tokens, suitable for development, automation, server-to-server calls, and
 
 ### Creating keys
 
-Call `POST /keys` with the label, role, and the three permission maps (types, extensions, edges). The response contains the plaintext key **once** — the server never shows it again. Store it securely. Rotating means revoking the old key and creating a new one.
+Call `POST /keys` with the label, role, and the four permission maps (types, extensions, edges, metadata). The response contains the plaintext key **once** — the server never shows it again. Store it securely. Rotating means revoking the old key and creating a new one.
 
 <Accordions type="single">
   <Accordion title="Example request and response">
@@ -39,7 +39,8 @@ Call `POST /keys` with the label, role, and the three permission maps (types, ex
       "default_tier": "library",
       "type_permissions": { "core.note": "write", "core.bookmark": "read" },
       "extension_permissions": { "my-app.*": "write" },
-      "edge_permissions": { "parent-of": "write", "about": "write" }
+      "edge_permissions": { "parent-of": "write", "about": "write" },
+      "metadata_permissions": { "types": "write" }
     }
     ```
 
@@ -61,20 +62,20 @@ Call `POST /keys` with the label, role, and the three permission maps (types, ex
 
 Full request and response shapes live in the API reference. A few fields carry rules worth calling out:
 
-- **`role`** — `admin` bypasses every permission check. `member` is scoped by the three permission maps.
+- **`role`** — `admin` bypasses every permission check. `tenant_admin` manages keys within its own tenant but is still scoped by the permission maps for data access. `member` is scoped by the permission maps with no key-management rights.
 - **`source`** — stamped onto every item written by this key. Unique per tenant; clients can't override.
 - **`default_tier`** — stamps onto items when the client omits the field. Clients can override per item. See [Tier](/docs/guides/core-model/tier).
-- **`type_permissions`**, **`extension_permissions`**, **`edge_permissions`** — see [Permissions](/docs/guides/auth/permissions) for resolution rules and the dual-gate.
+- **`type_permissions`**, **`extension_permissions`**, **`edge_permissions`**, **`metadata_permissions`** — see [Permissions](/docs/guides/auth/permissions) for resolution rules and the dual-gate.
 
 ### Bootstrap
 
-On a fresh server with no keys, the first `POST /keys` succeeds without auth (bootstrap mode). Once any key exists, bootstrap mode disables — further key creation requires an admin token.
+On a fresh server with no keys, the first `POST /keys` succeeds without auth (bootstrap mode) and mints an admin key. Once any key exists, bootstrap mode disables — further key creation requires an admin or tenant_admin token.
 
 If all keys are later revoked, bootstrap mode does not re-enable automatically. Recovery requires server-side admin intervention (dropping and recreating the keys table, typically).
 
 ### Managing keys
 
-List, retrieve, update, and revoke via the Keys endpoints. Admin-scoped — non-admin keys cannot manage other keys.
+List, retrieve, update, and revoke via the Keys endpoints. Key management is restricted to admin and tenant_admin roles; a tenant_admin manages only keys within its own tenant. `member` keys cannot manage other keys.
 
 ### Revocation
 
@@ -151,7 +152,7 @@ Before the access token expires, the app calls `POST /auth/oauth2/token` with `g
 | `POST /auth/oauth2/introspect` | RFC 7662 token introspection. |
 | `POST /auth/oauth2/register` | RFC 7591 Dynamic Client Registration. Open to unauthenticated callers. |
 | `GET /auth/jwks` | JWKS for `id_token` signature verification. |
-| `GET /.well-known/oauth-authorization-server` | RFC 8414 authorisation-server metadata. |
+| `GET /.well-known/oauth-authorization-server` | RFC 8414 authorization-server metadata. |
 | `GET /.well-known/openid-configuration` | OIDC discovery. |
 | `GET /auth/authorize` + `POST /auth/authorize/decision` | Marfa-owned consent screen + decision handler (forwards to the plugin's `/auth/oauth2/consent`). |
 | `/auth/device*` | Marfa-owned device-flow state machine; tokens land in the plugin's tables on issuance. |
@@ -223,6 +224,16 @@ While the user has not yet approved, polls return `400 authorization_pending`. P
 
 The platform serves server-rendered HTML at `/auth/sign-in` and (when sign-up is enabled) `/auth/sign-up`. These are the surfaces the consent flow redirects unauthenticated users to. They also stand alone for direct sign-in to the platform's own console. Programmatic signup against a hosted Marfa instance hits `POST /auth/sign-up/email` — see [Hosted mode](/docs/self-hosting/run/hosted-mode).
 
+The sign-in page offers email and password, a passwordless magic link, and passkeys. When the operator configures federated identity providers, the page also renders one button per provider; choosing one posts to `/auth/sign-in/provider/<id>`, which hands off to the upstream provider's authorize flow and signs the user in on return. Provider availability is operator-configured, so the buttons appear only on instances that wire at least one provider.
+
+### Email verification
+
+When the operator wires a real email backend, every new sign-up must confirm its address before a session lands. Sign-up succeeds without a session cookie, and the platform sends a verification email carrying a single-use link back to `/auth/verify-email`. Clicking it confirms the account and signs the user in; the token expires an hour after issue. A user who lets it lapse requests a fresh one from the verify-email page, which posts to `/auth/verify-email/resend`. Instances without an email backend skip verification and sign new accounts in directly.
+
+### Password reset
+
+A signed-out user who has forgotten their password starts at `/auth/forgot-password`, submits their email, and receives a single-use reset link valid for one hour. The link opens `/auth/reset-password`, where they choose a new password; a successful reset signs out every other session. The forgot-password response is identical whether or not an account exists for the address, so the flow never reveals which emails are registered.
+
 ### OIDC identity tokens
 
 When `openid` is among the granted scopes, the token endpoint returns an `id_token` alongside the access and refresh tokens. The id token is a signed JWT carrying:
@@ -231,7 +242,7 @@ When `openid` is among the granted scopes, the token endpoint returns an `id_tok
 - With `profile` scope: `name`, `preferred_username`, `picture`
 - With `email` scope: `email`, `email_verified`
 
-Verify signatures against the platform's JWKS at `/.well-known/jwks.json`. Algorithms supported are advertised in the OIDC discovery doc at `/.well-known/oauth-authorization-server` under `id_token_signing_alg_values_supported` (today: `RS256`).
+Verify signatures against the platform's JWKS at `/auth/jwks`, which the discovery doc advertises as its `jwks_uri`. Algorithms supported are advertised in the OIDC discovery doc at `/.well-known/oauth-authorization-server` under `id_token_signing_alg_values_supported` (today: `RS256`).
 
 For most clients the userinfo endpoint at `/auth/oauth2/userinfo` is the simpler way to fetch claim data — it returns the same shape over a request rather than as a JWT. Use the id token when verifying identity statelessly without a server round-trip; use userinfo when you have a bearer in hand and want the current claim values.
 
@@ -253,7 +264,7 @@ Apps should call this on sign-out to ensure server-side state matches the user's
 
 ### Grant lifecycle audit
 
-The auth audit-row catalogue carries two grant-lifecycle entries:
+The auth audit-row catalog carries two grant-lifecycle entries:
 
 - `auth.grant.created` — emitted on consent acceptance (both code-flow via `/auth/authorize/decision` and device-flow via `/auth/device/consent`). `details.source` distinguishes the surface; `details.created` distinguishes first-consent from re-consent.
 - `auth.grant.revoked` — emitted on `DELETE /auth/grants/:id` and the form-friendly `POST /auth/grants/:id/revoke`.
@@ -271,11 +282,11 @@ Distinct from the user-facing OAuth flow above: the platform also runs an OAuth 
 The bootstrap flow is hardened with two platform-side controls:
 
 - **PKCE on the upstream authorize call.** The platform generates a code verifier per attempt, persists it inside the AES-GCM-signed state envelope, and sends `code_challenge` + `code_challenge_method=S256` on the authorize redirect. The verifier is replayed at token exchange. Connectors don't manage PKCE themselves — it's enforced by the platform regardless of what the upstream service expects, defending against authorization-code injection.
-- **Redirect allow-list.** `MARFA_OAUTH_REDIRECT_ALLOWLIST` (comma-separated) lists the canonical `redirect_uri` values the bootstrap will accept. Requests whose `redirect_uri` doesn't match (after scheme + host + path normalisation) are rejected at `/oauth/start` with `400`. Required in production; misconfigured deployments fail loudly rather than accept arbitrary redirects.
+- **Redirect allow-list.** `MARFA_OAUTH_REDIRECT_ALLOWLIST` (comma-separated) lists the canonical `redirect_uri` values the bootstrap will accept. Requests whose `redirect_uri` doesn't match (after scheme + host + path normalization) are rejected at `/oauth/start` with `400`. Required in production; misconfigured deployments fail loudly rather than accept arbitrary redirects.
 
 ## Choosing between API keys and OAuth
 
 - **API keys** for: your own apps against your own tenant, server-to-server calls, scripts, CI, MCP servers and CLIs connecting to a known tenant.
 - **OAuth** for: third-party apps where the user wants explicit consent per type, revocable without rotating an API key, and a flow that terminates at a login experience.
 
-Both produce the same server behaviour — permissions enforce identically regardless of credential kind.
+Both produce the same server behavior — permissions enforce identically regardless of credential kind.
