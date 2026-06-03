@@ -1,14 +1,14 @@
 import type * as PageTree from 'fumadocs-core/page-tree';
 
-// Group the API reference's pages under non-collapsible section headers
-// (separators). A top "General" header carries the hand-written MDX pages
-// (overview, authentication, permissions, errors, rate limits); below it, five
-// domain headers carry the generated resource folders.
+// Group the API reference's pages. The hand-written MDX pages (overview,
+// authentication, permissions, errors, rate limits) lead the sidebar as flat
+// links with no section header; below them, five domain headers (separators)
+// carry the generated resource folders.
 //
 // The resources stay collapsible — collapsed by default, with the active one
 // auto-expanding — so the toggles are earned: each sits under a domain header
-// and reveals that resource's endpoints. The General pages are flat MDX pages,
-// not folders, so they render directly under the header with no toggle.
+// and reveals that resource's endpoints. The lead pages are flat MDX pages,
+// not folders, so they render with no header and no toggle.
 
 // The General pages, in render order. Slugs match the MDX filenames in
 // `content/docs/api-reference/` (the overview is the section index page, whose
@@ -85,22 +85,23 @@ function regroupTagFolders(children: PageTree.Node[]): PageTree.Node[] {
     otherNodes.push(node); // any pre-existing separator, etc.
   }
 
-  // General section: the overview, then the cross-cutting reference pages in
-  // declared order. Renders under a non-collapsible header like the resource
-  // sections, so the API reference reads as a self-contained reference with a
-  // General intro à la Stripe / OpenAI.
-  const generalPages: PageTree.Node[] = [];
-  if (overview) generalPages.push(overview);
+  // The lead pages: the overview, then the cross-cutting reference pages in
+  // declared order. They render as flat links at the top of the sidebar (no
+  // section header), so the API reference still reads as a self-contained
+  // reference — the auth contract and error / rate-limit catalogue sit above
+  // the resource sections.
+  const leadPages: PageTree.Node[] = [];
+  if (overview) leadPages.push(overview);
   for (const slug of GENERAL_PAGES) {
     const page = pageBySlug.get(slug);
-    if (page) generalPages.push(page);
+    if (page) leadPages.push(page);
   }
 
-  const out: PageTree.Node[] = [...otherNodes];
-  if (generalPages.length) {
-    out.push({ type: 'separator', name: 'General' });
-    out.push(...generalPages);
-  }
+  // The lead pages go in flat — no leading separator. A separator at the very
+  // top carries a top margin meant to set a section off from what precedes it;
+  // with nothing above, that became doubled dead space. The first separator is
+  // now "Data model", sitting in its natural inter-section position.
+  const out: PageTree.Node[] = [...otherNodes, ...leadPages];
   const placed = new Set<string>();
   for (const section of SECTIONS) {
     const folders = section.resources
