@@ -123,7 +123,14 @@ const clientLoader = browserCollections.docs.createClientLoader({
     },
   ) {
     return (
-      <DocsPage toc={toc}>
+      // A single-heading page (e.g. the landing) renders a pointless one-item
+      // table of contents — on mobile it's a collapsible toggle that reveals
+      // nothing. Drop the TOC unless there are at least two headings.
+      <DocsPage
+        toc={toc}
+        tableOfContent={{ enabled: toc.length > 1 }}
+        tableOfContentPopover={{ enabled: toc.length > 1 }}
+      >
         <div className="flex flex-row items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <DocsTitle>{frontmatter.title}</DocsTitle>
