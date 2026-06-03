@@ -12,7 +12,7 @@ const SECTIONS = [
   { label: 'SDKs', href: '/sdks/overview', prefix: '/sdks' },
   {
     label: 'Self-hosting',
-    href: '/self-hosting/self-host-quickstart',
+    href: '/self-hosting',
     prefix: '/self-hosting',
   },
 ];

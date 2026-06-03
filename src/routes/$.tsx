@@ -55,6 +55,9 @@ const LEGACY_EXACT: Record<string, string> = {
   'guides/operations/errors': 'api-reference/errors',
   'guides/operations/rate-limiting': 'api-reference/rate-limits',
   'self-hosting/run/deployment-modes': 'guides/identity/deployment-modes',
+  // The self-host quickstart moved into Introduction as Quickstart (self-hosted);
+  // the Self-hosting tab now lands on the section overview at `/self-hosting`.
+  'self-hosting/self-host-quickstart': 'self-hosting',
   // The Introduction landing absorbed the old Overview page.
   'get-started/overview': 'introduction',
   'introduction/overview': 'introduction',
