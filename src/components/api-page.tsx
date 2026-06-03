@@ -14,8 +14,13 @@ import { createClientAPIPage } from 'fumadocs-openapi/ui/create-client';
 export const APIPage = createClientAPIPage({
   content: {
     renderOperationLayout: (slots) => (
-      <div className="flex flex-col gap-x-6 gap-y-4 @4xl:flex-row @4xl:items-start @4xl:justify-between">
-        <div className="min-w-0 flex-1 @4xl:max-w-[680px]">
+      // A three-column grid — [1fr | 680px | 1fr] — centres the 680px detail
+      // column on screen (the body lines up with the narrative pages, since the
+      // page grid is symmetric) while the code rail sits in the right column and
+      // extends past it into the reserved TOC space. Below @5xl the columns stack
+      // so the rail never runs off a narrow screen.
+      <div className="@container flex flex-col gap-y-4 @5xl:grid @5xl:grid-cols-[minmax(0,1fr)_minmax(0,680px)_minmax(0,1fr)] @5xl:items-start @5xl:gap-x-12">
+        <div className="mx-auto w-full max-w-[680px] @5xl:col-start-2 @5xl:mx-0 @5xl:max-w-none">
           {slots.header}
           {slots.apiPlayground}
           {slots.description}
@@ -25,7 +30,7 @@ export const APIPage = createClientAPIPage({
           {slots.responses}
           {slots.callbacks}
         </div>
-        <div className="@4xl:sticky @4xl:top-[calc(var(--fd-docs-row-1,2rem)+1rem)] @4xl:w-[400px]">
+        <div className="mx-auto w-full max-w-[680px] @5xl:col-start-3 @5xl:mx-0 @5xl:w-[400px] @5xl:max-w-none @5xl:sticky @5xl:top-[calc(var(--fd-docs-row-1,2rem)+1rem)]">
           {slots.apiExample}
         </div>
       </div>
