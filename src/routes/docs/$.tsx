@@ -187,42 +187,28 @@ function OpenAPIView({
     >
       <DocsPage
         full
-        footer={{
-          // Fill the centred --marfa-api-frame: the prev/next cards sit in the
-          // 680px body column with a reserved 400px column aligning to the code
-          // rail, so the footer shares the body's width and left edge and never
-          // runs under the rail. The @container drives @4xl.
-          component: (
-            <div className="@container">
-              <div className="flex flex-col gap-x-12 @4xl:flex-row @4xl:items-start">
-                <div className="min-w-0 flex-1 @4xl:max-w-[680px]">
-                  <PageFooter />
-                </div>
-                <div className="hidden shrink-0 @4xl:block @4xl:w-[400px]" aria-hidden />
-              </div>
-            </div>
-          ),
-        }}
+        // Reserve the TOC column (empty) so the page grid is symmetric — sidebar
+        // on the left, an equal-width column on the right — which centres the
+        // main column, and therefore the 680px body, on the screen exactly like
+        // a narrative page. The code rail (api-page.tsx) sits to the right of the
+        // centred body and extends into this reserved space.
+        tableOfContent={{ enabled: true }}
+        toc={[]}
+        footer={{ component: <PageFooter className="mt-8" /> }}
       >
-        {/* Fills the centred --marfa-api-frame: the title/description sit in the
-            680px body column with the Copy Markdown button at its top-right, and
-            a reserved 400px column aligns with the code rail below — so the
-            header lines up with the request panel and the button no longer
-            floats out at the rail's far edge. */}
-        <div className="@container">
-          <div className="flex flex-col gap-x-12 gap-y-2 @4xl:flex-row @4xl:items-start">
-            <div className="flex min-w-0 flex-1 flex-row items-start justify-between gap-4 @4xl:max-w-[680px]">
-              <div className="min-w-0">
-                <DocsTitle>{data.title}</DocsTitle>
-                {data.description ? (
-                  <DocsDescription>{data.description}</DocsDescription>
-                ) : null}
-              </div>
-              <div className="shrink-0">
-                <PageActions markdownUrl={data.markdownUrl} />
-              </div>
-            </div>
-            <div className="hidden shrink-0 @4xl:block @4xl:w-[400px]" aria-hidden />
+        {/* The breadcrumb, title, body, and footer are each centred at 680px (in
+            app.css) so they sit screen-centred like a narrative page; the code
+            rail extends to the right of the centred body. Title on the left, the
+            Copy Markdown button at the body's top-right. */}
+        <div className="flex flex-row items-start justify-between gap-4">
+          <div className="min-w-0">
+            <DocsTitle>{data.title}</DocsTitle>
+            {data.description ? (
+              <DocsDescription>{data.description}</DocsDescription>
+            ) : null}
+          </div>
+          <div className="shrink-0">
+            <PageActions markdownUrl={data.markdownUrl} />
           </div>
         </div>
         <DocsBody>
