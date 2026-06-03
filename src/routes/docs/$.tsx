@@ -125,12 +125,15 @@ const clientLoader = browserCollections.docs.createClientLoader({
     },
   ) {
     return (
-      // A single-heading page (e.g. the landing) renders a pointless one-item
-      // table of contents — on mobile it's a collapsible toggle that reveals
-      // nothing. Drop the TOC unless there are at least two headings.
+      // Keep the TOC column reserved on every narrative page (so the centred
+      // body sits in the same place whether or not a page has a TOC), but only
+      // show real entries when there are at least two headings — a single
+      // heading would otherwise render a pointless one-item TOC and a mobile
+      // popover that reveals nothing. Passing an empty toc renders fumadocs'
+      // hidden placeholder, which reserves the column without showing anything.
       <DocsPage
-        toc={toc}
-        tableOfContent={{ enabled: toc.length > 1 }}
+        toc={toc.length > 1 ? toc : []}
+        tableOfContent={{ enabled: true }}
         tableOfContentPopover={{ enabled: toc.length > 1 }}
       >
         <div className="flex flex-row items-start justify-between gap-4">
@@ -185,14 +188,13 @@ function OpenAPIView({
       <DocsPage
         full
         footer={{
-          // Confine the prev/next footer to the detail-column width so it never
-          // runs under the code rail. Mirror the operation's flex structure (a
-          // flex-1 detail column capped at 680px + a reserved 400px rail column)
-          // so the footer tracks the detail column's width at every breakpoint,
-          // including where it shrinks below the cap. The @container drives @4xl.
+          // Fill the centred --marfa-api-frame: the prev/next cards sit in the
+          // 680px body column with a reserved 400px column aligning to the code
+          // rail, so the footer shares the body's width and left edge and never
+          // runs under the rail. The @container drives @4xl.
           component: (
             <div className="@container">
-              <div className="flex flex-row gap-x-6">
+              <div className="flex flex-col gap-x-12 @4xl:flex-row @4xl:items-start">
                 <div className="min-w-0 flex-1 @4xl:max-w-[680px]">
                   <PageFooter />
                 </div>
@@ -202,21 +204,25 @@ function OpenAPIView({
           ),
         }}
       >
-        {/* Header mirrors the OpenAPI operation's two-column layout (a 680px
-            detail column + a w-[400px] code rail, pushed apart) inside a
-            matching @container, so the title/description align with the request
-            panel below and the Copy Markdown button sits above the code rail. */}
+        {/* Fills the centred --marfa-api-frame: the title/description sit in the
+            680px body column with the Copy Markdown button at its top-right, and
+            a reserved 400px column aligns with the code rail below — so the
+            header lines up with the request panel and the button no longer
+            floats out at the rail's far edge. */}
         <div className="@container">
-          <div className="flex flex-col gap-x-6 gap-y-2 @4xl:flex-row @4xl:items-start @4xl:justify-between">
-            <div className="min-w-0 flex-1 @4xl:max-w-[680px]">
-              <DocsTitle>{data.title}</DocsTitle>
-              {data.description ? (
-                <DocsDescription>{data.description}</DocsDescription>
-              ) : null}
+          <div className="flex flex-col gap-x-12 gap-y-2 @4xl:flex-row @4xl:items-start">
+            <div className="flex min-w-0 flex-1 flex-row items-start justify-between gap-4 @4xl:max-w-[680px]">
+              <div className="min-w-0">
+                <DocsTitle>{data.title}</DocsTitle>
+                {data.description ? (
+                  <DocsDescription>{data.description}</DocsDescription>
+                ) : null}
+              </div>
+              <div className="shrink-0">
+                <PageActions markdownUrl={data.markdownUrl} />
+              </div>
             </div>
-            <div className="flex shrink-0 justify-end @4xl:w-[400px]">
-              <PageActions markdownUrl={data.markdownUrl} />
-            </div>
+            <div className="hidden shrink-0 @4xl:block @4xl:w-[400px]" aria-hidden />
           </div>
         </div>
         <DocsBody>

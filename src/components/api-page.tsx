@@ -14,7 +14,9 @@ import { createClientAPIPage } from 'fumadocs-openapi/ui/create-client';
 export const APIPage = createClientAPIPage({
   content: {
     renderOperationLayout: (slots) => (
-      <div className="flex flex-col gap-x-6 gap-y-4 @4xl:flex-row @4xl:items-start @4xl:justify-between">
+      // Fills the centred --marfa-api-frame (set in app.css): a 680px body + a
+      // 400px code rail with a 48px (gap-12) gutter.
+      <div className="flex flex-col gap-x-12 gap-y-4 @4xl:flex-row @4xl:items-start">
         <div className="min-w-0 flex-1 @4xl:max-w-[680px]">
           {slots.header}
           {slots.apiPlayground}
