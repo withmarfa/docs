@@ -6,14 +6,14 @@ import { useRouterState } from '@tanstack/react-router';
 // the section's landing page. The native notebook tab row is hidden (CSS) — it
 // still scopes the sidebar by URL — and these pills are the visible switcher.
 const SECTIONS = [
-  { label: 'Introduction', href: '/docs/get-started/overview', prefix: '/docs/get-started' },
-  { label: 'Guides', href: '/docs/guides', prefix: '/docs/guides' },
-  { label: 'API reference', href: '/docs/api-reference', prefix: '/docs/api-reference' },
-  { label: 'SDKs', href: '/docs/sdks/overview', prefix: '/docs/sdks' },
+  { label: 'Introduction', href: '/introduction', prefix: '/introduction' },
+  { label: 'Guides', href: '/guides', prefix: '/guides' },
+  { label: 'API reference', href: '/api-reference', prefix: '/api-reference' },
+  { label: 'SDKs', href: '/sdks/overview', prefix: '/sdks' },
   {
     label: 'Self-hosting',
-    href: '/docs/self-hosting/self-host-quickstart',
-    prefix: '/docs/self-hosting',
+    href: '/self-hosting/self-host-quickstart',
+    prefix: '/self-hosting',
   },
 ];
 

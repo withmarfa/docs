@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { source } from '@/lib/source';
-import { docsRoute } from '@/lib/shared';
 
 /**
  * Hand-built hierarchical index of the docs (Anthropic claude_code_docs_map.md
@@ -17,10 +16,10 @@ export const Route = createFileRoute('/docs-map.md')({
         const pages = source.getPages();
 
         // Group pages by URL segment depth.
-        //   /docs                 → site root, becomes title
-        //   /docs/<section>       → H1 section
-        //   /docs/<section>/<sub> → H2 sub-group (if multiple) else page
-        //   /docs/<section>/<sub>/<page>  → page under H2
+        //   /                    → site root, becomes title
+        //   /<section>           → H1 section
+        //   /<section>/<sub>     → H2 sub-group (if multiple) else page
+        //   /<section>/<sub>/<page>  → page under H2
         type Grouped = Record<string, Record<string, typeof pages>>;
         const grouped: Grouped = {};
         let root: (typeof pages)[number] | undefined;
@@ -44,15 +43,15 @@ export const Route = createFileRoute('/docs-map.md')({
         lines.push('');
         if (root) {
           lines.push(
-            `Hierarchical index of every page on docs.marfa.so. Each link resolves to the human-readable HTML page; append \`.md\` for the markdown twin (e.g. \`${docsRoute}/concepts/data-primitives/items.md\`).`,
+            `Hierarchical index of every page on docs.marfa.so. Each link resolves to the human-readable HTML page; append \`.md\` for the markdown twin (e.g. \`/guides/core-model/items.md\`).`,
           );
           lines.push('');
           lines.push(`- [${root.data.title}](${root.url})`);
           lines.push('');
         }
 
-        // Stable section order — reuse what's in content/docs/meta.json
-        const sectionOrder = ['get-started', 'concepts', 'api', 'sdks-and-clients', 'self-hosting'];
+        // Stable section order — mirrors content/docs/meta.json.
+        const sectionOrder = ['introduction', 'guides', 'api-reference', 'sdks', 'self-hosting'];
         const sortedSections = [
           ...sectionOrder.filter((s) => s in grouped),
           ...Object.keys(grouped).filter((s) => !sectionOrder.includes(s)),
