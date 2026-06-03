@@ -65,13 +65,13 @@ const TOOLS = [
   {
     name: 'docs_fetch',
     description:
-      'Fetch the markdown body of a single docs page by its URL path (e.g. "/docs/concepts/data-primitives/items"). Returns the same markdown the `<path>.md` content-negotiation surface returns — title, description, full prose with code blocks preserved.',
+      'Fetch the markdown body of a single docs page by its URL path (e.g. "/guides/core-model/items"). Returns the same markdown the `<path>.md` content-negotiation surface returns — title, description, full prose with code blocks preserved.',
     inputSchema: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
-          description: 'Docs URL path. Accepts "/docs/x/y", "docs/x/y", or "x/y".',
+          description: 'Docs URL path. Accepts "/x/y", "x/y", or a legacy "/docs/x/y".',
         },
       },
       required: ['path'],
@@ -180,8 +180,8 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
       title: p.data.title,
       url: p.url,
       description: p.data.description ?? null,
-      // breadcrumbs derived from URL segments under /docs
-      breadcrumbs: p.url.replace(/^\/docs\/?/, '').split('/').filter(Boolean),
+      // breadcrumbs derived from the URL's path segments
+      breadcrumbs: p.url.split('/').filter(Boolean),
     }));
     return {
       content: [

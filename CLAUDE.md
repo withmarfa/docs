@@ -44,7 +44,7 @@ import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
 ## Navigation hierarchy
 
-Hierarchy lives in `meta.json` files per folder; each defines `title`, `pages` (an ordered list of slugs), and `root: true` on the five top-level folders that become navbar tabs. The five tabs render across a top navbar (Fumadocs notebook layout, `nav.mode: 'top'` + `tabMode: 'navbar'`); each swaps the sidebar to its own tree. Tabs: **Get started** (overview, quickstart) / **Guides** (sub-grouped: Core model · Schema & types · Identity & spaces · Auth & permissions · Querying & data · Realtime & events · Connections & integrations · Operations) / **API reference** (OpenAPI-driven) / **SDKs** / **Self-hosting** (a self-host quickstart, then sub-grouped: Run / Operate).
+Hierarchy lives in `meta.json` files per folder; each defines `title`, `pages` (an ordered list of slugs), and `root: true` on the five top-level folders that become navbar tabs. The five tabs render across a top navbar (Fumadocs notebook layout, `nav.mode: 'top'` + `tabMode: 'navbar'`); each swaps the sidebar to its own tree. Tabs: **Get started** (overview, quickstart) / **Guides** (sub-grouped: Core model · Schema & types · Identity & spaces · Querying & data · Realtime & events · Connections & integrations · Operations) / **API reference** (OpenAPI-driven, with a hand-written General section — Overview · Authentication · Permissions · Errors · Rate limits — above the generated resource sections; see `src/lib/api-reference-tree.ts`) / **SDKs** / **Self-hosting** (a self-host quickstart, then sub-grouped: Run / Operate).
 
 Adding a page: drop the `.mdx` file in the right folder, register it in the folder's `meta.json`. No central manifest.
 

@@ -23,12 +23,14 @@ import { Suspense } from 'react';
 import { useMDXComponents } from '@/components/mdx';
 import { APIPage } from '@/components/api-page';
 
-// Legacy URL redirects — old Mintlify URLs that drifted during the Fumadocs
-// port. Keep the entries here so a stale link out in the wild still lands on
-// the right canonical page.
-// The pre-restructure docs lived under /docs/concepts/*, /docs/api/*, and
-// /docs/sdks-and-clients/*. Map those to the current structure so old links and
-// bookmarks 301 to the right page instead of 404ing.
+// Legacy URL redirects — old URLs that drifted during the Fumadocs port and the
+// later restructures. Keep the entries here so a stale link out in the wild
+// still lands on the right canonical page instead of 404ing.
+//   - The docs once lived under a `/docs` URL prefix (now the site root). Any
+//     bookmarked `/docs/...` URL is de-prefixed before further mapping.
+//   - The pre-restructure docs lived under concepts/*, api/*, and
+//     sdks-and-clients/*; `get-started/*` was later renamed to `introduction/*`
+//     (with the old Overview folded into the Introduction landing).
 const LEGACY_EXACT: Record<string, string> = {
   // `library` leaked an internal namespace name; the page is canonically Tier.
   'concepts/library': 'guides/core-model/tier',
@@ -36,16 +38,26 @@ const LEGACY_EXACT: Record<string, string> = {
   'concepts/lifecycle/marketplace': 'guides/connections/marketplace',
   'concepts/lifecycle/provenance': 'guides/core-model/provenance',
   'concepts/lifecycle/tier': 'guides/core-model/tier',
-  'api/authentication': 'guides/auth/authentication',
+  'api/authentication': 'api-reference/authentication',
   'api/bulk-operations': 'guides/querying/bulk-operations',
-  'api/errors': 'guides/operations/errors',
+  'api/errors': 'api-reference/errors',
   'api/inbound-webhooks': 'guides/realtime/inbound-webhooks',
-  'api/permissions': 'guides/auth/permissions',
-  'api/rate-limiting': 'guides/operations/rate-limiting',
+  'api/permissions': 'api-reference/permissions',
+  'api/rate-limiting': 'api-reference/rate-limits',
   'api/realtime': 'guides/realtime/realtime',
   'api/search-and-query': 'guides/querying/search-and-query',
   'api/webhooks': 'guides/realtime/webhooks',
+  // The auth contract and the cross-cutting error / rate-limit reference moved
+  // out of Guides into the API reference's General section, so the endpoints
+  // that need them sit alongside them. Old Guides URLs 301 to the new homes.
+  'guides/auth/authentication': 'api-reference/authentication',
+  'guides/auth/permissions': 'api-reference/permissions',
+  'guides/operations/errors': 'api-reference/errors',
+  'guides/operations/rate-limiting': 'api-reference/rate-limits',
   'self-hosting/run/deployment-modes': 'guides/identity/deployment-modes',
+  // The Introduction landing absorbed the old Overview page.
+  'get-started/overview': 'introduction',
+  'introduction/overview': 'introduction',
 };
 
 const LEGACY_PREFIXES: [string, string][] = [
@@ -54,18 +66,35 @@ const LEGACY_PREFIXES: [string, string][] = [
   ['concepts/identity/', 'guides/identity/'],
   ['concepts/schema/', 'guides/schema/'],
   ['sdks-and-clients/', 'sdks/'],
+  ['get-started/', 'introduction/'],
 ];
 
 function legacyTarget(splat: string): string | null {
-  const exact = LEGACY_EXACT[splat];
-  if (exact) return `/docs/${exact}`;
-  for (const [from, to] of LEGACY_PREFIXES) {
-    if (splat.startsWith(from)) return `/docs/${to}${splat.slice(from.length)}`;
+  // Strip the retired `/docs` URL prefix first, so old bookmarks like
+  // `/docs/guides/...` (and `/docs/get-started/...`) flow through the same
+  // mapping as their de-prefixed forms and 301 once to the canonical URL.
+  let path = splat;
+  let prefixStripped = false;
+  if (path === 'docs') {
+    return '/introduction';
   }
+  if (path.startsWith('docs/')) {
+    path = path.slice('docs/'.length);
+    prefixStripped = true;
+  }
+
+  const exact = LEGACY_EXACT[path];
+  if (exact) return `/${exact}`;
+  for (const [from, to] of LEGACY_PREFIXES) {
+    if (path.startsWith(from)) return `/${to}${path.slice(from.length)}`;
+  }
+
+  // Only the `/docs` prefix was legacy — redirect to the de-prefixed path.
+  if (prefixStripped) return `/${path}`;
   return null;
 }
 
-export const Route = createFileRoute('/docs/$')({
+export const Route = createFileRoute('/$')({
   component: Page,
   loader: async ({ params }) => {
     const splat = params._splat ?? '';
@@ -203,9 +232,6 @@ function OpenAPIView({
         <div className="flex flex-row items-start justify-between gap-4">
           <div className="min-w-0">
             <DocsTitle>{data.title}</DocsTitle>
-            {data.description ? (
-              <DocsDescription>{data.description}</DocsDescription>
-            ) : null}
           </div>
           <div className="shrink-0">
             <PageActions markdownUrl={data.markdownUrl} />
@@ -213,9 +239,11 @@ function OpenAPIView({
         </div>
         <DocsBody>
           <Suspense>
-            {/* Title + description come from DocsTitle/DocsDescription above —
-                suppress the component's own copies so they don't repeat. */}
-            <APIPage {...data.apiProps} showTitle={false} showDescription={false} />
+            {/* Title comes from DocsTitle above (paired with the Copy button).
+                Let APIPage render the operation description through its own
+                markdown pipeline so inline `code` renders as code, not raw
+                backticks. */}
+            <APIPage {...data.apiProps} showTitle={false} />
           </Suspense>
         </DocsBody>
       </DocsPage>

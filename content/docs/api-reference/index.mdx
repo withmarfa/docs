@@ -1,183 +1,41 @@
 ---
-title: API overview
-description: Endpoint groups, what they do, and when to reach for each.
+title: Overview
+description: The endpoint groups, the base URL, and how to authenticate.
 ---
 
-The Marfa API surface is OpenAPI-driven — the full endpoint reference, request and response shapes, and error codes are generated from the spec at `openapi.json`. The pages in this section cover the cross-cutting concerns: authentication, permissions, real-time events, the search and filter grammar, bulk shapes, webhooks, rate limits, errors, logging.
+The Marfa API is a single REST surface over the typed data layer. Every endpoint is generated from the OpenAPI spec at `openapi.json` — request and response shapes, status codes, and per-endpoint error sets all live in the resource sections of this reference. This page is the map: what each endpoint group is for, so you know which section to open.
 
-This page is an introduction to the endpoint **groups** themselves — what each one is for, when to reach for it, and the smallest curl that exercises it. The wire shape lives in the API reference; this page is the mental model.
+## Base URL
 
-## Items
-
-The atomic unit. `GET / POST / PATCH / DELETE /items` covers the four-layer item — system fields, properties, metadata, extensions. `POST /items` is idempotent on `(source, source_id)` so re-posts from inbound integrations upsert in place. Single-item reads hydrate edges inline; list reads stay lean unless `?include=edges,metadata,extensions` opts into more.
-
-Reach for items when reading or writing user content of any type. The same endpoint group handles `core.note`, `core.media.book`, custom types, and `system.*` items — type is the discriminator, not the path.
+All requests go to one origin, with no version prefix in the path:
 
 ```bash
-curl -X POST $MARFA_API_URL/items \
-  -H "Authorization: Bearer $MARFA_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{ "type": "core.note", "properties": { "body": "Hello." } }'
+https://your-marfa-instance.example.com
 ```
 
-See [Items](/docs/guides/core-model/items) for the four-layer model.
+Self-hosted instances set their own origin; the hosted service publishes its own. The SDKs and CLI read it from `MARFA_API_URL`.
 
-## Edges
+## Authenticating
 
-First-class typed relationships. `POST / DELETE / GET /edges` plus the per-item shorthand at `/items/{id}/edges` and `/items/{id}/backrefs`. Cross-cutting taxonomies — every `in-thread` edge, every `parent-of` — list via `GET /edges?edge_type=...` rather than walking items.
+Every request carries a bearer token in the `Authorization` header — an API key or an OAuth access token. See [Authentication](/api-reference/authentication) for the token types and [Permissions](/api-reference/permissions) for how access is scoped.
 
-Reach for edges when modeling relationships that need to be queryable from both directions, constrained per type, or atomically created alongside the item. Edge writes are dual-gated — see [Permissions](/docs/guides/auth/permissions).
+## Endpoint groups
 
-```bash
-curl -X POST $MARFA_API_URL/edges \
-  -H "Authorization: Bearer $MARFA_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{ "source_id": "<note>", "target_id": "<topic>", "edge_type": "about" }'
-```
+The resource sections below group endpoints by domain. Reach for a group by what you are doing, not by where it sits in the path.
 
-See [Edges](/docs/guides/core-model/edges) for the core edge set and cascade rules.
+| Group | Use it for |
+| --- | --- |
+| Items | Reading and writing user content of any type — the atomic four-layer record. |
+| Edges, edge types | Typed relationships between items, and registering custom relationship types. |
+| Metadata | The universal layer: tags, tier, and lifecycle state, plus tenant-wide tag listing. |
+| Extensions | Namespaced sidecar JSON attached to an item, for per-app state with no identity of its own. |
+| Blobs | Content-addressed binary storage for images, files, and attachments. |
+| Search, export | Full-text retrieval across items, and tenant-scale archive export. |
+| Types | Registering, inspecting, and removing item-type schemas at runtime. |
+| Keys, auth, credentials | API-key lifecycle and the OAuth 2.1 authorization surface. |
+| Profile, tenants | The calling user's own record, and tenant administration. |
+| Connections, integrations | Authority grants from third-party apps and installed integrations. |
+| Events, webhooks | The live SSE change stream and outbound HTTP event delivery. |
+| Audit | The cross-tenant operator audit log. |
 
-## Metadata
-
-Tags, tier, state — the universal layer applied to every item. `GET / PUT / POST /items/{id}/metadata` and the convenience verbs (`addTags`, `removeTags`). Distinct tags across a tenant live at `GET /metadata/tags` with usage counts.
-
-Reach for metadata when working with cross-cutting classification (tags), the curation axis (`tier`), or the lifecycle (`state`) without touching type properties. Tag changes auto-merge as set union — concurrent adds and removes don't conflict.
-
-```bash
-curl $MARFA_API_URL/metadata/tags \
-  -H "Authorization: Bearer $MARFA_API_KEY"
-```
-
-See [Metadata](/docs/guides/core-model/metadata) for the closed three-field shape.
-
-## Extensions
-
-Namespaced sidecar JSON attached to an item. `GET / PUT / DELETE /items/{id}/extensions/{namespace}`. Extensions are bound to the parent's lifecycle and gated on the credential's `extension_permissions`.
-
-Reach for extensions when storing per-app state that has no identity of its own — reading progress within a reader app, OCR text from an image, sync-agent bookkeeping. For content that does have identity (an AI summary, a derived note), use a custom type plus an edge instead.
-
-```bash
-curl -X PUT $MARFA_API_URL/items/<id>/extensions/myapp.reading_progress \
-  -H "Authorization: Bearer $MARFA_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{ "offset": 1234, "percent": 45 }'
-```
-
-See [Extensions](/docs/guides/core-model/extensions) for the custom-type-vs-extension decision.
-
-## Blobs
-
-Content-addressed binary storage. `POST /blobs` uploads bytes and returns a SHA-256 hash; `GET /blobs/{hash}` reads them back; `HEAD /blobs/{hash}` checks existence; `GET /blobs/{hash}/url` mints a presigned URL on S3 backends.
-
-Reach for blobs when storing images, PDFs, audio, video, or arbitrary file content referenced by `core.file.*` items or attachments. Uploads are idempotent — re-uploading identical bytes returns the existing hash without re-storing.
-
-```bash
-curl -X POST $MARFA_API_URL/blobs \
-  -H "Authorization: Bearer $MARFA_API_KEY" \
-  -H "Content-Type: image/png" \
-  --data-binary @image.png
-```
-
-See [Blobs](/docs/guides/core-model/blobs) for backend selection and lifecycle.
-
-## Types
-
-Schema registration and inspection. `GET /types` lists every registered type with its full schema; `GET /types/{id}` retrieves one; `POST /types` registers a custom type; `DELETE /types/{id}` removes one (admin-only, blocked on `core.*` and `system.*`).
-
-Reach for types when authoring custom schemas at runtime, inspecting what's available in a space, or generating client-side typed wrappers via codegen. Server-side semver diff enforces correct version bumps — see [Authoring types](/docs/guides/schema/authoring-types).
-
-```bash
-curl $MARFA_API_URL/types \
-  -H "Authorization: Bearer $MARFA_API_KEY"
-```
-
-## Search
-
-Full-text and filtered retrieval across items. `GET /search` runs a full-text query, narrowed by the same filter grammar as `GET /items` and ordered by relevance. There is no semantic or vector layer — matching is lexical.
-
-Reach for search when the user types a query string; reach for `GET /items` with filters when you already know the type, tier, or tag you want. The filter grammar is shared between both — see [Search and query](/docs/guides/querying/search-and-query).
-
-```bash
-curl "$MARFA_API_URL/search?q=hello&type=core.note" \
-  -H "Authorization: Bearer $MARFA_API_KEY"
-```
-
-## Edge types
-
-Custom edge-type registration. `GET /edge-types` lists registered edge types; `POST /edge-types` registers a new one (admin-only). Core edge types are reserved and reject collisions with `409 conflict`.
-
-Reach for edge types when the core eight (`about`, `parent-of`, `in-thread`, `attached-to`, `references`, `authored-by`, `derived-from`, `supersedes`) don't fit and you need a custom semantic — `app.shops-for`, `team.commented-on`. Custom edge types declare their cardinality, source/target type constraints, cascade behavior, and optional property schema.
-
-## Keys
-
-API key lifecycle. `POST /keys` mints a key with scoped permissions; `GET /keys` lists active keys; `PATCH /keys/{id}` updates permissions; `DELETE /keys/{id}` revokes. On a fresh server, the first `POST /keys` succeeds without auth — the bootstrap window.
-
-Reach for keys when provisioning credentials for new apps, rotating compromised keys, or scoping a CI bot to read-only access on a single type. The plaintext key is returned only on creation — store it then.
-
-```bash
-curl -X POST $MARFA_API_URL/keys \
-  -H "Authorization: Bearer $MARFA_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{ "label": "ci", "role": "member", "type_permissions": {"core.note": "read"} }'
-```
-
-See [Authentication](/docs/guides/auth/authentication) for key fields and bootstrap rules.
-
-## Profile
-
-The calling user's own record. `GET /profile/me` returns the profile bound to the credential; `PATCH /profile/me` updates the mutable fields; `POST` and `DELETE /profile/me/avatar` manage the avatar blob.
-
-Reach for profile when rendering account UI, resolving the signed-in user's handle, or letting a user edit their display name and avatar. The credential identifies the user, so no id is passed.
-
-```bash
-curl $MARFA_API_URL/profile/me \
-  -H "Authorization: Bearer $MARFA_API_KEY"
-```
-
-See [Profile](/docs/guides/identity/profile) for the full field set and the OIDC userinfo endpoint.
-
-## Webhooks
-
-Outbound event delivery. `POST /webhooks` registers a subscription; `GET /webhooks` lists them; `PATCH /webhooks/{id}` updates URL or filters; `DELETE /webhooks/{id}` removes. Each subscription carries an HMAC secret returned only at creation; the full delivery history lives at `GET /webhooks/{id}/deliveries`.
-
-Reach for webhooks when integrating external systems that expect HTTP POST, triggering workflows, or building one-way pipelines that don't need a persistent connection. For live UI updates within the same app, prefer SSE — see [Realtime](/docs/guides/realtime/realtime).
-
-```bash
-curl -X POST $MARFA_API_URL/webhooks \
-  -H "Authorization: Bearer $MARFA_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{ "url": "https://example.com/hook", "events": ["item.created"] }'
-```
-
-See [Webhooks](/docs/guides/realtime/webhooks) for HMAC verification and retry semantics.
-
-## Events
-
-The live change stream. `GET /events` holds open a Server-Sent Events connection and streams item and edge changes as they occur, filtered by event name and resumable with `Last-Event-ID`.
-
-Reach for events when a same-app UI needs to reflect changes in real time without polling. For delivery to an external system over HTTP POST, use webhooks instead. The stream is read-only.
-
-```bash
-curl -N "$MARFA_API_URL/events?event=item.created,item.updated" \
-  -H "Authorization: Bearer $MARFA_API_KEY"
-```
-
-See [Realtime](/docs/guides/realtime/realtime) for the event catalog and reconnection semantics.
-
-## Connections
-
-Authority approvals. `GET /items?type=system.connection` lists every Connection in a tenant (the items route is the canonical listing — `system.connection` items are items). The Connection-specific surface — install, uninstall, leased tokens, and inbound-webhook subscriptions — sits under `/connections/{id}/*`. Lifecycle changes like pause and resume run through the item's `state` transition, not a dedicated route.
-
-Reach for connections when managing OAuth grants from third-party apps, or installing and configuring Integrations. The two kinds (`app`, `integration`) share one type, so list, inspect, and revoke are uniform across both. See [Connections](/docs/guides/connections/connections).
-
-## Bulk
-
-Tenant-scale mutations. `POST /items/bulk` accepts up to 5000 items per call for list-in-items writes; `POST /edges/bulk` does the same for edges; `POST /items/bulk-actions` applies one action (`transition`, `purge`, `update_tags`, `update_tier`, `update_properties`, `update_timestamp`) to every item matching a filter. All bulk endpoints are admin-only.
-
-Reach for bulk when running tenant migrations, mass-archiving by filter, or restoring from a `GET /export` archive. Third-party integrations writing many items should use `POST /items` with `source_id` instead — natural-key upsert handles the de-dup. See [Bulk operations](/docs/guides/querying/bulk-operations) for the three shapes and async behavior.
-
-## Admin
-
-Platform-operator surfaces. `GET /admin/tenants`, `POST /admin/tenants/{id}/suspend`, `GET /audit`, `POST /admin/restore-archive`, plus the account-deletion sweep at `POST /admin/account-deletion/purge-now`. Gated on platform-admin keys (`is_platform: true`); non-platform credentials get `403 forbidden`.
-
-Reach for admin when running a hosted Marfa instance — managing tenants, inspecting cross-tenant audit logs, forcing pending-delete sweeps. The CLI exposes these under `marfa platform tenants ...`. See [Platform operations](/docs/self-hosting/operate/platform) for the operator-facing walkthrough.
+The semantics behind each group — the four-layer item, the edge cascade rules, the tier and lifecycle axes — live in the [Guides](/guides). This reference covers the wire.
