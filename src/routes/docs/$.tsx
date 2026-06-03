@@ -9,6 +9,7 @@ import {
   DocsDescription,
   DocsPage,
   DocsTitle,
+  PageFooter,
 } from 'fumadocs-ui/layouts/notebook/page';
 import { baseOptions } from '@/lib/layout.shared';
 import { gitConfig } from '@/lib/shared';
@@ -181,15 +182,33 @@ function OpenAPIView({
       tabMode="navbar"
       sidebar={{ defaultOpenLevel: 0, collapsible: false }}
     >
-      <DocsPage full>
-        {/* Header mirrors the OpenAPI operation's own two-column structure
-            (flex-1 detail + w-[400px] code rail, gap-x-6) inside a matching
-            @container, so the title/description align with the request panel
-            below and the Copy Markdown button sits above the code rail —
-            rather than spanning full width and bleeding into the rail. */}
+      <DocsPage
+        full
+        footer={{
+          // Confine the prev/next footer to the detail-column width so it never
+          // runs under the code rail. Mirror the operation's flex structure (a
+          // flex-1 detail column capped at 680px + a reserved 400px rail column)
+          // so the footer tracks the detail column's width at every breakpoint,
+          // including where it shrinks below the cap. The @container drives @4xl.
+          component: (
+            <div className="@container">
+              <div className="flex flex-row gap-x-6">
+                <div className="min-w-0 flex-1 @4xl:max-w-[680px]">
+                  <PageFooter />
+                </div>
+                <div className="hidden shrink-0 @4xl:block @4xl:w-[400px]" aria-hidden />
+              </div>
+            </div>
+          ),
+        }}
+      >
+        {/* Header mirrors the OpenAPI operation's two-column layout (a 680px
+            detail column + a w-[400px] code rail, pushed apart) inside a
+            matching @container, so the title/description align with the request
+            panel below and the Copy Markdown button sits above the code rail. */}
         <div className="@container">
-          <div className="flex flex-col gap-x-6 gap-y-2 @4xl:flex-row @4xl:items-start">
-            <div className="min-w-0 flex-1">
+          <div className="flex flex-col gap-x-6 gap-y-2 @4xl:flex-row @4xl:items-start @4xl:justify-between">
+            <div className="min-w-0 flex-1 @4xl:max-w-[680px]">
               <DocsTitle>{data.title}</DocsTitle>
               {data.description ? (
                 <DocsDescription>{data.description}</DocsDescription>
