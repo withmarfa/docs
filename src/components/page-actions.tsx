@@ -16,7 +16,7 @@ export function PageActions({
   githubUrl?: string;
 }) {
   return (
-    <div className="inline-flex items-center overflow-hidden rounded-md border bg-fd-secondary/50 text-fd-muted-foreground">
+    <div className="inline-flex items-center overflow-hidden rounded-md border bg-fd-secondary/30 backdrop-blur-sm text-fd-muted-foreground">
       <MarkdownCopyButton
         markdownUrl={markdownUrl}
         className="rounded-none border-0 bg-transparent hover:bg-fd-accent"

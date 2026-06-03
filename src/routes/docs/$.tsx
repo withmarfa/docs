@@ -98,6 +98,7 @@ const serverLoader = createServerFn({
         kind: 'openapi' as const,
         title: page.data.title ?? '',
         description: page.data.description ?? '',
+        markdownUrl: slugsToMarkdownPath(page.slugs).url,
         apiProps: await page.data.getClientAPIPageProps(),
         pageTree,
       };
@@ -166,6 +167,7 @@ function OpenAPIView({
   data: {
     title: string;
     description: string;
+    markdownUrl: string;
     apiProps: Parameters<typeof APIPage>[0];
     pageTree: SerializedPageTree;
   };
@@ -180,8 +182,24 @@ function OpenAPIView({
       sidebar={{ defaultOpenLevel: 0, collapsible: false }}
     >
       <DocsPage full>
-        <DocsTitle>{data.title}</DocsTitle>
-        {data.description ? <DocsDescription>{data.description}</DocsDescription> : null}
+        {/* Header mirrors the OpenAPI operation's own two-column structure
+            (flex-1 detail + w-[400px] code rail, gap-x-6) inside a matching
+            @container, so the title/description align with the request panel
+            below and the Copy Markdown button sits above the code rail —
+            rather than spanning full width and bleeding into the rail. */}
+        <div className="@container">
+          <div className="flex flex-col gap-x-6 gap-y-2 @4xl:flex-row @4xl:items-start">
+            <div className="min-w-0 flex-1">
+              <DocsTitle>{data.title}</DocsTitle>
+              {data.description ? (
+                <DocsDescription>{data.description}</DocsDescription>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 justify-end @4xl:w-[400px]">
+              <PageActions markdownUrl={data.markdownUrl} />
+            </div>
+          </div>
+        </div>
         <DocsBody>
           <Suspense>
             {/* Title + description come from DocsTitle/DocsDescription above —
