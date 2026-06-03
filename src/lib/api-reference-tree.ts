@@ -1,9 +1,26 @@
 import type * as PageTree from 'fumadocs-core/page-tree';
 
-// Group the API reference's resource folders under five non-collapsible section
-// headers (separators). The resources stay collapsible — collapsed by default,
-// with the active one auto-expanding — so the toggles are earned: each sits
-// under a domain header and reveals that resource's endpoints.
+// Group the API reference's pages under non-collapsible section headers
+// (separators). A top "General" header carries the hand-written MDX pages
+// (overview, authentication, permissions, errors, rate limits); below it, five
+// domain headers carry the generated resource folders.
+//
+// The resources stay collapsible — collapsed by default, with the active one
+// auto-expanding — so the toggles are earned: each sits under a domain header
+// and reveals that resource's endpoints. The General pages are flat MDX pages,
+// not folders, so they render directly under the header with no toggle.
+
+// The General pages, in render order. Slugs match the MDX filenames in
+// `content/docs/api-reference/` (the overview is the section index page, whose
+// slug is the folder root — an empty trailing segment). These are authored
+// pages, not generated operations, so they arrive as page nodes (the
+// passthrough branch below), never folders.
+const GENERAL_PAGES = [
+  'authentication',
+  'permissions',
+  'errors',
+  'rate-limits',
+];
 
 // Section headers in order, each listing its resources (lowercased tag names)
 // in the order they should appear — primary resources first, not alphabetical.
@@ -32,22 +49,58 @@ function nodeName(name: PageTree.Node['name']): string {
   return typeof name === 'string' ? name : String(name ?? '');
 }
 
+// Last URL segment of a page node, e.g. `/api-reference/errors` → `errors`.
+// The section root (`/api-reference`) yields the empty string.
+function urlSlug(url: string): string {
+  const segs = url.replace(/\/+$/, '').split('/');
+  return segs[segs.length - 1] ?? '';
+}
+
 function regroupTagFolders(children: PageTree.Node[]): PageTree.Node[] {
-  const passthrough: PageTree.Node[] = [];
   const folderByName = new Map<string, PageTree.Folder>();
+  const pageBySlug = new Map<string, PageTree.Item>();
+  // The overview is the section's index page; its URL ends at the section root
+  // (`/api-reference`), so it carries the empty slug. Pull it out by reference
+  // rather than slug so it always leads the General section.
+  let overview: PageTree.Item | undefined;
+  const otherNodes: PageTree.Node[] = [];
 
   for (const node of children) {
-    if (node.type !== 'folder') {
-      passthrough.push(node); // the "API overview" index page, etc.
+    if (node.type === 'folder') {
+      folderByName.set(nodeName(node.name).trim().toLowerCase(), {
+        ...node,
+        defaultOpen: false,
+      });
       continue;
     }
-    folderByName.set(nodeName(node.name).trim().toLowerCase(), {
-      ...node,
-      defaultOpen: false,
-    });
+    if (node.type === 'page') {
+      const slug = urlSlug(node.url);
+      if (slug === 'api-reference' || slug === '') {
+        overview = node;
+      } else {
+        pageBySlug.set(slug, node);
+      }
+      continue;
+    }
+    otherNodes.push(node); // any pre-existing separator, etc.
   }
 
-  const out: PageTree.Node[] = [...passthrough];
+  // General section: the overview, then the cross-cutting reference pages in
+  // declared order. Renders under a non-collapsible header like the resource
+  // sections, so the API reference reads as a self-contained reference with a
+  // General intro à la Stripe / OpenAI.
+  const generalPages: PageTree.Node[] = [];
+  if (overview) generalPages.push(overview);
+  for (const slug of GENERAL_PAGES) {
+    const page = pageBySlug.get(slug);
+    if (page) generalPages.push(page);
+  }
+
+  const out: PageTree.Node[] = [...otherNodes];
+  if (generalPages.length) {
+    out.push({ type: 'separator', name: 'General' });
+    out.push(...generalPages);
+  }
   const placed = new Set<string>();
   for (const section of SECTIONS) {
     const folders = section.resources
@@ -62,10 +115,18 @@ function regroupTagFolders(children: PageTree.Node[]): PageTree.Node[] {
     }
   }
   // Anything unmapped stays visible under an explicit header rather than
-  // silently vanishing — a signal to extend SECTIONS.
-  const leftovers = [...folderByName.entries()]
-    .filter(([key]) => !placed.has(key))
-    .map(([, folder]) => folder);
+  // silently vanishing — a signal to extend SECTIONS or GENERAL_PAGES. Covers
+  // both resource folders missing from SECTIONS and authored MDX pages missing
+  // from GENERAL_PAGES.
+  const generalSet = new Set(GENERAL_PAGES);
+  const leftovers: PageTree.Node[] = [
+    ...[...pageBySlug.entries()]
+      .filter(([slug]) => !generalSet.has(slug))
+      .map(([, page]) => page),
+    ...[...folderByName.entries()]
+      .filter(([key]) => !placed.has(key))
+      .map(([, folder]) => folder),
+  ];
   if (leftovers.length) {
     out.push({ type: 'separator', name: 'Other' });
     out.push(...leftovers);

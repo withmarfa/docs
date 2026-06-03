@@ -38,15 +38,22 @@ const LEGACY_EXACT: Record<string, string> = {
   'concepts/lifecycle/marketplace': 'guides/connections/marketplace',
   'concepts/lifecycle/provenance': 'guides/core-model/provenance',
   'concepts/lifecycle/tier': 'guides/core-model/tier',
-  'api/authentication': 'guides/auth/authentication',
+  'api/authentication': 'api-reference/authentication',
   'api/bulk-operations': 'guides/querying/bulk-operations',
-  'api/errors': 'guides/operations/errors',
+  'api/errors': 'api-reference/errors',
   'api/inbound-webhooks': 'guides/realtime/inbound-webhooks',
-  'api/permissions': 'guides/auth/permissions',
-  'api/rate-limiting': 'guides/operations/rate-limiting',
+  'api/permissions': 'api-reference/permissions',
+  'api/rate-limiting': 'api-reference/rate-limits',
   'api/realtime': 'guides/realtime/realtime',
   'api/search-and-query': 'guides/querying/search-and-query',
   'api/webhooks': 'guides/realtime/webhooks',
+  // The auth contract and the cross-cutting error / rate-limit reference moved
+  // out of Guides into the API reference's General section, so the endpoints
+  // that need them sit alongside them. Old Guides URLs 301 to the new homes.
+  'guides/auth/authentication': 'api-reference/authentication',
+  'guides/auth/permissions': 'api-reference/permissions',
+  'guides/operations/errors': 'api-reference/errors',
+  'guides/operations/rate-limiting': 'api-reference/rate-limits',
   'self-hosting/run/deployment-modes': 'guides/identity/deployment-modes',
   // The Introduction landing absorbed the old Overview page.
   'get-started/overview': 'introduction',
