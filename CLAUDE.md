@@ -2,7 +2,7 @@
 
 Public documentation site at `docs.marfa.so`. Built with [Fumadocs](https://fumadocs.dev) on [TanStack Start](https://tanstack.com/start), deployed to Cloudflare Workers via `@cloudflare/vite-plugin`.
 
-Docs MCP convention: when working on documented surfaces (types, edges, runtime substrates, connections, auth flows), query the docs MCP at `https://docs.marfa.so/mcp` (or use `marfa docs search "<query>"` from CLI) before re-deriving from source. After changing a public surface, update the relevant docs page in the same PR.
+Docs MCP convention: when working on documented surfaces (types, edges, runtime substrates, connections, auth flows), query the docs MCP at `https://docs.marfa.so/mcp` (or use `marfa docs search "<query>"` from CLI) before re-deriving from source. This repo is the canonical home for all published Marfa docs — code repos never author docs pages; they open companion PRs here when they change a public surface.
 
 ## Framework
 
