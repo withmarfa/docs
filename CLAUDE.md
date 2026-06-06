@@ -115,3 +115,7 @@ The anti-junk guardrail: the markup discipline every page holds to, and the rubr
 ## Conventions
 
 Cross-repo conventions (American English, Conventional Commits with scope, TypeScript ESM, Prettier single quotes, no personal infra) come from the parent `.claude/CLAUDE.md`.
+
+## Comments
+
+Comments are self-contained and make sense to anyone reading this repository cold. Explain *why* — the decision, constraint, or non-obvious trade-off — not the *what*, which the code already states. Never reference internal trackers, ticket numbers, or project phases; a comment that only points at external context is noise. If a comment doesn't earn its place by capturing intent, delete it — the code and its history carry the rest.
