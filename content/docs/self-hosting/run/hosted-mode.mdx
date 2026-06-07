@@ -10,7 +10,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 - **`keys`** (default) — every tenant exists because someone created its admin key. Tenant provisioning is a manual server-side operation; there is no public sign-up flow. Suitable for self-hosted single-tenant setups, internal multi-tenant deployments where admins provision tenants out-of-band, and development.
 - **`hosted`** — a managed-service shape. Better Auth's email + password sign-up endpoint is mounted, sign-up creates a user + tenant atomically, sessions are issued as HTTP-only cookies, and OAuth Authorization-Code + PKCE flows are available for third-party clients. Suitable for cloud deployments intended to serve end-users without operator involvement per sign-up.
 
-API keys work the same way in both modes — once a user has a tenant, they can mint scoped keys via `POST /keys`. The difference is whether a public endpoint provisions accounts.
+API keys work the same way in both modes — a tenant owner mints scoped `marfa_k1_` keys, which authenticate the bearer-only data plane. The difference is whether a public endpoint provisions accounts.
 
 ## Enabling hosted mode
 
@@ -23,10 +23,10 @@ export MARFA_AUTH_ALLOW_SIGNUP=true                    # opens public sign-up
 
 At boot the server mounts Better Auth's HTTP surface under `/auth/*`:
 
-- **`POST /auth/sign-up/email`** — creates a user record, a tenant, and a session cookie. No auth required when `MARFA_AUTH_ALLOW_SIGNUP=true`.
+- **`POST /auth/sign-up/email`** — creates a user record and a tenant. No auth required when `MARFA_AUTH_ALLOW_SIGNUP=true`. When email verification is on, the response carries no session until the address is confirmed.
 - **`POST /auth/sign-in/email`** — issues a session cookie for an existing user.
 - **`POST /auth/sign-out`** — clears the session cookie and invalidates the row.
-- **`GET /auth/session`** — returns the current session details (the authenticated user, tenant, key roles).
+- **`GET /auth/get-session`** — returns the current session details (the authenticated user and session).
 - **OAuth surface** — `/auth/authorize`, `/auth/oauth2/token`, `/auth/oauth2/register` (Dynamic Client Registration), plus the Device Authorization endpoints for CLI / Raycast flows. See [Authentication](/api-reference/authentication).
 
 Hosted mode requires a storage backend that supports the Better Auth tables (`auth_user`, `auth_session`, `auth_account`, `auth_passkey`) and the Marfa tables (`tenants`, `users`, `api_keys`). Both Postgres and SQLite work; multi-tenant production should use Postgres.
@@ -42,17 +42,18 @@ POST /auth/sign-up/email
 }
 ```
 
-Response (201) includes the new user, the session token (set as an HTTP-only cookie too), and the user's tenant id:
+The response returns the new user and a session object:
 
 ```json
 {
   "user": { "id": "...", "email": "user@example.com", "name": "..." },
-  "session": { "token": "...", "expiresAt": "..." },
-  "tenant": { "id": "...", "name": "user@example.com's tenant" }
+  "session": { "token": "...", "expiresAt": "..." }
 }
 ```
 
-The server creates the tenant transactionally with the user. There is no separate tenant-provisioning step.
+When email verification is on — the case whenever a real email backend is configured — the account starts unverified: `session.token` is null and no session cookie is set. The user confirms the address before a session lands. Instances without an email backend skip verification and sign new accounts in directly, with `session.token` populated.
+
+The server creates a tenant transactionally with the user on every sign-up, so a new account always owns exactly one tenant. There is no separate tenant-provisioning step.
 
 ### Federated sign-up (OIDC)
 
@@ -76,7 +77,12 @@ One tenant per user. A user signing up always owns exactly one tenant; users who
 
 ## API keys in hosted mode
 
-Sessions authenticate browser callers; API keys authenticate programmatic ones (CLI, MCP, server-to-server). Inside a signed-in session, a user mints scoped keys via `POST /keys` using `client.keys.create`. The CLI (`marfa keys create`) and the SDK's `client.keys.*` surface work the same way they do in `keys` mode.
+Better Auth session cookies authenticate browser callers in the `/auth/*` zone. They do not authenticate the data plane: `/items`, `/keys`, and the rest are bearer-only and reject the session cookie with a 401. A new user reaches their first bearer credential through one of two self-serve paths:
+
+- **Web console.** After sign-up and email verification, a signed-in user opens `/auth/keys` (cookie-authenticated) and creates a long-lived `marfa_k1_` key. The plaintext is shown once on that page.
+- **Device flow.** `marfa auth login` runs the OAuth device flow and stores a `marfa_at_` token for CLI and SDK use. See [Authentication](/api-reference/authentication#device-authorization-grant).
+
+Once a credential is in hand, the CLI (`marfa keys create`) and the SDK's `client.keys.*` surface mint further keys the same way they do in `keys` mode.
 
 For third-party app integration, the user goes through OAuth Authorization-Code + PKCE rather than handing over a static key — see [Authentication](/api-reference/authentication#oauth-21).
 
