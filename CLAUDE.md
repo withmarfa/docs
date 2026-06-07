@@ -16,9 +16,10 @@ Docs MCP convention: when working on documented surfaces (types, edges, runtime 
 ```bash
 pnpm install        # Node 22+
 pnpm dev            # http://localhost:3000
-pnpm build          # vite build (full prerender) + tsc --noEmit
+pnpm build          # vite build (full prerender)
+pnpm types:check    # fumadocs-mdx codegen + tsc --noEmit (run after a build)
 pnpm preview        # serve the production build locally
-pnpm deploy         # pnpm build && wrangler deploy
+pnpm run deploy     # pnpm build && wrangler deploy (pnpm deploy is a built-in)
 ```
 
 ## Content shape
@@ -110,7 +111,7 @@ The anti-junk guardrail: the markup discipline every page holds to, and the rubr
 
 ## Deployment
 
-`docs.marfa.so` is a Cloudflare Worker. `pnpm deploy` runs `pnpm build && wrangler deploy`. Custom domain wired in `wrangler.jsonc`. Account: `marfa` (set `CLOUDFLARE_API_TOKEN` to a marfa-account token before deploying).
+`docs.marfa.so` is a Cloudflare Worker. `pnpm run deploy` runs `pnpm build && wrangler deploy` (use `run` — `pnpm deploy` is pnpm's own built-in and won't invoke the script). Custom domain wired in `wrangler.jsonc`. Account: `marfa` (set `CLOUDFLARE_API_TOKEN` to a marfa-account token before deploying).
 
 ## Conventions
 
