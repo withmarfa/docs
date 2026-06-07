@@ -501,6 +501,7 @@
                             "validation_error",
                             "missing_required_field",
                             "invalid_type",
+                            "unknown_type",
                             "invalid_id",
                             "invalid_properties",
                             "edge_constraint_violation",
@@ -693,15 +694,11 @@
           {
             "schema": {
               "type": "string",
-              "enum": [
-                "created_at",
-                "updated_at",
-                "timestamp"
-              ],
-              "description": "Field to sort by"
+              "pattern": "^(created_at|updated_at|timestamp|properties\\.[a-z0-9_]+)$",
+              "description": "Field to sort by: a system column (created_at, updated_at, timestamp) or a naturally-orderable custom field via properties.<field> (e.g. properties.due_at). Enum fields like status/priority are not sortable here — their order is semantic, not lexical."
             },
             "required": false,
-            "description": "Field to sort by",
+            "description": "Field to sort by: a system column (created_at, updated_at, timestamp) or a naturally-orderable custom field via properties.<field> (e.g. properties.due_at). Enum fields like status/priority are not sortable here — their order is semantic, not lexical.",
             "name": "sort",
             "in": "query"
           },
@@ -4101,7 +4098,7 @@
           "Items"
         ],
         "summary": "Bulk upsert items",
-        "description": "Creates or upserts up to 5000 items in one call, matching existing rows on `(source, source_id)`. Admin-only and atomic by default; `source` is server-stamped from the credential, so any caller-supplied value is overwritten.",
+        "description": "Creates or upserts up to 5000 items in one call, matching existing rows on `(source, source_id)`. Atomic by default; `source` is server-stamped from the credential, so any caller-supplied value is overwritten. Requires write access to each item's type (admin / tenant_admin bypass; members need the per-type permission), and operates only within the caller's tenant.",
         "security": [
           {
             "bearerAuth": []
@@ -4365,7 +4362,7 @@
             }
           },
           "403": {
-            "description": "Admin required",
+            "description": "Write access denied for one of the item types",
             "content": {
               "application/json": {
                 "schema": {
@@ -4377,7 +4374,8 @@
                         "code": {
                           "type": "string",
                           "enum": [
-                            "forbidden"
+                            "forbidden",
+                            "type_not_permitted"
                           ]
                         },
                         "message": {
@@ -5670,6 +5668,333 @@
                           "type": "string",
                           "enum": [
                             "bulk_job_not_found"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/items/bulk-get": {
+      "post": {
+        "operationId": "bulkGetItems",
+        "tags": [
+          "Items"
+        ],
+        "summary": "Bulk get items by id",
+        "description": "Reads up to 100 items by id in one round-trip. Tenant-scoped and permission-filtered exactly like the single-item GET: ids the caller cannot read (other tenant, type not permitted, trashed, or missing) are silently omitted rather than erroring the whole request. Optional `include` hydrates edges, metadata, extensions, or system items inline.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Item ids to fetch (max 100)."
+                  },
+                  "include": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "edges",
+                        "metadata",
+                        "extensions",
+                        "system"
+                      ]
+                    },
+                    "description": "Extras to hydrate inline: edges, metadata, extensions, system. Mirrors the GET /items `include` tokens."
+                  }
+                },
+                "required": [
+                  "ids"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The readable subset of the requested items",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "properties": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "nullable": true
+                            }
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "active",
+                              "archived",
+                              "trashed",
+                              "revoked"
+                            ]
+                          },
+                          "tier": {
+                            "type": "string",
+                            "enum": [
+                              "library",
+                              "feed"
+                            ]
+                          },
+                          "tenant_id": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "version": {
+                            "type": "number"
+                          },
+                          "schema_version": {
+                            "type": "integer"
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "source_id": {
+                            "type": "string"
+                          },
+                          "device": {
+                            "type": "string"
+                          },
+                          "capture_latitude": {
+                            "type": "number"
+                          },
+                          "capture_longitude": {
+                            "type": "number"
+                          },
+                          "timestamp": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "string"
+                          },
+                          "updated_at": {
+                            "type": "string"
+                          },
+                          "edges": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "object",
+                              "properties": {
+                                "edges": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "tenant_id": {
+                                        "type": "string",
+                                        "nullable": true
+                                      },
+                                      "source_id": {
+                                        "type": "string"
+                                      },
+                                      "target_id": {
+                                        "type": "string"
+                                      },
+                                      "edge_type": {
+                                        "type": "string"
+                                      },
+                                      "properties": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                          "nullable": true
+                                        }
+                                      },
+                                      "created_at": {
+                                        "type": "string"
+                                      },
+                                      "updated_at": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "source_id",
+                                      "target_id",
+                                      "edge_type",
+                                      "properties",
+                                      "created_at",
+                                      "updated_at"
+                                    ]
+                                  }
+                                },
+                                "has_more": {
+                                  "type": "boolean"
+                                },
+                                "next_cursor": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "edges",
+                                "has_more"
+                              ]
+                            }
+                          },
+                          "extensions": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "nullable": true
+                              }
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "type",
+                          "properties",
+                          "state",
+                          "version",
+                          "schema_version",
+                          "source",
+                          "timestamp",
+                          "created_at",
+                          "updated_at"
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "item_id": {
+                            "type": "string"
+                          },
+                          "tags": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "extensions": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "required": [
+                          "item_id",
+                          "tags",
+                          "extensions"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (too many ids, or a malformed id)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "validation_error",
+                            "invalid_id"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "unauthorized"
                           ]
                         },
                         "message": {
@@ -7655,7 +7980,7 @@
           "Edges"
         ],
         "summary": "Bulk upsert edges",
-        "description": "Creates or upserts up to 5000 edges in one call, matching existing rows on `(source_id, target_id, edge_type)`. Admin-only and atomic by default; both endpoints must already hold the items being wired together.",
+        "description": "Creates or upserts up to 5000 edges in one call, matching existing rows on `(source_id, target_id, edge_type)`. Atomic by default; the items being wired together must already exist. Requires write access to each edge's source-item type and edge type (admin / tenant_admin bypass; members need both per-type permissions), and operates only within the caller's tenant.",
         "security": [
           {
             "bearerAuth": []
@@ -7885,7 +8210,7 @@
             }
           },
           "403": {
-            "description": "Admin required",
+            "description": "Write access denied for a source type or edge type",
             "content": {
               "application/json": {
                 "schema": {
@@ -7897,7 +8222,9 @@
                         "code": {
                           "type": "string",
                           "enum": [
-                            "forbidden"
+                            "forbidden",
+                            "type_not_permitted",
+                            "edge_permission_denied"
                           ]
                         },
                         "message": {
@@ -7933,7 +8260,7 @@
           "Edge Types"
         ],
         "summary": "Register an edge type",
-        "description": "Registers a custom edge type with its cardinality, cascade behaviour, type constraints, and optional property schema. Admin-only; the eight core edge-type names are reserved and reject with a conflict, and custom types are flat with no inheritance.",
+        "description": "Registers a custom edge type with its cardinality, cascade behaviour, type constraints, and optional property schema. Tenant-admin or platform-admin; the registration is scoped to the caller's tenant and is invisible to other tenants. The eight core edge-type names are reserved and reject with a conflict, and custom types are flat with no inheritance.",
         "security": [
           {
             "bearerAuth": []
@@ -8136,7 +8463,7 @@
             }
           },
           "403": {
-            "description": "Admin required",
+            "description": "Tenant-admin required",
             "content": {
               "application/json": {
                 "schema": {
@@ -8313,7 +8640,7 @@
           "Edge Types"
         ],
         "summary": "Delete an edge type",
-        "description": "Removes a custom edge type registration. Admin-only; core edge types are rejected, and the request fails while any edges of this type still exist, so delete or migrate them first.",
+        "description": "Removes a custom edge type registration scoped to the caller's tenant. Tenant-admin or platform-admin; core edge types are rejected, another tenant's edge type resolves as not-found, and the request fails while any edges of this type still exist, so delete or migrate them first.",
         "security": [
           {
             "bearerAuth": []
