@@ -1,0 +1,36 @@
+# Build integrity guard. The production build runs a full prerender, so a
+# broken internal link, a malformed MDX page, or a type error all fail the
+# build — not just spec changes. Running build + type-check on every PR and
+# every push to main stops a red build from reaching main and the deploy.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and type-check
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      # Build before type-check: vite build generates src/routeTree.gen.ts
+      # (gitignored), which tsc needs to resolve the route types. It also runs
+      # the full prerender, so link and MDX breaks fail here.
+      - run: pnpm build
+      - run: pnpm types:check
