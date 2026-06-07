@@ -1,6 +1,6 @@
 ---
 title: Authoring types
-description: The inherit-vs-sibling rubric, semver diff, SDK helper, reserved field names, error shapes.
+description: The inherit-vs-sibling rubric, version diff, SDK helper, reserved field names, error shapes.
 ---
 
 Registering a type is a structured operation. The platform has correctness rails to keep registrations honest at scale — useful to any author, whether writing TypeScript directly, building visually in the console, or working through Claude Code or another AI assistant.
@@ -41,51 +41,63 @@ A worked counter-example: there is no `core.file.document`. PDFs, Word docs, pla
 
 Apply the same test to your own subtypes. If you can't fill in all three points, prefer a flat sibling.
 
-## Server-side semver diff
+## The version field and the diff rail
 
-The load-bearing rail. When you submit a new version of a type, the server computes the structural diff against the prior version and rejects the registration if the version bump doesn't match the diff class:
+A type's `version` is a positive integer, not a semver string. It defaults to `1`, and `POST /types` rejects a non-integer (or a value below 1) with `400 invalid_schema` on the `version` field. The integer counts schema revisions; it isn't a `major.minor.patch` triple.
 
-| Diff | Required bump |
-|---|---|
-| Description-only | Patch |
-| New optional field | Minor |
-| Field removed; required-tightened; field type changed; enum values changed | Major |
+The diff rail is the load-bearing check on top of that integer. When you submit a new version of an existing type, the server computes the structural diff against the prior version and classifies it. The class decides whether the integer must increase:
 
-Any change to an existing field's structure — its type, its required flag, or its set of enum values — is a major diff. Adding a brand-new optional field is the only minor case.
+| Diff class | What changed | Version requirement |
+|---|---|---|
+| No-op | Structurally identical | Rejected — nothing to register |
+| Descriptive | Label, description, or field descriptions only | Same integer accepted, or higher |
+| Additive | A new optional field added | Must increase |
+| Breaking | Field removed, required-tightened, type changed, or enum values changed | Must increase |
 
-Mismatched bumps return `422 version_bump_mismatch` with details on which fields drove the diff class.
+Any change to an existing field's structure — its type, its required flag, or its set of enum values — is a breaking diff. Adding a brand-new optional field is the only additive case. A descriptive-only change may keep the same integer so a docs tweak doesn't force consumers to re-pin; everything else must bump.
+
+The integer collapses the additive and breaking cases into one rule — both require the number to go up — while the diff class still surfaces in the error so you know which fields drove it. A bump that doesn't satisfy the rule returns `422 version_bump_mismatch` with the offending fields listed.
 
 Without this rail, version bumps drift over time. Convention alone (style guides, CLAUDE.md notes) helps but is advisory; only the registration-time check enforces. The platform stays honest by construction because every author hits the same gate.
+
+A registration request carries the integer directly:
+
+```json
+POST /types
+{
+  "id": "carla.meal_plan",
+  "description": "A weekly meal plan.",
+  "version": 1,
+  "fields": {
+    "week_of": { "type": "string", "required": true },
+    "title": { "type": "string", "required": true }
+  }
+}
+```
 
 The same mechanism applies across all four installable kinds in the [marketplace](/guides/connections/marketplace) — type, mapping, integration, automation.
 
 ## The SDK helper
 
-`defineType()` is the SDK helper for authoring in TypeScript. It takes a Zod schema and metadata, validates at build time, and produces both the runtime registration call and a registry entry.
+`defineType()` is the SDK helper for authoring in TypeScript. It is a no-op at runtime — it returns its argument unchanged — but at compile time it constrains the input to a structurally-valid type schema, so field-shape mistakes surface in the editor rather than at registration. It carries the same `version` integer as the wire shape, defaulting to `1`. Pair it with `client.types.register()` to send the registration.
 
 ```typescript
-import { defineType } from '@withmarfa/sdk'
-import { z } from 'zod'
+import { defineType } from '@withmarfa/sdk';
 
-export const MealPlan = defineType({
+export const mealPlan = defineType({
   id: 'carla.meal_plan',
   description: 'A weekly meal plan.',
-  parent: undefined,
-  compatible_with: [],
-  schema: z.object({
-    week_of: z.string().datetime(),
-    meals: z.array(
-      z.object({
-        day: z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']),
-        title: z.string(),
-        notes: z.string().optional(),
-      })
-    ),
-  }),
-})
+  version: 1,
+  fields: {
+    week_of: { type: 'string', required: true },
+    title: { type: 'string', required: true },
+  },
+});
+
+await client.types.register(mealPlan);
 ```
 
-Build-time validation catches schema mistakes before they hit the server. The runtime side calls `POST /types` and surfaces the server's error shape directly when the registration is rejected.
+The schema passed to `defineType()` is the same shape `POST /types` accepts — the integer `version`, the `fields` map, and an optional `parent` — so the curl body and the SDK call register the same type. The register call surfaces the server's error shape directly when the registration is rejected.
 
 One file per type, predictable layout. AI-assisted authoring works well when there's a consistent shape to follow — `defineType()` is that shape.
 
