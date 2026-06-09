@@ -62,7 +62,7 @@ Call `POST /keys` with the label, role, and the four permission maps (types, ext
 
 Full request and response shapes live in the API reference. A few fields carry rules worth calling out:
 
-- **`role`** — `admin` bypasses every permission check. `tenant_admin` manages keys within its own tenant but is still scoped by the permission maps for data access. `member` is scoped by the permission maps with no key-management rights.
+- **`role`** — `admin` bypasses every permission check. `tenant_admin` is admin-shaped within its own tenant: an API key with this role bypasses the data-plane permission maps for its tenant and manages that tenant's keys (reserved `system.*` / `marfa.*` writes still require a platform credential). `member` is scoped by the permission maps with no key-management rights. The role bypass applies to API keys only — OAuth access tokens are always held to their granted scopes regardless of role (see [Scopes](#scopes)).
 - **`source`** — stamped onto every item written by this key. Unique per tenant; clients can't override.
 - **`default_tier`** — stamps onto items when the client omits the field. Clients can override per item. See [Tier](/guides/core-model/tier).
 - **`type_permissions`**, **`extension_permissions`**, **`edge_permissions`**, **`metadata_permissions`** — see [Permissions](/api-reference/permissions) for resolution rules and the dual-gate.
@@ -103,7 +103,7 @@ An app registers as an OAuth client. Two paths: dynamic registration via `POST /
 
 ### Authorization request
 
-The app redirects the user to `GET /auth/authorize` with `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, and `code_challenge_method=S256`. If the user has no active session, the server redirects to `/auth/sign-in` (a server-rendered HTML form) preserving the original authorize URL as a return target. After sign-in, the user lands on the consent screen listing exactly which types, extensions, and edges the app is requesting.
+The app redirects the user to `GET /auth/authorize` with `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, and `code_challenge_method=S256`. If the user has no active session, the server redirects to `/auth/sign-in` (a server-rendered HTML form) preserving the original authorize URL as a return target. After sign-in, the user lands on the consent screen, which groups the requested access into a few plain-language [permission bundles](/guides/identity/permission-bundles).
 
 </Step>
 
@@ -170,13 +170,15 @@ Scopes use a verb-on-resource grammar that mirrors the permission maps:
 | `edge.<type>:write` | Create / delete edges of this type (dual-gated with type write). |
 | `metadata:read` | Read tags. |
 | `metadata:write` | Write tags. |
-| `metadata.<sub>:write` | Write a specific metadata sub-resource (today: `metadata.types:write` gates `POST /types`). |
+| `metadata.<sub>:write` | Write a specific metadata sub-resource: `metadata.types:write` gates `POST /types`; `metadata.edge_types:write` gates `POST /edge-types`. |
 
-Wildcards are allowed on type scopes: `core.bookmark.*:read` covers bookmark and all its subtypes; `*:read` covers everything.
+Wildcards are allowed on type scopes: `core.bookmark.*:read` covers bookmark and all its subtypes; `user.*:write` covers every runtime type in the `user.*` namespace; `*:read` covers everything. A wildcard is how an app reaches a tenant's runtime `user.*` types, which are never enumerated individually in the static scope allowlist.
+
+OAuth access tokens are enforced against exactly the scopes granted at consent. The `tenant_admin` role bypass that applies to API keys does not apply to OAuth tokens — the signed-in user's role is the ceiling on what an app can be granted, not a pass-through of the user's own access. An app granted only `*:read` can read but not write, even when the user is a tenant admin.
 
 Extension namespaces are not part of the OAuth scope grammar — extension reads and writes are governed by the credential's `extension_permissions` map (see [Permissions](/api-reference/permissions)). OAuth tokens issued by the consent flow inherit a default extension grant from the requesting client's registration.
 
-The consent UI renders the resolved type patterns literally — users see exactly what they're granting.
+The consent screen groups the requested scopes into [permission bundles](/guides/identity/permission-bundles); a Customise control reveals the underlying scope patterns.
 
 ### Partial grants
 
