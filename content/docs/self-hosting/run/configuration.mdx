@@ -128,7 +128,20 @@ Transactional email (sign-up verification, forgot-password, account-deletion con
 | `MARFA_SMTP_PASS` | _(none)_ | SMTP auth password. |
 | `MARFA_SMTP_SECURE` | _(unset)_ | `true` for implicit TLS (port 465); leave unset for STARTTLS on 587. |
 
-The Cloudflare backend has no documented send-time idempotency header — a transient retry can produce duplicate deliveries. Acceptable for the transactional flows wired today (each ships a single-use token; a second send is semantically harmless).
+For a self-host the `smtp` backend is the simplest path, and any provider works. Brevo offers a free SMTP relay; a personal Gmail account works with an app password (fine for a single operator, though Gmail rewrites the `From` address). A minimal SMTP setup:
+
+```bash
+MARFA_EMAIL_BACKEND=smtp
+MARFA_EMAIL_FROM=Marfa <you@yourdomain.com>
+MARFA_SMTP_HOST=smtp-relay.brevo.com
+MARFA_SMTP_PORT=587
+MARFA_SMTP_USER=<smtp-login>
+MARFA_SMTP_PASS=<smtp-key>
+```
+
+The Cloudflare backend is the hosted-Marfa path: it needs a paid Cloudflare plan and a verified sender domain, so it is not the recommended choice for self-hosters.
+
+The Cloudflare backend has no documented send-time idempotency header, so a transient retry can produce duplicate deliveries. Acceptable for the transactional flows wired today (each ships a single-use token; a second send is semantically harmless).
 
 ## Per-tenant quotas
 
@@ -150,10 +163,14 @@ The Connections build runs Integration Workers on Cloudflare. The server reaches
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CLOUDFLARE_QUEUES_REACTIVE_RUN_URL` | _(none)_ | HTTPS endpoint of the control-plane Worker that fans reactive events out to subscribed Integration Workers. |
-| `CLOUDFLARE_QUEUES_API_TOKEN` | _(none)_ | Bearer token presented to the control-plane Worker. Pair with `CLOUDFLARE_QUEUES_REACTIVE_RUN_URL`. |
+| `CLOUDFLARE_QUEUES_REACTIVE_RUN_URLS` | _(none)_ | JSON object mapping each integration name to its Cloudflare Queues producer URL (one queue per integration). Unset disables the reactive-run bridge. |
+| `CLOUDFLARE_QUEUES_API_TOKEN` | _(none)_ | Bearer token presented to the control-plane Worker. Pair with `CLOUDFLARE_QUEUES_REACTIVE_RUN_URLS`. |
 | `MARFA_RUNTIME_BROKER_KEY` | _(none)_ | Shared signing key used by the runtime-credential broker. The control-plane Worker mints short-lived per-connection credentials with this key; the server validates them on incoming Worker callbacks. |
-| `MARFA_INTEGRATION_RUNTIME` | `local` | Where Integration Workers run. `local` (default) runs them in-process for self-hosters without Cloudflare. `hosted` routes to the Cloudflare control plane (requires the three vars above). |
+| `MARFA_INTEGRATION_RUNTIME` | `local` | Where integrations run. `local` (default) runs them in-process, which needs Postgres (`DB_DIALECT=pg`). `hosted` routes to the Cloudflare control plane (requires the three vars above). |
+
+<Callout type="warn">
+The `local` runtime needs Postgres. On SQLite the integration runtime stays off: the server boots normally and integrations just don't run. Set `DB_DIALECT=pg` to enable it, or `MARFA_INTEGRATION_RUNTIME=hosted` for the Cloudflare substrate.
+</Callout>
 
 ## Observability
 
