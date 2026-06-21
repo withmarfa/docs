@@ -124,7 +124,7 @@ The anti-junk guardrail: the markup discipline every page holds to, and the rubr
 This repo is open-source and cloned independently, so these are restated here.
 
 - **American English** in code, comments, commits, and docs prose: color, organization, favorite.
-- **Conventional Commits** with scope: `docs:`, `feat(mcp):`, `fix(api-ref):`. One logical change per PR. No references to Claude or AI tooling.
+- **Conventional Commits** with scope: `docs:`, `feat(mcp):`, `fix(api-ref):`. One logical change per PR. No references to AI tooling.
 - **TypeScript ESM**, Prettier with single quotes.
 - **No personal infrastructure** in committed files: no internal hostnames, private IPs, launchd labels, or vault paths.
 
