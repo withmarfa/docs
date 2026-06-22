@@ -45,6 +45,22 @@ Combinations work. `?include=edges,extensions` is the typical "rendering a rich 
 
 The TypeScript SDK exposes typed helpers — `client.items.listWithMetadata`, `client.items.listWithExtensions` — that call these under the hood. Prefer them over assembling raw query strings.
 
+### Reading one item with its neighbourhood
+
+`GET /items/:id` always returns the item's `metadata` layer and its **outbound** edges hydrated inline. For a detail view that also needs the rest of the item's 1-hop neighbourhood — inbound edges, the items on the far end of those edges, version history — `?include=` widens the single read instead of forcing a per-section fan-out:
+
+- `?include=backrefs` — **inbound** edges (where this item is the target), grouped by edge type, the same block shape as the outbound `edges` (per-type cap with `has_more` + `next_cursor` to paginate via `GET /items/:id/backrefs?edge_type=X&cursor=...`).
+- `?include=neighbors` — the **far-end items** of the item's edges: outbound targets, plus inbound sources when `backrefs` is also requested. Each neighbour arrives as `{ item, metadata }` and is **permission-filtered** — a neighbour the caller cannot read (other tenant, type not permitted) is silently omitted, never leaked, exactly like [bulk-get](/guides/querying/bulk-operations). Bounded per read; overflow neighbours stay reachable through the per-type edge/backref endpoints.
+- `?include=versions` — the item's version snapshots, newest-first (same shape as `GET /items/:id/versions`).
+
+```
+GET /items/<id>?include=backrefs,neighbors
+```
+
+One bundled read replaces the open-a-detail pattern of "fetch the item, then its metadata, then a request per relationship section". Tokens compose, and the blocks are absent unless requested so the lean read stays lean.
+
+The TypeScript SDK exposes this as `client.items.getDetail(id, { include: ["backrefs", "neighbors", "versions"] })`, returning a typed `ItemDetail`. Prefer it over the bare `client.items.get(id)` (which keeps only the item) whenever you're rendering a detail surface.
+
 ## Full-text search
 
 `GET /search` accepts `q` plus the same filter parameters as `/items`:
