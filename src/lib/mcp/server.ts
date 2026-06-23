@@ -223,7 +223,7 @@ async function dispatch(req: JsonRpcRequest): Promise<JsonRpcResponse> {
         // Standard MCP handshake response.
         return rpcResult(id, {
           protocolVersion: '2024-11-05',
-          serverInfo: { name: 'marfa-docs-mcp', version: '0.1.0' },
+          serverInfo: { name: 'marfa-docs', version: '0.1.0' },
           capabilities: { tools: { listChanged: false } },
         });
       }
