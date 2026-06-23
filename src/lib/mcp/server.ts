@@ -275,7 +275,7 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
     return new Response(
       JSON.stringify(
         {
-          name: 'marfa-docs-mcp',
+          name: 'marfa-docs',
           version: '0.1.0',
           description: 'Marfa documentation MCP server.',
           tools: TOOLS.map((t) => ({ name: t.name, description: t.description })),
