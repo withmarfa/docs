@@ -114,80 +114,64 @@ let client = MarfaClient(configuration: config)
 
 ## Authentication
 
-API keys are the simplest path — embed or seed via `fromKeychain(...)` and move on. Third-party apps that want per-user consent use [OAuth 2.1 with PKCE](/api-reference/authentication#oauth-21) instead. The SDK doesn't ship a built-in OAuth client — it's an integration pattern — but the Keychain helpers handle token storage and rotation once you've exchanged for tokens.
+API keys are the simplest path — embed or seed via `fromKeychain(...)` and move on. Third-party apps that want per-user consent use [OAuth 2.1 with PKCE](/api-reference/authentication#oauth-21) instead. The SDK drives that flow end to end: `MarfaAuth` runs the authorize redirect and the token exchange, and returns a `TokenProvider` that refreshes and persists on its own.
 
-### OAuth 2.1 with ASWebAuthenticationSession
+### Sign in with OAuth
 
-Four moving parts: `ASWebAuthenticationSession` for the authorize redirect, `URLSession` for the token exchange, the SDK's Keychain helpers for persistence, and a catch on `UnauthorizedError` to trigger refresh.
-
-**1. Launch the authorize flow.** Generate a PKCE verifier + challenge, build `/auth/authorize`, and let `ASWebAuthenticationSession` handle the redirect back.
+`MarfaAuth` wraps `ASWebAuthenticationSession` and PKCE. Construct it once, then hand the provider it returns to the client.
 
 ```swift
 import AuthenticationServices
-import CryptoKit
+import MarfaSDK
 
-let verifier = randomURLSafeBase64(bytes: 32)
-let challenge = Data(SHA256.hash(data: Data(verifier.utf8)))
-  .base64EncodedString()
-  .replacingOccurrences(of: "=", with: "")
-  .replacingOccurrences(of: "+", with: "-")
-  .replacingOccurrences(of: "/", with: "_")
+let auth = MarfaAuth(
+  issuer: serverURL,
+  clientId: clientId,
+  redirectURI: URL(string: "\(scheme)://callback")!,
+  scopes: ["core.note:read", "core.note:write"],
+  storage: KeychainStorage()
+)
 
-var authorize = URLComponents(string: "\(serverURL)/auth/authorize")!
-authorize.queryItems = [
-  .init(name: "client_id",             value: clientId),
-  .init(name: "redirect_uri",          value: "\(scheme)://callback"),
-  .init(name: "response_type",         value: "code"),
-  .init(name: "scope",                 value: "core.note:read core.note:write"),
-  .init(name: "state",                 value: randomURLSafeBase64(bytes: 16)),
-  .init(name: "code_challenge",        value: challenge),
-  .init(name: "code_challenge_method", value: "S256"),
-]
+let provider = try await auth.signIn(presentationContextProvider: contextProvider)
 
-let session = ASWebAuthenticationSession(
-  url: authorize.url!,
-  callbackURLScheme: scheme
-) { callbackURL, error in
-  // Parse `code` and verify `state` round-trips, then POST /auth/oauth2/token below.
-}
-session.presentationContextProvider = contextProvider
-session.start()
-```
-
-**2. Exchange the code for tokens** via `POST /auth/oauth2/token` with `grant_type=authorization_code`, the `code`, and the original `code_verifier`. The response carries `access_token` (`marfa_at_...`), `refresh_token` (`marfa_rt_...`), and `expires_in`.
-
-**3. Persist the access token via the SDK's Keychain helper** — it becomes the API key for subsequent calls. Store the refresh token separately (same service, different account).
-
-```swift
-let client = MarfaClient(url: serverURL, apiKey: tokens.accessToken)
-try await client.saveToKeychain(service: "marfa.oauth", account: "access_token")
-// refresh_token stored with account: "refresh_token" via SecureStorage of your choosing
-```
-
-On subsequent launches, rehydrate without the auth flow:
-
-```swift
-let client = try await MarfaClient.fromKeychain(
-  service: "marfa.oauth",
-  account: "access_token",
-  url: serverURL
+let client = try await MarfaClient.synced(
+  url: serverURL,
+  tokenProvider: provider,
+  storePath: storePath
 )
 ```
 
-**4. Refresh on expiry.** Any SDK call can throw `UnauthorizedError` when the access token expires. Catch it, exchange the refresh token for a new pair, overwrite the Keychain entries, and retry:
+On later launches, rehydrate from the Keychain without showing the sheet. `restore()` returns `nil` when nothing is stored, which is the cue to run `signIn(...)`:
 
 ```swift
-do {
-  return try await client.items.list(filters: .init(type: "core.note"))
-} catch is UnauthorizedError {
-  try await refreshTokens()  // POST /auth/oauth2/token, grant_type=refresh_token
-  return try await client.items.list(filters: .init(type: "core.note"))
+if let provider = try await auth.restore() {
+  let client = try await MarfaClient.synced(
+    url: serverURL,
+    tokenProvider: provider,
+    storePath: storePath
+  )
 }
 ```
 
-<Callout type="info">
-  Refresh tokens rotate on every exchange — the prior refresh token is invalidated. Reusing a rotated token returns `400 token_reuse_detected`; the app must restart the authorize flow. Store the latest pair atomically.
-</Callout>
+`auth.signOut(provider)` revokes the tokens server-side and clears them from storage.
+
+### Refresh and rotation
+
+The provider refreshes shortly before the access token expires. Concurrent callers share a single exchange, so a burst of requests cannot fan out into competing refreshes.
+
+That single-flight behavior is load-bearing, because refresh tokens rotate: every exchange invalidates the previous token, and replaying a rotated one returns `400 token_reuse_detected` and revokes the whole pair. A rejected grant is therefore never retried. The provider discards the tokens, emits a sign-out event, and fails subsequent calls immediately until a fresh sign-in. Transient failures (`429`, `503`) are retried with bounded backoff honoring `Retry-After` and leave the session intact.
+
+Subscribe to `authEvents` to present sign-in when a session ends. Background work such as sync has no call site to catch a thrown error, so this is the signal to build on:
+
+```swift
+for await event in provider.authEvents {
+  switch event {
+  case .signedOut(let reason):
+    // .refreshTokenRejected, .reuseDetected, or .noRefreshToken
+    await presentSignIn()
+  }
+}
+```
 
 <Callout type="warn">
   `ASWebAuthenticationSession` requires a UI host — a `UIWindow` on iOS, `NSWindow` on macOS. Server-side Swift, background extensions, and command-line tools cannot run this flow; they must use an API key.
