@@ -45,10 +45,11 @@ marfa [--url <url>] [--key <key>] [--instance <name>] [--json] [--verbose]
   auth         login, logout, whoami, delete-account
   profile      show, update, avatar {set, clear}
   items        create, get, list, update, delete, restore, transition,
-               search, versions, edges, backrefs, bulk, action
-  metadata     get, tag, untag, set, merge, list-tags, extensions {get, set}
+               search, versions, edges, backrefs, stats, purge, bulk, action
+  metadata     get, tag, untag, set, merge, list-tags,
+               extensions {get, set, delete}
   edges        create, list, update, delete, types {list, create, delete}, bulk
-  blobs        upload, download
+  blobs        upload, exists, url, download
   types        list, describe, register, update, delete
   keys         create, update, list, revoke
   apps         register
@@ -56,12 +57,14 @@ marfa [--url <url>] [--key <key>] [--instance <name>] [--json] [--verbose]
   tenant       config {get, set}
   connections  list, get, configure, pause, resume, install, uninstall,
                logs, activity, preview-event, verify, replay-dlq
+  credentials  create-oauth-provider, create-api-token, list, revoke
   platform     tenants {list, show, suspend, unsuspend, quotas, metrics},
                keys {list},
                account-deletion {purge-now}
   docs         search, get, list
-  export       [--output <file.json>]
+  export       [--output <file.ndjson>]
   health
+  bootstrap    <url>
 ```
 
 `marfa --help` and `marfa <subcommand> --help` are the canonical reference for flags. The sections below walk the more substantial surfaces.
@@ -150,6 +153,43 @@ marfa connections uninstall <connection-id>         # orchestrated teardown
 `verify <id> --event <json>` synchronously dispatches a sample event through `runtime-control` into the connector via service binding. Operator-debug; requires a platform credential. Reads the runtime-control endpoint from `MARFA_RUNTIME_CONTROL_URL` or `--runtime-control-url`.
 
 `replay-dlq <id> [--message-ids id1,id2] [--yes]` re-enqueues DLQ messages back onto their main queues for a connection. Destructive (handlers re-run upstream); interactive confirmation unless `--yes` is passed (and `--yes` is required in non-TTY contexts). `marfa connections logs <id> --dlq` reads the same DLQ surface.
+
+### Credentials
+
+`marfa credentials` manages the shared upstream credentials an Integration authenticates with — the `system.credential` items a Connection points at through `credential_ref`. Tenant-admin gated. Two creation verbs, one per authentication model: `create-oauth-provider` for an upstream that speaks OAuth, `create-api-token` for one authenticated by a long-lived bearer. Both return a `credential_id`, which the install pipeline takes as `credential_ref` on `POST /connections/install`. See [Integrations](/guides/connections/integrations) for how it consumes them.
+
+```bash
+# OAuth-backed upstream — the secret reads from stdin, so it never lands in shell history
+marfa credentials create-oauth-provider --label "Acme Drive" \
+  --authorize-url https://acme.example.com/oauth/authorize \
+  --token-url https://acme.example.com/oauth/token \
+  --client-id acme-client-id \
+  --client-secret - \
+  --upstream-base-url https://api.acme.example.com \
+  --default-scope files.read
+
+# Token-authenticated upstream — --auth-scheme defaults to Bearer
+marfa credentials create-api-token --label "Acme Reader" \
+  --upstream-base-url https://api.acme.example.com \
+  --token - --auth-scheme Token
+
+marfa credentials list                      # id, kind, state, label, last-used
+marfa credentials list --limit 200 --cursor <cursor>
+marfa credentials revoke <credential-id>    # prompts unless --yes
+```
+
+Passing `-` to `--client-secret` or `--token` reads the value from stdin, which keeps it out of the process table and shell history. `revoke` deletes the underlying `system.credential` item and is idempotent: revoking an id that no longer exists succeeds. It prompts for confirmation unless `--yes` is passed, and `--yes` is required outside a TTY.
+
+### First run
+
+`marfa bootstrap <url>` mints the first admin key against a fresh self-hosted server and writes it to `~/.marfa/<instance>.json`, so subsequent commands authenticate without further setup. It is unauthenticated by design: a new server accepts `POST /keys` until the first key exists, and that window does not reopen if the keys are later revoked. Against a server that already has keys the command fails with a pointer to `marfa keys create`. Full walkthrough in the [self-hosted quickstart](/introduction/quickstart-self-hosted).
+
+```bash
+marfa bootstrap http://localhost:8600
+marfa bootstrap http://localhost:8600 --label ci --source ci-runner
+```
+
+The key value is printed once and cannot be retrieved later.
 
 ### Tenant config
 
