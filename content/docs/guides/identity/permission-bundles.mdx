@@ -3,31 +3,34 @@ title: Permission bundles
 description: How the consent screen groups scopes into a few plain-language permissions.
 ---
 
-When an app asks to sign in, the consent screen does not show the raw OAuth scope list. It groups the requested scopes into a small set of named permission bundles, each rendered as one checkbox in plain language. The issued token still carries the underlying scopes; the bundles are a presentation and request convenience over the [scope grammar](/api-reference/authentication#scopes).
+When an app asks to sign in, the consent screen does not show the raw OAuth scope list. It groups the requested scopes by what they let an app do, with a per-type toggle under each group. The issued token still carries the underlying scopes; the bundles are a presentation and request convenience over the [scope grammar](/api-reference/authentication#scopes).
 
 ## The default bundles
 
-A hosted instance ships four bundles, all granted by default:
+A hosted instance ships three bundles, all granted by default:
 
 | Bundle | What granting it allows |
 | --- | --- |
-| Read your stuff | Read your items, tags, files, and the relationships between them. |
-| Write your stuff | Create and change your data, and let the app set up the data types it needs. |
-| Your profile | See and update your name and account details. |
-| Connected services | See the outside services connected to your space. |
+| Read your content | Read your notes, tasks, bookmarks, highlights, calendar, contacts, files, and connected accounts. |
+| Write your content | Create and change your notes, tasks, bookmarks, calendar, and files. |
+| Your profile | Confirm your identity and read your name and email. |
 
-Read and write cover your content namespaces and deliberately exclude `system.*` security internals (credentials, devices, webhooks); Connected services is the only default bundle that grants read on `system.connection` / `system.integration`. The exact scope set each bundle expands to is advertised on the discovery document under `marfa_permission_bundles`.
+Each bundle expands to a concrete, enumerated scope set: `core.note:read`, `core.task:read`, and the rest, plus `system.connection:read` under Read. The bundles exclude the remaining `system.*` security internals (credentials, devices, webhooks) and the runtime `user.*` / `app.*` namespaces. The exact scope set each bundle expands to is advertised on the discovery document under `marfa_permission_bundles`.
 
-## Generous by default, customizable
+## Per-type control
 
-Every default bundle is pre-ticked, so the common path is a single approve. A Customize control reveals the underlying scope patterns for anyone who wants to grant less. Unticking a bundle drops its scopes from the grant; [partial grants](/api-reference/authentication#partial-grants) are honored end to end.
+Every group is pre-ticked and collapsed, so the common path is a single approve. Expanding a group reveals one toggle per content type: Notes, Tasks, Calendar, and so on. Unticking a type drops exactly that scope from the grant, and the issued token narrows to what stays ticked. The per-type toggles are the granular control; there is no separate raw-scope screen, and [partial grants](/api-reference/authentication#partial-grants) are honored end to end.
+
+Because the scopes are concrete rather than wildcards, unticking Calendar removes `core.event:read` from the token and nothing else. The narrowing the user sees is exactly what the token carries.
 
 ## Enforcement
 
-The bundles are a grouping over real scopes, so they genuinely bind. An OAuth access token is enforced against exactly the scopes granted at consent, regardless of the signed-in user's role — the role is the ceiling on what an app can be granted, not a pass-through of the user's own access. Unticking Write at consent blocks the app from writing, even for a tenant admin. See [Permissions](/api-reference/permissions) for how granted scopes project into the permission maps.
+The bundles are a grouping over real scopes, so they genuinely bind. An OAuth access token is enforced against exactly the scopes granted at consent, regardless of the signed-in user's role: the role is the ceiling on what an app can be granted, not a pass-through of the user's own access. Unticking Write at consent blocks the app from writing, even for a tenant admin. See [Permissions](/api-reference/permissions) for how granted scopes project into the permission maps.
 
-The generous default expands to wildcard scopes (`user.*:write`, and the content namespaces), which is how an app reaches a tenant's runtime `user.*` types — those never appear individually in the static scope allowlist.
+## Reaching runtime types
+
+The default bundles cover the core content namespaces only. An app that defines its own runtime types in the `user.*` namespace requests the matching scope explicitly: `user.*:write` covers every type in that namespace and is advertised in the scope allowlist even though individual runtime types are not. Requesting it adds a toggle to the consent screen like any other scope. Nothing in the default set covers those namespaces, so an app never reaches its own private types unless it asks.
 
 ## Self-hosting
 
-The bundle set is configuration. Override it with the `MARFA_PERMISSION_BUNDLES` environment variable (a JSON array of bundles); an absent or malformed value falls back to the built-in defaults. The full `*:read` / `*:write` scopes remain available through the consent screen's Customize control for clients that genuinely need them.
+The bundle set is configuration. Override it with the `MARFA_PERMISSION_BUNDLES` environment variable (a JSON array of bundles); an absent or malformed value falls back to the built-in defaults. Any valid scope, including the full `*:read` / `*:write` wildcards, can be requested by a client and approved through the consent screen's per-type toggles.
