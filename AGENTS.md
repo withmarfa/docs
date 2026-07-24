@@ -61,7 +61,11 @@ Adding a page: drop the `.mdx` file in the right folder, register it in the fold
 ./scripts/sync-openapi.sh
 ```
 
-Expects the monorepo at `../marfa`. Override with `MARFA_ROOT=/path/to/marfa scripts/sync-openapi.sh`. Run after any API change merges in the monorepo.
+Expects the monorepo at `../marfa`. Override with `MARFA_ROOT=/path/to/marfa scripts/sync-openapi.sh`. Run after any API change merges in the monorepo. The monorepo also pushes the spec here automatically, as a PR, whenever it changes on its main branch; the script is the manual path for when you need the update in hand.
+
+The `OpenAPI drift` workflow guards the committed copy. It always validates that `openapi.json` parses and declares paths, and compares it byte-for-byte against the monorepo's canonical copy when a `SPEC_SOURCE_TOKEN` repo secret is present (fine-grained, `Contents: read` on the monorepo). Without that secret the cross-repo comparison is skipped with a warning rather than failing, so forks and self-hosters aren't blocked by a check they can't run.
+
+The spec is generated with the server in keys mode, so hosted-only routes are absent from it by construction. That gap is closed in the monorepo's generator, never by hand-editing the file here.
 
 ## Machine-readable surfaces
 
