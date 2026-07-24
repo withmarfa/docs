@@ -62,10 +62,29 @@ Call `POST /keys` with the label, role, and the four permission maps (types, ext
 
 Full request and response shapes live in the API reference. A few fields carry rules worth calling out:
 
-- **`role`** — `admin` bypasses every permission check. `tenant_admin` is admin-shaped within its own tenant: an API key with this role bypasses the data-plane permission maps for its tenant and manages that tenant's keys (reserved `system.*` / `marfa.*` writes still require a platform credential). `member` is scoped by the permission maps with no key-management rights. The role bypass applies to API keys only — OAuth access tokens are always held to their granted scopes regardless of role (see [Scopes](#scopes)).
+- **`role`** — `admin` bypasses every permission check. `tenant_admin` is admin-shaped within its own tenant: an API key with this role bypasses the data-plane permission maps for its tenant and manages that tenant's keys (reserved `system.*` / `marfa.*` writes still require a platform credential). `member` is scoped by the permission maps with no key-management rights. The role bypass applies to API keys only — OAuth access tokens are always held to their granted scopes regardless of role (see [Scopes](#scopes)). A caller may not mint a key above its own role; see [Role ceiling](#role-ceiling).
 - **`source`** — stamped onto every item written by this key. Unique per tenant; clients can't override.
 - **`default_tier`** — stamps onto items when the client omits the field. Clients can override per item. See [Tier](/guides/core-model/tier).
 - **`type_permissions`**, **`extension_permissions`**, **`edge_permissions`**, **`metadata_permissions`** — see [Permissions](/api-reference/permissions) for resolution rules and the dual-gate.
+
+### Role ceiling
+
+The roles are ordered: `admin` > `tenant_admin` > `member`. A caller may mint a key at its own role or below, never above. A `tenant_admin` asking for `role: "admin"` gets `403 forbidden`; so does a request for any role the caller does not itself hold. The refusal is explicit rather than a silent downgrade, so a client never walks away holding a credential weaker than the one it asked for without knowing.
+
+This bounds what a credential can turn into. Minting is not an escalation path: the strongest key a request can produce is a copy of the one that authorized it.
+
+Two further axes are constrained separately and are not covered by the ordering:
+
+- **`is_platform`** — only a caller that is already a platform credential can set it. Requested by anyone else, it is coerced to `false`.
+- **Tenant** — inherited from the caller, never chosen by the request body. See [Tenant binding](#tenant-binding).
+
+Bootstrap is the one exemption: on a fresh server there is no credential to compare against, so the seed key is minted as `admin`.
+
+### Platform admin and tenant-bound admin
+
+`admin` describes the role, not automatically the reach. Platform authority — the `/admin/*` tenant surface, cross-tenant quota writes, instance metrics — requires a credential that is **not bound to a tenant**. A key can legitimately carry `role: "admin"` and still be confined to one space: `POST /admin/tenants/{id}/keys` mints exactly that, and its authority stops at that space's boundary. Such a key is admin-shaped inside its own tenant and is refused, with `403 forbidden`, on the cross-tenant surfaces.
+
+Read `admin` as "bypasses the permission maps" and tenant binding as "and here is how far that reaches".
 
 ### Tenant binding
 
