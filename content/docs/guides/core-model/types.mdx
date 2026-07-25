@@ -8,6 +8,25 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 Types are schemas. Every item has a `type`, and its `properties` are validated against that type's schema on write.
 
+## What ships in the registry
+
+Every space starts with the same globally-registered type set. None of it is editable through the API, and a `POST /types` for one of these identifiers returns `409 type_already_exists`. It comes in three groups, and the distinction matters when you are choosing a namespace for your own types.
+
+| Group | Count | Namespace | What it is |
+|---|---|---|---|
+| Core | 22 | `core.*` | The disciplined cross-app vocabulary. Notes, tasks, events, entities, media, files. |
+| Connector | 13 | Vendor roots such as `google.*`, `readwise.*` | Shapes for data the platform's own connectors import from named third-party services. |
+| System | 7 | `system.*` | Platform-internal operational records. See [System types](/guides/schema/system-types). |
+
+Core is the part that carries the design discipline described below. **Connector types do not, and are not meant to.** They exist so a connector that pulls from a specific service can land its data losslessly, in the service's own shape, without either flattening it into a core type or asking every self-hoster to register the same schemas by hand. `google.youtube.playlist` is not a claim that playlists are a universal life-noun; it is a claim that if you sync YouTube, this is the shape you get.
+
+Two consequences worth knowing before you name a type:
+
+- **Those vendor roots are occupied.** `readwise.book`, `todoist.task`, `google.drive.file` and the rest already exist globally, so you cannot register them, and a publisher who claims one of the unreserved handles inherits a namespace the platform is already writing into.
+- **Some connector types declare `compatible_with` against a core type**, which is how a reader that only understands core still gets something useful. It is a per-type claim, not a blanket one, so check the individual type rather than assuming.
+
+Query the live set rather than trusting a count in prose: `GET /types` returns everything registered in the calling space, core, connector, system, and your own.
+
 ## Custom types are the default path
 
 `core.*` is small and narrow on purpose. Most apps register their own types — inheritance from `core.*` is optional, not expected.
@@ -22,6 +41,8 @@ A type earns core-set inclusion only by passing four tests:
 Most candidates fail. That's the feature — the core is the lingua franca precisely because it's disciplined. The same rule applies recursively to subtypes (see [Why core file subtypes stop where they do](#why-core-file-subtypes-stop-where-they-do)).
 
 Tool-specific things are not core. Memories, summaries, embeddings, AI-specific artifacts — none have broad shape consensus across producers, so they become custom types: `claude.memory`, `chatgpt.memory`, `cursor.memory`. Different shapes are honest.
+
+The shipped connector types are that same rule applied by the platform to its own connectors, not an exception to it. They are deliberately outside the core catalog for exactly the reason a tool-specific type of yours would be.
 
 For the namespace grammar — reserved roots, app vs publisher, identifier rules — see [Namespaces](/guides/schema/namespaces). For the inherit-vs-sibling decision and the registration-time correctness rails, see [Authoring types](/guides/schema/authoring-types).
 
@@ -64,7 +85,7 @@ For the full rubric behind the boundary, see [Authoring types — when a subtype
     |---|---|---|
     | `core.media` | Content the user engages with | `title` |
     | `core.media.book` | Books | `title` (inherited) |
-    | `core.media.article` | Articles | `title` (inherited) |
+    | `core.media.article` | Articles | `title` (inherited), `body` |
     | `core.media.film` | Films | `title` (inherited) |
     | `core.media.song` | Songs | `title` (inherited) |
     | `core.media.album` | Albums | `title` (inherited) |
@@ -72,7 +93,7 @@ For the full rubric behind the boundary, see [Authoring types — when a subtype
     | `core.media.series` | TV series | `title` (inherited) |
     | `core.media.tv_episode` | TV episodes | `title` (inherited) |
 
-    All subtypes inherit the shared media fields (`author`, `url`, `publisher`, `published_at`, `image_url`, `language`, `body`, `notes`) and add their own (`isbn`, `duration`, `section`, `track_number`, etc.).
+    All subtypes inherit the shared media fields (`title`, `description`, `author`, `url`, `publisher`, `published_at`, `image_url`, `language`, `body`, `notes`) and add their own (`isbn`, `duration`, `section`, `track_number`, etc.). `core.media.article` is the one subtype that promotes an inherited optional to required: an article without a `body` is rejected.
   </Accordion>
   <Accordion title="File (4)">
     | Type | Purpose | Required |
@@ -101,7 +122,7 @@ Register a custom type at runtime:
 ```json
 POST /types
 {
-  "id": "readwise.reader_document",
+  "id": "nadia.reader_document",
   "version": 1,
   "parent": "core.bookmark",
   "fields": {
@@ -114,7 +135,7 @@ POST /types
 }
 ```
 
-Tenant-admin for tenant types; platform-only for `core.*` and `system.*`. Core types can't be modified or deleted via the API.
+Registering is governed by the `types` entry in [metadata permissions](/api-reference/permissions#metadata-permissions), not by a role, so a `member` credential granted it can register. Updating and deleting a type need tenant-admin. `core.*` and `system.*` are platform-only, and the shipped core, connector, and system types cannot be modified or deleted through the API at all. A registration lands in the caller's own space and is invisible to every other space.
 
 See [Authoring types](/guides/schema/authoring-types) for the inheritance rubric, the SDK helper (`defineType()`), and the server-side correctness rails.
 

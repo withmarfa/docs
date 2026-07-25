@@ -3,17 +3,18 @@ title: Namespaces
 description: Reserved roots, app vs publisher, identifiers, and compatible-with.
 ---
 
-Every type identifier sits in one of five namespace tiers. The first segment of the identifier — the **root** — tells a reader (or parser) the shape at first glance.
+Every type identifier sits in one of six namespace tiers. The first segment of the identifier — the **root** — tells a reader (or parser) the shape at first glance.
 
-## The five tiers
+## The tiers
 
-| Namespace | Purpose |
-|---|---|
-| `core.*` | Platform-shipped, immutable, narrow. Reference types and universal content kinds. |
-| `system.*` | Platform-internal operational types. Devices, credentials, webhooks, app identities. |
-| `app.<app-name>.<type>` | App-published types. Three segments. Available in any space that uses the app. |
-| `user.<type>` | Unpublished personal types. Space-scoped; never published to the registry. |
-| `<publisher>.<type>` | Community-published types. Two segments. Installable from the registry. |
+| Namespace | Segments | Purpose |
+|---|---|---|
+| `core.*` | Two or more | Platform-shipped, immutable, narrow. Reference types and universal content kinds. |
+| `system.*` | Two | Platform-internal operational types. Devices, credentials, webhooks, app identities. |
+| `marfa.*` | Two or more | Reserved for the platform's own use. Nothing ships in it today; the root exists so it cannot be claimed. |
+| `app.<app-name>.<type>` | Exactly three | App-published types. Available in any space that uses the app. |
+| `user.<type>` | Two or more | Unpublished personal types. Space-scoped; never published to the registry. |
+| `<publisher>.<type>` | Two or more | Publisher-namespaced types. Installable from the registry. |
 
 ## Reserved roots
 
@@ -21,11 +22,13 @@ The roots `core`, `system`, `app`, `user`, and `marfa` are reserved. They cannot
 
 `core.*` and `system.*` are platform-only at registration: only Marfa-platform credentials can register types in these namespaces. Reserved-root claims by ordinary credentials are rejected at `POST /types`.
 
+Around fifty further words are reserved as handles, so they cannot be claimed even though they are not roots. They fall into four groups: structural terms that would collide with product routes (`admin`, `api`, `docs`, `settings`, `billing` and similar), two future-reserved namespaces (`sync`, `data`), major technology companies (`google`, `apple`, `microsoft`, `github`, `openai`, `anthropic` and similar), and widely used consumer products (`notion`, `slack`, `spotify`, `obsidian`, `todoist` and similar). The company and product reservations exist so a namespace that a reader would take as first-party cannot be claimed by someone unaffiliated. `POST /auth/me/handle` rejects a reserved word with `400 handle_reserved`.
+
 ## App vs publisher
 
-`app.` separates app trust from publisher trust. A publisher named `obsidian` cannot impersonate the Obsidian app — the Obsidian app would publish under `app.obsidian.*` (registered through a `system.app` identity), while a community publisher publishes under `obsidian.*` (registered through a publisher handle). Two distinct trust contexts; two distinct namespaces.
+`app.` separates app trust from publisher trust. An app publishes under `app.<app-name>.*`, registered through a `system.app` identity; a community publisher publishes under `<handle>.*`, registered through a claimed handle. Two distinct trust contexts, two distinct namespaces, and the reserved-root rule disambiguates them: any first segment that isn't a reserved root is a publisher handle.
 
-That asymmetry is why `app.<app-name>.<type>` is three segments and `<publisher>.<type>` is two. The reserved-root rule disambiguates: any first segment that isn't a reserved root is a publisher handle.
+The `app.` tier is pinned at exactly three segments so the app name always occupies a known position. Publisher types are not pinned — `<publisher>.<type>` is the common shape, but a publisher may nest further, which is how the platform's own connector types are named (`google.calendar.event`, `google.tasks.task`). Treat two segments as the convention rather than the rule.
 
 ## Worked examples
 
@@ -34,10 +37,10 @@ That asymmetry is why `app.<app-name>.<type>` is three segments and `<publisher>
 | `core.note` | `core` | A platform-shipped type. |
 | `core.entity.person` | `core` | A platform-shipped subtype of `core.entity`. |
 | `system.device` | `system` | A platform-internal operational type. |
-| `app.obsidian.daily_note` | `app` | A type published by the registered Obsidian app. |
+| `app.fieldbook.daily_note` | `app` | A type published by the registered Fieldbook app. |
 | `user.recipe` | `user` | A personal type, scoped to one space. |
 | `nadia.meal_plan` | `<publisher>` | A type published by the publisher with handle `nadia`. |
-| `readwise.reader_document` | `<publisher>` | A type published by the publisher with handle `readwise`. |
+| `google.calendar.event` | `<publisher>` | A platform-shipped connector type, nested under a publisher root. See [Types](/guides/core-model/types#what-ships-in-the-registry). |
 
 ## Sibling vs child
 
@@ -77,10 +80,10 @@ Single-parent. Additive-only. Children may add fields; cannot redefine or reshap
 
 ```
 core.bookmark         (parent)
-└── readwise.reader_document   (child — inherits everything, adds new fields)
+└── nadia.reader_document   (child — inherits everything, adds new fields)
 ```
 
-Reads inherit down: `GET /items?type=core.bookmark` returns both parents and children. Writes require the exact type — a credential with `write core.bookmark` cannot update a `readwise.reader_document` without that scope.
+Reads inherit down: `GET /items?type=core.bookmark` returns both parents and children. Writes require the exact type — a credential with `write core.bookmark` cannot update a `nadia.reader_document` without that scope.
 
 ## Domain verification
 
@@ -88,4 +91,6 @@ Domain verification is a badge on a single canonical handle, not a parallel name
 
 ## Identifiers
 
-Type identifiers use dots only. No forward slashes. Segments are lowercase, snake_case for multi-word components: `demo.web_gallery`, not `demo/web-gallery` or `demo.WebGallery`.
+Type identifiers use dots only. No forward slashes. Segments are lowercase and start with a letter; the validator also accepts digits, underscores, and hyphens after that, with a 128-character ceiling on the whole identifier.
+
+Within what the validator accepts, snake_case is the convention for multi-word components: `demo.web_gallery`, not `demo/web-gallery` or `demo.WebGallery`. Edge type names are the deliberate exception and use kebab-case (`parent-of`, `in-thread`), so a reader can tell an edge name from a type identifier at a glance.
