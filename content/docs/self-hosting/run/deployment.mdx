@@ -76,6 +76,41 @@ Run the server under a process supervisor so it restarts on crash and on boot �
 
 `deploy.sh` restarts services by the labels passed in `DEPLOY_SERVICE_LABELS`, so those must match the supervisor's unit/label names.
 
+## Run exactly one server process per database
+
+<Callout type="warn">
+  **Marfa does not currently support running more than one server process against the same database.** A second process does not fail, log, or error — it silently drops realtime events. Scale vertically (a bigger host) rather than horizontally until cross-process event distribution ships.
+</Callout>
+
+Realtime delivery is process-local. Server-Sent Events and outbound webhook dispatch are both distributed through an in-process event emitter, which means every subscriber has to live in the same process as the write that triggered it.
+
+With two processes behind a load balancer, a write handled by process A publishes only inside process A. An SSE client connected to process B never receives it. A webhook whose delivery worker happens to be running in process B never fires.
+
+What makes this worth a warning rather than a footnote is how it fails:
+
+- The write **succeeds**. The API returns `200`.
+- **Nothing** is logged as an error, on either process.
+- **Nothing** retries — the delivery was never attempted, so there is no failure to back off from.
+- The events that do arrive look completely normal, so the gap is invisible until someone notices a webhook that should have fired and didn't.
+
+This affects any topology running multiple processes against one database: a load balancer over several hosts, Kubernetes replicas, `docker compose up --scale`, a Node cluster, or PM2 in cluster mode.
+
+### Telling the server about your topology
+
+The server warns at startup when it can tell it is one of several processes. It detects Node cluster workers and PM2 workers on its own, but a container orchestrator looks exactly like a single process from the inside — Kubernetes, Compose, and ECS expose nothing the process can read.
+
+Set `MARFA_REPLICA_COUNT` so the check works in those environments:
+
+```bash
+MARFA_REPLICA_COUNT=3
+```
+
+It is purely declarative and changes no behavior. It exists so the warning can fire where detection is otherwise impossible. **A startup with no warning means nothing was detected, not that your deployment was verified safe.**
+
+### If you need more capacity
+
+Until cross-process distribution ships, the supported paths are a larger single instance, or a second instance backed by its own database serving a different set of tenants. Putting a read-only replica alongside the writer is also safe, provided nothing subscribes to events through it.
+
 ## Reverse proxy
 
 Marfa serves plain HTTP. Put a reverse proxy in front of it for TLS termination and a stable hostname. [Caddy](https://caddyserver.com) is a good fit — it provisions and renews Let's Encrypt certificates automatically:
