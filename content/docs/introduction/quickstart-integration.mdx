@@ -1,0 +1,192 @@
+---
+title: Quickstart (integration)
+description: Write a connector that pulls an external service into Marfa on a schedule, and install it.
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Callout } from 'fumadocs-ui/components/callout';
+
+**This is the connector-author path** — declare a manifest, write one handler, install it against a space. Use it when the data lives in someone else's service and you want Marfa to pull it in on a schedule or a push.
+
+<Callout type="info">
+  Writing an app that talks to Marfa directly? That is the [hosted quickstart](/introduction/quickstart) instead. The difference is who initiates: an app calls Marfa, an integration is *run by* Marfa on a trigger you declare. [SDKs](/sdks/overview) has the full decision tree.
+</Callout>
+
+## What you are building
+
+An integration is two artifacts and one install.
+
+- **A manifest.** A `system.integration` item describing what the connector talks to, what it writes, what triggers it, and what authority it needs. Declarative, versioned, validated before it registers.
+- **A handler module.** Plain TypeScript against the runtime SDK. It runs on whichever [runtime substrate](/guides/connections/runtime-substrates) the deployment uses, unchanged.
+- **A Connection.** The installed instance of the manifest in one space, holding that space's credentials and cursor.
+
+The worked path below is a scheduled reader against a public feed, which is the smallest connector that does something real. Everything else layers onto the same skeleton.
+
+<Steps>
+
+<Step>
+
+### Declare the manifest
+
+Start from the smallest honest manifest: a schedule trigger, one target type, no upstream auth.
+
+```ts
+import type { IntegrationManifest } from '@withmarfa/types';
+
+export const MANIFEST: IntegrationManifest = {
+  name: 'nadia.changelog-watcher',
+  version: '0.1.0',
+  manifest_schema_version: '1.0.0',
+  publisher: 'nadia',
+  description: 'Polls a public changelog feed and creates a core.bookmark per new entry.',
+  direction: 'read',
+  runtime_compatibility: ['hosted', 'local'],
+  target_types: ['core.bookmark'],
+  triggers: [{ type: 'schedule', config: { cron: '0 * * * *' } }],
+  bidirectional_handling: {
+    echo_ttl_seconds: 60,
+    lag_window_seconds: 60,
+    tombstone_mapping: 'ignore',
+    partial_write_mode: 'accept-partial',
+  },
+  oauth_requirements: {},
+  webhook_verification: { method: 'hmac-sha256' },
+  permissions: {
+    extension: { 'connection.runtime': 'write' },
+    edge: {},
+  },
+};
+```
+
+`name` sits in your publisher namespace, so claim a handle first. `bidirectional_handling` is required even for a read-only connector; the defaults absorb that case. `webhook_verification` is required for shape-uniformity and is informational when there is no `webhook` trigger. Field-by-field detail is in [Integrations](/guides/connections/integrations#the-manifest-contract).
+
+</Step>
+
+<Step>
+
+### Write the handler
+
+One registration call. The handler receives a context scoped to the installed connection and returns a `HandlerResult`, which the runtime turns into queue ack-or-retry semantics.
+
+```ts
+import {
+  registerScheduleHandler,
+  type ConnectionContext,
+  type ScheduleMessage,
+  type HandlerResult,
+} from '@withmarfa/runtime-sdk';
+
+const CURSOR_KEY = 'main';
+
+registerScheduleHandler(async (
+  ctx: ConnectionContext,
+  message: ScheduleMessage,
+): Promise<HandlerResult> => {
+  const cursor = (await ctx.cursor.read(CURSOR_KEY)) as { since: string } | null;
+  const entries = await fetchFeedEntries(cursor?.since);
+
+  for (const entry of entries) {
+    try {
+      await ctx.marfa.createItem({
+        type: 'core.bookmark',
+        tier: 'feed',
+        source_id: entry.id,
+        properties: { url: entry.url, title: entry.title },
+      });
+    } catch (err) {
+      // One bad entry shouldn't sink the tick.
+      await ctx.activity.emit({
+        severity: 'action_required',
+        summary: `Could not create a bookmark for entry ${entry.id}`,
+        detail: { error: String(err) },
+      });
+    }
+  }
+
+  await ctx.cursor.write(CURSOR_KEY, {
+    since: entries.at(-1)?.published_at ?? cursor?.since,
+    last_run_at: new Date(message.scheduled_for_ms).toISOString(),
+  });
+
+  return { ok: true };
+});
+```
+
+Four things in that shape are the ones worth copying:
+
+- **`ctx.cursor`** is per-connection state, read and written by key. It is what stops a tick from re-reading the whole feed.
+- **`source_id`** makes each write a natural-key upsert, so a replayed tick updates in place rather than duplicating. Cursor plus `source_id` together give you idempotency; neither alone does.
+- **`ctx.activity`** is how a connector reports. There is no terminal to log to, so a failure that a user has to act on goes out as an `action_required` activity.
+- **`tier: 'feed'`** is the right call for a firehose. See [Tier](/guides/core-model/tier).
+
+Returning `{ ok: false, retry: true, reason }` instead asks the runtime to retry the whole message.
+
+</Step>
+
+<Step>
+
+### Register the manifest
+
+Registering creates one `system.integration` item per name-and-version pair. Publishing a new version creates a sibling rather than editing the existing row, so installed connections stay pinned until they are upgraded.
+
+```bash
+curl -X POST $MARFA_API_URL/integrations \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d @manifest.json
+```
+
+The manifest is validated before the write, so a malformed one fails here rather than at install.
+
+</Step>
+
+<Step>
+
+### Install it into a space
+
+Installation is normally the browser consent flow. For scripting and local development there is a JSON sibling that runs the same pipeline and the same audit trail:
+
+```bash
+marfa connections install --integration <integration-id> --label "Changelog"
+```
+
+It returns the connection id, the seed credential id, and an activity id. Where the upstream needs credentials, mint them first with `marfa credentials create-oauth-provider` or `marfa credentials create-api-token` and pass the result as `--credential-ref`. See the [CLI](/sdks/cli#credentials).
+
+</Step>
+
+<Step>
+
+### Watch it run
+
+Connectors report through `system.activity`, not through your terminal.
+
+```bash
+marfa connections list
+marfa connections get <connection-id>          # hydrates the runtime cursor
+marfa connections logs <connection-id> --severity error
+```
+
+To see what a given item event would dispatch without running any handler, `marfa connections preview-event --item <id> --event-type created` renders the envelopes the bridge would emit and why each subscriber would or would not receive one.
+
+</Step>
+
+</Steps>
+
+## Where to next
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+<Cards>
+  <Card title="Integrations" href="/guides/connections/integrations">
+    The manifest contract in full, the six-stage install pipeline, OAuth proxying, and versioning.
+  </Card>
+  <Card title="Runtime substrates" href="/guides/connections/runtime-substrates">
+    Where handlers actually run, and the operational differences between the two substrates.
+  </Card>
+  <Card title="Inbound webhooks" href="/guides/realtime/inbound-webhooks">
+    Swap the schedule trigger for a push one: receipt endpoints, verification, dedup, replay.
+  </Card>
+  <Card title="Activity" href="/guides/connections/activity">
+    How a connector reports progress, errors, and the prompts that need a user to act.
+  </Card>
+</Cards>
