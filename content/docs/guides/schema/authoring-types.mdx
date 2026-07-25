@@ -7,17 +7,17 @@ Registering a type is a structured operation. The platform has correctness rails
 
 ## The inherit-vs-sibling rubric
 
-The most common authoring decision: should this be a sibling type (its own shape, optionally `compatible-with`) or a child of an existing type?
+The most common authoring decision: should this be a sibling type (its own shape, optionally `compatible_with`) or a child of an existing type?
 
 **Inherit only if every ancestor field is semantically required for your type. Otherwise sibling.**
 
 Why this rule, in this direction:
 
-- A bad inheritance choice is hard to recover from. Children cannot redefine ancestor fields. If you decide later that your type's `body` should mean something different from `core.note.body`, you cannot fix it without re-publishing under a different identifier.
+- A bad inheritance choice is hard to recover from. A child can sharpen an inherited field's description or tighten it to required, but it cannot change what the field is. If you decide later that your type's `body` should mean something different from `core.note.body`, you cannot fix it without re-publishing under a different identifier.
 - Sibling is recoverable. You can always add inheritance later if the semantic alignment becomes real. You cannot remove inheritance later without breaking consumers.
 - AI-assisted authoring tends toward over-inheritance — it's the kind of structure a model recognizes and reaches for. Defaulting to sibling counter-balances that.
 
-If the rubric tells you sibling, declare `compatible-with` if your shape really is a structural superset. The platform verifies the claim at registration.
+If the rubric tells you sibling, declare `compatible_with` if your shape really is a structural superset. The platform verifies the claim at registration — see [Namespaces](/guides/schema/namespaces#declaring-compatibility).
 
 ## Cross-discoverability and the inheritance choice
 
@@ -25,7 +25,7 @@ The rubric above is about correctness. A second consideration sometimes pulls in
 
 Children appear in parent-type queries automatically — `?type=core.bookmark` returns both `core.bookmark` items and items of any type that inherits from it. Generic readers — feed apps, search interfaces, AI assistants browsing across a whole space — find your items without knowing your type exists.
 
-Siblings with `compatible-with` do not appear in parent-type queries. The declaration is a trustworthy claim that consumers *can* read your items via the parent shape, but they have to know your type identifier and query for it directly.
+Siblings with `compatible_with` do not appear in parent-type queries. The declaration is a trustworthy claim that consumers *can* read your items via the parent shape, but they have to know your type identifier and query for it directly.
 
 If your items should be discoverable by readers expecting the parent shape, prefer inheritance even when the correctness rubric leans sibling. If the shape genuinely diverges and inheritance would force you to redefine ancestor fields, stay sibling and accept that generic readers find your items only when they enumerate known compatible types.
 
@@ -50,11 +50,13 @@ The diff rail is the load-bearing check on top of that integer. When you submit 
 | Diff class | What changed | Version requirement |
 |---|---|---|
 | No-op | Structurally identical | Rejected — nothing to register |
-| Descriptive | Label, description, or field descriptions only | Same integer accepted, or higher |
-| Additive | A new optional field added | Must increase |
-| Breaking | Field removed, required-tightened, type changed, or enum values changed | Must increase |
+| Descriptive | Label, description, field descriptions, or display hints only | Same integer accepted, or higher |
+| Additive | A new optional field, a raised size cap, a search-flag change, or a new compatibility claim | Must increase |
+| Breaking | Field removed, shape changed, required flipped either way, a lowered size cap, a parent change, or a withdrawn compatibility claim | Must increase |
 
-Any change to an existing field's structure — its type, its required flag, or its set of enum values — is a breaking diff. Adding a brand-new optional field is the only additive case. A descriptive-only change may keep the same integer so a docs tweak doesn't force consumers to re-pin; everything else must bump.
+The diff reads every attribute a field carries, not just its type. A `maxLength` quietly halved rejects writes that used to succeed, so it is breaking; a `maxLength` raised accepts strictly more, so it is additive. Adding or removing a cap altogether is breaking, because the value it falls back to is an instance default the schema can't see. Flipping `required` is breaking in both directions — tightening rejects existing rows, loosening breaks every reader compiled against the guarantee.
+
+A descriptive-only change may keep the same integer so a docs tweak doesn't force consumers to re-pin; everything else must bump.
 
 The integer collapses the additive and breaking cases into one rule — both require the number to go up — while the diff class still surfaces in the error so you know which fields drove it. A bump that doesn't satisfy the rule returns `422 version_bump_mismatch` with the offending fields listed.
 
@@ -76,6 +78,25 @@ POST /types
 ```
 
 The same mechanism applies across all four installable kinds in the [marketplace](/guides/connections/marketplace) — type, mapping, integration, automation.
+
+## Field attributes
+
+A field declaration is `type` plus whatever refinements apply. Everything below is optional and everything below is carried through to the registry, so `GET /types/{id}` returns what you wrote.
+
+| Attribute | Applies to | What it does |
+|---|---|---|
+| `description` | any | One line of prose. Surfaced in the type catalog and to authoring tools. |
+| `required` | any | A write missing the field is rejected `400 validation_error`. May also be declared as a top-level `required: ["title"]` array; the two are equivalent. |
+| `enum_values` | `enum` | The closed set of accepted values. Required on an `enum` field. |
+| `items_type` | `array` | Names the element type. Required on an `array` field. |
+| `maxLength` | `string`, `enum` | Caps one field's length, independently of the request-body limit. Defaults to 100,000 characters. |
+| `maxItems` | `array` | Caps element count. Defaults to 10,000. |
+| `searchable` | `string` | `false` keeps the field out of full-text search. Use it for opaque ids, secrets, and anything that would only ever be noise in results. |
+| `format` | `string` | `bcp47` or `iso3166` — annotates what the string contains. |
+
+The field types are `string`, `integer`, `number`, `boolean`, `url`, `email`, `date`, `datetime`, `enum`, `array`, and `object`.
+
+`url`, `email`, `date` and `datetime` may also be written as a `string` with a matching `format`, which normalizes to the field type: `{ "type": "string", "format": "url" }` and `{ "type": "url" }` register the same field. `bcp47` and `iso3166` have no equivalent field type, so they stay as `format`.
 
 ## The SDK helper
 
@@ -130,9 +151,9 @@ Quality of error responses is part of the authoring surface. Specific over gener
 
 | Code | When | Detail |
 |---|---|---|
-| `400 inheritance_violation` | Child redefines an ancestor field. | Lists the conflicting field and ancestor type. |
+| `400 inheritance_violation` | Child changes an inherited field's shape, or loosens one the ancestor requires. | Names the attribute that conflicts and the ancestor that declared it. |
 | `400 property_shadows_field` | A property name shadows a first-class Item field. | Lists every colliding `fields.<name>`. |
-| `422 compatible_with_violation` | `compatible-with` claim doesn't hold. | Lists missing or mismatched fields under the declared mappings. |
+| `422 compatible_with_violation` | A `compatible_with` claim doesn't hold. | Names each missing or mismatched field, and the target that requires it. |
 | `422 version_bump_mismatch` | Diff class doesn't match the submitted version bump. | Lists the fields that drove the actual diff class. |
 | `403 forbidden` | Non-platform credential tries to register `core.*` or `system.*`. | Names the reserved namespace. |
 | `400 handle_reserved` | Reserved word or reserved-root collision in a `<publisher>.<type>` registration. | Names the rule that failed. |
