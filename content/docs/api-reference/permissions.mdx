@@ -5,9 +5,13 @@ description: Four permission maps — types, extensions, edges, metadata — and
 
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-Every credential (API key or OAuth grant) carries four permission maps. Reads and writes are enforced against them. Admin credentials bypass all checks; a `tenant_admin` API key bypasses the data-plane maps within its own tenant (reserved-namespace writes still need a platform credential).
+Every credential (API key or OAuth grant) carries four permission maps. Reads and writes are enforced against them. An `admin` or `tenant_admin` API key bypasses the four data-plane maps within its own tenant.
 
-The bypass is about the maps, not about reach. A credential's tenant binding still bounds what it can address, so an `admin` key bound to a tenant bypasses the maps inside that tenant and gets `403 forbidden` on the cross-tenant platform surfaces. See [Platform admin and tenant-bound admin](/api-reference/authentication#platform-admin-and-tenant-bound-admin).
+Two things the bypass is not.
+
+**It is not a bypass of the reserved namespaces.** Writing to `system.*` or `marfa.*` is gated on the credential's `is_platform` flag, not on its role, so an `admin` key without that flag is refused like any other credential.
+
+**It is not extra reach.** A credential's tenant binding bounds what it can address, so an `admin` key bound to a tenant bypasses the maps inside that tenant and gets `403 forbidden` on the cross-tenant platform surfaces. Platform authority means a credential with no tenant binding at all. See [Platform admin and tenant-bound admin](/api-reference/authentication#platform-admin-and-tenant-bound-admin).
 
 The role bypass applies to API keys only. OAuth access tokens are enforced against the maps projected from their granted scopes regardless of the signed-in user's role — an app gets exactly what the user granted it at consent, never the user's full access. The default consent grant projects to concrete map entries, one per granted type (`type_permissions: { "core.note": "write", … }`), not a wildcard. An app reaches a tenant's runtime `user.*` types by requesting the `user.*:write` scope explicitly; granting it projects a `user.*` wildcard entry that matches those types at check time.
 
@@ -69,17 +73,20 @@ New credentials default to `edge_permissions: {}` — edge access is opt-in; app
 
 ### Metadata permissions
 
-The `metadata_permissions` map controls metadata-layer mutations that don't fit the type, extension, or edge axes — currently registering custom types via `POST /types`.
+The `metadata_permissions` map controls registration of new schema — the mutations that don't fit the type, extension, or edge axes.
 
 ```json
 {
-  "types": "write"
+  "types": "write",
+  "edge_types": "write"
 }
 ```
 
-Keys are sub-resource names; the only one enforced today is `types` (gates `POST /types` for non-admin credentials). New credentials default to `metadata_permissions: {}`.
+Keys are sub-resource names. Two are enforced: `types` gates `POST /types`, and `edge_types` gates `POST /edge-types`. New credentials default to `metadata_permissions: {}`.
 
-OAuth tokens project the `metadata.<sub>:<verb>` scope into this map on the synthetic credential — a token granted `metadata.types:write` carries `metadata_permissions: { types: "write" }`. Admin credentials bypass.
+Note what this implies: registering a custom item type is a permission, not a role. A `member` credential holding `metadata_permissions: { types: "write" }` can register one, and the registration is scoped to its own tenant.
+
+OAuth tokens project the `metadata.<sub>:<verb>` scope into this map on the synthetic credential — a token granted `metadata.types:write` carries `metadata_permissions: { types: "write" }`. The bare `metadata:<verb>` scope projects a `*` wildcard across the sub-resources, so it covers both registration surfaces. It does not govern tags: tag reads and writes are gated on the parent item's own type. Admin and tenant-admin API keys bypass.
 
 ## The dual-gate rule
 
@@ -90,9 +97,9 @@ Creating an `about` edge from a `core.note` to a `core.entity.person` needs:
 - `type_permissions`: write on `core.note` (the source item).
 - `edge_permissions`: write on `about`.
 
-Either missing → `403 edge_permission_denied`.
+The two gates fail with different codes, so a client can tell them apart: a missing type write returns `403 type_not_permitted`, a missing edge write returns `403 edge_permission_denied`.
 
-Admin credentials bypass both.
+Admin and tenant-admin API keys bypass both.
 
 The rationale: an edge is a mutation of the source item's graph view. Without type write, the app can't mutate the item; adding an edge would be a back-door around that. Without edge write on the type, the app can't create that kind of relationship — even if it owns the item.
 

@@ -3,7 +3,7 @@ title: Audit log
 description: Append-only record of every write and administrative action.
 ---
 
-The server records every write — item creation, updates, transitions, deletes, edge mutations, extension writes, key lifecycle events, blob uploads, webhook management — in an append-only audit log. The log is admin-queryable and retained on a rolling window.
+The server records every write — item creation, updates, transitions, deletes, edge mutations, extension writes, key lifecycle events, blob uploads, webhook management — in an append-only audit log. Reading it needs a `tenant_admin` credential or better, and entries are retained on a rolling window.
 
 ## Entry shape
 
@@ -23,7 +23,7 @@ Full schema lives in the API reference.
 
 ## Querying
 
-Admin-only. `GET /audit` accepts filters for `action`, `resource_type`, `resource_id`, and a `since` / `until` timestamp range; results paginate via cursor:
+`GET /audit` accepts filters for `action`, `resource_type`, `resource_id`, and a `since` / `until` timestamp range; results paginate via cursor:
 
 ```
 GET /audit?resource_type=item&since=2026-04-01T00:00:00Z
@@ -31,7 +31,19 @@ GET /audit?action=key.revoke
 GET /audit?resource_id=<item-id>
 ```
 
-A non-admin credential that calls `/audit` gets `403 forbidden`. Space-scoped admin keys see only their own space's rows; tenantless bootstrap-admin keys see every row — the same admit-all-when-tenantless pattern items reads use.
+### Who can read it
+
+The route admits `tenant_admin` as well as `admin`, and scopes what it returns to the caller's own tenant. A tenant admin investigating its own space does not need a platform credential.
+
+| Caller | Result |
+| --- | --- |
+| No credential | `401 unauthorized` |
+| `member` | `403 forbidden` |
+| `tenant_admin` | `200`, rows from its own tenant only |
+| Tenant-bound `admin` | `200`, rows from its own tenant only |
+| Platform `admin` (no tenant binding) | `200`, every row |
+
+Scoping follows the credential's tenant binding rather than its role, the same admit-all-when-tenantless pattern items reads use. A platform credential is a credential with no tenant of its own, so it is the only shape that reads across tenants. See [Permissions](/api-reference/permissions).
 
 ## Retention
 

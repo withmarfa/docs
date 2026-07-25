@@ -32,7 +32,9 @@ This has two consequences worth knowing:
 
 ## Spaces are isolated
 
-A credential sees only its own space. There is no cross-space sharing or access-grant mechanism: a credential cannot read or write another space's data, and an item id from one space is never valid in another. An operation that names another space explicitly — a platform admin passing a `target_tenant_id` it isn't authorized for — is rejected with `403 forbidden`.
+A credential sees only its own space. There is no cross-space sharing or access-grant mechanism: a credential cannot read or write another space's data, and an item id from one space is never valid in another. A space-bound credential that names a different space explicitly — passing a `target_tenant_id` on export that does not match its own — is rejected with `403 forbidden`.
+
+Naming a space is the platform operator's path, not a violation of the rule. A platform credential has no space of its own, so on export `target_tenant_id` is how it says which space it means. Omitting it is permitted and exports every space, which is the right behavior on a single-space self-host and a blunt instrument on a multi-space one. The audit entry records the difference: an unscoped platform export is logged with `details.scope: "platform_unscoped"`, which is the shape to alert on.
 
 There are no cross-space edges. If a relationship needs to exist across spaces, represent it by item duplication with provenance (a `derived-from` edge to a new space-scoped item), not by a cross-space reference.
 
@@ -44,13 +46,16 @@ There are no cross-space edges. If a relationship needs to exist across spaces, 
 
 Same SDK surface across all three. An app that works against one deployment mode works against the others; it just sees different space boundaries.
 
-## Admin vs per-space
+## What crosses a space boundary
 
-A few operations are admin-scoped and don't fit the per-space model:
+Only a credential with no space binding of its own reads across spaces. That is what platform authority means here: not a role, but the absence of a tenant. Two operations qualify:
 
 - Creating spaces.
-- Purging items (hard delete).
-- Querying cross-space metrics.
-- Managing the global type registry.
+- Querying cross-space metrics and listing spaces.
 
-Admin credentials bypass space scoping for these operations. Non-admin credentials don't see cross-space data at all.
+Everything else stays inside a space, including operations that sound like they would not:
+
+- **Purging items** is `tenant_admin`-gated and fenced to the caller's own space, edge cleanup included. A space admin hard-deletes inside its own space and nowhere else.
+- **Registering a custom type** is governed by the `types` entry in [metadata permissions](/api-reference/permissions#metadata-permissions), not by a role, so a `member` credential granted it can register. The registration resolves inside the caller's space and is invisible to other spaces. Only the core and system type sets are global, and those cannot be changed through the API at all.
+
+A credential with a space binding never sees another space's data, whatever its role.
