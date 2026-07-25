@@ -1,6 +1,6 @@
 ---
 title: Namespaces
-description: Reserved roots, app vs publisher, identifiers, and compatible-with.
+description: Reserved roots, app vs publisher, identifiers, and compatibility claims.
 ---
 
 Every type identifier sits in one of five namespace tiers. The first segment of the identifier — the **root** — tells a reader (or parser) the shape at first glance.
@@ -41,39 +41,42 @@ That asymmetry is why `app.<app-name>.<type>` is three segments and `<publisher>
 
 ## Sibling vs child
 
-A custom type can be a **sibling** of another type (its own shape, optionally declaring `compatible-with`) or a **child** that inherits.
+A custom type can be a **sibling** of another type (its own shape, optionally declaring `compatible_with`) or a **child** that inherits.
 
-Both are first-class. The default is sibling. Inheritance is a stronger commitment — children cannot redefine ancestor fields, so a bad inheritance choice is hard to recover from. Sibling is recoverable; you can always add inheritance later.
+Both are first-class. The default is sibling. Inheritance is a stronger commitment — a child may sharpen an inherited field's description or tighten it to required, but it cannot change what the field is, so a bad inheritance choice is hard to recover from. Sibling is recoverable; you can always add inheritance later.
 
-The rubric: inherit only if every ancestor field is semantically required for your type. Otherwise sibling, optionally `compatible-with`. The full rubric lives on [Authoring types](/guides/schema/authoring-types).
+The rubric: inherit only if every ancestor field is semantically required for your type. Otherwise sibling, optionally `compatible_with`. The full rubric lives on [Authoring types](/guides/schema/authoring-types).
 
 User types are flat by convention but can extend via inheritance where it earns its place. The same applies to publisher and app types — flat is the default; nest when the structural relationship is real.
 
 ### Declaring compatibility
 
-A sibling type can declare `compatible-with: <other-type>` to assert that its shape is a structural superset. Optionally with name mappings:
+A sibling type declares `compatible_with` to assert that its shape is a structural superset of one or more other types: every field the target requires is present here, under the same name, with the same field type. A reader that understands the target can read this type without knowing it exists.
 
 ```json
 POST /types
 {
   "id": "carla.meal_plan",
-  "compatible_with": [
-    { "type": "core.task", "field_mappings": { "due_at": "scheduled_for" } }
-  ],
+  "version": 1,
+  "compatible_with": ["core.task"],
   "fields": {
-    "scheduled_for": { "type": "datetime" },
-    ...
+    "title": { "type": "string", "required": true },
+    "week_of": { "type": "date" }
   }
 }
 ```
 
-The platform verifies the claim at registration. If `carla.meal_plan` doesn't actually have everything `core.task` requires (under the declared mappings), the registration is rejected with `422 compatible_with_violation`.
+It is an array of type identifiers — a type may be compatible with several targets at once. Field names are not remapped: compatibility means a reader can pick up your item and find the fields where it expects them, which a rename would defeat.
 
-`compatible-with` is server-checked, not a free-text tag. Consumers can rely on it.
+The platform verifies every claim at registration. If `carla.meal_plan` lacks something `core.task` requires, or declares it with a different field type, the registration is rejected with `422 compatible_with_violation` naming the field. The same check runs at build time over the types Marfa itself ships.
+
+`compatible_with` is server-checked, not a free-text tag, which is what makes it worth relying on. Declare it only when the claim holds — a false claim is worse than none, because it invites a reader to parse fields that aren't there.
 
 ### Inheritance
 
-Single-parent. Additive-only. Children may add fields; cannot redefine or reshape ancestor fields.
+Single-parent. Additive. A child adds fields, and may re-state an inherited field only to sharpen its `description` or tighten it to required. Changing an inherited field's type, format, element type, enum values, search flag or size caps — or loosening one the ancestor requires — is rejected with `400 inheritance_violation`.
+
+The line sits there because a reshaped field leaves two incompatible readings of one property name on items a parent-typed reader expects to understand, while a sharper description resolves unambiguously in the child's favor.
 
 ```
 core.bookmark         (parent)
