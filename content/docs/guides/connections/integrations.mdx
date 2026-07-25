@@ -4,6 +4,7 @@ description: Published manifests that connect Marfa to external services.
 ---
 
 import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Callout } from 'fumadocs-ui/components/callout';
 
 An Integration is a publishable, installable description of how Marfa talks to an external service or runs a space-internal automation. It carries everything a space needs to stand up a working `integration`-kind Connection: the trigger declarations, the OAuth or webhook authentication shape (where applicable), the runtime requirements, the bidirectional handling rules, and the permissions the connector needs against the space's items.
 
@@ -78,7 +79,7 @@ The credential shape follows the connector's authentication model. For OAuth-bac
 
 ### Mints a runtime credential
 
-A short-TTL `system.credential` of `kind: api_key`, scoped to the manifest's declared permissions and bound to the connection_id. The runtime broker refreshes this transparently as the connector runs.
+A short-TTL API key scoped to the manifest's declared permissions and bound to the connection_id. It carries a hard expiry and the runtime refreshes it transparently as the connector runs — see [Runtime credential lifecycle](#runtime-credential-lifecycle).
 
 </Step>
 
@@ -118,6 +119,22 @@ Not every upstream uses OAuth. A connector targeting an API authenticated by a l
 The proxy stamps the configured `auth_scheme` on the upstream call uniformly with the OAuth path. From the connector's perspective the call shape is identical — it issues a request against the runtime credential and the platform substitutes the upstream auth. The substantive difference is the absence of a refresh dance: static tokens don't expire and have no refresh primitive. A 401 from the upstream surfaces as `action_required` and trips the Connection into `runtime_status: reauth_required` — the user updates the token to recover.
 
 A single `kind: api_token` credential can be shared across Connections that target the same upstream base. When a connector's upstream lives on a different host than the credential's default, the Connection sets `properties.configuration.upstream_base_url_override` and the proxy consults it before falling back to the credential's URL. This lets a family of related connectors share one credential row across distinct upstream hosts.
+
+## Runtime credential lifecycle
+
+A runtime credential is a machine credential, not a human one. The runtime mints a fresh one for each dispatch and the SDK refreshes transparently, so no connector ever needs to hold one for long. Four rules keep that fleet bounded.
+
+**Scoped to the manifest.** A credential's reach is derived from the manifest it was installed from: `read` on each `target_types` entry for a read-only Integration, `write` for `write` or `both`, plus whatever the manifest's `permissions.extension` and `permissions.edge` maps declare. Two grants come from the platform rather than the manifest, because no connector can run without them: write on `system.activity` (the status-reporting channel) and read on `system.connection` (a handler reads its own Connection to resolve its configuration). A Connection whose manifest cannot be resolved mints with those platform grants only — never with wildcard reach.
+
+**Bounded lifetime.** Every runtime credential carries an expiry stamped at mint. A request bearing a credential past its expiry is refused with `401 unauthorized`, exactly as a revoked credential would be. Human-minted API keys are unaffected: they carry no expiry and never expire on their own.
+
+**Superseded on mint.** Minting a fresh credential for a Connection retires that Connection's earlier ones once they are past their TTL plus one further TTL of grace. The grace window exists so a dispatch already in flight with the previous credential finishes cleanly.
+
+**Reaped in the background.** A Connection that stops dispatching stops superseding its own credentials, so a background job is the backstop. Each tick it revokes credentials past their expiry, retires credentials that predate expiry stamping once they age past the same TTL-plus-grace window, and hard-deletes revoked runtime-credential rows more than seven days old. Cadence is `MARFA_RUNTIME_CREDENTIAL_REAPER_INTERVAL_MS` (hourly by default; `0` disables). Only runtime credentials are touched — human-minted keys are never revoked or deleted by the reaper.
+
+<Callout type="info">
+Upgrading an instance that ran before credential expiry existed? Its accumulated runtime credentials carry no expiry, so the reaper's first passes retire them by age. Connectors are unaffected: the next dispatch mints a fresh credential. Human-minted keys are untouched.
+</Callout>
 
 ## Reactive runs and cycle detection
 
