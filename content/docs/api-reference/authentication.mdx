@@ -130,7 +130,7 @@ An app registers as an OAuth client. Two paths: dynamic registration via `POST /
 
 ### Authorization request
 
-The app redirects the user to `GET /auth/authorize` with `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, and `code_challenge_method=S256`. If the user has no active session, the server redirects to `/auth/sign-in` (a server-rendered HTML form) preserving the original authorize URL as a return target. After sign-in, the user lands on the consent screen, which groups the requested access into a few plain-language [permission bundles](/guides/identity/permission-bundles).
+The app redirects the user to `GET /auth/authorize` with `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, and `code_challenge_method=S256`. If the user has no active session, the server redirects to `/auth/sign-in` (a server-rendered HTML form) preserving the original authorize URL as a return target. After sign-in, the user lands on the consent screen, which groups the requested access into a few plain-language [permission bundles](/guides/identity/permission-bundles) — unless they have already granted this app these scopes, in which case the server approves silently and sends them straight back to the app (see [Consent persistence](#consent-persistence)).
 
 </Step>
 
@@ -210,6 +210,20 @@ The consent screen groups the requested scopes into [permission bundles](/guides
 ### Partial grants
 
 Users can approve a subset of requested scopes. The returned `scope` parameter in the token response lists what was actually granted. Apps must handle receiving less than they asked for.
+
+### Consent persistence
+
+Consent is remembered per client and scope set. When a signed-in user reaches the authorization flow for an app they have already approved, and the requested scopes are covered by the prior grant (equal or narrower), the server approves silently with no consent screen and redirects straight back to `redirect_uri` with a fresh authorization code. Signing out and back in does not re-prompt.
+
+Re-consent happens when it should:
+
+- **Scope widening.** A request for any scope the user has not already granted renders the consent screen with a diff — new permissions are listed separately from those already allowed.
+- **`prompt=consent`.** An app that wants an explicit re-approval passes the OIDC `prompt=consent` parameter; the consent screen always renders.
+- **Revocation.** Revoking a grant (via the grants surface below) deletes the stored consent, so the next authorization request renders the consent screen again.
+
+`prompt=none` behaves per OIDC: with a covering grant the server issues a code silently; without one it redirects back to the app's registered `redirect_uri` with `error=consent_required`, never rendering UI.
+
+A silent re-authorization leaves the grant untouched (the granted scope set and grant timestamps stay as the user approved them) and is recorded in the audit trail as `auth.grant.reused`, distinct from first consent.
 
 ### Refresh token rotation
 
@@ -293,12 +307,13 @@ Apps should call this on sign-out to ensure server-side state matches the user's
 
 ### Grant lifecycle audit
 
-The auth audit-row catalog carries two grant-lifecycle entries:
+The auth audit-row catalog carries three grant-lifecycle entries:
 
 - `auth.grant.created` — emitted on consent acceptance (both code-flow via `/auth/authorize/decision` and device-flow via `/auth/device/consent`). `details.source` distinguishes the surface; `details.created` distinguishes first-consent from re-consent.
+- `auth.grant.reused` — emitted on silent re-authorization (see [Consent persistence](#consent-persistence)): the prior grant already covered the request, so no consent screen rendered and the grant record was not modified.
 - `auth.grant.revoked` — emitted on `DELETE /auth/grants/:id` and the form-friendly `POST /auth/grants/:id/revoke`.
 
-Both rows are written by Marfa route handlers, not by the plugin, so they carry the verified `client_id`, `user_id`, and grant item id without trusting form fields.
+All three rows are written by Marfa route handlers, not by the plugin, so they carry the verified `client_id`, `user_id`, and grant item id without trusting form fields.
 
 ### Grants management
 
