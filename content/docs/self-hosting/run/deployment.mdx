@@ -9,6 +9,17 @@ This page covers getting a Marfa server onto a host and keeping it running: the 
 
 For the full environment-variable reference, see [Configuration](/self-hosting/run/configuration).
 
+<Callout type="warn">
+  **Run one server process per database.** The event bus is in-process: a process
+  only sees the change events it published itself. Start a second process against
+  the same database and realtime subscribers stop seeing most writes, and installed
+  integrations stop firing for most writes. Neither failure logs anything, and the
+  health endpoint stays green. Scale vertically until the bus grows a cross-process
+  transport. [Running more than one
+  process](/guides/identity/deployment-modes#running-more-than-one-process) has the
+  detail, including which subsystems are genuinely cluster-safe.
+</Callout>
+
 ## Prerequisites
 
 - A host you can reach over SSH.
@@ -85,12 +96,34 @@ Any standard rotation tool works — `newsyslog` on macOS, `logrotate` on Linux.
 
 ## Health monitoring
 
-Every Marfa server exposes `GET /health`, returning HTTP 200 with an `ok` body. Point an uptime monitor at it:
+Every Marfa server exposes `GET /health`, returning a JSON report of the server and its dependencies:
+
+```json
+{
+  "status": "ok",
+  "auth_mode": "hosted",
+  "components": {
+    "database": { "status": "ok", "latency_ms": 77 },
+    "blob_storage": { "status": "ok", "latency_ms": 67 }
+  },
+  "version": { "sha": "677ab4a" }
+}
+```
+
+<Callout type="warn">
+  The status code is always `200`, including when a component is down. Degradation
+  is reported in the body's top-level `status` field, which flips to `degraded`.
+  A monitor that checks the status code, or greps the body for the substring `ok`,
+  passes on a server whose database is unreachable — the healthy components still
+  carry the word. Assert on the parsed field.
+</Callout>
+
+Point an uptime monitor at it:
 
 | Check | Value |
 |---|---|
 | Endpoint | `http://<host>:<port>/health` |
-| Expect | HTTP 200, body contains `ok` |
+| Expect | HTTP 200 **and** the parsed `status` field equal to `ok` |
 | Interval | 60 seconds is a reasonable default |
 
 For 500-error alerting, set `ERROR_WEBHOOK_URL` to a webhook — a chat incoming-webhook, or an uptime tool's push URL. The server debounces to at most one notification per error type per minute; tune the delivery timeout with `MARFA_ERROR_WEBHOOK_TIMEOUT_MS`.

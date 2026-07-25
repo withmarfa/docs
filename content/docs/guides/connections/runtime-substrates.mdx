@@ -3,6 +3,8 @@ title: Runtime substrates
 description: The two substrates that run integrations — Cloudflare (hosted) and Node + Postgres (local).
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+
 Two substrates run integrations: **hosted** (Cloudflare) and **local** (Node + Postgres). The choice is per-deployment, set by the operator via `MARFA_INTEGRATION_RUNTIME` — it's not per-Connection and it's not per-Integration. Integration code (the `handlers.ts` module) is portable: the same code runs on either substrate without modification. Where they differ is the operational shape underneath the SDK.
 
 The manifest's `runtime_compatibility` enum also accepts `self-hosted` as a third tier. No wired substrate currently dispatches against it; see [Integrations](/guides/connections/integrations) for the manifest-level vocabulary.
@@ -35,7 +37,18 @@ The substrates are designed for parity at the handler-author surface. The differ
 | **Adversarial isolation** | Workers' isolate boundary — strong isolation | `worker_thread` — fault isolation, not adversarial | Local self-host treats operator-installed integrations as trusted (same posture as installing an npm package in the host app). For untrusted code, run hosted. |
 | **Per-Connection serialization** | Durable Object single-writer guarantee | Postgres advisory lock on `hashtext(connection_id)` | Equivalent semantics — at most one handler running per Connection at any given time on either substrate. |
 | **Resource limits** | Workers' platform-enforced CPU + memory caps | `worker_thread` `resourceLimits` — `maxOldGenerationSizeMb`, `maxYoungGenerationSizeMb`, `stackSizeMb`, set per integration | Tunable on local; fixed on hosted. Defaults are tuned for the in-tree integrations and operators can lift them per-deployment if a heavier handler lands. |
-| **Multi-instance coordination** | Per-Worker — Workers' deployment model handles this transparently | Postgres advisory locks (`SELECT pg_try_advisory_lock`) + pg-boss's `SELECT ... FOR UPDATE SKIP LOCKED` job leasing | Local is multi-instance safe out of the box. The reactive-run bridge runs under a single advisory lock so two server instances never fan out the same event twice. |
+| **Multi-instance coordination** | Per-Worker — Workers' deployment model handles this transparently | Postgres advisory locks (`SELECT pg_try_advisory_lock`) + pg-boss's `SELECT ... FOR UPDATE SKIP LOCKED` job leasing | Local expects one server process per database. Job leasing is cluster-safe, but the reactive-run bridge is not: see the note below. |
+
+<Callout type="warn">
+  **The local substrate expects one server process per database.** The bridge that
+  fans item events out to installed integrations subscribes to the publishing
+  process's in-process event bus, and runs under a `pg_try_advisory_lock` so only
+  one process drains it. That is a try-lock, not a queue: the processes that lose
+  it skip the work rather than waiting for it. So the elected process drains only
+  the events it published itself, and writes handled by any other process reach no
+  integration at all. Nothing logs the loss. See [Running more than one
+  process](/guides/identity/deployment-modes#running-more-than-one-process).
+</Callout>
 
 ## Picking a substrate
 

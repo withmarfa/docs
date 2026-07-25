@@ -38,7 +38,10 @@ Prototypes, offline-first apps, privacy-first apps, apps that run disconnected f
 The canonical mode. Multi-tenant, multi-app, real-time via SSE, durable storage, server-stamped non-forgeable provenance, OAuth grants, audit trail, metrics.
 
 <Callout type="warn">
-  Running more than one Marfa instance behind a load balancer has a small number of operational caveats — rate limits are per-instance, and SSE needs sticky sessions. See [Scaling and operational limits](#server-synced-scaling-and-operational-limits) below before adding a second instance.
+  Run one server process per database. The event bus lives in the process, so a
+  second process against the same database silently stops delivering realtime
+  events and stops firing installed integrations. Read [Running more than one
+  process](#running-more-than-one-process) before adding a second instance.
 </Callout>
 
 All the mode-specific features called out across these docs (server-stamped `source`, SSE `/events`, OAuth flow, webhook delivery, admin metrics) apply only here.
@@ -93,15 +96,35 @@ Apps that want cross-device sync without standing up a Marfa server. Consumer iO
 
 ## Server-synced: scaling and operational limits
 
-Marfa is safe to horizontally scale behind a load balancer. Cross-instance coordination is handled through Postgres — no Redis, no separate worker tier. A few caveats remain; none block multi-instance deployments but operators should know them.
+<Callout type="warn">
+  Run one server process per database. The event bus is in-process, so a second
+  process against the same database silently stops delivering realtime events
+  and stops firing reactive integrations. See [Running more than one
+  process](#running-more-than-one-process) below.
+</Callout>
 
-- **Webhook delivery is cluster-safe.** The delivery poller uses `SELECT … FOR UPDATE SKIP LOCKED` to atomically claim pending rows, so a given delivery is picked up by exactly one instance. Failed instances release claims automatically after a short TTL.
-- **Background jobs run once per tick cluster-wide.** Trash purge, version thinning, audit cleanup, feed expiry, and event-log cleanup each run under a named Postgres advisory lock, so only one instance performs work on each tick. Other instances skip the tick cleanly.
-- **API-key `last_used_at` is DB-enforced.** The conditional UPDATE debounces writes at the database layer, so writes collapse to at most one per hour per key regardless of how many instances are handling requests.
-- **Rate limits are per-instance.** The rate limiter keeps counters in the server process, not Postgres. With N instances behind a load balancer, a caller limited to `RATE_LIMIT_REQUESTS` gets roughly `N × RATE_LIMIT_REQUESTS` effective requests per window. Treat the setting as a per-instance soft cap — set it conservatively and rely on your load balancer or upstream gateway for hard global limits.
-- **SSE subscriptions attach to the process-local event bus.** A client connected to instance A won't see events published on instance B. Configure sticky sessions at the load balancer for the `/events` route (most balancers support this out of the box — AWS ALB, nginx `ip_hash` / `sticky cookie`, Cloudflare `Origin-Steering: sticky`, etc.) so each SSE connection stays on one instance for its lifetime.
+Cross-instance coordination is handled through Postgres — no Redis, no separate worker tier. Some subsystems are genuinely cluster-safe; the event bus is not, and the difference decides how far a deployment can scale horizontally today.
 
-For any deployment larger than "one instance on one host", rolling restarts, graceful shutdown, and a shared Postgres database are all the infrastructure you need.
+Cluster-safe:
+
+- **Webhook delivery.** Publishing writes a row to a durable outbox table, and the delivery poller claims rows with `SELECT … FOR UPDATE SKIP LOCKED`, so a given delivery is picked up by exactly one instance no matter which instance produced it. Failed instances release claims automatically after a short TTL. This is the one event path that survives a multi-process deployment intact.
+- **Background jobs.** Trash purge, version thinning, audit cleanup, event-log cleanup, rate-limit cleanup, auth-session cleanup, account-deletion purge, and bulk-action GC each run under a named Postgres advisory lock, so only one instance performs work on each tick. Other instances skip the tick cleanly.
+- **API-key `last_used_at`.** The conditional UPDATE debounces writes at the database layer, so writes collapse to at most one per hour per key regardless of how many instances are handling requests.
+
+Per-instance, and therefore approximate under a load balancer:
+
+- **Rate limits.** The rate limiter keeps counters in the server process, not Postgres. With N instances behind a load balancer, a caller limited to `RATE_LIMIT_REQUESTS` gets roughly `N × RATE_LIMIT_REQUESTS` effective requests per window. Treat the setting as a per-instance soft cap and rely on your load balancer or upstream gateway for hard global limits.
+
+### Running more than one process
+
+The server publishes change events on an in-process emitter. Writes are recorded durably in the `event_log` table, but nothing reads that table as a bus: no `LISTEN`/`NOTIFY`, no Redis, no polling consumer. A process only ever sees the events it published itself.
+
+Two consequences, both silent — no error, no warning, no failed health check:
+
+- **Realtime events go missing.** An SSE client attached to instance A never sees a write made on instance B. Sticky sessions do not fix this. Stickiness pins the *reader* to one instance; the problem is which instance the *writer* happened to land on. A healthy long-lived connection never reconnects, so it never triggers the `Last-Event-ID` replay that would otherwise fill the gap from `event_log`.
+- **Reactive integrations stop firing for most writes.** The bridge that fans events out to installed integrations runs under a Postgres advisory lock so exactly one instance drains it. That instance drains its own in-process emitter, so with N instances roughly (N − 1) / N of all events reach no integration at all. The same lock covers the subscription-registry cache, so a connection installed or paused on another instance is not seen either.
+
+Until the bus has a cross-process transport, a server-synced deployment scales vertically. One process per database, restarted gracefully, is the supported shape. If you need more request throughput than one process delivers and can accept the constraints, the safe partial pattern is to keep exactly one process publishing writes and serving `/events`, and use webhooks rather than SSE for anything a second process would need to observe.
 
 ## Choosing
 
