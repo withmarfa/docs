@@ -122,13 +122,13 @@ A single `kind: api_token` credential can be shared across Connections that targ
 
 ## Runtime credential lifecycle
 
-A runtime credential is a machine credential, not a human one. The runtime mints a fresh one for each dispatch and the SDK refreshes transparently, so no connector ever needs to hold one for long. Four rules keep that fleet bounded.
+A runtime credential is a machine credential, not a human one. The runtime obtains a fresh one for each dispatch, so no connector needs to hold one for long. Four rules keep that fleet bounded.
 
-**Scoped to the manifest.** A credential's reach is derived from the manifest it was installed from: `read` on each `target_types` entry for a read-only Integration, `write` for `write` or `both`, plus whatever the manifest's `permissions.extension` and `permissions.edge` maps declare. Two grants come from the platform rather than the manifest, because no connector can run without them: write on `system.activity` (the status-reporting channel) and read on `system.connection` (a handler reads its own Connection to resolve its configuration). A Connection whose manifest cannot be resolved mints with those platform grants only — never with wildcard reach.
+**Scoped to the manifest.** The server derives a credential's reach from the Connection's persisted manifest at every mint. Each `target_types` entry receives write access because `direction` describes flow relative to the upstream service: a read Integration pulls from upstream and writes the result into Marfa. The manifest's `permissions.extension` and `permissions.edge` maps supply the other declared grants. Two substrate rules complete the projection: write access to `system.activity` for status reporting, and write access to the credential's own `connection.runtime` extension. Reading configuration is a per-item exception limited to the credential's own Connection, not a tenant-wide `system.connection` grant. If the manifest cannot be resolved, the credential keeps only the substrate grants and never receives wildcard reach.
 
 **Bounded lifetime.** Every runtime credential carries an expiry stamped at mint. A request bearing a credential past its expiry is refused with `401 unauthorized`, exactly as a revoked credential would be. Human-minted API keys are unaffected: they carry no expiry and never expire on their own.
 
-**Superseded on mint.** Minting a fresh credential for a Connection retires that Connection's earlier ones once they are past their TTL plus one further TTL of grace. The grace window exists so a dispatch already in flight with the previous credential finishes cleanly.
+**Superseded on mint.** Minting a fresh credential for a Connection retires earlier credentials that have reached their own expiry. Unexpired siblings remain usable because they can still belong to an active dispatch. Credentials created before expiry stamping use age against the current mint TTL instead.
 
 **Reaped in the background.** A Connection that stops dispatching stops superseding its own credentials, so a background job is the backstop. Each tick it revokes credentials past their expiry, retires credentials that predate expiry stamping once they age past the same TTL-plus-grace window, and hard-deletes revoked runtime-credential rows more than seven days old. Cadence is `MARFA_RUNTIME_CREDENTIAL_REAPER_INTERVAL_MS` (hourly by default; `0` disables). Only runtime credentials are touched — human-minted keys are never revoked or deleted by the reaper.
 
@@ -150,7 +150,7 @@ When a connector declares `triggers: webhook`, the platform exposes a public rec
 
 Manifests are versioned by semver. A patch or minor bump produces a new sibling `system.integration` item; existing Connections stay pinned to the version they installed. Major bumps are effectively new Integrations — explicit upgrade required.
 
-The runtime credential's permissions are stamped from the manifest at install time. A consenting reader will see exactly what each version requires.
+The runtime credential's permissions are projected from the persisted manifest at mint time. A consenting reader sees exactly what each version requires.
 
 ## A minimal example — the RSS Watcher
 
