@@ -9,6 +9,17 @@ This page covers getting a Marfa server onto a host and keeping it running: the 
 
 For the full environment-variable reference, see [Configuration](/self-hosting/run/configuration).
 
+<Callout type="warn">
+  **Run one server process per database.** The event bus is in-process: a process
+  only sees the change events it published itself. Start a second process against
+  the same database and realtime subscribers stop seeing most writes, and installed
+  integrations stop firing for most writes. Neither failure logs anything, and the
+  health endpoint stays green. Scale vertically until the bus grows a cross-process
+  transport. [Running more than one
+  process](/guides/identity/deployment-modes#running-more-than-one-process) has the
+  detail, including which subsystems are genuinely cluster-safe.
+</Callout>
+
 ## Prerequisites
 
 - A host you can reach over SSH.
@@ -65,6 +76,41 @@ Run the server under a process supervisor so it restarts on crash and on boot �
 
 `deploy.sh` restarts services by the labels passed in `DEPLOY_SERVICE_LABELS`, so those must match the supervisor's unit/label names.
 
+## Run exactly one server process per database
+
+<Callout type="warn">
+  **Marfa does not currently support running more than one server process against the same database.** A second process does not fail, log, or error — it silently drops realtime events. Scale vertically (a bigger host) rather than horizontally until cross-process event distribution ships.
+</Callout>
+
+Realtime delivery is process-local. Server-Sent Events and outbound webhook dispatch are both distributed through an in-process event emitter, which means every subscriber has to live in the same process as the write that triggered it.
+
+With two processes behind a load balancer, a write handled by process A publishes only inside process A. An SSE client connected to process B never receives it. A webhook whose delivery worker happens to be running in process B never fires.
+
+What makes this worth a warning rather than a footnote is how it fails:
+
+- The write **succeeds**. The API returns `200`.
+- **Nothing** is logged as an error, on either process.
+- **Nothing** retries — the delivery was never attempted, so there is no failure to back off from.
+- The events that do arrive look completely normal, so the gap is invisible until someone notices a webhook that should have fired and didn't.
+
+This affects any topology running multiple processes against one database: a load balancer over several hosts, Kubernetes replicas, `docker compose up --scale`, a Node cluster, or PM2 in cluster mode.
+
+### Telling the server about your topology
+
+The server warns at startup when it can tell it is one of several processes. It detects Node cluster workers and PM2 workers on its own, but a container orchestrator looks exactly like a single process from the inside — Kubernetes, Compose, and ECS expose nothing the process can read.
+
+Set `MARFA_REPLICA_COUNT` so the check works in those environments:
+
+```bash
+MARFA_REPLICA_COUNT=3
+```
+
+It is purely declarative and changes no behavior. It exists so the warning can fire where detection is otherwise impossible. **A startup with no warning means nothing was detected, not that your deployment was verified safe.**
+
+### If you need more capacity
+
+Until cross-process distribution ships, the supported paths are a larger single instance, or a second instance backed by its own database serving a different set of tenants. Putting a read-only replica alongside the writer is also safe, provided nothing subscribes to events through it.
+
 ## Reverse proxy
 
 Marfa serves plain HTTP. Put a reverse proxy in front of it for TLS termination and a stable hostname. [Caddy](https://caddyserver.com) is a good fit — it provisions and renews Let's Encrypt certificates automatically:
@@ -81,16 +127,38 @@ When Marfa runs behind a TLS-terminating proxy, set `ENABLE_HSTS=true` so it emi
 
 The server logs structured JSON to stdout and stderr, one object per line. The supervisor redirects those to files, which grow unbounded without rotation.
 
-Any standard rotation tool works — `newsyslog` on macOS, `logrotate` on Linux. Because the server writes with `O_APPEND`, an inode-preserving truncate (or copy-truncate) rotates the file with no restart and no file-descriptor orphaning. Rotated JSON stays parseable with `jq`.
+Any standard rotation tool works — `newsyslog` on macOS, `logrotate` on Linux. On macOS, `newsyslog` renames the log; a supervisor-held descriptor continues writing to the old inode until restart. Compression can then leave that inode unlinked but open. Restart the service after rotation so it opens the current log file. Rotated JSON stays parseable with `jq`.
 
 ## Health monitoring
 
-Every Marfa server exposes `GET /health`, returning HTTP 200 with an `ok` body. Point an uptime monitor at it:
+Every Marfa server exposes `GET /health`, returning a JSON report of the server and its dependencies:
+
+```json
+{
+  "status": "ok",
+  "auth_mode": "hosted",
+  "components": {
+    "database": { "status": "ok", "latency_ms": 77 },
+    "blob_storage": { "status": "ok", "latency_ms": 67 }
+  },
+  "version": { "sha": "677ab4a" }
+}
+```
+
+<Callout type="warn">
+  The status code is always `200`, including when a component is down. Degradation
+  is reported in the body's top-level `status` field, which flips to `degraded`.
+  A monitor that checks the status code, or greps the body for the substring `ok`,
+  passes on a server whose database is unreachable — the healthy components still
+  carry the word. Assert on the parsed field.
+</Callout>
+
+Point an uptime monitor at it:
 
 | Check | Value |
 |---|---|
 | Endpoint | `http://<host>:<port>/health` |
-| Expect | HTTP 200, body contains `ok` |
+| Expect | HTTP 200 **and** the parsed `status` field equal to `ok` |
 | Interval | 60 seconds is a reasonable default |
 
 For 500-error alerting, set `ERROR_WEBHOOK_URL` to a webhook — a chat incoming-webhook, or an uptime tool's push URL. The server debounces to at most one notification per error type per minute; tune the delivery timeout with `MARFA_ERROR_WEBHOOK_TIMEOUT_MS`.
