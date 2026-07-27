@@ -34,8 +34,28 @@ The Marfa server is configured entirely via environment variables. No config fil
 | `DB_DIALECT` | `sqlite` | `sqlite` or `pg`. |
 | `SQLITE_PATH` | `./data/marfa.db` | SQLite database file path. Created if absent. Ignored when dialect is `pg`. |
 | `DATABASE_URL` | _(required when `pg`)_ | Postgres connection string. |
+| `MARFA_DB_POOL_MODE` | `session` | What kind of endpoint `DATABASE_URL` points at. Leave at `session` when the server connects to Postgres directly. Set `transaction` when a transaction-mode pooler sits in front, which makes `MARFA_DATABASE_URL_DIRECT` mandatory. An unrecognized value throws at startup. |
+| `MARFA_DATABASE_URL_DIRECT` | _(required when `transaction`)_ | Direct, unpooled connection string for the same database as `DATABASE_URL`. Used only by streaming responses. |
 
 SQLite is perfectly fine for single-tenant self-hosts. Postgres is recommended for multi-tenant, multi-app, high-traffic deployments.
+
+#### Running behind a connection pooler
+
+If you put PgBouncer, pgcat, or a managed pooled endpoint (Neon's `-pooler` host, Supabase's transaction pooler) in front of Postgres, check its pool mode. **Session mode needs no extra configuration.** Transaction mode does.
+
+Streaming responses (`/events`, `/export`) cannot be wrapped in a transaction — the response stays open for an arbitrary duration — so they reserve a connection and apply row-level security to the session instead. Session state only stays put when the connection owns a backend outright. A transaction-mode pooler assigns a backend per transaction, so that state lands on a shared backend and is inherited by later, unrelated queries. The result is permission errors on requests that have nothing to do with streaming, appearing and clearing as the pooler recycles backends.
+
+Declare the pool mode and give streaming its own direct endpoint:
+
+```bash
+export DATABASE_URL="postgres://marfa:<password>@<pooler-host>:6432/marfa"
+export MARFA_DB_POOL_MODE=transaction
+export MARFA_DATABASE_URL_DIRECT="postgres://marfa:<password>@<postgres-host>:5432/marfa"
+```
+
+Both point at the same database. Ordinary traffic keeps using the pooled endpoint; only streaming uses the direct one, at a handful of connections. The server refuses to start if `MARFA_DB_POOL_MODE=transaction` and no direct URL is set, rather than falling back to the pooled endpoint and leaking the state described above. A `Streaming RLS endpoint` line at startup reports which endpoint was chosen.
+
+Schema migrations also need the direct endpoint: `pnpm migrate` opens one connection and runs DDL, which a transaction-mode pooler cannot support.
 
 ### Blobs
 
