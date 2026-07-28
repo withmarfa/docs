@@ -34,8 +34,40 @@ The Marfa server is configured entirely via environment variables. No config fil
 | `DB_DIALECT` | `sqlite` | `sqlite` or `pg`. |
 | `SQLITE_PATH` | `./data/marfa.db` | SQLite database file path. Created if absent. Ignored when dialect is `pg`. |
 | `DATABASE_URL` | _(required when `pg`)_ | Postgres connection string. |
+| `MARFA_DB_POOL_MODE` | `session` | What kind of endpoint `DATABASE_URL` points at. Leave at `session` when the server connects to Postgres directly. Set `transaction` when a transaction-mode pooler sits in front, which makes `MARFA_DATABASE_URL_DIRECT` mandatory. An unrecognized value throws at startup. |
+| `MARFA_DATABASE_URL_DIRECT` | _(required when `transaction`)_ | Direct, unpooled connection string for the same database as `DATABASE_URL`. Used only by streaming responses. |
 
 SQLite is perfectly fine for single-tenant self-hosts. Postgres is recommended for multi-tenant, multi-app, high-traffic deployments.
+
+#### Running behind a connection pooler
+
+If you put PgBouncer, pgcat, or a managed pooled endpoint (Neon's `-pooler` host, Supabase's transaction pooler) in front of Postgres, check its pool mode. **Session mode needs no extra configuration.** Transaction mode does.
+
+Streaming responses (`/events`, `/export`) cannot be wrapped in a transaction — the response stays open for an arbitrary duration — so they reserve a connection and apply row-level security to the session instead. Session state only stays put when the connection owns a backend outright. A transaction-mode pooler assigns a backend per transaction, so that state lands on a shared backend and is inherited by later, unrelated queries. The result is permission errors on requests that have nothing to do with streaming, appearing and clearing as the pooler recycles backends.
+
+Declare the pool mode and give streaming its own direct endpoint:
+
+```bash
+export DATABASE_URL="postgres://marfa:<password>@<pooler-host>:6432/marfa"
+export MARFA_DB_POOL_MODE=transaction
+export MARFA_DATABASE_URL_DIRECT="postgres://marfa:<password>@<postgres-host>:5432/marfa"
+```
+
+Both point at the same database. Ordinary traffic keeps using the pooled endpoint; only streaming uses the direct one, at a handful of connections. The server refuses to start if `MARFA_DB_POOL_MODE=transaction` and no direct URL is set, rather than falling back to the pooled endpoint and leaking the state described above. A `Streaming RLS endpoint` line at startup reports which endpoint was chosen.
+
+**The direct URL has to be genuinely direct, and the server checks.** If `MARFA_DATABASE_URL_DIRECT` resolves to the same host and port as `DATABASE_URL`, startup fails. This is worth stating because the mistake is easy and completely silent otherwise: a managed provider's pooled and direct hostnames often differ by a few characters, so pasting the wrong one gives you a server that starts, reports the direct endpoint, and reproduces the exact permission errors the setting exists to prevent.
+
+The comparison includes the port, so running PgBouncer beside Postgres on one machine — `localhost:6432` pooled, `localhost:5432` direct — is a valid configuration and is not rejected.
+
+Schema migrations also need the direct endpoint: `pnpm migrate` opens one connection and runs DDL, which a transaction-mode pooler cannot support.
+
+#### Idle connections
+
+Both pools close a connection after 30 seconds idle and recycle it after 30 minutes, and neither is configurable.
+
+Against a Postgres you run yourself this is invisible: reconnecting to a local instance costs single-digit milliseconds. It matters on serverless Postgres that suspends its compute when nothing is connected. There, a pool that holds sockets open forever keeps the compute awake permanently and bills for the uptime rather than the work, which is not a scenario the defaults should quietly assume you are not in.
+
+The trade is a reconnection on the first request after a quiet spell. Where the database itself has also suspended, expect roughly a second for it to wake. That wait does not stack on top of a container cold start: by the time the database's own suspend timer has elapsed, a scale-to-zero deployment has usually already stopped the server too, so the two waits overlap rather than add.
 
 ### Blobs
 

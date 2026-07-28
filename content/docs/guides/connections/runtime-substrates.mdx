@@ -36,6 +36,7 @@ The substrates are designed for parity at the handler-author surface. The differ
 | **Service bindings** | Control-plane Worker calls per-Integration Worker over a Cloudflare service binding | Collapses to an in-memory function call inside the server process | Not a parity issue — the seam disappears. |
 | **Adversarial isolation** | Workers' isolate boundary — strong isolation | `worker_thread` — fault isolation, not adversarial | Local self-host treats operator-installed integrations as trusted (same posture as installing an npm package in the host app). For untrusted code, run hosted. |
 | **Per-Connection serialization** | Durable Object single-writer guarantee | Postgres advisory lock on `hashtext(connection_id)` | Equivalent semantics — at most one handler running per Connection at any given time on either substrate. |
+| **Schedule teardown** | Uninstall cancels the Connection's Durable Object alarm through the control plane | Nothing to cancel — the scheduler walks active Connections on each tick | Same outcome either way. See [Schedule teardown on uninstall](#schedule-teardown-on-uninstall) for what happens on hosted when the cancellation does not land. |
 | **Resource limits** | Workers' platform-enforced CPU + memory caps | `worker_thread` `resourceLimits` — `maxOldGenerationSizeMb`, `maxYoungGenerationSizeMb`, `stackSizeMb`, set per integration | Tunable on local; fixed on hosted. Defaults are tuned for the in-tree integrations and operators can lift them per-deployment if a heavier handler lands. |
 | **Multi-instance coordination** | Per-Worker — Workers' deployment model handles this transparently | Postgres advisory locks (`SELECT pg_try_advisory_lock`) + pg-boss's `SELECT ... FOR UPDATE SKIP LOCKED` job leasing | Local expects one server process per database. Job leasing is cluster-safe, but the reactive-run bridge is not: see the note below. |
 
@@ -49,6 +50,23 @@ The substrates are designed for parity at the handler-author surface. The differ
   integration at all. Nothing logs the loss. See [Running more than one
   process](/guides/identity/deployment-modes#running-more-than-one-process).
 </Callout>
+
+## Schedule teardown on uninstall
+
+The two substrates schedule work differently, so they stop it differently.
+
+On **local**, the scheduler walks active Connections on every cron tick. Uninstalling flips the Connection to `revoked`, and it drops out of the walk on the next tick. Nothing else is needed.
+
+On **hosted**, a Connection's schedule is a Durable Object alarm that re-arms itself each time it fires — there is no central list to fall off. So uninstall explicitly cancels it, via the runtime-control plane, in the same step that revokes the Connection's runtime credentials.
+
+The `POST /connections/{id}/uninstall` response reports the outcome:
+
+- **`schedules_disarmed`** — `true` when the alarm was cancelled. `false` on deployments with no runtime control plane configured (every local-substrate deployment), and `false` when the cancellation was attempted and failed.
+- **`schedule_disarm_error`** — present only in that second case, explaining what went wrong.
+
+An uninstall that fails to cancel the alarm still completes. Uninstall only ever moves toward "uninstalled": stopping partway would leave the Connection active with its credentials already revoked, which is worse than finishing. The failure is recorded on the response, in a `system.activity` row with `severity: action_required`, and in the audit log.
+
+The residue is bounded. The Connection ends up `revoked`, and the credential broker refuses to issue credentials for a Connection that is not active, so the alarm cannot do any work. When the next tick asks for credentials and gets that refusal, the Durable Object cancels its own alarm rather than re-arming — so a schedule pointed at a Connection that no longer exists stops on its own, whether or not the uninstall-time cancellation landed.
 
 ## Picking a substrate
 
