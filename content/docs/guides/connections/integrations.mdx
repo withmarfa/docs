@@ -4,6 +4,7 @@ description: Published manifests that connect Marfa to external services.
 ---
 
 import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Callout } from 'fumadocs-ui/components/callout';
 
 An Integration is a publishable, installable description of how Marfa talks to an external service or runs a space-internal automation. It carries everything a space needs to stand up a working `integration`-kind Connection: the trigger declarations, the OAuth or webhook authentication shape (where applicable), the runtime requirements, the bidirectional handling rules, and the permissions the connector needs against the space's items.
 
@@ -78,7 +79,7 @@ The credential shape follows the connector's authentication model. For OAuth-bac
 
 ### Mints a runtime credential
 
-A short-TTL `system.credential` of `kind: api_key`, scoped to the manifest's declared permissions and bound to the connection_id. The runtime broker refreshes this transparently as the connector runs.
+A short-TTL API key scoped to the manifest's declared permissions and bound to the connection_id. It carries a hard expiry and the runtime refreshes it transparently as the connector runs — see [Runtime credential lifecycle](#runtime-credential-lifecycle).
 
 </Step>
 
@@ -119,6 +120,36 @@ The proxy stamps the configured `auth_scheme` on the upstream call uniformly wit
 
 A single `kind: api_token` credential can be shared across Connections that target the same upstream base. When a connector's upstream lives on a different host than the credential's default, the Connection sets `properties.configuration.upstream_base_url_override` and the proxy consults it before falling back to the credential's URL. This lets a family of related connectors share one credential row across distinct upstream hosts.
 
+## Runtime credential lifecycle
+
+A runtime credential is a machine credential, not a human one. The runtime obtains a fresh one for each dispatch, so no connector needs to hold one for long. The rules below keep that fleet bounded and keep each credential answerable for exactly one Connection.
+
+**Scoped to the manifest.** The server derives a credential's reach from the Connection's persisted manifest at every mint. Each `target_types` entry receives write access because `direction` describes flow relative to the upstream service: a read Integration pulls from upstream and writes the result into Marfa. The manifest's `permissions.extension` and `permissions.edge` maps supply the other declared grants. Two substrate rules complete the projection: write access to `system.activity` for status reporting, and write access to the credential's own `connection.runtime` extension. Reading configuration is a per-item exception limited to the credential's own Connection, not a tenant-wide `system.connection` grant. If the manifest cannot be resolved, the credential keeps only the substrate grants and never receives wildcard reach.
+
+**Scoped to a space.** A credential inherits the Connection's space, never the broker's. On a multi-space deployment the server refuses to mint for a Connection that belongs to no space at all: a credential with no space is not a narrow credential but a platform one, and it would read every space's items. The refusal covers every path that mints, installation included, so an install that names no space fails and rolls itself back rather than leaving a Connection behind. A Connection installed before that check existed stays installed and cannot dispatch until it is moved into a space. Either way the trade is the intended one: a Connection that refuses to run is recoverable, and one quietly reading other spaces' data is not.
+
+**Bound to its Integration.** Every mint names the Integration the runtime authenticated as, and the server checks that name against the manifest persisted on the Connection at install time. A connector that somehow reaches the broker holding another Integration's Connection ID (Connection IDs are not secrets; they appear in operator surfaces and in logs) is refused. The check runs against state the runtime cannot edit, which is why it lives on the server rather than in the runtime that made the claim.
+
+**Bounded lifetime.** Every runtime credential carries an expiry stamped at mint. A request bearing a credential past its expiry is refused with `401 unauthorized`, exactly as a revoked credential would be. Human-minted API keys are unaffected: they carry no expiry and never expire on their own.
+
+**Superseded on mint.** Minting a fresh credential for a Connection retires earlier credentials that have reached their own expiry. Unexpired siblings remain usable because they can still belong to an active dispatch. Credentials created before expiry stamping use age against the current mint TTL instead.
+
+**Reaped in the background.** A Connection that stops dispatching stops superseding its own credentials, so a background job is the backstop. Each tick it revokes credentials past their expiry, retires credentials that predate expiry stamping once they age past the same TTL-plus-grace window, and hard-deletes revoked runtime-credential rows more than seven days old. Cadence is `MARFA_RUNTIME_CREDENTIAL_REAPER_INTERVAL_MS` (hourly by default; `0` disables). Only runtime credentials are touched — human-minted keys are never revoked or deleted by the reaper.
+
+**Serialized against uninstall.** Every path that mints, installation included, takes the same per-Connection lock as uninstall, and re-reads the Connection's state while holding it. Without that, an uninstall could revoke every credential a Connection had at the moment a mint was midway through issuing another, leaving a live credential behind a revocation that was supposed to end it.
+
+<Callout type="info">
+Upgrading an instance that ran before credential expiry existed? Its accumulated runtime credentials carry no expiry, so the reaper's first passes retire them by age. Connectors are unaffected: the next dispatch mints a fresh credential. Human-minted keys are untouched.
+</Callout>
+
+### What a rotation does not change
+
+Credentials rotate constantly; two things deliberately do not move with them.
+
+**Item provenance.** Items a connector writes are stamped with a `source` derived from the Connection, not from the credential that happened to be live. That matters because natural-key identity is the `(source, source_id)` pair: a connector re-syncing an upstream record looks it up by that pair, and a `source` that changed on every credential refresh would make the lookup miss and store a second copy. Provenance is fixed for the Connection's lifetime, so re-syncing the same upstream record always updates the same item however many credentials have come and gone.
+
+**Activity attribution.** A connector writes `system.activity` rows to report progress and ask for attention, and every operator surface groups those rows by `connection_id`. A runtime credential may only write activity for its own Connection: it cannot create a row attributed to a sibling, edit a sibling's row, or re-point one of its own rows at a sibling afterwards. Without that rule, one connector could raise an `action_required` prompt against an integration that is working perfectly, and nothing about the row would say where it really came from.
+
 ## Reactive runs and cycle detection
 
 Connectors that declare `triggers: item-event` subscribe to changes on `target_types`. The platform routes events through a per-Connection queue with backpressure; cycle metadata (originating connection, hop count) flows on every event so a connector that writes back into Marfa cannot infinite-loop. Per-space hop budgets are configurable; the default ceiling of five steps protects against runaway chains.
@@ -133,7 +164,7 @@ When a connector declares `triggers: webhook`, the platform exposes a public rec
 
 Manifests are versioned by semver. A patch or minor bump produces a new sibling `system.integration` item; existing Connections stay pinned to the version they installed. Major bumps are effectively new Integrations — explicit upgrade required.
 
-The runtime credential's permissions are stamped from the manifest at install time. A consenting reader will see exactly what each version requires.
+The runtime credential's permissions are projected from the persisted manifest at mint time. A consenting reader sees exactly what each version requires.
 
 ## A minimal example — the RSS Watcher
 

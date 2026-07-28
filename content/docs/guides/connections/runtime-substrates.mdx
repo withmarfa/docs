@@ -51,6 +51,24 @@ The substrates are designed for parity at the handler-author surface. The differ
   process](/guides/identity/deployment-modes#running-more-than-one-process).
 </Callout>
 
+## How a hosted connector gets its credential
+
+On **local**, the runtime mints a credential in-process: the supervisor that routed the dispatch also issues the credential for it, and no secret crosses a boundary.
+
+On **hosted**, a connector runs in its own Cloudflare Worker and has to ask for one. The chain has three participants and two different credentials, and which credential sits where is the whole design.
+
+The **platform key** authenticates the control plane to the Marfa server. It can mint a runtime credential for any Connection in any space, so it lives on the control-plane Worker and on the server, and nowhere else. It is never sent to an integration Worker and never accepted from one.
+
+Each **integration Worker** holds its own key instead, derived by the control plane from a root secret it alone holds, computed per Integration name. The derivation is one-way, so a Worker holding its own key cannot work out a sibling's, and every Worker in the fleet holding the same secret is no longer possible.
+
+That key does both directions of the hop. The Worker presents it when it asks the control plane for a runtime credential, naming the Integration it is; the control plane derives the key for that name and compares, so naming an Integration you cannot prove fails. The control plane presents the same derived key when it dispatches into the Worker to arm a schedule or run a verify, and the Worker gates its entire HTTP surface on it. A refusal is a `401`, which the runtime treats as retryable, so a Worker whose secret is stale backs off rather than tearing its schedule down.
+
+The Integration name that survives the comparison is then forwarded to the Marfa server with the mint request, and checked against the manifest persisted on the Connection. So a Worker is answerable twice: once for being the Integration it says it is, and once for asking about a Connection installed for that Integration.
+
+<Callout type="info">
+Operators wiring the hosted substrate set the identity root on the control-plane Worker and derive each integration Worker's key from it. Use one root per environment, never shared across environments, since a shared root would let a staging Worker authenticate against production. Rotating the root invalidates every derived key at once, so re-derive and redeploy the whole fleet, control plane first.
+</Callout>
+
 ## Schedule teardown on uninstall
 
 The two substrates schedule work differently, so they stop it differently.
