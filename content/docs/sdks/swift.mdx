@@ -598,6 +598,7 @@ The query classes:
 | `EdgesQuery` | `[Edge]` | Outbound edges for a `sourceId`, optionally filtered by `edgeType`. A second initializer takes only an `edgeType` to track every edge of a type across the local store, such as `store.queryEdges(ofType: "in-thread")` for taxonomy-style reply surfaces. |
 | `TagsQuery` | `[TagWithCount]` | For the whole tenant. Re-runs the tag aggregation when items or metadata change. |
 | `BackrefsQuery` | `[String: [Edge]]` | Keyed by target id. Re-runs when edges change. |
+| `SearchQuery` | `[SearchResult]` | Offline search over the local store. The one query that does its work off the main actor. See [Local search](#local-search). |
 | `PendingMutationsQuery` | `[PendingMutationSummary]` | For the mutation queue. See [Pending mutations](#pending-mutations). |
 | `BlobUploadProgressQuery` | `[String: BlobUploadProgress]` | Keyed by content hash. See [Blob upload progress](#blob-upload-progress). |
 
@@ -608,6 +609,47 @@ All are `@Observable @MainActor`. Views observe them directly — no `Observable
 </Callout>
 
 Network-only clients return `nil` from `makeStore()` — the reactive layer only materialises when a local store is configured.
+
+### Local search
+
+`store.querySearch(text:filters:)` vends a `SearchQuery` — full-text-ish search served entirely from the local store, so it works offline and without a round trip.
+
+```swift
+let hits = store.querySearch(
+  text: term,
+  filters: SearchFilters(type: "core.note")
+)
+
+ForEach(hits.results, id: \.item.id) { hit in
+  NoteRow(hit.item)
+}
+```
+
+The search term is fixed for the life of the query. For search-as-you-type, build a new query per term and `stop()` the previous one; an abandoned scan is cancelled rather than run to completion.
+
+This is the one reactive query that does **not** do its work on the main actor. A scan decodes the `properties` JSON of every candidate row, which is too much for a view update, so the whole thing is handed to the local store actor and the main actor is touched only to publish results.
+
+<Callout type="warn">
+  Local search is a scan, not an index. SwiftData exposes no FTS index and a predicate cannot reach inside a JSON column, so the query narrows on `type` / `state` / `tier` and then reads every surviving row. Cost runs to tens of milliseconds per thousand rows scanned, and `limit` caps the results rather than the work — a query matching 60,000 items takes seconds whether you ask for 20 results or all of them. Narrowing with `type` or `tier` is the cheapest lever you have. A corpus this outgrows wants the server index, not a faster device.
+</Callout>
+
+#### How it differs from `client.search`
+
+`SearchFilters` is the same type on both sides and the shared defaults match — `system.*` and trashed records are excluded unless you ask for them, and `limit` defaults to 20. The differences below are real, so plan for them before swapping a screen between local and remote:
+
+| | Server `GET /search` | Local `querySearch` |
+|---|---|---|
+| Fields matched | Every textual property | Only `title` and `body` |
+| Tags | Indexed as searchable text | Filterable, not searchable |
+| `type` | Resolves subtypes by inheritance | Compared literally |
+| `limit` | `1...100`, rejected outside | Non-positive returns empty; larger honored |
+| Ranking | BM25, with recency boost | Ordinal — title over body, whole over prefix over substring |
+| Snippets | `snippetHtml` populated | Always `nil` |
+| `filter` expression | Evaluated | Ignored |
+
+The field gap is the one that surprises. Because only the literal keys `title` and `body` are read, a type that keys its text elsewhere never appears in local results at all: `core.entity` and its subtypes store `name`, `core.highlight` and `readwise.highlight` store `text` and `note`, and a `withmarfa.captured_email` matches on its `body` but never on its `subject`. That is a whole-type blind spot rather than a partial one.
+
+`type` not resolving subtypes is a deliberate limitation rather than an oversight: inheritance needs the type graph, which the local store does not persist, and inferring it from the dotted name would be wrong for exactly the custom types an app defines, since a custom type may declare any parent regardless of its name.
 
 ### Pending mutations
 
