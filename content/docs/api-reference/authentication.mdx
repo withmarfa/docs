@@ -223,6 +223,14 @@ Re-consent happens when it should:
 
 `prompt=none` behaves per OIDC: with a covering grant the server issues a code silently; without one it redirects back to the app's registered `redirect_uri` with `error=consent_required`, never rendering UI.
 
+### Authorization requests expire
+
+An authorization request is signed when it first reaches `GET /auth/authorize` and is valid for ten minutes. Past that, both the consent screen and the decision endpoint render a page telling the user the request expired and to start again from the app.
+
+Ten minutes covers the user's whole authentication journey, not just the consent click, and that journey is often longer than it looks. A user who has to sign up, wait for a verification email and come back, or who signs in by magic link, can exceed it comfortably. Apps should treat a user returning without a code as ordinary rather than exceptional, and offer a plain way to retry.
+
+The expired page deliberately renders no detail from the request. On that path every value in the query is unverified, so echoing any of it would turn a real Marfa origin into somewhere an attacker can put chosen text.
+
 A silent re-authorization leaves the grant untouched (the granted scope set and grant timestamps stay as the user approved them) and is recorded in the audit trail as `auth.grant.reused`, distinct from first consent.
 
 ### Refresh token rotation
@@ -318,6 +326,8 @@ All three rows are written by Marfa route handlers, not by the plugin, so they c
 ### Grants management
 
 `/auth/grants` exposes the user's current OAuth grants — one row per `system.connection` of `kind: app`. Listing, inspecting, and revoking grants happens through this surface. Revoking a grant invalidates the associated tokens immediately. See [Connections](/guides/connections/connections) for the underlying type.
+
+**A revoke that cannot invalidate the tokens fails rather than reporting success.** The token invalidation runs before the grant record is updated, so a failure leaves the grant reading active, which is the truth: the tokens still work. The alternative — marking it revoked and moving on — produces a security page describing access the user no longer has while that access carries on working, which is the worse of the two outcomes by some distance. `DELETE /auth/grants/:id` surfaces this as a 5xx; the form-friendly route redirects with `?notice=grant_revoke_failed`. Either way the correct response is to retry, not to assume it worked.
 
 ### Connector OAuth bootstrap
 
