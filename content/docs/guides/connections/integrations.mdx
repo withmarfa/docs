@@ -122,9 +122,13 @@ A single `kind: api_token` credential can be shared across Connections that targ
 
 ## Runtime credential lifecycle
 
-A runtime credential is a machine credential, not a human one. The runtime obtains a fresh one for each dispatch, so no connector needs to hold one for long. Four rules keep that fleet bounded.
+A runtime credential is a machine credential, not a human one. The runtime obtains a fresh one for each dispatch, so no connector needs to hold one for long. The rules below keep that fleet bounded and keep each credential answerable for exactly one Connection.
 
 **Scoped to the manifest.** The server derives a credential's reach from the Connection's persisted manifest at every mint. Each `target_types` entry receives write access because `direction` describes flow relative to the upstream service: a read Integration pulls from upstream and writes the result into Marfa. The manifest's `permissions.extension` and `permissions.edge` maps supply the other declared grants. Two substrate rules complete the projection: write access to `system.activity` for status reporting, and write access to the credential's own `connection.runtime` extension. Reading configuration is a per-item exception limited to the credential's own Connection, not a tenant-wide `system.connection` grant. If the manifest cannot be resolved, the credential keeps only the substrate grants and never receives wildcard reach.
+
+**Scoped to a space.** A credential inherits the Connection's space, never the broker's. On a multi-space deployment the server refuses to mint for a Connection that belongs to no space at all: a credential with no space is not a narrow credential but a platform one, and it would read every space's items. The Connection stays installed but cannot dispatch until it is installed into a space, which is the intended trade: a Connection that refuses to run is recoverable, and one quietly reading other spaces' data is not.
+
+**Bound to its Integration.** Every mint names the Integration the runtime authenticated as, and the server checks that name against the manifest persisted on the Connection at install time. A connector that somehow reaches the broker holding another Integration's Connection ID (Connection IDs are not secrets; they appear in operator surfaces and in logs) is refused. The check runs against state the runtime cannot edit, which is why it lives on the server rather than in the runtime that made the claim.
 
 **Bounded lifetime.** Every runtime credential carries an expiry stamped at mint. A request bearing a credential past its expiry is refused with `401 unauthorized`, exactly as a revoked credential would be. Human-minted API keys are unaffected: they carry no expiry and never expire on their own.
 
@@ -132,9 +136,19 @@ A runtime credential is a machine credential, not a human one. The runtime obtai
 
 **Reaped in the background.** A Connection that stops dispatching stops superseding its own credentials, so a background job is the backstop. Each tick it revokes credentials past their expiry, retires credentials that predate expiry stamping once they age past the same TTL-plus-grace window, and hard-deletes revoked runtime-credential rows more than seven days old. Cadence is `MARFA_RUNTIME_CREDENTIAL_REAPER_INTERVAL_MS` (hourly by default; `0` disables). Only runtime credentials are touched — human-minted keys are never revoked or deleted by the reaper.
 
+**Serialized against uninstall.** Minting and uninstalling a Connection take the same per-Connection lock, and the mint re-reads the Connection's state while holding it. Without that, an uninstall could revoke every credential a Connection had at the moment a mint was midway through issuing another, leaving a live credential behind a revocation that was supposed to end it.
+
 <Callout type="info">
 Upgrading an instance that ran before credential expiry existed? Its accumulated runtime credentials carry no expiry, so the reaper's first passes retire them by age. Connectors are unaffected: the next dispatch mints a fresh credential. Human-minted keys are untouched.
 </Callout>
+
+### What a rotation does not change
+
+Credentials rotate constantly; two things deliberately do not move with them.
+
+**Item provenance.** Items a connector writes are stamped with a `source` derived from the Connection, not from the credential that happened to be live. That matters because natural-key identity is the `(source, source_id)` pair: a connector re-syncing an upstream record looks it up by that pair, and a `source` that changed on every credential refresh would make the lookup miss and store a second copy. Provenance is fixed for the Connection's lifetime, so re-syncing the same upstream record always updates the same item however many credentials have come and gone.
+
+**Activity attribution.** A connector writes `system.activity` rows to report progress and ask for attention, and every operator surface groups those rows by `connection_id`. A runtime credential may only write activity for its own Connection: it cannot create a row attributed to a sibling, edit a sibling's row, or re-point one of its own rows at a sibling afterwards. Without that rule, one connector could raise an `action_required` prompt against an integration that is working perfectly, and nothing about the row would say where it really came from.
 
 ## Reactive runs and cycle detection
 
