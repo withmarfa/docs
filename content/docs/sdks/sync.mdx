@@ -141,9 +141,18 @@ Items the agent creates are stamped with a `source` that resolves to the agent's
 
 ## Rename detection
 
-Renaming a file inside a watched root preserves the Marfa item id, its edges, and its version history. The agent matches the new path's inode against recently-unlinked paths in a 5-second window to recognize the rename, then updates the item's source path on the server in place. No delete-and-recreate, no orphan edges.
+Renaming a file inside a watched root preserves the Marfa item id, its edges, and its version history. The agent matches the new path's stable filesystem identity against recently-unlinked paths in a 5-second window to recognize the rename, then updates the item's source path on the server in place. No delete-and-recreate, no orphan edges.
 
-Cross-volume moves fall through to delete + create cleanly (different inodes). Renames that span longer than 5 seconds — for example, an engine crash between unlink and add — fall through the same way.
+Once the agent has recognized a rename, it journals it to disk before the server request goes out, so an interrupted one resumes rather than degrading. If the process dies after the request left but before the response came back, the next start reads the journal, checks what actually landed on the server, and finishes the rename — including the case where the server had already applied it. Item id, edges, and history survive that crash.
+
+What still falls through to delete + create is a rename the agent cannot recognize as one:
+
+- **Cross-volume moves**, because the file's identity changes with the device.
+- **Moves between two separately-watched roots**, which the source root sees only as a delete and the destination root only as a create.
+- **Offline renames**, where the file was moved while the agent was not running. Matching at scan time is not implemented, and the same applies to a crash in the seconds between the delete and the create that make up a rename — before the agent has paired them there is nothing to journal.
+- **A refused claim** — the old path still exists, or the added file's bytes do not match what the old path held. Both are the signature of something other than a rename (an editor writing a backup alongside the original, most often), and accepting one would attach the item to the wrong file.
+
+A rename the server rejects outright is never retried as delete + create either. It surfaces as a `file-failed` event and the item keeps its identity under its old path. If the rejection is permanent the agent eventually gives up and reports `rename_abandoned`: the item stays attached to the file that holds its bytes, with only its `source_id` left pointing at the old path until that file is next edited.
 
 ## Conflict handling
 
@@ -190,7 +199,7 @@ The agent exposes a server-sent-events stream tailable via `marfa-sync events`. 
 
 | Command | Purpose |
 | --- | --- |
-| `marfa-sync start <folder> [--daemon] [--url <api-url>] [--key <api-key>] [--types <path>]` | Start the engine and register the folder as a root. |
+| `marfa-sync start <folder> [--daemon] [--url <api-url>] [--key <api-key>] [--types <path>] [--no-pull]` | Start the engine and register the folder as a root. `--no-pull` pushes the folder's existing files without mirroring the server's library down to disk — for backing up a folder rather than syncing one. It applies to that invocation only, so a `--daemon` respawn reverts to pulling. |
 | `marfa-sync stop` | Stop the daemonised engine. |
 | `marfa-sync status [--json]` | Report engine and per-root state. |
 | `marfa-sync stats [--json]` | Show engine runtime stats — pending events, totals processed, circuit-breaker state. |
@@ -210,7 +219,7 @@ The agent exposes a server-sent-events stream tailable via `marfa-sync events`. 
     Check the API key is valid (`marfa-sync status` shows the engine state and any auth errors). Confirm the folder isn't on a warned filesystem — `root-warned` events surface in `marfa-sync events`. If `mappings.json` is in use, verify the rules actually match the files in the folder; a file with no matching rule and no frontmatter `type:` falls through to the `core.file` fallback, which the agent skips for text content.
   </Accordion>
   <Accordion title="I renamed a file but it appeared as a new item.">
-    The rename-detection window is 5 seconds. Renames that span longer — for example, a crash between the unlink and the add — fall through to delete + create. Cross-volume moves do the same because the inode changes. To recover the original item's edges and history, restore from the version history or delete the new item and rename within the window.
+    The rename-detection window is 5 seconds, so a move the agent sees as an unrelated delete and create — a cross-volume move, a move between two watched roots, or one performed while the agent was not running — comes back as a new item. A crash after the agent has recognized the rename does not: that case is journaled and resumes on the next start. To recover the original item's edges and history, restore from the version history, or delete the new item and redo the rename within the window.
   </Accordion>
   <Accordion title="A folder of mine isn't appearing as a folder in Marfa.">
     Folder structure isn't modeled as items. See [Folder structure](#folder-structure) above — query items by `source_id` prefix to list everything under a folder.
