@@ -54,7 +54,7 @@ User types are flat by convention but can extend via inheritance where it earns 
 
 ### Declaring compatibility
 
-A sibling type declares `compatible_with` to assert that its shape is a structural superset of one or more other types: every field the target requires is present here, under the same name, with the same field type. A reader that understands the target can read this type without knowing it exists.
+A sibling type declares `compatible_with` to assert that its shape is a structural superset of one or more other types, so a reader that understands the target can read this type without knowing it exists.
 
 ```json
 POST /types
@@ -71,7 +71,28 @@ POST /types
 
 It is an array of type identifiers — a type may be compatible with several targets at once. Field names are not remapped: compatibility means a reader can pick up your item and find the fields where it expects them, which a rename would defeat.
 
-The platform verifies every claim at registration. If `carla.meal_plan` lacks something `core.task` requires, or declares it with a different field type, the registration is rejected with `422 compatible_with_violation` naming the field. The same check runs at build time over the types Marfa itself ships.
+Two rules apply, because the reader does two different things:
+
+- **Every field the target requires must be present here, required, and shaped compatibly.** A reader expects those on every item.
+- **Every field the target merely declares must, if you declare the same name, be shaped compatibly.** A reader reads an optional field whenever it is present, so a same-named field of a different shape is a mis-parse rather than a harmless extra. Omitting the field entirely is fine.
+
+#### What counts as shaped compatibly
+
+The question is whether a value valid under your field could be handed to a reader of the target's field without a mis-parse. So a narrower type stands in for the wider one whose values contain it, and never the reverse:
+
+| Your field | Reads as | Why |
+|---|---|---|
+| `url`, `email`, `datetime`, `date` | `string` | each holds a string |
+| `enum` | `string` | an enum only ever holds one of a fixed set of strings |
+| `integer` | `number` | every integer is a number |
+
+An `enum` may also narrow an `enum` target to a subset of its values. `items_type` on an array, and the value set of an enum against an enum, otherwise have to match.
+
+`format` is the one attribute that does not fail on absence. Only the annotation formats `bcp47` and `iso3166` survive registration as `format`, and neither is checked against field values, so a plain `string` and an annotated one admit the same values. Omitting the target's annotation is accepted; declaring a different one is rejected.
+
+The check reaches field declarations only. Two `object` fields, or two arrays of them, compare as compatible whatever they contain, because a field declaration has no vocabulary for nested shape. A claim involving a structured `object` field carries no machine-checked guarantee about what is inside it.
+
+The platform verifies every claim at registration. A claim that does not hold is rejected with `422 compatible_with_violation` naming the field, what was expected, what arrived, and the concrete next step. The same check runs at build time over the types Marfa itself ships.
 
 `compatible_with` is server-checked, not a free-text tag, which is what makes it worth relying on. Declare it only when the claim holds — a false claim is worse than none, because it invites a reader to parse fields that aren't there.
 
