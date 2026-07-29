@@ -1,0 +1,108 @@
+---
+title: Optimistic updates
+description: Assign the id locally, write with a version, resolve the conflict, converge from the stream.
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An optimistic update shows the user the result of a write before the server has confirmed it. The interface stays responsive, and the cost is that you now have two copies of the truth that have to agree again afterwards.
+
+Marfa ships the three pieces that make this tractable: an identity you can assign before the write leaves the device, a defined outcome when two writers disagree, and a stream that tells you what actually happened. This guide puts them together. Each piece is documented on its own page and linked below.
+
+## The shape
+
+<Steps>
+
+<Step>
+### Assign the id yourself
+
+Create the item locally with an id you generate, and render it immediately. `create` accepts an `id`, so the row you drew is the row the server stores, and you never have to reconcile a temporary local id with a server-assigned one after the fact.
+
+```ts
+const id = crypto.randomUUID();
+renderLocally({ id, type: 'core.note', properties: { title } });
+
+await client.items.create({ id, type: 'core.note', properties: { title } });
+```
+
+If the write is a retry of something that may already exist, use `upsert` with a `source_id` instead. The natural key `(source, source_id)` makes the write idempotent, so a retry after an ambiguous network failure updates rather than duplicating.
+
+See [Items](/guides/core-model/items).
+</Step>
+
+<Step>
+### Write with the version you last saw
+
+Passing `version` opts the write into optimistic concurrency. If the stored version has moved on, the server refuses rather than overwriting.
+
+```ts
+await client.items.update(id, { properties: { title }, version: item.version });
+```
+
+Without `version`, last-write-wins, and the other writer's change disappears silently. That is occasionally what you want. It is rarely what you want by accident.
+</Step>
+
+<Step>
+### Resolve the conflict with the context you are given
+
+A stale version returns `409 version_conflict`, and the error carries what you need to merge rather than just reporting failure: the `current` server state, the `ancestor` both sides diverged from, the `conflicting_fields`, and the type's declared `merge_policy`.
+
+The SDK resolves this for you by default. Fields that changed on only one side merge cleanly; genuine collisions follow the type's policy.
+
+```ts
+await client.items.update(id, { properties, version }, { conflict: 'auto' });
+```
+
+Take `manual` or a callback when the merge is a product decision rather than a mechanical one.
+
+See [Conflicts](/guides/schema/conflicts) and [Errors](/api-reference/errors).
+</Step>
+
+<Step>
+### Converge from the stream
+
+Subscribe to the change stream and apply what it sends. This is what makes the update *optimistic* rather than merely local: your own writes come back confirmed, other clients' writes arrive without polling, and any divergence between what you drew and what was stored resolves itself.
+
+```ts
+const sub = client.events.subscribe({
+  lastEventId: loadCursor(),
+  onEvent: (event, eventId) => {
+    if ('item' in event) applyItem(event.item);
+    saveCursor(eventId);
+  },
+  onCatchupTooOld: () => {
+    // The cursor has aged out of the log. Re-read state, then start clean.
+    void resyncFromScratch();
+  },
+});
+```
+
+Events carry full payloads, so applying one needs no follow-up fetch.
+
+See [Realtime](/guides/realtime/realtime).
+</Step>
+
+</Steps>
+
+## Things that go wrong
+
+**Resuming from a cursor the log can no longer serve.** If the stored cursor predates the retention window, the server sends a terminal `catchup_too_old` and closes. Reconnecting with the same cursor loops. Reconnecting silently without one looks like it worked and quietly skips every event in the gap. Handle `onCatchupTooOld` by re-reading the state you care about and subscribing again with no cursor.
+
+**Persisting the cursor only after the handler succeeds.** If your handler throws and you skip saving, the next reconnect replays events you already applied. If you save before applying and then throw, you skip them. Save the cursor for every event you receive, and make the handler itself idempotent, which applying a full payload by id already is.
+
+<Callout type="warn">
+  On a deployment running more than one server process against one database, the
+  event bus is in-process: a subscriber only sees writes that landed on the
+  process it is connected to. Optimistic updates depend on the stream being
+  complete, so run a single process per database.
+</Callout>
+
+**Assuming the stream is a durable queue.** It is a live tail with a bounded replay window, not a work queue. Anything that must not be missed belongs in an [outbound webhook](/guides/realtime/webhooks).
+
+## Related
+
+- [Realtime](/guides/realtime/realtime) — the stream, its filters and its replay semantics
+- [Conflicts](/guides/schema/conflicts) — merge policies and how the resolver applies them
+- [Items](/guides/core-model/items) — client-assigned ids, natural keys and versions
+- [TypeScript SDK](/sdks/typescript) — the client surface used throughout

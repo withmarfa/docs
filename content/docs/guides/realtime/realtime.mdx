@@ -5,6 +5,7 @@ description: Server-Sent Events for live updates, with reconnection via Last-Eve
 
 import { Step, Steps } from 'fumadocs-ui/components/steps';
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+import { Callout } from 'fumadocs-ui/components/callout';
 
 Marfa emits live events on a per-tenant Server-Sent Events stream. Clients that need to reflect changes in real time subscribe to `GET /events`.
 
@@ -58,15 +59,20 @@ Payloads are filtered by the subscriber's permissions — the server won't strea
 
 ## Filtering
 
-Clients can subscribe to a subset of events:
+Clients can narrow the stream to a single item type:
 
 ```
-GET /events?event=item.created,item.updated
-GET /events?type=core.note                 # item events only for this type (and subtypes)
-GET /events?edge_type=in-thread            # edge events only for this type
+GET /events?type=core.note
 ```
 
-Filters apply on the server; unwanted events never leave the stream.
+The filter applies on the server, and it covers the type's subtypes as well, so unwanted events never leave the stream.
+
+<Callout type="warn">
+  `type` is the only filter the endpoint reads. Unrecognized query parameters
+  are ignored rather than rejected, so a request that appears to filter on an
+  event name or an edge type opens a stream carrying everything. Filter the rest
+  client-side on the `type` field of each payload.
+</Callout>
 
 ## Reconnecting after a drop
 
@@ -79,7 +85,12 @@ Last-Event-ID: 4521
 
 The server replays events that occurred after that id from its event log, then transitions to live streaming. This is gapless for events within the log's retention window (default 7 days).
 
-The `EventSource` API in browsers handles `Last-Event-ID` automatically. Non-browser clients (SDKs, server-to-server consumers) should persist the most recent event id and re-send it on reconnect.
+The browser `EventSource` API handles `Last-Event-ID` automatically, but it cannot set an `Authorization` header, so it cannot authenticate against this endpoint on its own. Use the TypeScript SDK's `client.events.subscribe`, which streams the response through `fetch` and keeps the credential in the header, or implement the same shape yourself. Clients that do roll their own should persist the most recent event id and re-send it on reconnect.
+
+<Callout type="info">
+  `client.events.subscribe` handles resume, reconnection with backoff, and the
+  stale-cursor case below. See [Optimistic updates](/guides/realtime/optimistic-updates).
+</Callout>
 
 ## When the event log is stale
 
