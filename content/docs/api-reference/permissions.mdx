@@ -137,6 +137,18 @@ Admin and tenant-admin API keys bypass both.
 
 The rationale: an edge is a mutation of the source item's graph view. Without type write, the app can't mutate the item; adding an edge would be a back-door around that. Without edge write on the type, the app can't create that kind of relationship — even if it owns the item.
 
+### Every route that accepts inline edges applies it
+
+`POST /items`, `POST /items/bulk` and the natural-key upsert branch of `POST /items` all take an `edges` payload, and all three run the same gate. There is no bulk exemption: a credential refused an edge on the single-item route is refused the same edge in a batch.
+
+Bulk reports it in its own envelope. In atomic mode a refused edge aborts the batch with `400 bulk_atomic_rollback` carrying `edge_permission_denied` in the details, the same shape it already gives an unauthorized item type.
+
+### An empty target list is a delete, and is gated as one
+
+Inline edges are replace-all per edge type: the listed types have their existing edges removed and the given targets written in their place. So `{"edges": {"about": []}}` clears every `about` edge on the item.
+
+That makes an empty list a delete instruction rather than a no-op, and it needs `edge_permissions[about]: write` exactly as a create would. Writing an empty list for an edge type you cannot write is refused, and the existing edges survive.
+
 ## Enforcement points
 
 <Accordions type="single">
@@ -148,7 +160,8 @@ The rationale: an edge is a mutation of the source item's graph view. Without ty
     | `PATCH /items/{id}` (update X) | `type_permissions[X]: write` |
     | `DELETE /items/{id}` | `type_permissions[X]: write` |
     | `POST /items/{id}/transition` | `type_permissions[X]: write` |
-    | `POST /items` with `edges` | `type_permissions[X]: write` AND `edge_permissions[edge_type]: write` per edge |
+    | `POST /items` with `edges` | `type_permissions[X]: write` AND `edge_permissions[edge_type]: write` per listed edge type, including one whose target list is empty |
+    | `POST /items/bulk` with `edges` | same as `POST /items` with `edges`, per item |
     | `POST /edges` | `type_permissions[source.type]: write` AND `edge_permissions[edge_type]: write` |
     | `DELETE /edges/{id}` | same as `POST /edges` |
     | `PATCH /edges/{id}` | same as `POST /edges` |
