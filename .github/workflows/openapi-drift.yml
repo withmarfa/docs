@@ -9,9 +9,15 @@
 # The comparison needs read access to a second repository, which the built-in
 # GITHUB_TOKEN cannot grant. Provide a fine-grained token as the
 # `SPEC_SOURCE_TOKEN` repo secret (repository access: the server monorepo;
-# permission: `Contents: read`) to turn the comparison on. Without it the job
-# still validates the committed file and warns that the cross-repo check was
-# skipped — a fork with no secret is never blocked by a check it cannot run.
+# permission: `Contents: read`) to turn the comparison on.
+#
+# A missing secret is a failure on the canonical repository and a skip
+# anywhere else. Skipping everywhere is what this job used to do, and it is
+# how the guard spent its whole life inert: no secret was ever provisioned, so
+# every run printed a warning nobody reads and exited zero. A check that
+# passes when it cannot run is worse than no check, because the green tick
+# reports coverage that does not exist. A fork still cannot be blocked by a
+# credential it has no way to hold.
 name: OpenAPI drift
 
 on:
@@ -27,6 +33,9 @@ concurrency:
 
 env:
   SPEC_SOURCE_REPO: withmarfa/marfa
+  # The repository the comparison is mandatory on. Anywhere else — a fork, a
+  # self-hoster's copy — cannot hold the credential, so it skips instead.
+  SPEC_CANONICAL_REPO: withmarfa/docs
 
 jobs:
   drift:
@@ -58,7 +67,11 @@ jobs:
           GH_TOKEN: ${{ secrets.SPEC_SOURCE_TOKEN }}
         run: |
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::warning title=Cross-repo check skipped::SPEC_SOURCE_TOKEN is not set, so openapi.json was not compared against ${SPEC_SOURCE_REPO}. Only local validation ran."
+            if [ "${GITHUB_REPOSITORY}" = "${SPEC_CANONICAL_REPO}" ]; then
+              echo "::error title=Drift guard cannot run::SPEC_SOURCE_TOKEN is not set on ${GITHUB_REPOSITORY}, so openapi.json was never compared against ${SPEC_SOURCE_REPO}. Provision a fine-grained token (repository access: ${SPEC_SOURCE_REPO}; permission: Contents: read) as the SPEC_SOURCE_TOKEN repo secret. Failing rather than passing: a guard that cannot run must not report green."
+              exit 1
+            fi
+            echo "::warning title=Cross-repo check skipped::SPEC_SOURCE_TOKEN is not set on ${GITHUB_REPOSITORY}, which is not ${SPEC_CANONICAL_REPO}, so only local validation ran."
             exit 0
           fi
           gh api \
