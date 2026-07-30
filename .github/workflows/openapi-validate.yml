@@ -1,0 +1,48 @@
+# Shape check for the committed API spec.
+#
+# `openapi.json` is generated in the server monorepo and copied here by an
+# automated sync. This job checks only that what landed is a usable OpenAPI
+# document: a sync that truncated the file, or shell output that contaminated
+# it, would otherwise reach the published reference and break it silently.
+#
+# Whether the file is the *current* spec is a different question, and it is
+# answered in the monorepo rather than here. The comparison needs to read a
+# second private repository, which a workflow's built-in token cannot do, and
+# the monorepo already holds a credential that reaches this one. Putting the
+# check here as well would mean provisioning a second cross-repo token to ask
+# the same question from the weaker end.
+name: OpenAPI spec
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate the committed spec
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate the committed spec
+        run: |
+          python3 - <<'PY'
+          import json, sys
+
+          spec = json.load(open('openapi.json'))
+          version = spec.get('openapi', '')
+          if not version.startswith('3.'):
+              sys.exit(f'openapi.json declares openapi: {version!r}, expected 3.x')
+          if not spec.get('paths'):
+              sys.exit('openapi.json declares no paths')
+          print(f'openapi {version}, {len(spec["paths"])} paths')
+          PY
