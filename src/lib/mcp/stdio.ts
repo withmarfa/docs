@@ -1,107 +1,66 @@
 #!/usr/bin/env node
 /**
- * Docs MCP — stdio transport entry point.
+ * Docs MCP — stdio entry point for clients that do not speak HTTP.
  *
- * Reads JSON-RPC 2.0 messages line-by-line from stdin, proxies each one to the
- * HTTP MCP route, and writes the response to stdout (one JSON object per line).
+ * This is a bridge, not a second implementation. It runs a real MCP server on
+ * stdio and a real MCP client against the HTTP endpoint, forwarding calls
+ * between them. Both halves are the SDK's, so the stdio surface cannot drift
+ * from the HTTP one: the tool list is discovered from the remote server at
+ * startup rather than restated here.
  *
- * The HTTP route is the canonical implementation (the Fumadocs source layer is
- * Vite-bundled and not runnable in vanilla Node). Stdio is a thin shim — it
- * lets MCP clients that only speak stdio (some Claude Desktop / Cursor
- * configurations) reach the docs MCP without needing HTTP MCP support.
+ * It bridges rather than mounting the tools directly because the Fumadocs
+ * source layer is resolved through the bundler's path aliases and does not
+ * load under plain Node. Point it at a local instance to serve a local corpus.
  *
- * Configure the target URL with `MARFA_DOCS_URL` (defaults to
- * `https://docs.marfa.so`). For local self-hosted use, run `pnpm dev` to
- * bring up Vite at `http://localhost:3000`, then:
+ * Configure the target with `MARFA_DOCS_URL` (defaults to the hosted site):
  *
  *   MARFA_DOCS_URL=http://localhost:3000 pnpm mcp:stdio
  *
- * For Claude Code / Desktop stdio MCP registration, point at:
+ * To register with a stdio-only client:
  *
  *   command: node
- *   args: ["--experimental-strip-types", "/absolute/path/to/withmarfa/docs/src/lib/mcp/stdio.ts"]
- *   env: { MARFA_DOCS_URL: "https://docs.marfa.so" }
+ *   args: ["--experimental-strip-types", "/absolute/path/to/docs/src/lib/mcp/stdio.ts"]
  */
 
-import readline from 'node:readline';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
 const DOCS_URL = (process.env.MARFA_DOCS_URL ?? 'https://docs.marfa.so').replace(/\/+$/, '');
 const MCP_URL = `${DOCS_URL}/mcp`;
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: undefined,
-  terminal: false,
-});
+const BRIDGE_NAME = 'marfa-docs';
+const BRIDGE_VERSION = '1.0.0';
 
-const inflight = new Set<Promise<void>>();
-let stdinClosed = false;
+async function main(): Promise<void> {
+  const upstream = new Client({ name: `${BRIDGE_NAME}-bridge`, version: BRIDGE_VERSION });
+  await upstream.connect(new StreamableHTTPClientTransport(new URL(MCP_URL)));
 
-async function proxy(payload: unknown): Promise<unknown> {
-  const res = await fetch(MCP_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return res.json();
-}
+  const server = new McpServer({ name: BRIDGE_NAME, version: BRIDGE_VERSION });
 
-function handleLine(line: string): void {
-  const trimmed = line.trim();
-  if (!trimmed) return;
-
-  const task = (async () => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      process.stdout.write(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: null,
-          error: { code: -32700, message: 'parse error' },
-        }) + '\n',
-      );
-      return;
-    }
-
-    try {
-      const response = await proxy(parsed);
-      process.stdout.write(JSON.stringify(response) + '\n');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'unknown error';
-      const id =
-        parsed && typeof parsed === 'object' && 'id' in parsed
-          ? (parsed as { id: unknown }).id
-          : null;
-      process.stdout.write(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id,
-          error: {
-            code: -32603,
-            message: `proxy failed: ${message}`,
-            data: { mcp_url: MCP_URL },
-          },
-        }) + '\n',
-      );
-    }
-  })();
-
-  inflight.add(task);
-  void task.finally(() => {
-    inflight.delete(task);
-    if (stdinClosed && inflight.size === 0) {
-      process.exit(0);
-    }
-  });
-}
-
-rl.on('line', handleLine);
-
-rl.on('close', () => {
-  stdinClosed = true;
-  if (inflight.size === 0) {
-    process.exit(0);
+  // Mirror whatever the remote advertises. Discovering the list keeps this file
+  // out of the business of knowing which tools exist.
+  const { tools } = await upstream.listTools();
+  for (const tool of tools) {
+    server.registerTool(
+      tool.name,
+      {
+        ...(tool.title ? { title: tool.title } : {}),
+        ...(tool.description ? { description: tool.description } : {}),
+        ...(tool.annotations ? { annotations: tool.annotations } : {}),
+        // `tools/list` returns the schema as loosely-typed JSON, which is what
+        // `fromJsonSchema` exists to accept; the wire type is just wider.
+        inputSchema: fromJsonSchema(tool.inputSchema as Parameters<typeof fromJsonSchema>[0]),
+      },
+      async (args) => upstream.callTool({ name: tool.name, arguments: args as Record<string, unknown> }),
+    );
   }
+
+  await server.connect(new StdioServerTransport());
+}
+
+main().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(`marfa-docs stdio bridge failed against ${MCP_URL}: ${message}`);
+  process.exit(1);
 });
