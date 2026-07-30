@@ -17,7 +17,7 @@ Three endpoints move data and mutate many items at once, each shaped around wher
 | `POST /items/bulk-actions` | Filter-in, items | The target set is defined by a filter, such as "archive everything tagged wip" or "purge every trashed item older than 90 days". |
 | `POST /edges/bulk` | List-in, edges | Edges whose source and target exist already: replies, attachment links, a reply tree assembled after its items land. |
 
-A fourth endpoint, `POST /admin/restore-archive`, ingests a tar.gz produced by [`GET /export?format=archive`](/guides/querying/export). It sits under Admin because it is a tenant-restore operation, not an item-level write.
+A fourth endpoint, `POST /admin/restore-archive`, ingests a tar.gz produced by [`GET /export?format=archive`](/guides/querying/export). It sits under Admin because it is a space-restore operation, not an item-level write.
 
 <Callout type="info">
   Every bulk endpoint writes **one aggregate audit entry per call** and defaults `emit_events: false`. Per-item or per-edge webhook fanout is an opt-in flag — bulk calls should not flood subscribers.
@@ -31,7 +31,7 @@ Both ways of writing edges alongside items exist. Pick based on whether source a
 | --- | --- |
 | Edge source and target both in the same bulk-items payload | Inline `edges` block on `/items/bulk` |
 | Edge source or target was created in an earlier batch (or already existed) | Separate `/edges/bulk` pass after items land |
-| Mode-transition migration at tenant scale (Local → Marfa, iCloud → Marfa) | `/items/bulk` first, then `/edges/bulk` — cross-batch edges can't ride inline |
+| Mode-transition migration at space scale (Local → Marfa, iCloud → Marfa) | `/items/bulk` first, then `/edges/bulk` — cross-batch edges can't ride inline |
 
 ## Bulk items
 
@@ -77,7 +77,7 @@ This path only works when source and target both land in the same call. For cros
 
 `POST /edges/bulk`. Admin-only. Up to 5000 edges per call.
 
-Sibling to `/items/bulk` for the graph half of tenant migrations. Items created in an earlier bulk call exist on the server; a second pass through `/edges/bulk` wires them together without having to hold source and target in the same payload.
+Sibling to `/items/bulk` for the graph half of space migrations. Items created in an earlier bulk call exist on the server; a second pass through `/edges/bulk` wires them together without having to hold source and target in the same payload.
 
 ### Modes
 
@@ -86,7 +86,7 @@ Sibling to `/items/bulk` for the graph half of tenant migrations. Items created 
 
 ### Validation
 
-Every edge runs the same rules as `POST /edges`: edge type registered, source and target exist and belong to the caller's tenant, source and target type constraints satisfied, cardinality respected, no cycle on `parent-of` or `supersedes`. Violations surface per-edge in `atomic: false` mode or abort the batch in `atomic: true` mode.
+Every edge runs the same rules as `POST /edges`: edge type registered, source and target exist and belong to the caller's space, source and target type constraints satisfied, cardinality respected, no cycle on `parent-of` or `supersedes`. Violations surface per-edge in `atomic: false` mode or abort the batch in `atomic: true` mode.
 
 ### Events
 
@@ -129,7 +129,7 @@ The `filter` field accepts the same grammar as `GET /items` — see [Search and 
 - **`dry_run: true`** returns matched ids and count without writing. Synchronous, returns 200.
 - **`max_items`** caps the match set (default 10000, hard ceiling 50000). Going over returns `400 bulk_cap_exceeded`.
 - **`confirm: "PURGE"`** is required on the purge action. Missing it returns `400 bulk_confirmation_required`.
-- **`Idempotency-Key`** header (optional) — retrying a `POST` with the same key returns the original job, not a duplicate. Scoped per tenant.
+- **`Idempotency-Key`** header (optional) — retrying a `POST` with the same key returns the original job, not a duplicate. Scoped per space.
 
 ### Async behavior
 
@@ -169,7 +169,7 @@ The two refusals differ deliberately:
 
 Cancellation follows the same rule, so a refused `DELETE` leaves the job untouched and still cancellable by someone who is allowed to.
 
-### Wiping a scratch tenant
+### Wiping a scratch space
 
 ```bash
 # Preview first — dry-run stays synchronous (200 with the result inline)
@@ -200,7 +200,7 @@ done
 `POST /admin/restore-archive` accepts a tar.gz produced by `GET /export?format=archive`. The body is `application/gzip`; the response is JSON counts.
 
 ```bash
-# Export and restore in one pipe, against the same tenant
+# Export and restore in one pipe, against the same space
 curl -s "$MARFA_API_URL/export?format=archive" \
   -H "Authorization: Bearer $MARFA_API_KEY" \
   -o snapshot.tar.gz
@@ -211,4 +211,4 @@ curl -X POST "$MARFA_API_URL/admin/restore-archive" \
   --data-binary @snapshot.tar.gz
 ```
 
-Item rows dedup on `(source, source_id)`; blobs are content-addressed and register idempotently. Tenant migration between Marfa instances is export-then-restore.
+Item rows dedup on `(source, source_id)`; blobs are content-addressed and register idempotently. Space migration between Marfa instances is export-then-restore.

@@ -12,13 +12,13 @@ Hosted-mode Marfa exposes a user-initiated account deletion flow for GDPR right-
     **Request.** The signed-in user initiates deletion. The server mints a single-use confirmation token (1-hour TTL), sends a confirmation email, and returns HTTP 202. The account stays in `active` state until the link is clicked — re-issuing the request inside the TTL re-uses the same token (idempotent).
   </Step>
   <Step>
-    **Confirm via email link.** Clicking the link transitions `auth_user.deletion_state` from `active` to `pending_deletion`, stamps `pending_deletion_at`, revokes every API key in the tenant, drops every active session, and emails a cancellation link valid for the full grace window.
+    **Confirm via email link.** Clicking the link transitions `auth_user.deletion_state` from `active` to `pending_deletion`, stamps `pending_deletion_at`, revokes every API key in the space, drops every active session, and emails a cancellation link valid for the full grace window.
   </Step>
   <Step>
     **Grace window (30 days by default).** The user can cancel at any point during the grace period. Two cancel paths: clicking the cancel link from the pending-deletion email (or from the email sent when they attempt to sign in), or `POST /auth/account/delete/cancel` from a re-authenticated session.
   </Step>
   <Step>
-    **Permanent purge.** When `pending_deletion_at + grace_days < now()`, the `PendingDeletePurger` background sweep cascades: tears down the tenant's connection oauth tokens, leased tokens, inbound webhooks, edges, items (which cascade metadata + versions), blobs, API keys, outbound webhooks, tenant quotas, in-flight `auth_verification` tokens, the `users` row, the `tenants` row, then redacts the user's audit trail and deletes the `auth_user` row.
+    **Permanent purge.** When `pending_deletion_at + grace_days < now()`, the `PendingDeletePurger` background sweep cascades: tears down the space's connection oauth tokens, leased tokens, inbound webhooks, edges, items (which cascade metadata + versions), blobs, API keys, outbound webhooks, space quotas, in-flight `auth_verification` tokens, the `users` row, the `spaces` row, then redacts the user's audit trail and deletes the `auth_user` row.
   </Step>
 </Steps>
 
@@ -46,16 +46,16 @@ A per-account cooldown (default 1 hour) throttles repeat sends, so a sign-in flo
 
 ## What gets deleted
 
-Every artifact scoped to the user's tenant:
+Every artifact scoped to the user's space:
 
 - All items, regardless of state (including trashed)
 - All metadata, item versions, edges
-- All blobs (per-tenant rows; the content-addressed file on the storage backend is removed when its last metadata row goes)
-- Every API key for the tenant
+- All blobs (per-space rows; the content-addressed file on the storage backend is removed when its last metadata row goes)
+- Every API key for the space
 - Outbound and inbound webhooks
 - Connection OAuth tokens and leased tokens
-- Per-tenant quota overrides
-- The `users` profile row and the `tenants` row itself
+- Per-space quota overrides
+- The `users` profile row and the `spaces` row itself
 - The `auth_user` row, which cascades to drop `auth_session`, `auth_account`, and `auth_passkey` rows
 
 The cascade runs as a single transaction; rollback on failure leaves the account in `pending_deletion` for the next purger tick to retry.
@@ -68,7 +68,7 @@ The `audit_log` table is **not** truncated. Existing rows tied to the deleted ac
 { "redacted": true, "user_id_sha256": "<sha256 of auth_user.id>" }
 ```
 
-The row's `action`, `resource_id`, `tenant_id`, and `timestamp` survive. This preserves the forensic chain — operators querying who did what when can still see the action sequence — without retaining personally identifying payload. The chain remains queryable by the hashed-id sentinel if a future investigation needs to correlate redacted rows across actions.
+The row's `action`, `resource_id`, `space_id`, and `timestamp` survive. This preserves the forensic chain — operators querying who did what when can still see the action sequence — without retaining personally identifying payload. The chain remains queryable by the hashed-id sentinel if a future investigation needs to correlate redacted rows across actions.
 
 The audit rows specific to the deletion lifecycle:
 
@@ -85,15 +85,15 @@ The audit rows specific to the deletion lifecycle:
 
 ## Operator perspective
 
-During the grace window, the account is visible to platform-admin tooling as a regular tenant in `pending_deletion`:
+During the grace window, the account is visible to platform-admin tooling as a regular space in `pending_deletion`:
 
-- `marfa platform tenants show <id>` returns the tenant row.
-- `marfa platform tenants metrics <id>` still returns counts (the data is still there until the purger runs).
-- The tenant's `auth_user.deletion_state` is `pending_deletion`; sign-in attempts on the account return a generic `401` (the same shape as wrong credentials) and trigger a security-notice email subject to the per-account cooldown.
+- `marfa platform spaces show <id>` returns the space row.
+- `marfa platform spaces metrics <id>` still returns counts (the data is still there until the purger runs).
+- The space's `auth_user.deletion_state` is `pending_deletion`; sign-in attempts on the account return a generic `401` (the same shape as wrong credentials) and trigger a security-notice email subject to the per-account cooldown.
 
-After the purger sweeps, the tenant is gone:
+After the purger sweeps, the space is gone:
 
-- `marfa platform tenants show <id>` returns 404.
+- `marfa platform spaces show <id>` returns 404.
 - Items, blobs, keys all return 404 to any reader.
 - The audit trail remains, with redacted `details` payloads.
 
@@ -111,5 +111,5 @@ The purger runs cluster-coordinated: an outer named lock (`account-deletion-purg
 
 ## Related
 
-- [Self-hosting — Platform](/self-hosting/operate/platform) — operator surfaces for managing tenants. Account deletion is **user-initiated**, not admin-initiated; the platform commands do not include a "delete tenant" verb.
+- [Self-hosting — Platform](/self-hosting/operate/platform) — operator surfaces for managing spaces. Account deletion is **user-initiated**, not admin-initiated; the platform commands do not include a "delete space" verb.
 - [Self-hosting — Hosted mode](/self-hosting/run/hosted-mode) — the auth model this lifecycle plugs into.

@@ -1,30 +1,30 @@
 ---
 title: Rate limits
-description: Per-credential request caps, the per-tenant ceiling, response headers, and how clients should back off.
+description: Per-credential request caps, the per-space ceiling, response headers, and how clients should back off.
 ---
 
-Requests are bounded by two limits that stack: a rolling per-credential window, and a per-tenant ceiling above it. The server returns rate-limit headers on every response so clients can pace themselves without blind retry loops.
+Requests are bounded by two limits that stack: a rolling per-credential window, and a per-space ceiling above it. The server returns rate-limit headers on every response so clients can pace themselves without blind retry loops.
 
 ## Per-credential window
 
-- **Keyed by credential** — the API key id (or the caller's forwarded IP for unauthenticated bootstrap requests) identifies the bucket. Two keys on the same tenant get separate buckets.
+- **Keyed by credential** — the API key id (or the caller's forwarded IP for unauthenticated bootstrap requests) identifies the bucket. Two keys on the same space get separate buckets.
 - **Path-scoped** — the window segments by the first path component (`/items`, `/edges`, `/keys`, ...). Hitting `/items` heavily doesn't crowd out `/edges` calls.
 - **Read-friendly** — `GET` requests get double the default limit. Write endpoints enforce the base limit.
 - **Sensitive paths capped tighter** — `/keys` and `/auth/oauth2/token` carry stricter limits regardless of the configured default.
 
 When the window is exceeded, the server returns `429 rate_limited`. Subsequent requests in the same window continue to fail until the window resets.
 
-## Per-tenant ceiling
+## Per-space ceiling
 
-On top of the per-credential window, a tenant's whole fleet of credentials shares one ceiling. The per-credential window stops a single noisy key; the tenant ceiling stops many keys on the same tenant from collectively overwhelming the instance. A request that passes its credential window can still hit `429 rate_limited` if the tenant aggregate is over the ceiling.
+On top of the per-credential window, a space's whole fleet of credentials shares one ceiling. The per-credential window stops a single noisy key; the space ceiling stops many keys on the same space from collectively overwhelming the instance. A request that passes its credential window can still hit `429 rate_limited` if the space aggregate is over the ceiling.
 
 The ceiling resolves in this order:
 
-- **Per-tenant override** — `tenant_quotas.rate_per_minute_limit` for the tenant, when set, wins.
-- **Instance default** — otherwise `MARFA_DEFAULT_QUOTA_RATE_PER_MINUTE`, the per-minute fallback applied to every tenant.
+- **Per-space override** — `space_quotas.rate_per_minute_limit` for the space, when set, wins.
+- **Instance default** — otherwise `MARFA_DEFAULT_QUOTA_RATE_PER_MINUTE`, the per-minute fallback applied to every space.
 - **No ceiling** — if neither is set, only the per-credential window applies.
 
-The ceiling is skipped entirely for credentials with no tenant — single-tenant self-hosts and platform-admin keys are bounded by the per-credential window alone.
+The ceiling is skipped entirely for credentials with no space — single-space self-hosts and platform-admin keys are bounded by the per-credential window alone.
 
 ## Headers
 
@@ -37,7 +37,7 @@ Every response (including `429`) carries:
 | `X-RateLimit-Reset` | Unix timestamp when the window resets. |
 | `Retry-After` | On `429` only. Seconds to wait before retrying. |
 
-The `X-RateLimit-*` headers report the per-credential window, the cap most callers meet first. A `429` from the tenant ceiling still carries `Retry-After`. Clients that read `X-RateLimit-Remaining` on every response can throttle proactively against their own window without ever hitting `429`.
+The `X-RateLimit-*` headers report the per-credential window, the cap most callers meet first. A `429` from the space ceiling still carries `Retry-After`. Clients that read `X-RateLimit-Remaining` on every response can throttle proactively against their own window without ever hitting `429`.
 
 ## Configuration
 
@@ -45,7 +45,7 @@ Rate limiting is on by default. The tuning variables:
 
 - **`RATE_LIMIT_ENABLED`** — set to `false` to disable entirely. Useful for trusted internal deployments behind their own rate-limiting proxy; otherwise leave it on.
 - **`RATE_LIMIT_REQUESTS`** — requests per minute, per credential, per path prefix. Path-specific overrides (tighter caps on `/keys` and `/auth/oauth2/token`) apply regardless.
-- **`MARFA_DEFAULT_QUOTA_RATE_PER_MINUTE`** — the per-tenant ceiling applied to every tenant that has no `tenant_quotas` override. Leave unset for no instance-wide tenant ceiling.
+- **`MARFA_DEFAULT_QUOTA_RATE_PER_MINUTE`** — the per-space ceiling applied to every space that has no `space_quotas` override. Leave unset for no instance-wide space ceiling.
 
 See [Configuration](/self-hosting/run/configuration) for defaults and the full variable set.
 

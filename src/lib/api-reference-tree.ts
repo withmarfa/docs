@@ -33,7 +33,7 @@ const SECTIONS: { name: string; resources: string[] }[] = [
   { name: 'Storage & search', resources: ['blobs', 'search', 'export'] },
   {
     name: 'Auth & accounts',
-    resources: ['keys', 'auth', 'credentials', 'profile', 'tenants', 'admin'],
+    resources: ['keys', 'auth', 'credentials', 'profile', 'spaces', 'admin'],
   },
   {
     name: 'Connections & integrations',
