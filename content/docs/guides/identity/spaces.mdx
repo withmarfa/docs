@@ -3,38 +3,32 @@ title: Spaces
 description: The data boundary — one user, one or more spaces, credential-scoped.
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout';
-
 A space is the canonical data boundary. One space per isolated data partition. A user typically has one space — or several by choice (personal vs. work vs. a side project).
-
-<Callout type="info">
-  **"Space" and `tenant`.** "Space" is the user-facing word for this boundary. The API and wire shapes call the same thing a `tenant` — the `tenant_id` field, the `tenant_admin` role, the `/tenants` endpoints. One concept, two names: "space" in product language, `tenant` in the technical surface.
-</Callout>
 
 ## Spaces are first-class
 
 - **User-owned.** A space belongs to one user.
-- **Per-credential.** An app authenticates with a credential scoped to a single space. The credential resolves the space; URLs don't carry `tenant_id`.
+- **Per-credential.** An app authenticates with a credential scoped to a single space. The credential resolves the space; URLs don't carry `space_id`.
 - **One session = one space.** An app session sees the space the credential belongs to and behaves as if that's the world.
 
-Apps that support space switching (management consoles, user-facing apps with account switching) swap credentials at the session boundary — they don't carry `tenant_id` in requests.
+Apps that support space switching (management consoles, user-facing apps with account switching) swap credentials at the session boundary — they don't carry `space_id` in requests.
 
 ## No filter-by-workspace convention
 
-Marfa does not use the "every row has a `workspace_id`, filter by it" pattern common in other multi-tenant systems.
+Marfa does not use the "every row has a `workspace_id`, filter by it" pattern common in other multi-space systems.
 
 Space isolation happens **at the credential layer**: the server resolves the space from the bearer token; all queries and writes are implicitly scoped.
 
 This has two consequences worth knowing:
 
-1. **Apps rarely see `tenant_id`.** It's present in the JSON, but apps shouldn't branch on it. Trust the credential to have scoped correctly.
+1. **Apps rarely see `space_id`.** It's present in the JSON, but apps shouldn't branch on it. Trust the credential to have scoped correctly.
 2. **Item IDs are globally unique.** UUIDv7 across the whole system, not per-space. An item id from one space is never a valid id in another.
 
 ## Spaces are isolated
 
-A credential sees only its own space. There is no cross-space sharing or access-grant mechanism: a credential cannot read or write another space's data, and an item id from one space is never valid in another. A space-bound credential that names a different space explicitly — passing a `target_tenant_id` on export that does not match its own — is rejected with `403 forbidden`.
+A credential sees only its own space. There is no cross-space sharing or access-grant mechanism: a credential cannot read or write another space's data, and an item id from one space is never valid in another. A space-bound credential that names a different space explicitly — passing a `target_space_id` on export that does not match its own — is rejected with `403 forbidden`.
 
-Naming a space is the platform operator's path, not a violation of the rule. A platform credential has no space of its own, so on export `target_tenant_id` is how it says which space it means. Omitting it is permitted and exports every space, which is the right behavior on a single-space self-host and a blunt instrument on a multi-space one. The audit entry records the difference: an unscoped platform export is logged with `details.scope: "platform_unscoped"`, which is the shape to alert on.
+Naming a space is the platform operator's path, not a violation of the rule. A platform credential has no space of its own, so on export `target_space_id` is how it says which space it means. Omitting it is permitted and exports every space, which is the right behavior on a single-space self-host and a blunt instrument on a multi-space one. The audit entry records the difference: an unscoped platform export is logged with `details.scope: "platform_unscoped"`, which is the shape to alert on.
 
 There are no cross-space edges. If a relationship needs to exist across spaces, represent it by item duplication with provenance (a `derived-from` edge to a new space-scoped item), not by a cross-space reference.
 
@@ -48,14 +42,14 @@ Same SDK surface across all three. An app that works against one deployment mode
 
 ## What crosses a space boundary
 
-Only a credential with no space binding of its own reads across spaces. That is what platform authority means here: not a role, but the absence of a tenant. Two operations qualify:
+Only a credential with no space binding of its own reads across spaces. That is what platform authority means here: not a role, but the absence of a space. Two operations qualify:
 
 - Creating spaces.
 - Querying cross-space metrics and listing spaces.
 
 Everything else stays inside a space, including operations that sound like they would not:
 
-- **Purging items** is `tenant_admin`-gated and fenced to the caller's own space, edge cleanup included. A space admin hard-deletes inside its own space and nowhere else.
+- **Purging items** is `space_admin`-gated and fenced to the caller's own space, edge cleanup included. A space admin hard-deletes inside its own space and nowhere else.
 - **Registering a custom type** is governed by the `types` entry in [metadata permissions](/api-reference/permissions#metadata-permissions), not by a role, so a `member` credential granted it can register. The registration resolves inside the caller's space and is invisible to other spaces. Only the core and system type sets are global, and those cannot be changed through the API at all.
 
 A credential with a space binding never sees another space's data, whatever its role.

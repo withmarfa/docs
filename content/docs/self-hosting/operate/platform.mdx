@@ -3,34 +3,34 @@ title: Platform
 description: Platform-operator surface — list, inspect, suspend, set quotas, view metrics, list keys, force a pending-delete sweep — via the `marfa platform` CLI.
 ---
 
-The `marfa platform` command tree exposes the platform-operator surface for managing tenants on a hosted Marfa instance: listing tenants, suspending them, adjusting per-tenant quotas, viewing usage metrics, listing API keys, and forcing a pending-delete sweep. Every command requires a **platform-admin key**: `role: "admin"` with no tenant binding, which is what the bootstrap seed credential is. A key that is tenant-bound — including one carrying `role: "admin"` issued for a single space — is rejected with HTTP 403, which the CLI surfaces as a clear "platform-admin key required" message. See [Platform admin and tenant-bound admin](/api-reference/authentication#platform-admin-and-tenant-bound-admin).
+The `marfa platform` command tree exposes the platform-operator surface for managing spaces on a hosted Marfa instance: listing spaces, suspending them, adjusting per-space quotas, viewing usage metrics, listing API keys, and forcing a pending-delete sweep. Every command requires a **platform-admin key**: `role: "admin"` with no space binding, which is what the bootstrap seed credential is. A key that is space-bound — including one carrying `role: "admin"` issued for a single space — is rejected with HTTP 403, which the CLI surfaces as a clear "platform-admin key required" message. See [Platform admin and space-bound admin](/api-reference/authentication#platform-admin-and-space-bound-admin).
 
-The verb name `platform` telegraphs the authority level the commands need. `marfa admin` is reserved for a future tenant-admin command set.
+The verb name `platform` telegraphs the authority level the commands need. `marfa admin` is reserved for a future space-admin command set.
 
 The same routes are reachable directly via the SDK's `client.admin` namespace (TypeScript) and via raw HTTP under `/admin/*` (every other client). The SDK keeps the `admin` namespace internally; only the CLI surface uses `platform`.
 
 ## Commands
 
 ```
-marfa platform tenants list
-marfa platform tenants show <id>
-marfa platform tenants suspend <id> [--yes]
-marfa platform tenants unsuspend <id> [--yes]
-marfa platform tenants metrics <id>
-marfa platform tenants quotas <id> [--items N] [--webhooks N] [--blobs N] [--storage-gb N] [--rate-per-minute N] [--yes]
-marfa platform keys list <tenant-id>
+marfa platform spaces list
+marfa platform spaces show <id>
+marfa platform spaces suspend <id> [--yes]
+marfa platform spaces unsuspend <id> [--yes]
+marfa platform spaces metrics <id>
+marfa platform spaces quotas <id> [--items N] [--webhooks N] [--blobs N] [--storage-gb N] [--rate-per-minute N] [--yes]
+marfa platform keys list <space-id>
 marfa platform account-deletion purge-now [--yes]
 ```
 
 | Command | Purpose |
 | --- | --- |
-| `tenants list` | List every tenant in the instance with current status (`active` / `suspended`). |
-| `tenants show <id>` | Full tenant row + current per-tenant quota overrides + the 10 most-recent `system.activity` rows for the tenant. |
-| `tenants suspend <id>` | Flip the tenant's `status` to `suspended`. Future non-GET requests from credentials in this tenant return HTTP 403 `tenant_suspended` at the auth-middleware layer. Reads pass through; platform-admin keys bypass. Idempotent — re-suspending a suspended tenant is a no-op. Emits a `tenant.suspend` audit row stamped with the **target** tenant id, so the suspended tenant's own `GET /audit` feed surfaces the event. |
-| `tenants unsuspend <id>` | Reverse of `suspend`. Idempotent. Emits a `tenant.unsuspend` audit row. |
-| `tenants metrics <id>` | Per-tenant usage snapshot — item count by lifecycle state, blob count + total bytes, recent activity. |
-| `tenants quotas <id>` | Flag-less invocation reads; passing any of `--items / --webhooks / --blobs / --storage-gb / --rate-per-minute` sets. `--storage-gb` is converted to bytes for the wire shape. `0` on any limit means "clear this override; revert to env default". |
-| `keys list <tenant-id>` | Active (non-revoked) API keys for the named tenant — id, label, source, role, platform flag, last-used timestamp. Pair with `marfa keys revoke <id>` for emergency revocation. |
+| `spaces list` | List every space in the instance with current status (`active` / `suspended`). |
+| `spaces show <id>` | Full space row + current per-space quota overrides + the 10 most-recent `system.activity` rows for the space. |
+| `spaces suspend <id>` | Flip the space's `status` to `suspended`. Future non-GET requests from credentials in this space return HTTP 403 `space_suspended` at the auth-middleware layer. Reads pass through; platform-admin keys bypass. Idempotent — re-suspending a suspended space is a no-op. Emits a `space.suspend` audit row stamped with the **target** space id, so the suspended space's own `GET /audit` feed surfaces the event. |
+| `spaces unsuspend <id>` | Reverse of `suspend`. Idempotent. Emits a `space.unsuspend` audit row. |
+| `spaces metrics <id>` | Per-space usage snapshot — item count by lifecycle state, blob count + total bytes, recent activity. |
+| `spaces quotas <id>` | Flag-less invocation reads; passing any of `--items / --webhooks / --blobs / --storage-gb / --rate-per-minute` sets. `--storage-gb` is converted to bytes for the wire shape. `0` on any limit means "clear this override; revert to env default". |
+| `keys list <space-id>` | Active (non-revoked) API keys for the named space — id, label, source, role, platform flag, last-used timestamp. Pair with `marfa keys revoke <id>` for emergency revocation. |
 | `account-deletion purge-now` | Force a one-shot run of the pending-delete purger. Returns the count of accounts purged + the run timestamp. Useful when an account just passed its grace window and the operator doesn't want to wait for the next 1-hour cadence sweep. Idempotent — re-running with no eligible rows returns 0. Does not bypass the grace window. |
 
 ## Provisioning a space
@@ -38,17 +38,17 @@ marfa platform account-deletion purge-now [--yes]
 A space normally comes into being when someone signs up. An operator provisioning one on someone's behalf, or seeding a fresh instance, creates it directly:
 
 ```bash
-curl -X POST "$MARFA_API_URL/admin/tenants" \
+curl -X POST "$MARFA_API_URL/admin/spaces" \
   -H "Authorization: Bearer $PLATFORM_ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"acme"}'
 ```
 
-The response carries the new space's id. It has no credentials yet, so the second step is issuing one scoped to it with `POST /admin/tenants/{id}/keys` — see [Authentication](/api-reference/authentication#platform-admin-and-tenant-bound-admin) for why a platform-admin key cannot mint a `tenant_admin` any other way.
+The response carries the new space's id. It has no credentials yet, so the second step is issuing one scoped to it with `POST /admin/spaces/{id}/keys` — see [Authentication](/api-reference/authentication#platform-admin-and-space-bound-admin) for why a platform-admin key cannot mint a `space_admin` any other way.
 
 `name` is optional and is a label only; the space is identified by its id. Both endpoints are platform-admin only, and platform-admin means authority not confined to a space: an `admin` credential issued for one space is refused, because creating a space is a cross-space act.
 
-In the TypeScript SDK the pair is `client.admin.tenants.create({ name })` then `client.admin.keys.create(tenantId, input)`.
+In the TypeScript SDK the pair is `client.admin.spaces.create({ name })` then `client.admin.keys.create(spaceId, input)`.
 
 ## Confirmation prompts on destructive verbs
 
@@ -58,14 +58,14 @@ The CLI errors cleanly in non-TTY contexts (CI, piped output) when the prompt wo
 
 ## Suspension semantics
 
-When a tenant is suspended:
+When a space is suspended:
 
-- Every non-GET request from a credential whose `tenant_id` matches the suspended tenant returns HTTP 403 `tenant_suspended`.
+- Every non-GET request from a credential whose `space_id` matches the suspended space returns HTTP 403 `space_suspended`.
 - Reads (GET / HEAD / OPTIONS) pass through unchanged.
 - Platform-admin keys (`is_platform: true`) bypass the gate — operators can still write to quotas, unsuspend, etc.
-- Runtime-credential connector keys are **not** exempt. Suspending a tenant stops their connectors from writing upstream, which is the desired blast radius.
+- Runtime-credential connector keys are **not** exempt. Suspending a space stops their connectors from writing upstream, which is the desired blast radius.
 
-The gate sits at the auth-middleware layer, so every present **and** future mutation route is covered without per-route opt-in. A per-instance 5-second cache keys the lookup on `tenant_id`, evicted immediately on suspend/unsuspend so operator changes feel instant on the local instance. Multi-instance deployments tolerate up to 5 seconds of cross-instance staleness.
+The gate sits at the auth-middleware layer, so every present **and** future mutation route is covered without per-route opt-in. A per-instance 5-second cache keys the lookup on `space_id`, evicted immediately on suspend/unsuspend so operator changes feel instant on the local instance. Multi-instance deployments tolerate up to 5 seconds of cross-instance staleness.
 
 ## Bootstrap admin key
 
@@ -75,9 +75,9 @@ If you've lost access to your bootstrap admin key on a self-hosted instance, the
 
 ## Quotas
 
-Per-tenant quota ceilings apply on top of the instance defaults (`MARFA_DEFAULT_QUOTA_ITEMS`, `_WEBHOOKS`, `_BLOBS`, `_STORAGE_BYTES`, `_RATE_PER_MINUTE`). A per-tenant override on a field takes precedence; a `null` (or `0` from the CLI) reverts that field to the env default.
+Per-space quota ceilings apply on top of the instance defaults (`MARFA_DEFAULT_QUOTA_ITEMS`, `_WEBHOOKS`, `_BLOBS`, `_STORAGE_BYTES`, `_RATE_PER_MINUTE`). A per-space override on a field takes precedence; a `null` (or `0` from the CLI) reverts that field to the env default.
 
-When a tenant hits a cap, writes targeting the capped resource fail with HTTP 429 `quota_exceeded`, with `details` carrying `{ resource, limit, current }`. The CLI surfaces this verbatim.
+When a space hits a cap, writes targeting the capped resource fail with HTTP 429 `quota_exceeded`, with `details` carrying `{ resource, limit, current }`. The CLI surfaces this verbatim.
 
 A ceiling is exact, not approximate. Writes competing for the last of an allowance are serialized per space and per resource, so a space settles at its limit rather than past it, and `current` in a refusal never exceeds `limit`. Only same-space writes against the same resource wait on each other; a space with no ceiling on a resource is not serialized at all.
 
@@ -87,16 +87,16 @@ A ceiling is exact, not approximate. Writes competing for the last of an allowan
 
 The route only sweeps accounts already past their `pending_deletion_at + grace_days` threshold — it does **not** bypass the grace window. To force-purge an account ahead of schedule, the user has to wait out their own grace window or cancel and reinitiate. Idempotent: re-running with no eligible rows returns `purged_count: 0`.
 
-The action emits a `system.activity` audit row with `action: admin.account_deletion.purge_now`, `tenant_id: null` (instance-wide sweep), and `details` carrying the purged count + run timestamp. Prompts for typed `purge` by default; pass `--yes` to skip in scripts. When `MARFA_ACCOUNT_DELETION_GRACE_DAYS=0` (purger disabled), the route returns `purged_count: 0` cleanly rather than throwing.
+The action emits a `system.activity` audit row with `action: admin.account_deletion.purge_now`, `space_id: null` (instance-wide sweep), and `details` carrying the purged count + run timestamp. Prompts for typed `purge` by default; pass `--yes` to skip in scripts. When `MARFA_ACCOUNT_DELETION_GRACE_DAYS=0` (purger disabled), the route returns `purged_count: 0` cleanly rather than throwing.
 
 ## Limitations
 
-- **Metrics is read-only.** The endpoint computes counts on-demand from the underlying tables; there's no eager counter / reconcile machinery yet (a follow-on once per-tenant cardinality justifies the complexity). Cost is `O(items_in_tenant)` per call.
-- **`tenants quotas` is the only quota-mutation surface today.** Suspend/unsuspend are flag-flips; `account-deletion purge-now` triggers a sweep but doesn't bypass grace. Account deletion is **user-initiated**, not admin-initiated — see [Account lifecycle](/self-hosting/operate/account-lifecycle).
-- **No bulk operations.** Each command targets a single tenant.
+- **Metrics is read-only.** The endpoint computes counts on-demand from the underlying tables; there's no eager counter / reconcile machinery yet (a follow-on once per-space cardinality justifies the complexity). Cost is `O(items_in_space)` per call.
+- **`spaces quotas` is the only quota-mutation surface today.** Suspend/unsuspend are flag-flips; `account-deletion purge-now` triggers a sweep but doesn't bypass grace. Account deletion is **user-initiated**, not admin-initiated — see [Account lifecycle](/self-hosting/operate/account-lifecycle).
+- **No bulk operations.** Each command targets a single space.
 
 ## Related
 
-- [Self-hosting — Configuration](/self-hosting/run/configuration) — env defaults that the per-tenant quotas override.
-- [Deployment modes](/guides/identity/deployment-modes) — single-tenant vs hosted multi-tenant; the platform surface is most useful in hosted mode.
+- [Self-hosting — Configuration](/self-hosting/run/configuration) — env defaults that the per-space quotas override.
+- [Deployment modes](/guides/identity/deployment-modes) — single-space vs hosted multi-space; the platform surface is most useful in hosted mode.
 - [Self-hosting — Account lifecycle](/self-hosting/operate/account-lifecycle) — user-initiated account deletion. The platform surface gives an operator visibility during the grace window plus `account-deletion purge-now` to force the next sweep, but cannot purge ahead of the grace window.

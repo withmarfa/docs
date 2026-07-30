@@ -19,7 +19,7 @@ export const Route = createRootRoute({
       {
         name: 'description',
         content:
-          'Marfa is a typed data layer for structured personal data. Build apps on a shared type system, multi-tenant by design.',
+          'Marfa is a typed data layer for structured personal data. Build apps on a shared type system, multi-space by design.',
       },
     ],
     links: [{ rel: 'stylesheet', href: appCss }],

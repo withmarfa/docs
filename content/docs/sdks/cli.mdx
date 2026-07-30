@@ -54,11 +54,11 @@ marfa [--url <url>] [--key <key>] [--instance <name>] [--json] [--verbose]
   keys         create, update, list, revoke
   apps         register
   webhooks     create, list, get, update, delete, deliveries
-  tenant       config {get, set}
+  space       config {get, set}
   connections  list, get, configure, pause, resume, install, uninstall,
                logs, activity, preview-event, verify, replay-dlq
   credentials  create-oauth-provider, create-api-token, list, revoke
-  platform     tenants {list, show, suspend, unsuspend, quotas, metrics},
+  platform     spaces {list, show, suspend, unsuspend, quotas, metrics},
                keys {list},
                account-deletion {purge-now}
   docs         search, get, list
@@ -149,7 +149,7 @@ marfa metadata list-tags
 `marfa connections` is the operator-facing surface for `system.connection` items of kind `integration`.
 
 ```bash
-marfa connections list                              # all connections in the tenant
+marfa connections list                              # all connections in the space
 marfa connections list --integration acme.gdrive    # filter by integration
 marfa connections get <connection-id>               # hydrates connection.runtime when present
 marfa connections configure <connection-id> --extension connection.runtime --data '{"cursor":"..."}'
@@ -164,7 +164,7 @@ marfa connections uninstall <connection-id>         # orchestrated teardown
 
 `uninstall` calls the platform's `POST /connections/:id/uninstall` orchestration: revokes runtime credentials, deletes upstream OAuth tokens, revokes leased tokens, disables inbound webhook subscriptions, transitions state to `revoked`, emits `system.activity`, audits.
 
-`preview-event` is a debug verb. Given an item id and an event type, it renders the queue envelopes the bridge would emit to each subscribed connector — without invoking any handler. Each envelope carries a `dispatch_reason` (`ok`, `self_event`, `cross_tenant`, `hop_budget_exceeded`, `subscription_inactive`) so operators can see why a subscriber would or wouldn't receive a given event. Pure server-side; safe to run repeatedly while debugging fanout.
+`preview-event` is a debug verb. Given an item id and an event type, it renders the queue envelopes the bridge would emit to each subscribed connector — without invoking any handler. Each envelope carries a `dispatch_reason` (`ok`, `self_event`, `cross_space`, `hop_budget_exceeded`, `subscription_inactive`) so operators can see why a subscriber would or wouldn't receive a given event. Pure server-side; safe to run repeatedly while debugging fanout.
 
 `--event-type` takes a bare verb, not the dotted wire name: `created`, `updated`, `deleted`, `restored`, `state_changed`, or `metadata_changed`. Passing `item.created` is rejected.
 
@@ -174,7 +174,7 @@ marfa connections uninstall <connection-id>         # orchestrated teardown
 
 ### Credentials
 
-`marfa credentials` manages the shared upstream credentials an Integration authenticates with — the `system.credential` items a Connection points at through `credential_ref`. Tenant-admin gated. Two creation verbs, one per authentication model: `create-oauth-provider` for an upstream that speaks OAuth, `create-api-token` for one authenticated by a long-lived bearer. Both return a `credential_id`, which the install pipeline takes as `credential_ref` on `POST /connections/install`. See [Integrations](/guides/connections/integrations) for how it consumes them.
+`marfa credentials` manages the shared upstream credentials an Integration authenticates with — the `system.credential` items a Connection points at through `credential_ref`. Space-admin gated. Two creation verbs, one per authentication model: `create-oauth-provider` for an upstream that speaks OAuth, `create-api-token` for one authenticated by a long-lived bearer. Both return a `credential_id`, which the install pipeline takes as `credential_ref` on `POST /connections/install`. See [Integrations](/guides/connections/integrations) for how it consumes them.
 
 ```bash
 # OAuth-backed upstream — the secret reads from stdin, so it never lands in shell history
@@ -209,14 +209,14 @@ marfa bootstrap http://localhost:8600 --label ci --source ci-runner
 
 The key value is printed once and cannot be retrieved later.
 
-### Tenant config
+### Space config
 
 ```bash
-marfa tenant config get
-marfa tenant config set --file ./tenant-config.json
+marfa space config get
+marfa space config set --file ./space-config.json
 ```
 
-The `set` body is a full `TenantConfig` JSON object. Plumbing for the schema-enforcement levers (`strict_mode`, `source_allowlist`, `source_filter`) and feed-tier retention. Editing tenant config is rare enough that per-field flags would invent a parallel grammar that drifts from the wire shape; raw JSON is the call.
+The `set` body is a full `SpaceConfig` JSON object. Plumbing for the schema-enforcement levers (`strict_mode`, `source_allowlist`, `source_filter`) and feed-tier retention. Editing space config is rare enough that per-field flags would invent a parallel grammar that drifts from the wire shape; raw JSON is the call.
 
 ### Webhook deliveries
 
@@ -249,21 +249,21 @@ marfa profile avatar clear
 
 ### Platform (operator)
 
-`marfa platform` is the cross-tenant operator surface, gated on platform credentials. The two trees:
+`marfa platform` is the cross-space operator surface, gated on platform credentials. The two trees:
 
-- `platform tenants` — list, inspect, suspend / unsuspend, set quotas, per-tenant metrics.
+- `platform spaces` — list, inspect, suspend / unsuspend, set quotas, per-space metrics.
 - `platform account-deletion` — force the next pending-delete purger sweep without waiting for the 1-hour cadence.
 
 ```bash
-marfa platform tenants list
-marfa platform tenants show <tenant-id>
-marfa platform tenants metrics <tenant-id>
-marfa platform tenants suspend <tenant-id> [--yes]
-marfa platform tenants unsuspend <tenant-id> [--yes]
-marfa platform tenants quotas <tenant-id> --items 10000 --webhooks 50 \
+marfa platform spaces list
+marfa platform spaces show <space-id>
+marfa platform spaces metrics <space-id>
+marfa platform spaces suspend <space-id> [--yes]
+marfa platform spaces unsuspend <space-id> [--yes]
+marfa platform spaces quotas <space-id> --items 10000 --webhooks 50 \
   --blobs 5000 --storage-gb 25 --rate-per-minute 600 [--yes]
 
-marfa platform keys list <tenant-id>
+marfa platform keys list <space-id>
 
 marfa platform account-deletion purge-now [--yes]
 ```
