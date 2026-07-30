@@ -15,7 +15,7 @@ Every item has `state`, one of three values:
 
 Lifecycle is **universal** for user content — the same three states apply to every `core.*`, `app.*`, `user.*`, and `<publisher>.*` type. Types don't declare their own states or transitions.
 
-[`system.*` items](/guides/schema/system-types) are the exception. Their lifecycle is bounded to `active` and `revoked` — different shape because they're operational items, not user content. The universal three-state model doesn't apply.
+[`system.*` items](/guides/schema/system-types) are the exception. Their lifecycle is bounded to `active` and `revoked`, a different shape because they're operational records rather than user content. The universal three-state model doesn't apply, and the bound is enforced rather than conventional: a `system.*` item cannot be archived or trashed by any route.
 
 ## Transitions
 
@@ -24,6 +24,8 @@ Lifecycle is **universal** for user content — the same three states apply to e
 | `active` | `archived`, `trashed` |
 | `archived` | `active`, `trashed` |
 | `trashed` | `active` (restore) |
+
+For `system.*` items the graph is `active` to `revoked`, and `revoked` is terminal.
 
 Invalid transitions return `400 invalid_transition`. You cannot go directly from `trashed` to `archived` — restore to `active` first.
 
@@ -34,7 +36,7 @@ Transitions happen through four routes:
 ```
 POST /items/{id}/transition  # any → any (subject to the graph below)
 POST /items/{id}/restore     # archived → active, or trashed → active
-DELETE /items/{id}           # → trashed (soft delete)
+DELETE /items/{id}           # soft delete: → trashed, or → revoked for system.*
 DELETE /items/{id}/purge     # hard delete; admin scope; irreversible
 ```
 
@@ -47,6 +49,8 @@ POST /items/{id}/transition
 
 The dedicated `restore` and `delete` routes are sugar for the common cases. Transitions are logged in the audit trail.
 
+`DELETE /items/{id}` soft-deletes into whichever state the item's own lifecycle uses for it: `trashed` for user content, `revoked` for a `system.*` item, which has no `trashed`. Purge follows the same rule and accepts an item in that state. Deleting something already soft-deleted is a no-op, not an error.
+
 ## Triage vs lifecycle
 
 Triage workflows — a read-later app's Inbox / Later / Shortlist, a clipboard's pinned vs. unpinned — are **app concerns**, not core state. Apps model triage in their own type's properties (e.g. `location: "shortlist"` on a custom bookmark type) or in extensions.
@@ -56,7 +60,7 @@ Lifecycle and triage are separate axes. An item can be triaged to "Shortlist" (a
 ## Hard deletion
 
 <Callout type="warn">
-  `DELETE /items/{id}/purge` is **irreversible**. Admin-scoped, logged, no soft-delete safety net. The normal `DELETE` is soft — items transition to `trashed` and auto-purge after the retention window.
+  `DELETE /items/{id}/purge` is **irreversible**. Admin-scoped, logged, no soft-delete safety net. The normal `DELETE` is soft: user content transitions to `trashed` and auto-purges after the retention window, while a `system.*` item transitions to `revoked` and stays until purged.
 </Callout>
 
 Purge removes:
