@@ -18,6 +18,7 @@ pnpm install        # Node 22+
 pnpm dev            # http://localhost:3000
 pnpm build          # vite build (full prerender)
 pnpm types:check    # fumadocs-mdx codegen + tsc --noEmit (run after a build)
+pnpm test           # vitest run — MCP protocol conformance
 pnpm preview        # serve the production build locally
 pnpm run deploy     # pnpm build && wrangler deploy (pnpm deploy is a built-in)
 ```
@@ -84,11 +85,15 @@ In-tree at `src/lib/mcp/` + HTTP route at `src/routes/mcp.ts`. Three tools:
 
 - `docs_search(query, limit?)` — BM25 over the Orama index
 - `docs_fetch(path)` — markdown for a path (matches the `.md`-twin)
-- `docs_list_topics()` — hierarchical taxonomy
+- `docs_list_topics()` — every page as a flat list
 
 BM25-only at launch (Worker bundle-size constraint on dense embeddings; upgrade path is Workers AI bge-small or an external vector index). No auth — public docs are public.
 
-CLI bridge: `marfa docs search/get/list` in `@withmarfa/cli@1.2.0+` wraps the MCP HTTP API; `--docs-url` flag for self-hosters.
+The protocol comes from `@modelcontextprotocol/server`, not from hand-written JSON-RPC. `src/lib/mcp/tools.ts` defines the tools once; the HTTP route and the stdio bridge both mount that definition, so the two transports cannot advertise different surfaces. Serving covers the current 2026-07-28 revision and the earlier handshake revisions, statelessly in both cases.
+
+`src/lib/mcp/server.test.ts` is a conformance suite asserting against the specification rather than against whatever the current clients tolerate. Add a case there before changing protocol-visible behavior; the previous hand-rolled handler drifted precisely because nothing tested it.
+
+CLI bridge: `marfa docs search/get/list` in `@withmarfa/cli` wraps the MCP endpoint; `--docs-url` flag for self-hosters.
 
 ## Principles
 
