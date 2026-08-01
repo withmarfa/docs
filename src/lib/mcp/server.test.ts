@@ -151,6 +151,30 @@ describe('methods this endpoint does not offer', () => {
 });
 
 describe('the modern revision is served', () => {
+  // 2026-07-28: servers MUST implement server/discover to advertise their
+  // supported versions. The literal below is deliberately hardcoded rather
+  // than derived from the SDK: the sibling Marfa MCP server spent a release
+  // claiming the current revision while serving only the legacy set, and its
+  // suite passed because every assertion tracked what the library exported.
+  // This pin is what fails when an SDK upgrade or a refactor quietly drops
+  // the current revision from what this endpoint actually advertises.
+  it('advertises the current revision via server/discover', async () => {
+    const res = await handleMcpRequest(modernPost('server/discover'));
+    expect(res.status).toBe(200);
+    const body = (await readJson(res)) as {
+      result?: {
+        supportedVersions?: string[];
+        resultType?: string;
+        ttlMs?: number;
+        cacheScope?: string;
+      };
+    };
+    expect(body.result?.supportedVersions).toContain(MODERN_VERSION);
+    expect(body.result?.resultType).toBe('complete');
+    expect(typeof body.result?.ttlMs).toBe('number');
+    expect(['public', 'private']).toContain(body.result?.cacheScope);
+  });
+
   it('answers a 2026-07-28 tools/list carrying per-request metadata', async () => {
     const res = await handleMcpRequest(modernPost('tools/list'));
     expect(res.status).toBe(200);
