@@ -3,7 +3,7 @@ title: MCP server
 description: Model Context Protocol server exposing the Marfa API to Claude and other MCP clients.
 ---
 
-The Marfa MCP server is the canonical agent surface for a Marfa space. It speaks the [Model Context Protocol](https://modelcontextprotocol.io/) over stdio, registers one tool per SDK method, and translates each tool call into a single [@withmarfa/sdk](https://www.npmjs.com/package/@withmarfa/sdk) invocation. Stateless between calls, Zod-validated inputs, JSON outputs.
+The Marfa MCP server is the canonical agent surface for a Marfa space. It speaks the [Model Context Protocol](https://modelcontextprotocol.io/) over stdio, registers one tool per SDK method, and translates each tool call into a single [@withmarfa/sdk](https://www.npmjs.com/package/@withmarfa/sdk) invocation. Stateless between calls, Zod-validated inputs, JSON outputs. Serving covers the current 2026-07-28 protocol revision (per-request metadata, `server/discover`) and the earlier handshake revisions, negotiated per connection.
 
 Published to npm as [@withmarfa/mcp](https://www.npmjs.com/package/@withmarfa/mcp). Wraps the TypeScript SDK; every operation the SDK exposes is reachable as an MCP tool.
 
@@ -26,10 +26,13 @@ Three environment variables drive runtime configuration. `MARFA_API_URL` is requ
 | Variable | Description |
 | --- | --- |
 | `MARFA_API_URL` | Marfa server URL (required; no default) |
-| `MARFA_API_KEY` | API key for authentication |
+| `MARFA_API_KEY` | API key; an explicit override that always wins when set |
+| `MARFA_INSTANCE` | Which `~/.marfa/<instance>.json` to read (default: `default`) |
 | `MARFA_MCP_TOOLSETS` | Comma-list of toolsets to enable: `standard`, `admin`, `all`. Default: `standard` |
 
-The same value can be passed as a CLI argument: `--toolsets standard,admin`. The CLI argument takes precedence over the environment variable.
+The toolsets value can also be passed as a CLI argument: `--toolsets standard,admin`. The CLI argument takes precedence over the environment variable.
+
+Credentials resolve in order: `MARFA_API_KEY` when set; otherwise the CLI's stored OAuth session from `~/.marfa/<instance>.json` when its issuer matches `MARFA_API_URL`; otherwise the file's `key` slot; otherwise a startup error naming both options. After `marfa auth login`, only `MARFA_API_URL` is needed — the server shares the CLI's signed-in session, including refresh, so the credential stays narrow and expiring instead of a long-lived key. A stored session for a different server is never sent.
 
 One Marfa space per server process. A user with multiple spaces configures multiple MCP-server entries in their client.
 
@@ -56,6 +59,8 @@ Add to `~/.claude.json` under `mcpServers`. Uses `npx` for zero-install:
 ```
 
 If you've installed globally with `npm i -g @withmarfa/mcp`, `"command": "marfa-mcp"` (no args) works too.
+
+After `marfa auth login`, the `MARFA_API_KEY` line can be dropped entirely — the server picks up the CLI's stored session for the same URL.
 
 ### Claude Desktop
 
@@ -98,6 +103,19 @@ A few conventions worth knowing before reaching for the surface:
 - **Atomic item + edges on create.** `create_item` and `upsert_item` accept an `edges` payload (`{ "in-thread": [threadId] }`, `{ "about": [topicId] }`, etc.) so relationship setup lands in one call rather than two.
 - **`upsert_item` returns `{ item, created }`.** Branch on the boolean to know whether you minted a new row or matched and updated an existing one. Pair with `source` + `source_id` for natural-key upsert.
 - **Filter-DSL passes through.** `list_items` accepts the full filter grammar (`edge[type]=id`, `backref[type]=id`, tag filters, `tier`) so the model can query relationships without round-tripping through edge-listing tools.
+- **List pages default small and scale on request.** Every `list_*` tool returns 20 rows per call unless the model passes `limit`, which is honored up to the serving route's own ceiling (200 for items, 500 for edge listings) and clamped there. The cursor always matches the rows actually delivered.
+
+## Remote
+
+Every Marfa server also serves the same tools over streamable HTTP at `/mcp` on its own origin — the agent and the instance no longer need to share a machine. The remote surface is protected by the same bearers as the rest of the API: an unauthenticated request gets a 401 whose `WWW-Authenticate` header names the [Protected Resource Metadata](/api-reference/authentication) document, and from there an MCP client discovers the authorization server, registers, and signs the user in through the standard consent screen. The issued token is bound to the user's space at consent, so the remote surface never chooses a space — the credential does — and every tool call is enforced by the same scope and space rules as a direct API call.
+
+Claude Code, for a hosted or self-hosted server:
+
+```bash
+claude mcp add --transport http marfa https://your-server.example.com/mcp
+```
+
+Clients that cannot run an OAuth flow can send an API key as the bearer instead. Operators can disable the surface with `MARFA_MCP_ENABLED=false` or widen the offered toolsets with `MARFA_MCP_TOOLSETS` on the server; credentials still gate every call, so widening the toolsets widens offering, not access.
 
 ## What MCP is not
 
@@ -107,4 +125,4 @@ It's also not a CLI. The [CLI](/sdks/cli) is a terminal surface designed for hum
 
 ## Repo
 
-Source at [withmarfa/mcp](https://github.com/withmarfa/mcp). Single `src/index.ts` — tool registrations, SDK client initialization, stdio transport wiring. Build and code rules in the repo's `CLAUDE.md`.
+Source at [withmarfa/mcp](https://github.com/withmarfa/mcp). `src/server.ts` carries the tool factory, `src/credentials.ts` the credential resolution, and `src/index.ts` the stdio entry. Build and code rules in the repo's `CLAUDE.md`.
