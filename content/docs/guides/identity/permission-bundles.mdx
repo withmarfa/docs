@@ -7,15 +7,17 @@ When an app asks to sign in, the consent screen does not show the raw OAuth scop
 
 ## The default bundles
 
-A hosted instance ships three bundles, all granted by default:
+A hosted instance ships five bundles, all granted by default:
 
 | Bundle | What granting it allows |
 | --- | --- |
-| Read your content | Read your notes, tasks, bookmarks, highlights, calendar, contacts, files, and connected accounts. |
-| Write your content | Create and change your notes, tasks, bookmarks, calendar, and files. |
+| Read your content | Read every core content type: notes, tasks, bookmarks, highlights, calendar, contacts and places, messages, files, media, and connected accounts. |
+| Write your content | Create and change every core content type. |
+| Content from your connected services | Read what your integrations have synced: Google, Raindrop, Readwise, Todoist, and captured email. |
+| Things with your own custom types | Read and write types you define yourself, including ones you define later. |
 | Your profile | Confirm your identity and read your name and email. |
 
-Each bundle expands to a concrete, enumerated scope set: `core.note:read`, `core.task:read`, and the rest, plus `system.connection:read` under Read. The bundles exclude the remaining `system.*` security internals (credentials, devices, webhooks) and the runtime `user.*` / `app.*` namespaces. The exact scope set each bundle expands to is advertised on the discovery document under `marfa_permission_bundles`.
+The content bundles expand to concrete, enumerated scope sets — `core.note:read`, `core.task:read`, and the rest, plus `system.connection:read` under Read. Connected-service types are read-only in the default grant: a connector row is a faithful mirror of the upstream service, and third-party writes would fork it. The bundles exclude the remaining `system.*` security internals (credentials, devices, webhooks) and the `app.*` namespace. The exact scope set each bundle expands to is advertised on the discovery document under `marfa_permission_bundles`.
 
 ## Per-type control
 
@@ -29,10 +31,14 @@ The screen is shown once per app and scope set. Once a user has approved, return
 
 The bundles are a grouping over real scopes, so they genuinely bind. An OAuth access token is enforced against exactly the scopes granted at consent, regardless of the signed-in user's role: the role is the ceiling on what an app can be granted, not a pass-through of the user's own access. Unticking Write at consent blocks the app from writing, even for a space admin. See [Permissions](/api-reference/permissions) for how granted scopes project into the permission maps.
 
-## Reaching runtime types
+## Custom types narrow as a unit
 
-The default bundles cover the core content namespaces only. An app that defines its own runtime types in the `user.*` namespace requests the matching scope explicitly: `user.*:write` covers every type in that namespace and is advertised in the scope allowlist even though individual runtime types are not. Requesting it adds a toggle to the consent screen like any other scope. Nothing in the default set covers those namespaces, so an app never reaches its own private types unless it asks.
+Types a person defines do not exist when an app builds its request, so no concrete scope list can name them. The custom-types bundle carries the `user.*:read` and `user.*:write` wildcards instead: the wildcard is what the request names, the consent screen lists the custom types the space holds today beneath the toggle, and the grant matches whatever `user.*` types exist when a request is checked.
+
+Two consequences follow from that shape, and the screen says both plainly. Narrowing is all-or-nothing across custom types — unticking the toggle drops all of them, and there is no per-type control inside the wildcard. And a type defined after consent is covered by the standing grant without a re-ask, unlike the core bundles, where a type added in a later release is only granted on the next connect.
+
+The `app.*` namespace stays out of every default bundle — those are other apps' private types. An app requests its own namespace explicitly; the scope is in the allowlist even though individual runtime types are not.
 
 ## Self-hosting
 
-The bundle set is configuration. Override it with the `MARFA_PERMISSION_BUNDLES` environment variable (a JSON array of bundles); an absent or malformed value falls back to the built-in defaults. Any valid scope, including the full `*:read` / `*:write` wildcards, can be requested by a client and approved through the consent screen's per-type toggles.
+The bundle set is configuration. Override it with the `MARFA_PERMISSION_BUNDLES` environment variable (a JSON array of bundles); an absent or malformed value falls back to the built-in defaults. Any valid scope, including the full `*:read` / `*:write` wildcards, can be requested by a client; a wildcard renders as a single toggle covering its whole pattern, granted or dropped as a unit.
