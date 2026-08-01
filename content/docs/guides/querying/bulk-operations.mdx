@@ -197,7 +197,16 @@ done
 
 ## Archive restore
 
-`POST /admin/restore-archive` accepts a tar.gz produced by `GET /export?format=archive`. The body is `application/gzip`; the response is JSON counts.
+`POST /admin/restore-archive` accepts a tar.gz produced by `GET /export?format=archive`. The body is `application/gzip`; the response is JSON counts: `imported`, `duplicates`, `edges_imported`, `edges_skipped`, and `blobs_imported`.
+
+Restore reproduces the archive's content, not just its items:
+
+- **Item ids are preserved**, so the archive's edges resolve after restore. A collision — the same id, or the same `(source, source_id)` natural key, already present in the restore space — counts as a duplicate and leaves the existing row untouched.
+- **Tags and extensions** restore with their items.
+- **Edges** restore in a second pass, after every item the archive carries exists. An edge whose endpoints do not both resolve in the restore space is skipped and counted in `edges_skipped`, so a partial or hand-edited archive cannot plant a reference to an item that is not there. Re-restoring the same archive is idempotent: existing edges count as skipped.
+- **Version history and row timestamps are re-stamped**, not carried. The restore is content-faithful, not history-faithful.
+
+An archive restores into the space it was exported from: the manifest's `space_id` must match the restore target, so moving a space between instances is export on one, restore on the other, under the same space. Cross-space copies are deliberately refused.
 
 ```bash
 # Export and restore in one pipe, against the same space
@@ -211,4 +220,4 @@ curl -X POST "$MARFA_API_URL/admin/restore-archive" \
   --data-binary @snapshot.tar.gz
 ```
 
-Item rows dedup on `(source, source_id)`; blobs are content-addressed and register idempotently. Space migration between Marfa instances is export-then-restore.
+Blobs are content-addressed and register idempotently. Space migration between Marfa instances is export-then-restore.
