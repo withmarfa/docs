@@ -89,6 +89,17 @@ The route only sweeps accounts already past their `pending_deletion_at + grace_d
 
 The action emits a `system.activity` audit row with `action: admin.account_deletion.purge_now`, `space_id: null` (instance-wide sweep), and `details` carrying the purged count + run timestamp. Prompts for typed `purge` by default; pass `--yes` to skip in scripts. When `MARFA_ACCOUNT_DELETION_GRACE_DAYS=0` (purger disabled), the route returns `purged_count: 0` cleanly rather than throwing.
 
+## Knowing when it breaks
+
+A server cannot report its own death: when the process is down, so is everything that would have told you. The watcher therefore has to run somewhere the instance is not, and the instance's only job is to keep proving it is alive.
+
+Two properties cover this, both built in:
+
+- **The liveness heartbeat.** Set `MARFA_HEARTBEAT_URL` to a URL you control and the server sends a plain GET there on a timer (`MARFA_HEARTBEAT_INTERVAL_MS`, default one minute). Nothing else is sent — no metrics, no identifiers, no data. Point it at any dead-man's-switch service: such services expect a periodic ping and alert you through your chosen channel when pings stop arriving. For example, a free [Healthchecks](https://healthchecks.io) check URL works as-is, as does any self-hosted equivalent. Off by default; a deployment that sets no URL sends nothing.
+- **The startup wait.** If the database is unreachable at boot (the common case: a host reboots and Postgres returns more slowly than the server), the server waits and retries with backoff for up to `MARFA_DB_STARTUP_WAIT_MS` (default 90 seconds), logging each attempt, instead of exiting instantly and being relaunched into the same window by its supervisor. Configuration mistakes are not retried and still fail immediately with the real error.
+
+The heartbeat tells you the process is up; it says nothing about whether the database behind it is healthy. For a deeper probe, point an external monitor at `GET /health`, which checks database and blob-backend reachability.
+
 ## Limitations
 
 - **Metrics is read-only.** The endpoint computes counts on-demand from the underlying tables; there's no eager counter / reconcile machinery yet (a follow-on once per-space cardinality justifies the complexity). Cost is `O(items_in_space)` per call.
