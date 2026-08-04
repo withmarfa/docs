@@ -45,6 +45,23 @@ Setting `CDN_BASE_URL` rewrites blob URLs in API responses to a public CDN prefi
 
 S3 backends support `GET /blobs/{hash}/url`, which returns a time-limited presigned download URL (`ttl` query parameter, seconds; default 3600). Filesystem backends don't — the endpoint responds with `400` when called against a non-S3 backend.
 
+## Text extraction
+
+Uploaded files are read for text, on by default, so a document is findable by what is inside it rather than only by its filename. A background sweep picks up every `core.file` item that carries a `blob_ref`, extracts what it can, and writes the result to the item's `extracted_text` property. Search indexes that property like any other, so nothing else has to be wired up.
+
+| Input | What is read |
+|---|---|
+| `text/plain`, `text/markdown` | The file, decoded. |
+| Word, Excel, PowerPoint, and the OpenDocument equivalents | The document text. |
+| PDF | Embedded text only. A scanned page-image PDF yields nothing. |
+| PNG, JPEG, WebP, BMP | Text in the image, by OCR. |
+
+Anything else is recorded as unsupported and not looked at again.
+
+Extraction re-runs when the item's `blob_ref` changes, so replacing a file replaces its text. A file that cannot be parsed is retried a bounded number of times and then left alone. Text is truncated at 200,000 characters, and files above 20 MB are skipped without being read.
+
+Self-hosters can turn the sweep off, turn OCR off separately, and move every threshold above. See [Configuration](/self-hosting/run/configuration#text-extraction).
+
 ## Lifecycle
 
 Blobs outlive the items that reference them by default — the content-addressed model assumes reuse. Two admin-only jobs reconcile:
