@@ -46,12 +46,13 @@ This replaces the walk-every-item N+1 pattern that clients otherwise have to wri
 
 ## Core edge types
 
-Eight types ship in the core set. Each has documented constraints.
+Nine types ship in the core set. Each has documented constraints.
 
 | Type | Semantics | Cardinality |
 |---|---|---|
 | `about` | Source is about the target. Topical link. | many-to-many |
-| `parent-of` | Source is the parent of the target. Each target has at most one parent. Also the membership relation for groups and folders. | one-to-many |
+| `parent-of` | Source is the parent of the target. Each target has at most one parent. Hierarchy: folders, projects, trees. | one-to-many |
+| `in-collection` | Source is a member of the collection represented by the target. Carries a `position` property. An item belongs to any number of collections. Target must be a `user.collection`. | many-to-many |
 | `in-thread` | Source is a member of the thread represented by the target. Carries a `position` property. Source is in at most one thread. | many-to-one |
 | `attached-to` | Source is an attachment (a file or media item) belonging to the target. | many-to-many |
 | `references` | Source explicitly references the target. Covers wikilink-style mentions and the highlight-on-a-passage case. | many-to-many |
@@ -140,13 +141,54 @@ GET /items?edge[in-thread]=<target-id>&sort=edge.position
 
 ## Grouping
 
-Three grouping primitives, each with a narrow purpose.
+Four grouping primitives, each with a narrow purpose.
 
 - **Tags** — flat labels for cross-cutting classification. See [Metadata](/guides/core-model/metadata).
 - **Threads** — ordered sequences via `in-thread` edges. Single membership per source.
-- **`parent-of` hierarchy** — tree structure. Source is parent, target is child. Used both for natural hierarchy (folders, projects) and for app-registered group items (a `karakeep.list`, an `albo.collection`, a `user.wine_cellar`) — group is the parent, members are children.
+- **`parent-of` hierarchy** — tree structure. Source is parent, target is child. One parent per child, and deleting the parent deletes the children. Use it for natural hierarchy: folders, projects, outlines.
+- **Collections** — sets via `in-collection` edges. An item belongs to as many collections as you like, and deleting a collection leaves its members alone.
 
-Collection-like features in apps register a custom group type and use `parent-of` edges to connect members. The core stays out of the opinionation business on "what is a collection" — apps answer that differently.
+### Collections
+
+`in-collection` is the membership relation. It ships in core, but the type at the other end does not: a collection is a user-space concept, so a space registers `user.collection` (or a subtype of it) itself and the edge is already waiting.
+
+```bash
+# Register the type once per space.
+curl -X POST https://api.marfa.so/types \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "user.collection",
+    "name": "Collection",
+    "description": "A named set of items.",
+    "version": 1,
+    "fields": {
+      "name": { "type": "string", "required": true, "description": "Display name." }
+    }
+  }'
+
+# Create a collection, then put an item in it.
+curl -X POST https://api.marfa.so/edges \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_id": "<item-id>",
+    "target_id": "<collection-id>",
+    "edge_type": "in-collection",
+    "properties": { "position": 1 }
+  }'
+```
+
+Members can also be attached inline when the item is created, through the `edges` payload on `POST /items`.
+
+Read a collection's members with a backref query, and an item's collections with a forward one:
+
+```
+GET /items?backref[in-collection]=<collection-id>&sort=edge.position
+GET /items/<item-id>/edges?edge_type=in-collection
+```
+
+Collections do not nest. A collection as the source of an `in-collection` edge is rejected with `400 edge_constraint_violation` and `details.constraint: "nesting"`, whether the source is `user.collection` itself or a subtype of it. Hierarchy is what `parent-of` is for, and an item that had both would have two competing answers to where it sits. Nest the collections under `parent-of` if you want a tree of them, and keep membership flat.
 
 ### Folders vs tags vs edges
 
@@ -154,7 +196,7 @@ Each grouping primitive answers a different question:
 
 - **Folders** — where the bytes live. The [sync agent](/sdks/sync) stores each file's root-relative path as `source_id`, so a folder query is a `source_id starts_with "..."` filter. Good at what filesystems are good at: familiar mental model for organizing files on disk, cheap prefix queries.
 - **Tags** — flat cross-cutting labels that travel with the item regardless of where the file moves on disk. Use when grouping needs to be portable across folder reorganizations.
-- **Edges** — typed, directional relationships between items the query layer can traverse. Use when grouping needs first-class data treatment — "all notes about Project X" (an `about` edge), "every reply in this thread" (an `in-thread` edge), "every member of this collection" (a `parent-of` edge from the group item).
+- **Edges** — typed, directional relationships between items the query layer can traverse. Use when grouping needs first-class data treatment — "all notes about Project X" (an `about` edge), "every reply in this thread" (an `in-thread` edge), "every member of this collection" (an `in-collection` edge).
 
 Tags and edges are independent of where files sit in the folder tree.
 
