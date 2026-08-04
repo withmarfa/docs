@@ -22,7 +22,7 @@ The manifest is the canonical description. The platform validates it on registra
 | `description` | One-line summary shown to users at install time. |
 | `manifest_schema_version` | Semver of the manifest contract itself. The server rejects manifests whose major exceeds the supported major. |
 | `direction` | `read`, `write`, or `both` — the data flow this connector implements. |
-| `target_types` | Item types the connector reads or writes. |
+| `target_types` | Item types the connector reads or writes. It sets the credential's reach; it does not filter which events an `item-event` handler receives. |
 | `triggers` | Array of discriminated `{ type, config? }` objects. `type` is one of `schedule`, `webhook`, `item-event`, `manual`. Schedule triggers carry `config: { cron }`; the others have no config payload today. |
 | `runtime_compatibility` | One or more of `hosted`, `self-hosted`, `local` — which runtime tiers can host this connector. |
 | `bidirectional_handling` | The four positions: `echo_ttl_seconds`, `lag_window_seconds`, `tombstone_mapping` (`state-trashed | prompt-user | ignore`), `partial_write_mode` (`all-or-nothing | accept-partial`). Required even when `direction !== "both"`; defaults absorb the read-only case. |
@@ -156,9 +156,9 @@ Credentials rotate constantly; two things deliberately do not move with them.
 
 ## Reactive runs and cycle detection
 
-Connectors that declare `triggers: item-event` subscribe to changes on `target_types`. The platform routes events through a per-Connection queue with backpressure; cycle metadata (originating connection, hop count) flows on every event so a connector that writes back into Marfa cannot infinite-loop. Per-space hop budgets are configurable; the default ceiling of five steps protects against runaway chains.
+Connectors that declare `triggers: item-event` receive every item event in their space. The platform routes events through a per-Connection queue with backpressure; cycle metadata (originating connection, hop count) flows on every event so a connector that writes back into Marfa cannot infinite-loop. Per-space hop budgets are configurable; the default ceiling of five steps protects against runaway chains.
 
-Self-events are filtered upstream — a Connection never receives events its own writes produced.
+Two gates run before an event reaches a subscriber, and no others: the event must belong to the subscriber's space, and it must not be one the subscriber's own writes produced. `target_types` is a permissions declaration, not a subscription filter, so a handler receives events for types it never named and has to check `event.item.type` itself before acting.
 
 ## Inbound webhooks
 
