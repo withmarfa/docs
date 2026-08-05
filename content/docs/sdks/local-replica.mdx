@@ -1,0 +1,72 @@
+---
+title: Local replica
+description: Read from a local copy that syncs in the background, so no read in the interactive path crosses the network.
+---
+
+## What it is
+
+`@withmarfa/sdk/replica` keeps a local copy of a type and follows the server's change stream. Reads come from memory. Writes apply locally first and are persisted through the ordinary API, so a list renders on the first frame and a keystroke shows before a round trip completes.
+
+The Apple kit already works this way. This is the same shape for TypeScript.
+
+```ts
+import { createReplicaCollection } from '@withmarfa/sdk/replica';
+
+const notes = createReplicaCollection(client, { type: 'core.note' });
+
+// Reads are synchronous — no await, no loading state for data already held.
+for (const note of notes.values()) render(note);
+```
+
+`@tanstack/db` is an optional peer dependency. Install it alongside the SDK when you use this subpath; consumers that only use the client never pull it in.
+
+## Writes go through the API
+
+The replica is fed by the API and the change stream, never by a direct database connection. That is deliberate: permissions, validation and conflict resolution live on the server, and a client that reaches past the API reaches past all three.
+
+So a write is optimistic locally and authoritative remotely:
+
+```ts
+const tx = notes.insert({ type: 'core.note', properties: { title: 'Draft' } });
+// Already visible in `notes.values()` here.
+await tx.isPersisted.promise; // Server has accepted it.
+```
+
+If the server refuses the write, the optimistic change is rolled back.
+
+## Conflicts resolve the way they always do
+
+An update through the replica uses the same conflict strategy as `client.items.update`, defaulting to `auto`. Pass `conflict` to change it:
+
+```ts
+createReplicaCollection(client, { type: 'core.note', conflict: 'manual' });
+```
+
+This is the same answer the direct client gives and the same answer the Apple kit gives. Two clients of one platform resolving a conflict differently is a difference a user can see.
+
+## Two orderings that matter
+
+**The subscription opens before the initial read**, and events arriving during it are buffered rather than dropped. The other order loses every change that lands between the read finishing and the stream starting, and loses it invisibly: the replica looks populated and is quietly stale.
+
+**A cursor that ages out means reload, not reconnect.** When the server reports the resume cursor predates its retention window, the gap cannot be replayed. The replica discards its copy and reads again, and tells you it did:
+
+```ts
+createReplicaCollection(client, {
+  type: 'core.note',
+  onResync: () => showBriefly('Catching up'),
+});
+```
+
+Reconnecting with the same cursor would loop; reconnecting without one looks healthy and silently skips everything in the gap.
+
+## Build locally before you connect
+
+Nothing about the replica requires a hosted instance. Point the client at a local server and the same code path runs — the replica's contract is the API and the change stream, both of which a self-hosted instance serves identically. Build against a local instance, then change the URL.
+
+## Lifecycle
+
+| Call | Effect |
+| --- | --- |
+| `collection.preload()` | Resolves once the initial read has completed. Optional; reads work before it. |
+| `collection.utils.resync()` | Discard the local copy and read it again. |
+| `collection.utils.stop()` | Stop syncing. The collection keeps what it last held. |
