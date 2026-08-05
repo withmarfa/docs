@@ -6,7 +6,7 @@ description: Published manifests that connect Marfa to external services.
 import { Step, Steps } from 'fumadocs-ui/components/steps';
 import { Callout } from 'fumadocs-ui/components/callout';
 
-An Integration is a publishable, installable description of how Marfa talks to an external service or runs a space-internal automation. It carries everything a space needs to stand up a working `integration`-kind Connection: the trigger declarations, the OAuth or webhook authentication shape (where applicable), the runtime requirements, the bidirectional handling rules, and the permissions the connector needs against the space's items.
+An Integration is a publishable, installable description of how Marfa talks to an external service or runs a space-internal automation. It carries everything a space needs to stand up a working `integration`-kind Connection: the trigger declarations, the OAuth or webhook authentication shape (where applicable), the runtime requirements, the bidirectional handling rules, and the permissions the integration needs against the space's items.
 
 Integrations are persisted as `system.integration` items — one item per (`name`, `version`) pair. A space installs one specific version into a Connection; later versions are sibling items, not edits.
 
@@ -21,13 +21,13 @@ The manifest is the canonical description. The platform validates it on registra
 | `publisher` | Human-readable publisher name shown to users at install time. |
 | `description` | One-line summary shown to users at install time. |
 | `manifest_schema_version` | Semver of the manifest contract itself. The server rejects manifests whose major exceeds the supported major. |
-| `direction` | `read`, `write`, or `both` — the data flow this connector implements. |
-| `target_types` | Item types the connector reads or writes. It sets the credential's reach; it does not filter which events an `item-event` handler receives. |
+| `direction` | `read`, `write`, or `both` — the data flow this integration implements. |
+| `target_types` | Item types the integration reads or writes. It sets the credential's reach; it does not filter which events an `item-event` handler receives. |
 | `triggers` | Array of discriminated `{ type, config? }` objects. `type` is one of `schedule`, `webhook`, `item-event`, `manual`. Schedule triggers carry `config: { cron }`; the others have no config payload today. |
-| `runtime_compatibility` | One or more of `hosted`, `self-hosted`, `local` — which runtime tiers can host this connector. |
+| `runtime_compatibility` | One or more of `hosted`, `self-hosted`, `local` — which runtime tiers can host this integration. |
 | `bidirectional_handling` | The four positions: `echo_ttl_seconds`, `lag_window_seconds`, `tombstone_mapping` (`state-trashed | prompt-user | ignore`), `partial_write_mode` (`all-or-nothing | accept-partial`). Required even when `direction !== "both"`; defaults absorb the read-only case. |
-| `oauth_requirements` | Per-capability map — `proxy` (route through Marfa's OAuth proxy) or `leased` (issue a short-TTL bearer for the connector's own use). |
-| `token_requirements` | Per-capability map for connectors authenticated by a static upstream API token (rather than OAuth). Each entry declares `required`; the install pipeline gates on a matching `kind: api_token` credential being supplied as `credential_ref`. |
+| `oauth_requirements` | Per-capability map — `proxy` (route through Marfa's OAuth proxy) or `leased` (issue a short-TTL bearer for the integration's own use). |
+| `token_requirements` | Per-capability map for integrations authenticated by a static upstream API token (rather than OAuth). Each entry declares `required`; the install pipeline gates on a matching `kind: api_token` credential being supplied as `credential_ref`. |
 | `webhook_verification` | Discriminated on `method`: `hmac-sha256`, `slack`, `stripe`, `github`, `google-channel`, or `cloudflare-email`. The platform's adapter for each method lives in [@withmarfa/webhooks](https://www.npmjs.com/package/@withmarfa/webhooks) and is consumed by both the Cloudflare control plane and the server. |
 | `permissions` (optional) | Per-axis grant — `extension` and `edge` maps. The install pipeline translates these onto the runtime credential. |
 
@@ -35,13 +35,13 @@ Full schema and each field's accepted values live in the `IntegrationManifestSch
 
 ## Runtime tiers
 
-A connector runs on one of three runtime tiers. The manifest's `runtime_compatibility` declares which tiers it supports; a space's deployment chooses among them. The enum values are `hosted | self-hosted | local`.
+An integration runs on one of three runtime tiers. The manifest's `runtime_compatibility` declares which tiers it supports; a space's deployment chooses among them. The enum values are `hosted | self-hosted | local`.
 
 | Tier (`runtime_compatibility` value) | When it applies |
 |---|---|
-| `hosted` | For TypeScript connectors deployed centrally. Each Integration deploys as a Cloudflare Worker; per-Connection state lives in a Durable Object; queues handle scheduled polls, webhook receipts, and reactive runs. |
-| `self-hosted` | The connector runs inside a self-hosted Marfa deployment's own runtime — a Node.js process or container the operator manages directly. |
-| `local` | The connector runs on the user's machine, not in hosted infrastructure. Used by the sync agent and by users who prefer to keep the runtime under their own control. |
+| `hosted` | For TypeScript integrations deployed centrally. Each Integration deploys as a Cloudflare Worker; per-Connection state lives in a Durable Object; queues handle scheduled polls, webhook receipts, and reactive runs. |
+| `self-hosted` | The integration runs inside a self-hosted Marfa deployment's own runtime — a Node.js process or container the operator manages directly. |
+| `local` | The integration runs on the user's machine, not in hosted infrastructure. Used by the sync agent and by users who prefer to keep the runtime under their own control. |
 
 Self-hosted Marfa deployments can mix `self-hosted` and `local` tiers; the manifest's compatibility list determines what's available where.
 
@@ -63,7 +63,7 @@ The Zod schema check, plus type-identifier and scope-grammar validation. Rejecte
 
 ### Renders the consent screen
 
-Mirrors the `/auth/authorize` consent precedent — shows the user the scopes the connector wants, the runtime tier, the manifest's declared OAuth requirements. The user approves, modifies, or cancels.
+Mirrors the `/auth/authorize` consent precedent — shows the user the scopes the integration wants, the runtime tier, the manifest's declared OAuth requirements. The user approves, modifies, or cancels.
 
 </Step>
 
@@ -71,7 +71,7 @@ Mirrors the `/auth/authorize` consent precedent — shows the user the scopes th
 
 ### Persists the credential
 
-The credential shape follows the connector's authentication model. For OAuth-backed connectors, the user supplies the OAuth provider config (client_id, client_secret); the server encrypts the secret and creates a `kind: oauth_token` `system.credential`. For token-authenticated connectors (manifests declaring `token_requirements`), the user supplies an upstream API token; the server encrypts the bearer and creates a `kind: api_token` credential carrying the upstream base URL and the `auth_scheme` it expects (`Bearer`, `Token`, or `Basic`). Both shapes are referenced by the Connection via `credential_ref` and resolved by the proxy at request time.
+The credential shape follows the integration's authentication model. For OAuth-backed integrations, the user supplies the OAuth provider config (client_id, client_secret); the server encrypts the secret and creates a `kind: oauth_token` `system.credential`. For token-authenticated integrations (manifests declaring `token_requirements`), the user supplies an upstream API token; the server encrypts the bearer and creates a `kind: api_token` credential carrying the upstream base URL and the `auth_scheme` it expects (`Bearer`, `Token`, or `Basic`). Both shapes are referenced by the Connection via `credential_ref` and resolved by the proxy at request time.
 
 </Step>
 
@@ -79,7 +79,7 @@ The credential shape follows the connector's authentication model. For OAuth-bac
 
 ### Mints a runtime credential
 
-A short-TTL API key scoped to the manifest's declared permissions and bound to the connection_id. It carries a hard expiry and the runtime refreshes it transparently as the connector runs — see [Runtime credential lifecycle](#runtime-credential-lifecycle).
+A short-TTL API key scoped to the manifest's declared permissions and bound to the connection_id. It carries a hard expiry and the runtime refreshes it transparently as the integration runs — see [Runtime credential lifecycle](#runtime-credential-lifecycle).
 
 </Step>
 
@@ -95,7 +95,7 @@ A `system.connection` item with `kind: integration`, `integration_ref` pointing 
 
 ### Bootstraps OAuth (when applicable)
 
-For connectors whose manifest declares `oauth_requirements`, the consent flow continues into an OAuth Authorization Code dance against the upstream service. Tokens land in encrypted storage; the proxy reads them at request time.
+For integrations whose manifest declares `oauth_requirements`, the consent flow continues into an OAuth Authorization Code dance against the upstream service. Tokens land in encrypted storage; the proxy reads them at request time.
 
 </Step>
 
@@ -105,34 +105,34 @@ The result: a Connection ready to receive triggers and emit `system.activity` ro
 
 ## OAuth proxy and leased tokens
 
-Connectors don't hold OAuth tokens directly. The platform offers two patterns, declared per-capability in `oauth_requirements`:
+Integrations don't hold OAuth tokens directly. The platform offers two patterns, declared per-capability in `oauth_requirements`:
 
-- **`proxy`** — the connector calls a Marfa endpoint with its runtime credential; Marfa injects the upstream OAuth bearer and forwards the request. Tokens never leave the platform.
-- **`leased`** — the connector requests a short-TTL bearer for direct calls (used when the proxy can't carry the request shape: multipart uploads, streaming, non-HTTP protocols).
+- **`proxy`** — the integration calls a Marfa endpoint with its runtime credential; Marfa injects the upstream OAuth bearer and forwards the request. Tokens never leave the platform.
+- **`leased`** — the integration requests a short-TTL bearer for direct calls (used when the proxy can't carry the request shape: multipart uploads, streaming, non-HTTP protocols).
 
 Both routes audit every call. Refresh-on-401 with refresh-token rotation is handled centrally; replay detection trips the Connection into `runtime_status: reauth_required` and surfaces an `action_required` activity row.
 
-## Token-authenticated connectors
+## Token-authenticated integrations
 
-Not every upstream uses OAuth. A connector targeting an API authenticated by a long-lived bearer token declares `token_requirements` in its manifest; the install pipeline gates on a `kind: api_token` credential supplied as `credential_ref`. The credential carries the encrypted bearer, the upstream base URL, and the `auth_scheme` to stamp on the request header (`Bearer`, `Token`, or `Basic` — the wire format some services demand instead of `Bearer`).
+Not every upstream uses OAuth. An integration targeting an API authenticated by a long-lived bearer token declares `token_requirements` in its manifest; the install pipeline gates on a `kind: api_token` credential supplied as `credential_ref`. The credential carries the encrypted bearer, the upstream base URL, and the `auth_scheme` to stamp on the request header (`Bearer`, `Token`, or `Basic` — the wire format some services demand instead of `Bearer`).
 
-The proxy stamps the configured `auth_scheme` on the upstream call uniformly with the OAuth path. From the connector's perspective the call shape is identical — it issues a request against the runtime credential and the platform substitutes the upstream auth. The substantive difference is the absence of a refresh dance: static tokens don't expire and have no refresh primitive. A 401 from the upstream surfaces as `action_required` and trips the Connection into `runtime_status: reauth_required` — the user updates the token to recover.
+The proxy stamps the configured `auth_scheme` on the upstream call uniformly with the OAuth path. From the integration's perspective the call shape is identical — it issues a request against the runtime credential and the platform substitutes the upstream auth. The substantive difference is the absence of a refresh dance: static tokens don't expire and have no refresh primitive. A 401 from the upstream surfaces as `action_required` and trips the Connection into `runtime_status: reauth_required` — the user updates the token to recover.
 
-A single `kind: api_token` credential can be shared across Connections that target the same upstream base. When a connector's upstream lives on a different host than the credential's default, the Connection sets `properties.configuration.upstream_base_url_override` and the proxy consults it before falling back to the credential's URL. This lets a family of related connectors share one credential row across distinct upstream hosts.
+A single `kind: api_token` credential can be shared across Connections that target the same upstream base. When an integration's upstream lives on a different host than the credential's default, the Connection sets `properties.configuration.upstream_base_url_override` and the proxy consults it before falling back to the credential's URL. This lets a family of related integrations share one credential row across distinct upstream hosts.
 
 ## Runtime credential lifecycle
 
-A runtime credential is a machine credential, not a human one. The runtime obtains a fresh one for each dispatch, so no connector needs to hold one for long. The rules below keep that fleet bounded and keep each credential answerable for exactly one Connection.
+A runtime credential is a machine credential, not a human one. The runtime obtains a fresh one for each dispatch, so no integration needs to hold one for long. The rules below keep that fleet bounded and keep each credential answerable for exactly one Connection.
 
 **Scoped to the manifest.** The server derives a credential's reach from the Connection's persisted manifest at every mint. Each `target_types` entry receives write access because `direction` describes flow relative to the upstream service: a read Integration pulls from upstream and writes the result into Marfa. The manifest's `permissions.extension` and `permissions.edge` maps supply the other declared grants. Two substrate rules complete the projection: write access to `system.activity` for status reporting, and write access to the credential's own `connection.runtime` extension. Reading configuration is a per-item exception limited to the credential's own Connection, not a space-wide `system.connection` grant. If the manifest cannot be resolved, the credential keeps only the substrate grants and never receives wildcard reach.
 
-**Scoped to its own rows, not just its own types.** Write access to `system.activity` is a substrate grant every runtime credential holds, because reporting progress is what it is for. A type grant alone would therefore let any connector reach every other connector's activity in the same space, so a second check runs on the row itself: a credential may only write activity attributed to its own Connection.
+**Scoped to its own rows, not just its own types.** Write access to `system.activity` is a substrate grant every runtime credential holds, because reporting progress is what it is for. A type grant alone would therefore let any integration reach every other integration's activity in the same space, so a second check runs on the row itself: a credential may only write activity attributed to its own Connection.
 
 That applies to every surface reaching an item, not only the ones that write `properties`. Changing a row's lifecycle state, restoring it, tagging it, rewriting its metadata, or writing an extension namespace onto it all answer to the same rule. It is one check shared by those surfaces rather than a rule each of them remembers, because the surfaces that forgot it were found one at a time.
 
 **Scoped to a space.** A credential inherits the Connection's space, never the broker's. On a multi-space deployment the server refuses to mint for a Connection that belongs to no space at all: a credential with no space is not a narrow credential but a platform one, and it would read every space's items. The refusal covers every path that mints, installation included, so an install that names no space fails and rolls itself back rather than leaving a Connection behind. A Connection installed before that check existed stays installed and cannot dispatch until it is moved into a space. Either way the trade is the intended one: a Connection that refuses to run is recoverable, and one quietly reading other spaces' data is not.
 
-**Bound to its Integration.** Every mint names the Integration the runtime authenticated as, and the server checks that name against the manifest persisted on the Connection at install time. A connector that somehow reaches the broker holding another Integration's Connection ID (Connection IDs are not secrets; they appear in operator surfaces and in logs) is refused. The check runs against state the runtime cannot edit, which is why it lives on the server rather than in the runtime that made the claim.
+**Bound to its Integration.** Every mint names the Integration the runtime authenticated as, and the server checks that name against the manifest persisted on the Connection at install time. An integration that somehow reaches the broker holding another Integration's Connection ID (Connection IDs are not secrets; they appear in operator surfaces and in logs) is refused. The check runs against state the runtime cannot edit, which is why it lives on the server rather than in the runtime that made the claim.
 
 **Bounded lifetime.** Every runtime credential carries an expiry stamped at mint. A request bearing a credential past its expiry is refused with `401 unauthorized`, exactly as a revoked credential would be. Human-minted API keys are unaffected: they carry no expiry and never expire on their own.
 
@@ -143,26 +143,26 @@ That applies to every surface reaching an item, not only the ones that write `pr
 **Serialized against uninstall.** Every path that mints, installation included, takes the same per-Connection lock as uninstall, and re-reads the Connection's state while holding it. Without that, an uninstall could revoke every credential a Connection had at the moment a mint was midway through issuing another, leaving a live credential behind a revocation that was supposed to end it.
 
 <Callout type="info">
-Upgrading an instance that ran before credential expiry existed? Its accumulated runtime credentials carry no expiry, so the reaper's first passes retire them by age. Connectors are unaffected: the next dispatch mints a fresh credential. Human-minted keys are untouched.
+Upgrading an instance that ran before credential expiry existed? Its accumulated runtime credentials carry no expiry, so the reaper's first passes retire them by age. Integrations are unaffected: the next dispatch mints a fresh credential. Human-minted keys are untouched.
 </Callout>
 
 ### What a rotation does not change
 
 Credentials rotate constantly; two things deliberately do not move with them.
 
-**Item provenance.** Items a connector writes are stamped with a `source` derived from the Connection, not from the credential that happened to be live. That matters because natural-key identity is the `(source, source_id)` pair: a connector re-syncing an upstream record looks it up by that pair, and a `source` that changed on every credential refresh would make the lookup miss and store a second copy. Provenance is fixed for the Connection's lifetime, so re-syncing the same upstream record always updates the same item however many credentials have come and gone.
+**Item provenance.** Items an integration writes are stamped with a `source` derived from the Connection, not from the credential that happened to be live. That matters because natural-key identity is the `(source, source_id)` pair: an integration re-syncing an upstream record looks it up by that pair, and a `source` that changed on every credential refresh would make the lookup miss and store a second copy. Provenance is fixed for the Connection's lifetime, so re-syncing the same upstream record always updates the same item however many credentials have come and gone.
 
-**Activity attribution.** A connector writes `system.activity` rows to report progress and ask for attention, and every operator surface groups those rows by `connection_id`. A runtime credential may only write activity for its own Connection: it cannot create a row attributed to a sibling, edit a sibling's row, or re-point one of its own rows at a sibling afterwards. Without that rule, one connector could raise an `action_required` prompt against an integration that is working perfectly, and nothing about the row would say where it came from.
+**Activity attribution.** An integration writes `system.activity` rows to report progress and ask for attention, and every operator surface groups those rows by `connection_id`. A runtime credential may only write activity for its own Connection: it cannot create a row attributed to a sibling, edit a sibling's row, or re-point one of its own rows at a sibling afterwards. Without that rule, one integration could raise an `action_required` prompt against an integration that is working perfectly, and nothing about the row would say where it came from.
 
 ## Reactive runs and cycle detection
 
-Connectors that declare `triggers: item-event` receive every item event in their space. The platform routes events through a per-Connection queue with backpressure; cycle metadata (originating connection, hop count) flows on every event so a connector that writes back into Marfa cannot infinite-loop. Per-space hop budgets are configurable; the default ceiling of five steps protects against runaway chains.
+Integrations that declare `triggers: item-event` receive every item event in their space. The platform routes events through a per-Connection queue with backpressure; cycle metadata (originating connection, hop count) flows on every event so an integration that writes back into Marfa cannot infinite-loop. Per-space hop budgets are configurable; the default ceiling of five steps protects against runaway chains.
 
 Two gates run before an event reaches a subscriber, and no others: the event must belong to the subscriber's space, and it must not be one the subscriber's own writes produced. `target_types` is a permissions declaration, not a subscription filter, so a handler receives events for types it never named and has to check `event.item.type` itself before acting.
 
 ## Inbound webhooks
 
-When a connector declares `triggers: webhook`, the platform exposes a public receipt endpoint per subscription, verifies the signature using the adapter named in `webhook_verification.method`, deduplicates on the sender's delivery id, and enqueues for the per-Integration Worker. See [Inbound webhooks](/guides/realtime/inbound-webhooks) for the full surface — the verification adapters, dedup semantics, the per-Connection DLQ, and the manual replay endpoint.
+When an integration declares `triggers: webhook`, the platform exposes a public receipt endpoint per subscription, verifies the signature using the adapter named in `webhook_verification.method`, deduplicates on the sender's delivery id, and enqueues for the per-Integration Worker. See [Inbound webhooks](/guides/realtime/inbound-webhooks) for the full surface — the verification adapters, dedup semantics, the per-Connection DLQ, and the manual replay endpoint.
 
 ## Versioning and upgrades
 
@@ -172,7 +172,7 @@ The runtime credential's permissions are projected from the persisted manifest a
 
 ## A minimal example — the RSS Watcher
 
-The simplest connector possible is a schedule-driven reader against a public source. `withmarfa.rss-watcher` ships in-tree and polls an Atom 1.0 or RSS 2.0 feed on a cron, creating a `core.bookmark` per new entry. No OAuth, no token, no webhook — just the manifest declaring its shape and a handler that runs once per tick.
+The simplest integration possible is a schedule-driven reader against a public source. `withmarfa.rss-watcher` ships in-tree and polls an Atom 1.0 or RSS 2.0 feed on a cron, creating a `core.bookmark` per new entry. No OAuth, no token, no webhook — just the manifest declaring its shape and a handler that runs once per tick.
 
 ```ts
 export const RSS_WATCHER_MANIFEST: IntegrationManifest = {
@@ -203,12 +203,12 @@ export const RSS_WATCHER_MANIFEST: IntegrationManifest = {
 
 Three details worth calling out:
 
-- **`oauth_requirements: {}`** — the connector authenticates against the upstream by virtue of the feed being public. No OAuth provider, no token credential required at install. `token_requirements` is similarly omitted.
-- **`webhook_verification`** — required by the schema for shape-uniformity, but the value is informational for a connector that doesn't carry a `webhook` trigger.
-- **`bidirectional_handling`** — required for every connector, even read-only ones. The defaults absorb the read-only case; tombstone mapping is `ignore` because there's nothing to retract.
+- **`oauth_requirements: {}`** — the integration authenticates against the upstream by virtue of the feed being public. No OAuth provider, no token credential required at install. `token_requirements` is similarly omitted.
+- **`webhook_verification`** — required by the schema for shape-uniformity, but the value is informational for an integration that doesn't carry a `webhook` trigger.
+- **`bidirectional_handling`** — required for every integration, even read-only ones. The defaults absorb the read-only case; tombstone mapping is `ignore` because there's nothing to retract.
 
-The handler is a single `registerScheduleHandler` call against `@withmarfa/runtime-sdk`, fetching the feed, diffing against the connection's cursor, and emitting `CreateItemInput` per new entry. The same `dist/local.js` entry runs on both [runtime substrates](/guides/connections/runtime-substrates); the connector author writes the handler once.
+The handler is a single `registerScheduleHandler` call against `@withmarfa/runtime-sdk`, fetching the feed, diffing against the connection's cursor, and emitting `CreateItemInput` per new entry. The same `dist/local.js` entry runs on both [runtime substrates](/guides/connections/runtime-substrates); the integration author writes the handler once.
 
-Use this shape as a starting point — every other in-tree connector layers more onto the same skeleton (OAuth proxy for the Google family, token credentials for Todoist / Readwise / Raindrop, an `item-event` trigger for bidirectional sync, a `webhook` trigger for push-driven sources).
+Use this shape as a starting point — every other in-tree integration layers more onto the same skeleton (OAuth proxy for the Google family, token credentials for Todoist / Readwise / Raindrop, an `item-event` trigger for bidirectional sync, a `webhook` trigger for push-driven sources).
 
-Most of those write a **connector type** rather than a core one, so the upstream payload round-trips without being flattened on the way in. The set that ships, and the trade against writing the core type instead, is on [Types](/guides/core-model/types#connector-types).
+Most of those write a **integration type** rather than a core one, so the upstream payload round-trips without being flattened on the way in. The set that ships, and the trade against writing the core type instead, is on [Types](/guides/core-model/types#integration-types).
