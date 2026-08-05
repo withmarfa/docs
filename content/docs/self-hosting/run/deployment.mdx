@@ -65,6 +65,15 @@ The four `DEPLOY_SERVICE_*` lists are parallel: the Nth entry of each describes 
   **Migrations are forward-only.** `--rollback` reverts the source tree to the previous SHA but does not undo schema changes. If a rollback also has to undo a migration, that is a manual operator step.
 </Callout>
 
+### Migrations that rewrite whole tables
+
+Most migrations are additive and effectively instant. Occasionally one changes how a column is stored — item content, for example, lives in the database's native structured JSON type (`jsonb` on Postgres, the binary JSON encoding on SQLite), and the migration that established that rewrote every row. What a rewrite means differs by dialect:
+
+- **Postgres** holds an exclusive lock on the table for the duration of the rewrite. Writes queue behind it; at personal-scale data sizes the pause is well under a second, and it grows with row count.
+- **SQLite** rebuilds the table in place (create, copy, swap). The database file briefly holds both copies, so allow free disk roughly equal to the table's size.
+
+On a hosted deployment none of this needs operator action — migrations run before the new build serves traffic. Self-hosted, the same is true when `deploy.sh` or `pnpm --filter @withmarfa/server migrate` runs them: the pause happens then, not at first request. A pre-upgrade backup (or a filesystem snapshot of the SQLite file) is cheap insurance either way.
+
 ## Running Marfa as a service
 
 Run the server under a process supervisor so it restarts on crash and on boot — `launchd` on macOS, `systemd` on Linux. The supervisor:
