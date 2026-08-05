@@ -1,0 +1,56 @@
+---
+title: Recurring events
+description: A series is one item carrying its rule; occurrences are computed over the window you ask for.
+---
+
+## The shape
+
+A recurring event is stored as **one item**. It carries `recurrence`, an array of RFC 5545 property lines, alongside the `starts_at` and `ends_at` of its first occurrence.
+
+Occurrences are never stored. Materializing them would mean choosing, at write time, how far into the future to go for a rule that may not end, and rewriting the lot whenever the rule changes. Instead they are computed at read time over a window you name.
+
+This means a plain item read answers a different question than you might expect. `GET /items?type=core.event` returns the series once, dated to its first occurrence. To ask what is actually on a calendar, use the window read below.
+
+## Reading a window
+
+```bash
+curl "$MARFA_API_URL/occurrences?from=2026-05-01T00:00:00Z&to=2026-05-08T00:00:00Z" \
+  -H "Authorization: Bearer $MARFA_API_KEY"
+```
+
+`from` is inclusive, `to` is exclusive, and both are required — the window is what makes an unbounded rule finite. Each entry carries the occurrence's `starts_at` and `ends_at` plus the item it came from:
+
+| Field | Meaning |
+| --- | --- |
+| `starts_at` | When this occurrence starts. Computed from the rule for a series; the item's own time for a single event. |
+| `ends_at` | Present when the source event has an end; a series carries its duration onto every occurrence. |
+| `item` | The item to show. |
+| `series_id` | Present when the entry came from expanding a rule. Absent on a single event. |
+| `replaces` | Present when a stored exception took the place of a computed occurrence; carries the start of the occurrence it replaced. |
+
+Single events in the window come back alongside expanded occurrences, ordered by start time, so one read answers the whole question.
+
+Add `type` to narrow to one event type. The read covers `core.event` and `google.calendar.event`, always within what the calling credential may read.
+
+## Time zones
+
+A series carries `timezone`, an IANA zone name. Expansion happens in wall-clock terms and each occurrence is anchored to an instant afterwards, so a weekly 09:00 meeting stays at 09:00 across a daylight-saving transition rather than drifting by an hour for half the year.
+
+A series with no `timezone` is expanded as though its times are already instants.
+
+## Moved and edited occurrences
+
+When one occurrence of a series differs from the rest, it is stored as its own item rather than as an edit to the series. Two things bind it:
+
+- `original_starts_at` — the start of the occurrence it replaces.
+- A `parent-of` edge from the series to the stored item.
+
+In a window read that occurrence appears **once**, as the stored item, at the stored item's own times, carrying `replaces`. The computed occurrence it displaced does not appear.
+
+Both halves are needed. The edge alone says the two are related without saying which occurrence is displaced, and `original_starts_at` alone leaves nothing linking it to a series.
+
+## Limits
+
+The window may span at most 400 days, and one series may contribute at most 2000 occurrences to it. Exceeding either is refused with `400 validation_error` naming the limit. A rule the server cannot read is refused the same way.
+
+Nothing is silently trimmed: a short list that looks complete is worse than an error, because a calendar that quietly omits next Tuesday is indistinguishable from an empty one.
