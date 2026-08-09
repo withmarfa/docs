@@ -336,12 +336,14 @@ All three rows are written by Marfa route handlers, not by the plugin, so they c
 
 ### Integration OAuth bootstrap
 
-Distinct from the user-facing OAuth flow above: the platform also runs an OAuth callback at `/oauth/callback/:provider` for Integration integrations that need to establish OAuth tokens against an external service (Google Calendar, GitHub, etc.). The callback verifies a server-signed state, exchanges the upstream code for tokens, and stores them encrypted for the integration's later use through the OAuth proxy. End users see a normal upstream OAuth flow; the platform handles the bootstrap on the integration's behalf. See [Integrations](/guides/connections/integrations) for the wider context.
+Distinct from the user-facing OAuth flow above: the platform also runs an OAuth callback at `/oauth/callback` for integrations that need to establish OAuth tokens against an external service (Google Calendar, GitHub, and so on). The callback verifies a server-signed state, exchanges the upstream code for tokens, and stores them encrypted for the integration's later use through the OAuth proxy. End users see a normal upstream OAuth flow; the platform handles the bootstrap on the integration's behalf. See [Integrations](/guides/connections/integrations) for the wider context.
+
+**Registering the callback.** One URI covers every provider a deployment connects: your public base URL followed by `/oauth/callback`. Register that exact string on each upstream service's OAuth app. `POST /connections/:id/oauth/start` returns it as `redirect_uri` alongside the authorize URL, so it can be copied rather than assembled — a mismatch is the most common way this flow fails, and the provider reports it as a generic error with nothing on the Marfa side to explain it. Providers are told apart by the signed `state`, not by the path.
 
 The bootstrap flow is hardened with two platform-side controls:
 
 - **PKCE on the upstream authorize call.** The platform generates a code verifier per attempt, persists it inside the AES-GCM-signed state envelope, and sends `code_challenge` + `code_challenge_method=S256` on the authorize redirect. The verifier is replayed at token exchange. Integrations don't manage PKCE themselves — it's enforced by the platform regardless of what the upstream service expects, defending against authorization-code injection.
-- **Redirect allow-list.** `MARFA_OAUTH_REDIRECT_ALLOWLIST` (comma-separated) lists the canonical `redirect_uri` values the bootstrap will accept. Requests whose `redirect_uri` doesn't match (after scheme + host + path normalization) are rejected at `/oauth/start` with `400`. Required in production; misconfigured deployments fail loudly rather than accept arbitrary redirects.
+- **A redirect URI the caller cannot choose.** The bootstrap sends its own callback, `<MARFA_AUTH_BASE_URL>/oauth/callback`, and ignores anything a request says about where to come back to. Only one value could ever be correct, since a provider honors a redirect only against the URI registered on its own OAuth app, so accepting one from the caller bought nothing and risked handing an authorization code to whoever supplied it.
 
 ## Choosing between API keys and OAuth
 
