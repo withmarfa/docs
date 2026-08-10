@@ -417,7 +417,34 @@ Returns `{ valid: true }` on success and `{ valid: false; reason: string }` on f
 
 ## Realtime
 
-The TypeScript SDK doesn't wrap SSE — consumers connect to [`GET /events`](/guides/realtime/realtime) directly with the browser's `EventSource` API (in a browser) or with `fetch` + a streaming body reader (in Node.js / Bun / Deno). The realtime page documents the event catalog, `Last-Event-ID` reconnection, filtering parameters, and the catch-up strategy.
+`client.events.subscribe` is the change stream. It streams [`GET /events`](/guides/realtime/realtime) through `fetch`, which keeps the credential in a header — `EventSource` cannot set one — and handles frame reassembly, resume, reconnection with backoff, and the stale-cursor case.
+
+```typescript
+const sub = client.events.subscribe({
+  lastEventId: savedCursor,          // omit to receive only what happens next
+  onEvent: async (event, eventId) => {
+    await apply(event);              // awaited before the cursor moves
+  },
+  onCatchupTooOld: () => reseed(),   // the cursor predates retention
+  onError: (err) => report(err),
+});
+
+// later
+sub.close();
+persist(sub.lastEventId);
+```
+
+### The cursor advances on acknowledgement
+
+`onEvent` is awaited, and the cursor moves only once it resolves. A handler that rejects leaves the cursor behind its event, so the next connection replays it.
+
+That makes delivery **at-least-once**: write handlers to be idempotent, which item events already are, since each carries the whole item. If you would rather drop a failed event than see it again, catch inside your handler — one line, at the point you can see it. The reverse is not expressible: a caller cannot recover an event from an at-most-once subscriber, because the cursor has already moved by the time the failure surfaces.
+
+A frame whose payload will not parse is the exception. It is reported through `onError` and stepped over on the same connection, because replaying it could only fail in the same place.
+
+### Backoff
+
+Reconnection backs off exponentially from `initialRetryMs` (500ms) to `maxRetryMs` (30s), and resets once a connection delivers something. Opening is not enough: a connection that opens, delivers nothing and dies is not evidence the endpoint is healthy, and treating it as evidence turns a handler that always fails into a hot reconnect loop.
 
 ## Versioning
 
