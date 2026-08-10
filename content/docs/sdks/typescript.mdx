@@ -74,7 +74,7 @@ const note = await client.items.create({
 });
 
 const one = await client.items.get(note.id);
-const { data, nextCursor } = await client.items.list({
+const { data, cursor, has_more } = await client.items.list({
   type: "core.note",
   state: "active",
   limit: 50,
@@ -193,6 +193,52 @@ const url  = client.blobs.url(hash);                        // CDN when configur
 ```typescript
 const results = await client.search("orwell", { type: "core.bookmark" });
 const tagged  = await client.search("orwell", { tags: ["fiction", "classic"] }); // AND
+```
+
+## Pagination
+
+Every list method returns one page: `{ data, cursor, has_more }`. Pass `cursor` back to fetch the next one, and stop when `has_more` is false.
+
+For walking a whole result set, the SDK does it for you. Each paginated method has an `All` sibling returning an async iterable, so one page is in flight at a time and a consumer that stops early stops the walk:
+
+```typescript
+for await (const note of client.items.listAll({ type: "core.note", limit: 100 })) {
+  // one item at a time; only the current page is held in memory
+}
+```
+
+The six are `items.listAll`, `items.listAllWithMetadata`, `items.listAllWithExtensions`, `edges.listAll`, `edges.listAllFromSource` and `edges.listAllToTarget`. They take the same filters as their single-page counterparts, minus `cursor` — the walk owns that.
+
+### Collecting into an array
+
+`collect` drains a walk, and asks how many rows you are prepared to hold:
+
+```typescript
+import { collect } from "@withmarfa/sdk";
+
+const notes = await collect(client.items.listAll({ type: "core.note" }), {
+  maxItems: 5_000,
+});
+```
+
+There is no default ceiling. A walk that quietly returns the first N rows of a larger set looks exactly like a complete one at the call site, so `collect` throws `PageLimitExceededError` instead of truncating. If you hit it, either raise the ceiling because the result set really is that large, or switch to the iterator and handle rows as they arrive.
+
+### Paginating anything else
+
+The `All` methods are built on `paginate`, which takes any function returning a `{ data, cursor, has_more }` page. Reach for it directly when you are calling an endpoint the SDK does not wrap:
+
+```typescript
+import { paginate, collect } from "@withmarfa/sdk";
+
+const walk = paginate(async (cursor) => {
+  const url = new URL("/audit", "https://api.marfa.so");
+  url.searchParams.set("limit", "200");
+  if (cursor) url.searchParams.set("cursor", cursor);
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+  return res.json();
+});
+
+const entries = await collect(walk, { maxItems: 20_000 });
 ```
 
 ## Conflict handling
