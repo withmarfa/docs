@@ -80,6 +80,7 @@ The audit rows specific to the deletion lifecycle:
 | `auth.account.cancel_attempted_but_already_purged` | Cancel route reached, but `cancelPendingDeletion` matched zero rows (the cascade won the TOCTOU race) | `details.source` = `"session"` or `"link"`. Honest trail entry — the standard `delete_cancelled` row would lie about a cancel that never happened. |
 | `auth.account.sign_in_blocked_pending_deletion` | Deletion-guard middleware intercepts a sign-in attempt against a pending-deletion account | Emitted from middleware so it's path-agnostic across Better Auth's various sign-in endpoints. |
 | `auth.account.hard_deleted` | Cascade transaction commits | Written inside the cascade transaction so the row commits atomically with the deletion and survives the same-transaction redaction sweep. `details.redacted: false` marks it as the one row in the chain that keeps its `details` payload. |
+| `admin.account.deleted` | `POST /admin/accounts/{id}/delete` success | Records the operator's key as the actor, distinct from the self-serve trail. The cascade's own `auth.account.hard_deleted` row still commits alongside it. |
 
 `auth.grant.created` / `auth.grant.revoked` (OAuth grant lifecycle) are tracked separately — see [Authentication](/api-reference/authentication).
 
@@ -97,7 +98,16 @@ After the purger sweeps, the space is gone:
 - Items, blobs, keys all return 404 to any reader.
 - The audit trail remains, with redacted `details` payloads.
 
-There is no operator command to force-purge a pending account *ahead* of its grace window — accounts only become eligible once `pending_deletion_at + grace_days` has elapsed. To force the next sweep without waiting for the 1-hour cadence (e.g. an account just passed its grace window and the operator wants the cleanup now), use [`marfa platform account-deletion purge-now`](/self-hosting/operate/platform#forcing-a-pending-delete-sweep).
+There is no operator command to force-purge an account already in `pending_deletion` *ahead* of its grace window — those become eligible once `pending_deletion_at + grace_days` has elapsed, and the window belongs to the user who asked for it. To force the next sweep without waiting for the 1-hour cadence (e.g. an account just passed its grace window and the operator wants the cleanup now), use [`marfa platform account-deletion purge-now`](/self-hosting/operate/platform#forcing-a-pending-delete-sweep).
+
+## Operator-initiated deletion
+
+`POST /admin/accounts/{id}/delete` (platform-admin credential required) deletes an active account outright, reusing the purge machinery end to end: the handler marks the account pending deletion and immediately runs the same cascade the background purger runs, with a cutoff just past the mark. Everything above about the cascade — the single transaction, the redaction sweep, the in-transaction `auth.account.hard_deleted` row — applies unchanged. There is no email confirmation and no grace window: this is the operator's direct act, for cases the self-serve flow cannot reach (an abandoned account, an abuse takedown, a data-controller request arriving out of band).
+
+Two properties bound the blast radius:
+
+- **The body carries `{ "confirm": "<account email>" }`.** The email must resolve to the same account the path id names; a mismatch refuses before anything is marked, so a copy-paste of the wrong id or the wrong email cannot delete an unintended account. Request and response shapes live in the [API reference](/api-reference).
+- **The handler runs under the purger's own per-account lock.** A concurrent deletion of the same account answers `409`, and an account whose state changed between the mark and the cascade answers `409` rather than deleting an account that moved. An account already in `pending_deletion` also refuses — the self-serve grace window is not shortcut by this route.
 
 ## Configuration
 
@@ -111,5 +121,5 @@ The purger runs cluster-coordinated: an outer named lock (`account-deletion-purg
 
 ## Related
 
-- [Self-hosting — Platform](/self-hosting/operate/platform) — operator surfaces for managing spaces. Account deletion is **user-initiated**, not admin-initiated; the platform commands do not include a "delete space" verb.
+- [Self-hosting — Platform](/self-hosting/operate/platform) — operator surfaces for managing spaces. The platform commands do not include a "delete space" verb; user-initiated deletion and the operator route above are the two deletion paths.
 - [Self-hosting — Hosted mode](/self-hosting/run/hosted-mode) — the auth model this lifecycle plugs into.
