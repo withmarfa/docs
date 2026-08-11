@@ -34,13 +34,15 @@ See [Items](/guides/core-model/items).
 <Step>
 ### Write with the version you last saw
 
-Passing `version` opts the write into optimistic concurrency. If the stored version has moved on, the server refuses rather than overwriting.
+Passing `expectedVersion` opts the write into optimistic concurrency. If the stored version has moved on, the server refuses rather than overwriting.
 
 ```ts
-await client.items.update(id, { properties: { title }, version: item.version });
+await client.items.update(id, { title }, { expectedVersion: item.version });
 ```
 
-Without `version`, last-write-wins, and the other writer's change disappears silently. That is occasionally what you want. It is rarely what you want by accident.
+The second argument is the property bag itself, not a wrapping object — `{ properties, version }` there would write two literal properties named `properties` and `version` onto the item and disable the version check, silently. The [update signature](/sdks/typescript#update-signature) covers the shape.
+
+Without `expectedVersion`, last-write-wins, and the other writer's change disappears silently. That is occasionally what you want. It is rarely what you want by accident.
 </Step>
 
 <Step>
@@ -51,7 +53,10 @@ A stale version returns `409 version_conflict`, and the error carries what you n
 The SDK resolves this for you by default. Fields that changed on only one side merge cleanly; genuine collisions follow the type's policy.
 
 ```ts
-await client.items.update(id, { properties, version }, { conflict: 'auto' });
+await client.items.update(id, properties, {
+  expectedVersion: version,
+  conflict: 'auto',
+});
 ```
 
 Take `manual` or a callback when the merge is a product decision rather than a mechanical one.
@@ -69,7 +74,7 @@ const sub = client.events.subscribe({
   lastEventId: loadCursor(),
   onEvent: (event, eventId) => {
     if ('item' in event) applyItem(event.item);
-    saveCursor(eventId);
+    if (eventId) saveCursor(eventId);
   },
   onCatchupTooOld: () => {
     // The cursor has aged out of the log. Re-read state, then start clean.
@@ -89,7 +94,7 @@ See [Realtime](/guides/realtime/realtime).
 
 **Resuming from a cursor the log can no longer serve.** If the stored cursor predates the retention window, the server sends a terminal `catchup_too_old` and closes. Reconnecting with the same cursor loops. Reconnecting silently without one looks like it worked and quietly skips every event in the gap. Handle `onCatchupTooOld` by re-reading the state you care about and subscribing again with no cursor.
 
-**Persisting the cursor only after the handler succeeds.** If your handler throws and you skip saving, the next reconnect replays events you already applied. If you save before applying and then throw, you skip them. Save the cursor for every event you receive, and make the handler itself idempotent, which applying a full payload by id already is.
+**Persisting the cursor only after the handler succeeds.** If your handler throws and you skip saving, the next reconnect replays events you already applied. If you save before applying and then throw, you skip them. Save the cursor for every id-bearing event you receive, and make the handler itself idempotent, which applying a full payload by id already is.
 
 <Callout type="warn">
   On a deployment running more than one server process against one database, the
