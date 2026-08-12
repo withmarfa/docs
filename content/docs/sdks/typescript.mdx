@@ -99,9 +99,15 @@ When `create()` is called with both `source_id` and a credential-stamped `source
 
 `items.update(id, properties, options?)`. The second argument is the property bag itself — `{ body: "..." }` — not a wrapping object with a `properties` key. The optional third argument carries flow control: `expectedVersion` for optimistic concurrency, `conflict` to override the strategy per call, `resolve` for the callback resolver.
 
+The patch carries only the fields you changed, and `expectedVersion` carries the version you read:
+
 ```typescript
-await client.items.update(id, { body: "..." }, { expectedVersion: 7 });
+const note = await client.items.get(id);
+// ...the user edits the body...
+await client.items.update(note.id, { body: edited }, { expectedVersion: note.version });
 ```
+
+The server counts every submitted key as a client change, so echoing unchanged fields manufactures conflicts against edits nobody made, and under keep-both policy that surfaces as a duplicate item holding text the user never typed. Omitting `expectedVersion` makes the SDK fetch the current version at write time, which cannot detect anything that changed since your actual read. Properties merge shallowly, so a partial patch never loses omitted fields. See [the client write contract](/guides/schema/conflicts#the-client-write-contract).
 
 Conflict-resolution behavior is unchanged. A 409 from the server still resolves through the configured `conflictStrategy`; the lazy type fetch on `keep_both_copies` paths still happens automatically. Pass `type` in options only if you also want to skip that specific lazy fetch.
 
@@ -244,6 +250,8 @@ const entries = await collect(walk, { maxItems: 20_000 });
 ## Conflict handling
 
 The TypeScript SDK exposes the three modes as `conflictStrategy` on the client config and `UpdateOptions.conflict` per call. See [Conflicts](/guides/schema/conflicts) for the resolution model, keep-both semantics, and per-core-type defaults; [Errors — version_conflict](/api-reference/errors#version-conflict) for the 409 payload.
+
+Every mode assumes an honest patch. `conflicting_fields` is computed from the keys you submitted, so send only the fields you changed, with the version you read as `expectedVersion`; the contract and its failure modes are on [Conflicts](/guides/schema/conflicts#the-client-write-contract).
 
 ```typescript
 await client.items.update(
