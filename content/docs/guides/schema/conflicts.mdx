@@ -37,10 +37,21 @@ The shape of resolution is **declared on each type** via a `merge_policy` block.
 
 - `current` — the server's state at the time of the conflict.
 - `ancestor` — the version the client was working from.
-- `conflicting_fields` — fields where the client's update conflicts with server-side changes.
+- `conflicting_fields` — fields changed on the server since the ancestor that are also present in the client's patch.
 - `merge_policy` — the type's resolved policy, with inheritance applied. Always present.
 
+Detection compares the ancestor snapshot against the current server state to find server-side changes, and treats every key present in the submitted properties as a client change. `conflicting_fields` is the overlap, so it is only as accurate as the patch is honest: see [The client write contract](#the-client-write-contract).
+
 The server resolves inheritance and emits the policy on every conflict response. Clients don't fetch the type schema or maintain a policy cache — the answer travels with the conflict.
+
+## The client write contract
+
+A client write sends only the fields it changed, and the version it read.
+
+- **Only the fields you changed.** Detection counts every submitted key as a client change. A patch that echoes unchanged fields manufactures conflicts against edits nobody made; under `keep_both_copies`, each false conflict spawns a sibling item holding text the user never typed, which reads as corruption. Partial patches are safe by construction: properties merge shallowly, so omitted fields keep their server values.
+- **The version you read.** An update without a version opts out of conflict detection, and nothing reports the skip. The write lands over whatever changed underneath, and the loss stays invisible until a user notices. Pass the version from the item the edit was based on, not one fetched at write time.
+
+In the TypeScript SDK the version travels as `expectedVersion` on `items.update`; in the Swift SDK, as `UpdateOptions.version`.
 
 ## Resolution strategies
 
