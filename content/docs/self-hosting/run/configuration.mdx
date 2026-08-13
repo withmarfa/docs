@@ -138,9 +138,24 @@ Files uploaded as `core.file` items are read for text and the result is written 
 | `MARFA_AUTH_BASE_URL` | `http://localhost:<PORT>` | Issuer URL the better-auth instance is reached at. Drives cookie domains and the OAuth issuer field on the discovery doc. Set to your public origin (e.g. `https://marfa.example.com`) in production. |
 | `MARFA_AUTH_ALLOW_SIGNUP` | `false` | When `true`, exposes the email + password sign-up endpoint at `/auth/sign-up/email`. Single-user self-hosts flip this on for the initial admin account, then back off. |
 | `MARFA_AUTH_SECRET` | _(required in production)_ | Shared secret used for cookie signing and to derive the at-rest encryption key for stored secrets (OAuth tokens, webhook secrets). Enforced at boot when `NODE_ENV=production` — the server refuses to start if it is unset or shorter than 32 characters. Falls back to a per-process ephemeral secret in dev only. |
-| `MARFA_OIDC_PROVIDERS` | `[]` | JSON array configuring federated sign-in providers. Each entry: `{ providerId, clientId, clientSecret, discoveryUrl?, scopes? }`. Surfaces a "Sign in with `<providerId>`" button on the sign-in page. |
+| `MARFA_OIDC_PROVIDERS` | `[]` | JSON array configuring federated sign-in providers. Each entry: `{ providerId, clientId, clientSecret, discoveryUrl?, scopes? }`. Surfaces a "Sign in with `<providerId>`" button on the sign-in page. A provider whose discovery endpoint cannot be reached [degrades rather than stopping the server](#a-provider-that-cannot-be-reached). |
 | `MARFA_DCR_CLIENT_RETENTION_DAYS` | `30` | Days after which a dynamically-registered OAuth client with zero grants (no access/refresh tokens, no connection) is reaped. `0` disables the reaper. |
 | `MARFA_DCR_CLIENT_CLEANUP_INTERVAL_MS` | `86400000` | How often the grantless-DCR-client reaper runs (ms). Default daily. |
+
+### A provider that cannot be reached
+
+Configuring a federated provider makes your server depend on somebody else's uptime. Marfa is deliberate about what that costs you: **the provider goes unavailable, the server does not.**
+
+Provider setup performs OIDC discovery against the `discoveryUrl`, and discovery can fail — during the provider's own deploy, behind a DNS blip, or because the URL is wrong. When it does:
+
+- The server starts, and every other sign-in method keeps working. So does every request that has nothing to do with signing in.
+- `GET /health` reports an `identity_providers` component with overall status `degraded`, naming each unavailable provider and why. The response's top-level `status` is `degraded` too, so a monitor watching one field still sees it.
+- That provider's sign-in route answers with a reason rather than a generic failure, and the sign-in page says the provider cannot be reached right now.
+- The provider is retried on a widening delay — a few seconds at first, then every five minutes for as long as it stays down. It starts serving again on its own the moment discovery succeeds; no restart, no intervention.
+
+This holds even when a federated provider is the only sign-in method you have configured. Nobody can sign in until it returns, which is unavoidable, but the server is running, the cause is visible on the health surface, and it heals itself. The alternative — refusing to boot — turns a provider's five-minute blip into an outage that needs a person to clear, at exactly the moment your server is most likely to be restarting anyway.
+
+A permanently wrong `discoveryUrl` resolves the same way: a retry that keeps failing and a health surface that keeps saying so.
 
 ### Browser clients on a trusted http origin (LAN / Tailscale)
 
