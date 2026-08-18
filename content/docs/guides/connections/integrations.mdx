@@ -136,6 +136,18 @@ The proxy stamps the configured `auth_scheme` on the upstream call uniformly wit
 
 A single `kind: api_token` credential can be shared across Connections that target the same upstream base. When an integration's upstream lives on a different host than the credential's default, the Connection sets `properties.configuration.upstream_base_url_override` and the proxy consults it before falling back to the credential's URL. This lets a family of related integrations share one credential row across distinct upstream hosts.
 
+## Removing a credential
+
+`DELETE /credentials/{id}` removes a credential and the secret it holds. Space admins may remove credentials in their own space.
+
+The delete is hard rather than soft: the encrypted secret is gone, not left behind on a row marked inactive. A credential holds something a person pasted in from another service, so leaving it recoverable would defeat the point of removing it.
+
+Removal refuses with `credential_in_use` while any Connection that is not revoked still references the credential, and the response names those Connections. Uninstall them first. Refusing is deliberate — taking a working integration down as a side effect of tidying up a credential is the more surprising of the two behaviours, and uninstalling is one call away.
+
+Credential removal has its own route rather than going through `POST /items/{id}/transition`. Items carry the universal `active | archived | trashed` lifecycle, while `system.*` types carry a bounded `active | revoked` one, and the transition endpoint validates against the universal set — so the states a system type actually uses are not reachable through it.
+
+Uninstalling a Connection does not remove the credential it was installed with. Uninstall revokes the short-lived runtime credential the platform minted for that Connection; the upstream token the user supplied is a separate row with its own lifetime, deliberately, because several Connections may share it.
+
 ## Runtime credential lifecycle
 
 A runtime credential is a machine credential, not a human one. The runtime obtains a fresh one for each dispatch, so no integration needs to hold one for long. The rules below keep that fleet bounded and keep each credential answerable for exactly one Connection.
@@ -174,7 +186,13 @@ Credentials rotate constantly; two things deliberately do not move with them.
 
 Integrations that declare `triggers: item-event` receive every item event in their space. The platform routes events through a per-Connection queue with backpressure; cycle metadata (originating connection, hop count) flows on every event so an integration that writes back into Marfa cannot infinite-loop. Per-space hop budgets are configurable; the default ceiling of five steps protects against runaway chains.
 
-Two gates run before an event reaches a subscriber, and no others: the event must belong to the subscriber's space, and it must not be one the subscriber's own writes produced. `target_types` is a permissions declaration, not a subscription filter, so a handler receives events for types it never named and has to check `event.item.type` itself before acting.
+Three gates run before an event reaches a subscriber, and no others:
+
+- The item must not be a `system.*` row. Activity, connection lifecycle, credentials and the integration catalog are the platform's own bookkeeping. Reporting progress writes a `system.activity` row, which is itself an item event, so without this gate two reactive integrations in one space answer each other's log lines and walk the hop counter to its budget without either writing anything a handler wanted.
+- The event must belong to the subscriber's space.
+- The event must not be one the subscriber's own writes produced.
+
+`target_types` is a permissions declaration, not a subscription filter, so a handler still receives events for domain types it never named and has to check `event.item.type` itself before acting.
 
 ## Inbound webhooks
 

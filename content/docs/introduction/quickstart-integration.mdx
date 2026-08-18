@@ -121,6 +121,13 @@ Four things in that shape are the ones worth copying:
 
 Returning `{ ok: false, retry: true, reason }` instead asks the runtime to retry the whole message.
 
+That shape is right for a tick that picks up what changed since the last one. It does not survive a first sync over a large upstream library, and the two failures arrive together:
+
+- **A write per entry is the cost that dominates.** At a few seconds per item write, a library of several thousand is more work than one dispatch is allowed to do. Collect a page and write it with `ctx.marfa.bulkUpsertItems(inputs)` — one request, resolved on the same `(source, source_id)` natural key, best-effort so one malformed entry is reported on its own rather than rolling back the page around it. Read `counts.errored` rather than assuming the batch applied in full.
+- **A cursor written once at the end is lost when the dispatch does not reach the end.** Write it after each page instead. Otherwise a sync that gets three quarters of the way through discards all of it, the next one starts from the same place, and the import can creep forward or appear to stall entirely while looking healthy from the outside.
+
+Keep the watermark stricter than the checkpoint: advance it only when a pass both reached the end of the upstream stream and wrote everything it saw. Moving it past an entry that failed to write strands that entry, because nothing will fetch it again unless it changes upstream.
+
 </Step>
 
 <Step>
