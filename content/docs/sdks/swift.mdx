@@ -681,7 +681,7 @@ The engine:
 
 1. Watches `NWPathMonitor` via `ConnectionStateManager` and opens an SSE stream on `GET /events` when the path goes online.
 2. Applies SSE events into the local store. Persists `Last-Event-ID` so reconnection resumes from the correct point.
-3. Drains the `MutationQueue` both when the stream is idle and within a short debounce window of any new enqueue, replaying local writes against the server. The mutation queue captures per-call `UpdateOptions.conflict` so the chosen strategy applies on replay; the `.callback` resolver closure is call-site-only and degrades to `.auto` on replay because closures aren't serializable.
+3. Drains the `MutationQueue` both when the stream is idle and within a short debounce window of any new enqueue, replaying local writes against the server. The mutation queue captures per-call `UpdateOptions.conflict` so the chosen strategy applies on replay. A closure is not serializable, so a `.callback` replay resolves through the resolver registered on the client rather than the one passed at the call site. See [Conflict handling](#conflict-handling).
 4. On failure, records the attempt against the queue record and retries on the next reachability cycle.
 
 `stop()` tears the engine down gracefully.
@@ -824,7 +824,23 @@ public struct ConflictAutoMergedPayload: Sendable {
 
 Apps typically toast when `conflictedCopyId != nil` — the user's in-flight edit was preserved as a sibling rather than discarded.
 
-In synced mode the chosen `conflict` strategy is captured with the queued mutation so it applies on replay against any 409 the server returns. The `.callback` resolver closure can't be queued (closures aren't `Codable`); on replay, `.callback` degrades to `.auto`.
+### Resolvers on the replay path
+
+In synced mode the chosen `conflict` strategy is captured with the queued mutation, so it applies on replay against any 409 the server returns. The resolver closure cannot be queued alongside it, so a `.callback` replay looks one up on the client instead:
+
+```swift
+await client.registerConflictResolver { conflict in
+  // conflict.itemId names the item, so one resolver serves every call site
+  showConflictToast(itemId: conflict.itemId, fields: conflict.conflictingFields)
+  return serverWinsMerge(conflict)
+}
+```
+
+Register before the first write and before starting the sync engine. This is the write that most needs app logic: in synced mode the edit that races is rarely the online one, it is the replay against a server the device could not reach at the time.
+
+Nothing substitutes one strategy for another. A `.callback` update with no resolver anywhere — none passed to the call and none registered — is refused at the call site rather than queued. A replay that finds none keeps the mutation queued and retries on the next drain, so registering a resolver later carries it.
+
+`ConflictData` names the item in `itemId`. A per-call closure already knows it, but a registered one has no call site to learn it from, and it is the registered resolver a replay reaches.
 
 ## Errors
 
