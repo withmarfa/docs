@@ -10,12 +10,12 @@ This is the inverse of [outbound webhooks](/guides/realtime/webhooks): outbound 
 ## Receipt endpoint
 
 ```
-POST /webhooks/inbound/{connection_id}
+POST /runtime/webhook/{connection_id}
 ```
 
-Hosted on the Cloudflare control plane (`runtime-control`). The `connection_id` is the `system.connection` id created when the user installed the Integration. The path is published once per Connection and the sender configures it on their side; rotating it requires re-installing the Connection.
+Served by the Marfa server. The `connection_id` is the `system.connection` id created when the user installed the Integration. The path is published once per Connection and the sender configures it on their side; rotating it requires re-installing the Connection.
 
-The receipt accepts whatever body shape the sender ships — JSON, form-encoded, raw bytes — and reads it as `ArrayBuffer` for signature verification. The body is preserved byte-for-byte through to the per-Integration Worker.
+The receipt accepts whatever body shape the sender ships — JSON, form-encoded, raw bytes — and reads it as `ArrayBuffer` for signature verification. The body is preserved byte-for-byte through to the integration's handler.
 
 ## Signature verification
 
@@ -30,7 +30,7 @@ Signatures are checked against the adapter named in `webhook_verification.method
 | `google-channel` | Google's `channels.watch` push notifications — verifies the `X-Goog-Channel-Token` header against the per-channel secret persisted on the Connection when the watch was created. Used by integrations subscribing to Google APIs that support `channels.watch`. |
 | `cloudflare-email` | Cloudflare Email Worker → server bridge for inbound-email integrations — verifies an HMAC-SHA256 signature stamped on the bridge payload by the Email Worker. Used by integrations that capture email via Cloudflare Email Routing. |
 
-Adapters live in [@withmarfa/webhooks](https://www.npmjs.com/package/@withmarfa/webhooks) — Web Crypto only, consumed by both the Cloudflare control plane and the server so signature behavior cannot drift between runtimes. Failed verification returns `401 invalid_signature`; the body is not forwarded.
+Adapters live in [@withmarfa/webhooks](https://www.npmjs.com/package/@withmarfa/webhooks) — Web Crypto only. Failed verification returns `401 invalid_signature`; the body is not forwarded.
 
 The verification method is declared in the Integration manifest, not on a per-receipt basis. Senders see exactly the verification path the integration author intended.
 
@@ -42,14 +42,14 @@ Adapters that don't expose a canonical delivery-id header fall back to a request
 
 ## Dispatch
 
-After verification and dedup, the platform enqueues a `WebhookHandlerInput` envelope on the per-Integration queue:
+After verification and dedup, the platform enqueues a `WebhookHandlerInput` envelope on the integration's dispatch queue:
 
 - `connection_id` — the Connection that owns the subscription.
 - `external_delivery_id` — the sender's delivery id (or the request-time fallback).
 - `headers` — the full request header set, surfaced to the handler.
 - `body` — the raw bytes, decoded from `body_base64` at the SDK seam into an `ArrayBuffer`.
 
-Each Integration declaring a `webhook` trigger gets its own per-Integration webhook-receipt queue: Cloudflare Queues permit a single consumer per queue, so the control plane routes envelopes by `integration_name` to the matching producer binding. The per-Integration Worker reads its dedicated queue, dispatches to the integration's `handleWebhook` function, and acks the message on success. Failed dispatches retry per-message with exponential backoff up to the queue's max-attempts ceiling, then route to the per-Connection DLQ.
+The runtime dispatches the envelope to the integration's `handleWebhook` function and acks on success. Failed dispatches retry per-message up to the queue's retry ceiling, then land on the dead-letter surface at `GET /admin/runtime/dead-letters`.
 
 ## Failures and the DLQ
 

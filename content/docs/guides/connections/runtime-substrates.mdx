@@ -1,47 +1,35 @@
 ---
-title: Runtime substrates
-description: The two substrates that run integrations — Cloudflare (hosted) and Node + Postgres (local).
+title: Integration runtime
+description: The in-process runtime that executes integrations — Node + Postgres inside the Marfa server.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Two substrates run integrations: **hosted** (Cloudflare) and **local** (Node + Postgres). The choice is per-deployment, set by the operator via `MARFA_INTEGRATION_RUNTIME` — it's not per-Connection and it's not per-Integration. Integration code (the `handlers.ts` module) is portable: the same code runs on either substrate without modification. Where they differ is the operational shape underneath the SDK.
+Integrations run in-process on the Marfa server: the same `handlers.ts` module every integration authors against executes in a `worker_thread` pool inside the server, with Postgres underneath for scheduling, queuing, and per-Connection state. There is no separate runtime service to deploy — the server is the runtime.
 
-The manifest's `runtime_compatibility` enum also accepts `self-hosted` as a third tier. No wired substrate currently dispatches against it; see [Integrations](/guides/connections/integrations) for the manifest-level vocabulary.
+The manifest's `runtime_compatibility` enum accepts `hosted` and `self-hosted` alongside `local`. The runtime loads integrations whose list includes `local`; no wired substrate currently dispatches against the other two values. See [Integrations](/guides/connections/integrations) for the manifest-level vocabulary.
 
-## The two substrates
+## The runtime shape
 
-### Hosted — Cloudflare
+The same handler code that registers schedule, webhook, and item-event handlers runs in a `worker_thread` pool inside the Marfa server process. Per-Connection state lives in the connection's `connection.runtime` extension; pg-boss drives the cron and queue layers off the Postgres instance the rest of the server already uses. Inbound webhooks hit `POST /runtime/webhook/:connection_id` on the Marfa server directly, verified by the adapters in [@withmarfa/webhooks](https://www.npmjs.com/package/@withmarfa/webhooks).
 
-For deployments running against a Cloudflare account. Each integration deploys as a Cloudflare Worker. Per-Connection state lives in a Durable Object. Scheduled polls fire from Cron Triggers; reactive runs and inbound webhooks flow through Cloudflare Queues. Inbound webhook receipts hit a single control-plane Worker (`@withmarfa/runtime-control`) which verifies the signature and routes onto the right per-Integration queue.
+**Requires Postgres**: on SQLite the integration runtime stays off and the server boots normally; switch to Postgres to enable it. Operator footprint is two containers: server + Postgres. No Redis, no extra binary, no Postgres extension dependency. The [Docker Compose quickstart](/self-hosting/run/docker-compose) brings both up in one command.
 
-Set with `MARFA_INTEGRATION_RUNTIME=hosted`. Requires `CLOUDFLARE_QUEUES_REACTIVE_RUN_URLS` + `CLOUDFLARE_QUEUES_API_TOKEN` for the reactive-run bridge to fire (otherwise the bridge boots in disabled mode and only schedule + inbound-webhook traffic reaches the Workers).
+## Operational properties
 
-### Local — Node + Postgres
-
-The default substrate for self-hosters: see the [Docker Compose quickstart](/self-hosting/run/docker-compose) for a one-command setup, no Cloudflare account needed. The same handler code runs in a `worker_thread` pool inside the Marfa server process; per-Connection state lives in the connection's `connection.runtime` extension; pg-boss drives the cron and queue layers off the Postgres instance the rest of the server already uses. Inbound webhooks hit `POST /runtime/webhook/:connection_id` on the Marfa server directly — same verification adapters (`@withmarfa/webhooks`) the hosted substrate uses, just no remote hop.
-
-Set with `MARFA_INTEGRATION_RUNTIME=local` (or leave it unset — `local` is the default). **Requires Postgres**: on SQLite the integration runtime stays off and the server boots normally; switch to Postgres to enable it, or set `=hosted` for the Cloudflare bridge. Operator footprint is two containers: server + Postgres. No Redis, no extra binary, no Postgres extension dependency.
-
-## Where they differ — semantic parity sheet
-
-The substrates are designed for parity at the handler-author surface. The differences below live underneath the SDK and rarely surface to integration code; they exist as documented operational realities rather than gotchas.
-
-| Surface | Hosted (Cloudflare) | Local (Node + Postgres) | Notes |
-|---|---|---|---|
-| **Cron precision** | One-minute floor (Cron Trigger granularity) | One-minute floor (pg-boss `schedule()` granularity) | Equivalent. |
-| **Queue retry policy** | Workers Queues defaults — exponential backoff, max-attempts ceiling, DLQ routing | pg-boss defaults configured to approximate the same shape | Not bit-identical but close. Operators tuning retries should consult `pg-boss`'s `retryLimit` / `retryDelay` rather than the Workers Queues equivalent. |
-| **Per-Connection state durability** | Durable Object storage (eventually consistent) | Postgres rows under transactions (strict consistency) | Local is *stronger*. A handler that wrote a cursor and then crashed sees the write on retry — both substrates honor that. |
-| **Idempotency cache** | Workers KV — edge-distributed, eventual reads | Postgres row keyed on (`subscription_id`, `delivery_id`) inside the connection's `connection.runtime` extension | Local has strict consistency by virtue of Postgres. Hosted has eventual reads but the 3600s TTL is wide enough that the eventual-consistency lag is invisible in practice. |
-| **Service bindings** | Control-plane Worker calls per-Integration Worker over a Cloudflare service binding | Collapses to an in-memory function call inside the server process | Not a parity issue — the seam disappears. |
-| **Adversarial isolation** | Workers' isolate boundary — strong isolation | `worker_thread` — fault isolation, not adversarial | Local self-host treats operator-installed integrations as trusted (same posture as installing an npm package in the host app). For untrusted code, run hosted. |
-| **Per-Connection serialization** | Durable Object single-writer guarantee | Postgres advisory lock on `hashtext(connection_id)` | Equivalent semantics — at most one handler running per Connection at any given time on either substrate. |
-| **Schedule teardown** | Uninstall cancels the Connection's Durable Object alarm through the control plane | Nothing to cancel — the scheduler walks active Connections on each tick | Same outcome either way. See [Schedule teardown on uninstall](#schedule-teardown-on-uninstall) for what happens on hosted when the cancellation does not land. |
-| **Resource limits** | Workers' platform-enforced CPU + memory caps | `worker_thread` `resourceLimits` — `maxOldGenerationSizeMb`, `maxYoungGenerationSizeMb`, `stackSizeMb`, set per integration | Tunable on local; fixed on hosted. Defaults are tuned for the in-tree integrations and operators can lift them per-deployment if a heavier handler lands. |
-| **Multi-instance coordination** | Per-Worker — Workers' deployment model handles this transparently | Postgres advisory locks (`SELECT pg_try_advisory_lock`) + pg-boss's `SELECT ... FOR UPDATE SKIP LOCKED` job leasing | Local expects one server process per database. Job leasing is cluster-safe, but the reactive-run bridge is not: see the note below. |
+| Surface | Behavior |
+|---|---|
+| **Cron precision** | One-minute floor (pg-boss `schedule()` granularity). |
+| **Queue retry policy** | pg-boss defaults — operators tuning retries consult `pg-boss`'s `retryLimit` / `retryDelay`. A dispatch that exhausts its retry ladder lands on the dead-letter surface at `GET /admin/runtime/dead-letters`. |
+| **Per-Connection state durability** | Postgres rows under transactions — strict consistency. A handler that wrote a cursor and then crashed sees the write on retry. |
+| **Idempotency cache** | Postgres row keyed on (`subscription_id`, `delivery_id`) inside the connection's `connection.runtime` extension. |
+| **Isolation** | `worker_thread` — fault isolation, not adversarial. Operator-installed integrations are trusted, the same posture as installing an npm package in the host app. |
+| **Per-Connection serialization** | Postgres advisory lock on the connection id — at most one handler running per Connection at any given time. |
+| **Resource limits** | `worker_thread` `resourceLimits` — `maxOldGenerationSizeMb`, `maxYoungGenerationSizeMb`, `stackSizeMb`, set per integration. Defaults are tuned for the in-tree integrations; operators can lift them per-deployment if a heavier handler lands. |
+| **Multi-instance coordination** | Postgres advisory locks + pg-boss's `SELECT ... FOR UPDATE SKIP LOCKED` job leasing. Job leasing is cluster-safe; the reactive bridge is not — see the callout below. |
 
 <Callout type="warn">
-  **The local substrate expects one server process per database.** The bridge that
+  **The runtime expects one server process per database.** The bridge that
   fans item events out to installed integrations subscribes to the publishing
   process's in-process event bus, and runs under a `pg_try_advisory_lock` so only
   one process drains it. That is a try-lock, not a queue: the processes that lose
@@ -51,67 +39,30 @@ The substrates are designed for parity at the handler-author surface. The differ
   process](/guides/identity/deployment-modes#running-more-than-one-process).
 </Callout>
 
-## How a hosted integration gets its credential
+## How an integration gets its credential
 
-On **local**, the runtime mints a credential in-process: the supervisor that routed the dispatch also issues the credential for it, and no secret crosses a boundary.
-
-On **hosted**, an integration runs in its own Cloudflare Worker and has to ask for one. The chain has three participants and two different credentials, and which credential sits where is the whole design.
-
-The **platform key** authenticates the control plane to the Marfa server. It can mint a runtime credential for any Connection in any space, so it lives on the control-plane Worker and on the server, and nowhere else. It is never sent to an integration Worker and never accepted from one.
-
-Each **integration Worker** holds its own key instead, derived by the control plane from a root secret it alone holds, computed per Integration name. The derivation is one-way, so a Worker holding its own key cannot work out a sibling's, and every Worker in the fleet holding the same secret is no longer possible.
-
-That key does both directions of the hop. The Worker presents it when it asks the control plane for a runtime credential, naming the Integration it is; the control plane derives the key for that name and compares, so naming an Integration you cannot prove fails. The control plane presents the same derived key when it dispatches into the Worker to arm a schedule or run a verify, and the Worker gates its entire HTTP surface on it. A refusal is a `401`, which the runtime treats as retryable, so a Worker whose secret is stale backs off rather than tearing its schedule down.
-
-The Integration name that survives the comparison is then forwarded to the Marfa server with the mint request, and checked against the manifest persisted on the Connection. So a Worker is answerable twice: once for being the Integration it says it is, and once for asking about a Connection installed for that Integration.
-
-<Callout type="info">
-Operators wiring the hosted substrate set the identity root on the control-plane Worker and derive each integration Worker's key from it. Use one root per environment, never shared across environments, since a shared root would let a staging Worker authenticate against production. Rotating the root invalidates every derived key at once, so re-derive and redeploy the whole fleet, control plane first.
-</Callout>
+The runtime mints a credential in-process: the supervisor that routed the dispatch also issues the credential for it, and no secret crosses a boundary. Each credential is scoped to one Connection, carries exactly the reach the integration's manifest declares, and expires on its own — the lifetime is bounded above the longest possible dispatch, so expiry can never bite a live run.
 
 ## Schedule teardown on uninstall
 
-The two substrates schedule work differently, so they stop it differently.
+The scheduler walks active Connections on every cron tick. Uninstalling flips the Connection to `revoked`, and it drops out of the walk on the next tick. Nothing else is needed — there is no armed alarm to cancel, so uninstall has no schedule-teardown step that can fail.
 
-On **local**, the scheduler walks active Connections on every cron tick. Uninstalling flips the Connection to `revoked`, and it drops out of the walk on the next tick. Nothing else is needed.
+Pause works the same way: `runtime_status` gates both the scheduler and reactive dispatch, so a paused connection stops running immediately and resumes when the status flips back.
 
-On **hosted**, a Connection's schedule is a Durable Object alarm that re-arms itself each time it fires — there is no central list to fall off. So uninstall explicitly cancels it, via the runtime-control plane, in the same step that revokes the Connection's runtime credentials.
+## Operator notes
 
-The `POST /connections/{id}/uninstall` response reports the outcome:
-
-- **`schedules_disarmed`** — `true` when the alarm was cancelled. `false` on deployments with no runtime control plane configured (every local-substrate deployment), and `false` when the cancellation was attempted and failed.
-- **`schedule_disarm_error`** — present only in that second case, explaining what went wrong.
-
-An uninstall that fails to cancel the alarm still completes. Uninstall only ever moves toward "uninstalled": stopping partway would leave the Connection active with its credentials already revoked, which is worse than finishing. The failure is recorded on the response, in a `system.activity` row with `severity: action_required`, and in the audit log.
-
-The residue is bounded. The Connection ends up `revoked`, and the credential broker refuses to issue credentials for a Connection that is not active, so the alarm cannot do any work. When the next tick asks for credentials and gets that refusal, the Durable Object cancels its own alarm rather than re-arming — so a schedule pointed at a Connection that no longer exists stops on its own, whether or not the uninstall-time cancellation landed.
-
-## Picking a substrate
-
-You don't pick per-Integration — the manifest's `runtime_compatibility` field declares which substrates an integration supports, and the operator's `MARFA_INTEGRATION_RUNTIME` setting picks which substrate the deployment runs.
-
-- **Self-hosted Marfa** defaults to `local`; the [Docker Compose quickstart](/self-hosting/run/docker-compose) brings up server + Postgres in one command. Operators who *want* Cloudflare can set `MARFA_INTEGRATION_RUNTIME=hosted` and wire the Cloudflare bridge env vars; integrations declaring `["hosted"]` then become eligible.
-- **Cloudflare-fronted Marfa** runs `hosted` against the operator's Cloudflare account. Integrations declaring `runtime_compatibility: ["hosted"]` or `["hosted", "local"]` are eligible.
-- **The sync integration** declares `runtime_compatibility: ["local"]` only — it has no hosted path.
-
-## Local substrate operator notes
-
-- `MARFA_INTEGRATION_RUNTIME=local` (or the env var unset — `local` is the default) initializes pg-boss against `DATABASE_URL` and registers handlers from every integration's `dist/local.js`. Set the var to `hosted` to delegate to the Cloudflare bridge instead.
+- pg-boss initializes against `DATABASE_URL` and registers handlers from every integration's `dist/local.js` at boot.
 - pg-boss creates its own schema (`pgboss` by default) inside the same Postgres instance. No extra database, no extra credential.
-- The reactive-run bridge subscribes to the in-process pubsub — the same firehose the Cloudflare bridge consumes when running hosted. One substrate runs per server; the `MARFA_INTEGRATION_RUNTIME` value selects which.
-- `POST /runtime/webhook/:connection_id` is mounted publicly (no bearer token); verification happens inside the route via the subscription's HMAC secret. The route lives only when `MARFA_INTEGRATION_RUNTIME=local`; with hosted, inbound webhooks continue routing through the Cloudflare control plane.
-- Per-Connection state lives under the `connection.runtime` reserved extension on the connection's `system.connection` item. The hosted substrate uses the same namespace, so handler-visible state has the same shape on either substrate.
+- `POST /runtime/webhook/:connection_id` is mounted publicly (no bearer token); verification happens inside the route via the subscription's HMAC secret.
+- Per-Connection state lives under the `connection.runtime` reserved extension on the connection's `system.connection` item.
 - Workers crash → pool replaces. A handler that throws repeatedly takes its `worker_thread` with it; the next dispatch lands on a fresh thread. Other integrations' pools are untouched.
 
-## Authoring against either substrate
+## Authoring an integration
 
-The handler module is the same on both substrates. Per-substrate divergence lives in the *entry* files:
+The handler module carries the integration's whole behavior; the entry files wire it to the runtime:
 
-- **`handlers.ts`** — registers schedule, webhook, and item-event handlers. Substrate-agnostic.
+- **`handlers.ts`** — registers schedule, webhook, and item-event handlers.
 - **`manifest.ts`** — exports the `IntegrationManifest`, including `runtime_compatibility`.
-- **`worker.ts`** — Cloudflare Workers entry. Re-exports `PerConnectionState` plus the handlers.
-- **`local.ts`** — local-runtime entry. Registers handlers and exports the manifest.
+- **`local.ts`** — the runtime entry. Registers handlers and exports the manifest; built to `dist/local.js`, which the server loads at boot.
 
-Both entry files call `registerHandlers()` from the integration's own `handlers.ts`, which seeds `@withmarfa/runtime-sdk`'s in-process handler registry. The substrate then dispatches against that registry. Substrate-specific concerns — Durable Object storage proxies, `worker_thread` boot, queue wiring — sit outside the handler module entirely.
-
-Importing `@withmarfa/runtime-sdk/cloudflare` from inside `handlers.ts` defeats portability. Substrate-specific imports belong in `worker.ts`.
+`local.ts` calls `registerHandlers()` from the integration's own `handlers.ts`, which seeds `@withmarfa/runtime-sdk`'s in-process handler registry. The runtime then dispatches against that registry.
