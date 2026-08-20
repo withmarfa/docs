@@ -31,9 +31,46 @@ The manifest is the canonical description. The platform validates it on registra
 | `webhook_verification` | Discriminated on `method`: `hmac-sha256`, `slack`, `stripe`, `github`, `google-channel`, or `cloudflare-email`. The platform's adapter for each method lives in [@withmarfa/webhooks](https://www.npmjs.com/package/@withmarfa/webhooks) and is consumed by both the Cloudflare control plane and the server. |
 | `permissions` (optional) | Per-axis grant — `extension` and `edge` maps. The install pipeline translates these onto the runtime credential. |
 
-| `configuration_schema` (optional) | The connection configuration contract: every key the integration reads from the Connection's `configuration`, each with a type, a description, and optionally a required flag, a closed value set, or `from_target_types` to derive the set from `target_types`. Supplied configuration is validated against it at install and on every configuration write; an undeclared key is refused. The contract binds both ways: a declared key must be read by the integration's own code, and the in-tree test suite enforces that, so a key that stops being read is removed rather than left promising something on the configure screen that setting it will not do. An integration that omits the field accepts no configuration. |
+| `configuration_schema` (optional) | The connection configuration contract: every key the integration reads from the Connection's `configuration`, each with a type, a description, and optionally a required flag, a closed value set, `from_target_types` to derive the set from `target_types`, or `from_write_families` to derive it from the declared write families. Supplied configuration is validated against it at install and on every configuration write; an undeclared key is refused. The contract binds both ways: a declared key must be read by the integration's own code, and the in-tree test suite enforces that, so a key that stops being read is removed rather than left promising something on the configure screen that setting it will not do. An integration that omits the field accepts no configuration. |
+| `write_families` (optional) | Named sets of target types chosen together. Each family maps the author's role vocabulary to the type each role writes (`{ show, episode }`, or just `item` for a single-type integration), with a description the configure surface shows and a declared default. The platform validates coherence centrally: every family member must appear in `target_types`, and every `target_types` entry must belong to a family. A connection selects one family with a `from_write_families` configuration key; an integration with one family needs no chooser. |
+| `supports_user_mappings` (optional) | Whether the integration's handlers consult the per-connection [user mapping](#user-defined-mappings) on their write path. The mapping surface refuses connections whose integration does not declare it, so a stored mapping can never be silently ignored. |
 
 Full schema and each field's accepted values live in the `IntegrationManifestSchema` Zod schema in `@withmarfa/shared` — published as a JSON Schema artifact alongside the SDK.
+
+## Write families
+
+An integration's author ships one or more write families: coherent sets of target types with the author's own mapping code behind them. The podcasts integration is the shape in full — a `podcast` family keeping everything a feed carries, and a `core` family writing the shared media types, each pairing a show type with an episode type that travel together. A connection picks one family at configure time; the chooser's options derive from the declaration, so they cannot drift from what the credential may write.
+
+Families exist because a flat `target_types` list cannot say which types belong together. An integration writing a container and its members offered four individual choices where only two coherent pairs existed. The family declaration carries that structure, and the platform validates it rather than each integration hand-rolling the same test.
+
+## User-defined mappings
+
+Shipped families are defaults, not limits. A connection can carry the user's own mapping: conditions on the incoming record choose the target type, and fields are assigned onto that type's schema. The mapping targets whatever type the user names — their own registered types included; core types hold no special place.
+
+```json
+PUT /connections/{id}/mapping
+{
+  "version": 1,
+  "rules": [
+    {
+      "when": { "path": "kind", "op": "equals", "value": "episode" },
+      "target_type": "user.podcast_log",
+      "assign": {
+        "title": { "path": "episode.title" },
+        "url": { "path": "enclosure.url" },
+        "listened": { "const": false }
+      }
+    }
+  ],
+  "otherwise": "family"
+}
+```
+
+- **Conditions** are a closed operator set over dot-paths into the upstream-faithful record: `equals`, `not_equals`, `exists`, `missing`, `contains`, composable with `all`. First matching rule wins. There is no templating language — rule branching covers conditional values, and computed values are deliberately out.
+- **Assignments** map a target field to a source path or a scalar literal. The literal exists so a required target field the source cannot supply can be satisfied.
+- **`otherwise`** decides unmatched records: fall through to the selected write family (the default), or `skip`. Deliberate skips surface as one summary activity row per run.
+- **Validation is wholesale at PUT**, against the connection's space registry: target types must resolve (reserved namespaces refused), every assigned field must exist on its target, and required target fields must be covered. Each refusal names the field. A record that fails its target type's validation at write time surfaces as a per-item activity row — never a silent drop.
+- Only integrations declaring `supports_user_mappings` accept a mapping; the surface refuses the rest so configuration cannot silently do nothing.
 
 ## Runtime tiers
 
