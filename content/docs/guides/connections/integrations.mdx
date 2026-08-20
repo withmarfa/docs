@@ -24,7 +24,7 @@ The manifest is the canonical description. The platform validates it on registra
 | `direction` | `read`, `write`, or `both` — the data flow this integration implements. |
 | `target_types` | Item types the integration reads or writes. It sets the credential's reach; it does not filter which events an `item-event` handler receives. |
 | `triggers` | Array of discriminated `{ type, config? }` objects. `type` is one of `schedule`, `webhook`, `item-event`, `manual`. Schedule triggers carry `config: { cron }`; the others have no config payload today. |
-| `runtime_compatibility` | One or more of `hosted`, `self-hosted`, `local` — which runtime tiers can host this integration. |
+| `runtime_compatibility` | Which runtimes can host this integration. Every shipped integration declares `local`; see [Where an integration runs](#where-an-integration-runs). |
 | `bidirectional_handling` | The four positions: `echo_ttl_seconds`, `lag_window_seconds`, `tombstone_mapping` (`state-trashed | prompt-user | ignore`), `partial_write_mode` (`all-or-nothing | accept-partial`). Required even when `direction !== "both"`; defaults absorb the read-only case. |
 | `oauth_requirements` | Per-capability map — `proxy` (route through Marfa's OAuth proxy) or `leased` (issue a short-TTL bearer for the integration's own use). |
 | `token_requirements` | Per-capability map for integrations authenticated by a static upstream API token (rather than OAuth). Each entry declares `required`; the install pipeline gates on a matching `kind: api_token` credential being supplied as `credential_ref`. |
@@ -84,21 +84,17 @@ PUT /connections/{id}/mapping
 - **Validation is wholesale at PUT**, against the connection's space registry: target types must resolve (reserved namespaces refused), every assigned field must exist on its target, and required target fields must be covered. Each refusal names the field. A record that fails its target type's validation at write time surfaces as a per-item activity row — never a silent drop.
 - Only integrations declaring `supports_user_mappings` accept a mapping; the surface refuses the rest so configuration cannot silently do nothing.
 
-## Runtime tiers
+## Where an integration runs
 
-An integration runs on one of three runtime tiers. The manifest's `runtime_compatibility` declares which tiers it supports; a space's deployment chooses among them. The enum values are `hosted | self-hosted | local`.
+**There is one runtime.** An integration's handler code runs inside the Marfa server process, on the in-process runtime described in [Runtime substrates](/guides/connections/runtime-substrates). Hosted Marfa and a self-hosted deployment run the same image, so an integration behaves identically on both, and where the deployment lives is not something a manifest declares.
 
-| Tier (`runtime_compatibility` value) | When it applies |
-|---|---|
-| `hosted` | Reserved for integrations deployed on centrally managed infrastructure. No wired substrate currently dispatches against it. |
-| `self-hosted` | The integration runs inside a self-hosted Marfa deployment's own runtime — a Node.js process or container the operator manages directly. |
-| `local` | The integration runs on the user's machine, not in hosted infrastructure. Used by the sync agent and by users who prefer to keep the runtime under their own control. |
+The manifest still carries `runtime_compatibility`, and every shipped integration declares the single value `local`. The name is a leftover: it once distinguished the in-process runtime from a separate Workers substrate that was retired, so today it reads as "runs on the Marfa runtime", which is every integration. The runtime loads an integration whose list includes it and skips one whose list does not.
 
-Self-hosted Marfa deployments can mix `self-hosted` and `local` tiers; the manifest's compatibility list determines what's available where.
+Code that runs on *your* machine rather than Marfa's is a client, not an integration, and is not covered by this field. The file-sync agent is the example.
 
 ## Install flow
 
-The platform install pipeline is uniform across runtime tiers. The user installs an Integration through the console; the server then:
+The install pipeline is the same wherever the deployment runs. The user installs an Integration through the console; the server then:
 
 <Steps>
 
@@ -257,7 +253,7 @@ The runtime credential's permissions are projected from the persisted manifest a
 
 Most integrations write one shape. Some let a Connection choose, because two honest answers exist and only the person installing it knows which they want.
 
-`withmarfa.podcasts` is the clearest case. It polls podcast RSS feeds and can write either family:
+`marfa/podcasts` is the clearest case. It polls podcast RSS feeds and can write either family:
 
 - **Its own types** (the default) — `withmarfa.podcast.show` and `withmarfa.podcast.episode`, which keep everything a feed carries: the enclosure's MIME type and claimed size, the duration exactly as written as well as normalized, explicitness, categories, episode type.
 - **The core types** — `core.media.series` and `core.media.episode`, which every app that understands core media can already read, and which cannot hold the fields above.
@@ -281,18 +277,18 @@ Episodes join their show through the `in-collection` edge in both families, with
 
 ## A minimal example — the RSS Watcher
 
-The simplest integration possible is a schedule-driven reader against a public source. `withmarfa.rss-watcher` ships in-tree and polls an Atom 1.0 or RSS 2.0 feed on a cron, creating a `core.bookmark` per new entry. No OAuth, no token, no webhook — just the manifest declaring its shape and a handler that runs once per tick.
+The simplest integration possible is a schedule-driven reader against a public source. `marfa/rss-watcher` ships in-tree and polls an Atom 1.0 or RSS 2.0 feed on a cron, creating a `core.bookmark` per new entry. No OAuth, no token, no webhook — just the manifest declaring its shape and a handler that runs once per tick.
 
 ```ts
 export const RSS_WATCHER_MANIFEST: IntegrationManifest = {
-  name: "withmarfa.rss-watcher",
+  name: "marfa/rss-watcher",
   version: "0.1.0",
   manifest_schema_version: "1.0.0",
-  publisher: "withmarfa",
+  publisher: "marfa",
   description:
     "Polls an Atom 1.0 or RSS 2.0 feed on a schedule and creates a core.bookmark per new entry.",
   direction: "read",
-  runtime_compatibility: ["hosted", "local"],
+  runtime_compatibility: ["local"],
   target_types: ["core.bookmark"],
   triggers: [{ type: "schedule", config: { cron: "0 * * * *" } }],
   bidirectional_handling: {
