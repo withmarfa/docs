@@ -22,7 +22,7 @@ The manifest is the canonical description. The platform validates it on registra
 | `description` | One-line summary shown to users at install time. |
 | `manifest_schema_version` | Semver of the manifest contract itself. The server rejects manifests whose major exceeds the supported major. |
 | `direction` | `read`, `write`, or `both` — the data flow this integration implements. |
-| `target_types` | Item types the integration reads or writes. It sets the credential's reach; it does not filter which events an `item-event` handler receives. |
+| `target_types` | Item types the integration reads or writes. It sets the credential's reach; it does not filter which events an `item-event` handler receives. Every entry must resolve to a registered type, or a type the manifest itself declares in `type_schemas`; registration refuses a manifest naming a type that exists nowhere. |
 | `triggers` | Array of discriminated `{ type, config? }` objects. `type` is one of `schedule`, `webhook`, `item-event`, `manual`. Schedule triggers carry `config: { cron }`; the others have no config payload today. |
 | `runtime_compatibility` | Which runtimes can host this integration. Every shipped integration declares `local`; see [Where an integration runs](#where-an-integration-runs). |
 | `bidirectional_handling` | The four positions: `echo_ttl_seconds`, `lag_window_seconds`, `tombstone_mapping` (`state-trashed | prompt-user | ignore`), `partial_write_mode` (`all-or-nothing | accept-partial`). Required even when `direction !== "both"`; defaults absorb the read-only case. |
@@ -33,6 +33,7 @@ The manifest is the canonical description. The platform validates it on registra
 
 | `configuration_schema` (optional) | The connection configuration contract: every key the integration reads from the Connection's `configuration`, each with a type, a description, and optionally a required flag, a closed value set, `from_target_types` to derive the set from `target_types`, or `from_write_families` to derive it from the declared write families. Supplied configuration is validated against it at install and on every configuration write; an undeclared key is refused. The contract binds both ways: a declared key must be read by the integration's own code, and the in-tree test suite enforces that, so a key that stops being read is removed rather than left promising something on the configure screen that setting it will not do. An integration that omits the field accepts no configuration. |
 | `write_families` (optional) | Named sets of target types chosen together. Each family maps the author's role vocabulary to the type each role writes (`{ show, episode }`, or just `item` for a single-type integration), with a description the configure surface shows and a declared default. The platform validates coherence centrally: every family member must appear in `target_types`, and every `target_types` entry must belong to a family. A connection selects one family with a `from_write_families` configuration key; an integration with one family needs no chooser. |
+| `type_schemas` (optional) | Type schemas the integration brings with it, registered at catalog registration. Same shape and same validator as a type registered through the API. Each one must sit inside the publisher's own handle, so `readwise/reader` may declare `readwise.document` and nothing else; a reserved root is refused outright, because the platform's own vocabulary is seeded rather than registered. |
 | `supports_user_mappings` (optional) | Whether the integration's handlers consult the per-connection [user mapping](#user-defined-mappings) on their write path. The mapping surface refuses connections whose integration does not declare it, so a stored mapping can never be silently ignored. |
 
 Full schema and each field's accepted values live in the `IntegrationManifestSchema` Zod schema in `@withmarfa/shared` — published as a JSON Schema artifact alongside the SDK.
@@ -48,6 +49,16 @@ Two things this grammar buys. An integration can never be mistaken for a type at
 Whether a publisher may *claim* a given handle is a separate question, answered at registration against the account that holds it, not by the shape of the string. The first-party set lives under `marfa/`.
 
 The slash is required. Names shipped before this grammar used the dot form (`readwise.reader`), which parsed alongside the new spelling for one release while installed connections were migrated; it is no longer accepted.
+
+## Types that travel with an integration
+
+An integration can ship the types it writes. Declaring them in `type_schemas` registers them when the catalog entry is registered, so an integration is installable on an instance that has never heard of its types.
+
+Two limits are worth knowing before relying on it.
+
+**A publisher may only declare inside its own handle.** The handle is the part of the manifest name before the slash. This is the same ownership rule that governs registering a type directly, applied at the other door: without it a package could register into another publisher's namespace by putting the type in its manifest instead of a request body.
+
+**A schema reaches a connection only when that connection resolves the manifest carrying it.** A connection resolves the manifest frozen on its catalog row at install time, so types shipped with a new version of an integration do not reach a connection installed against an older one.
 
 ## Write families
 
