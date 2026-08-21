@@ -52,7 +52,7 @@ Nine types ship in the core set. Each has documented constraints.
 |---|---|---|
 | `about` | Source is about the target. Topical link. | many-to-many |
 | `parent-of` | Source is the parent of the target. Each target has at most one parent. Hierarchy: folders, projects, trees. | one-to-many |
-| `in-collection` | Source is a member of the container represented by the target. Carries a `position` property. An item belongs to any number of containers. Target must be a `user.collection`, a `core.media.series` or a `core.media.album`. | many-to-many |
+| `in-collection` | Source is a member of the container represented by the target. Carries a `position` property. An item belongs to any number of containers. Target must be a type declaring the `container` role. | many-to-many |
 | `in-thread` | Source is a member of the thread represented by the target. Carries a `position` property. Source is in at most one thread. | many-to-one |
 | `attached-to` | Source is an attachment (a file or media item) belonging to the target. | many-to-many |
 | `references` | Source explicitly references the target. Covers wikilink-style mentions and the highlight-on-a-passage case. | many-to-many |
@@ -150,10 +150,14 @@ Four grouping primitives, each with a narrow purpose.
 
 ### Collections
 
-`in-collection` is the membership relation, and it accepts three kinds of container: a `user.collection`, a `core.media.series` or a `core.media.album`. The media containers ship with the core set. A plain collection does not: it is a user-space concept, so a space registers `user.collection` (or a subtype of it) itself and the edge is already waiting.
+`in-collection` is the membership relation, and its target may be **any type declaring the `container` role**. Two core types declare it, `core.media.series` and `core.media.album`, and so does any type you register that says it is a container.
+
+The rule is a role rather than a list of type names on purpose. A list only ever admits the containers the platform thought of first, and nobody outside the platform can add to it, so a publisher shipping its own vocabulary would have a container and members and no supported way to say one held the other. Declaring the role is how a type opts in, and it costs one line.
+
+There is no `core.collection`: a plain collection is a user-space concept, so a space registers `user.collection` itself.
 
 ```bash
-# Register the type once per space.
+# Register the type once per space. `roles` is what makes it a valid target.
 curl -X POST https://api.marfa.so/types \
   -H "Authorization: Bearer $MARFA_API_KEY" \
   -H "Content-Type: application/json" \
@@ -162,6 +166,7 @@ curl -X POST https://api.marfa.so/types \
     "name": "Collection",
     "description": "A named set of items.",
     "version": 1,
+    "roles": ["container"],
     "fields": {
       "name": { "type": "string", "required": true, "description": "Display name." }
     }
@@ -188,7 +193,9 @@ GET /items?backref[in-collection]=<collection-id>&sort=edge.position
 GET /items/<item-id>/edges?edge_type=in-collection
 ```
 
-Containers do not nest. Anything the edge accepts as a target is refused as a source: putting a `user.collection`, a `core.media.series` or a `core.media.album` inside another container is rejected with `400 edge_constraint_violation` and `details.constraint: "nesting"`, subtypes included. So a series cannot sit inside a collection of shows, and an album cannot sit inside a series. Hierarchy is what `parent-of` is for, and an item that had both would have two competing answers to where it sits. Nest the collections under `parent-of` if you want a tree of them, and keep membership flat.
+Containers do not nest. The guard is not a list of type names either: **anything the edge accepts as a target is refused as a source**, so a type becomes an illegal member the moment it declares itself a container. Putting one container inside another is rejected with `400 edge_constraint_violation` and `details.constraint: "nesting"`, subtypes included. So a series cannot sit inside a collection of shows, and an album cannot sit inside a series. Hierarchy is what `parent-of` is for, and an item that had both would have two competing answers to where it sits. Nest the collections under `parent-of` if you want a tree of them, and keep membership flat.
+
+Roles are inherited, so a subtype of a container is a container and needs no `roles` of its own — and is refused as a member for the same reason its parent is.
 
 ### Folders vs tags vs edges
 
