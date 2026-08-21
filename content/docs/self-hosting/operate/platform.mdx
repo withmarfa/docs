@@ -50,6 +50,27 @@ The response carries the new space's id. It has no credentials yet, so the secon
 
 In the TypeScript SDK the pair is `client.admin.spaces.create({ name })` then `client.admin.keys.create(spaceId, input)`.
 
+## Deleting a space
+
+A space that no account owns can be removed outright. This is the counterpart to [account deletion](/self-hosting/operate/account-lifecycle) for the case that cascade cannot serve: a space created by `POST /admin/spaces` has no account behind it, so deleting an account will never reach it.
+
+```bash
+curl -X POST "$MARFA_API_URL/admin/spaces/$SPACE_ID/delete" \
+  -H "Authorization: Bearer $PLATFORM_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"confirm\":\"$SPACE_ID\"}"
+```
+
+It sweeps everything scoped to the space — items, edges, blobs, keys, inbound and outbound webhooks, connection tokens and the quota row — and then the space itself, in one transaction. There is no grace window and no undo.
+
+`confirm` must be the space id, spelled exactly, and is refused otherwise. It is the id rather than the name because a space name is optional and not unique, so confirming on it would both refuse legitimate deletes and accept the wrong space.
+
+**A space that still has users is refused** with HTTP 409. That case belongs to `POST /admin/accounts/{id}/delete`, which removes the account and its space together. The split is deliberate: the account cascade owns the auth tables, and a second path removing the space from under it would leave those tables referencing a space that no longer exists.
+
+A successful delete emits a `space.hard_deleted` audit row carrying the operator's key as the actor.
+
+Test suites that provision their own spaces should call this on teardown. Without it every run leaves a space behind permanently, which is what the conformance suite did before this endpoint existed.
+
 ## Confirmation prompts on destructive verbs
 
 `suspend`, `unsuspend`, `quotas` (write path), and `account-deletion purge-now` prompt for typed-token confirmation by default — operator types the literal verb (`suspend`, `unsuspend`, `set quotas`, `purge`) to authorize the action. Pass `--yes` / `-y` to skip the prompt for scripting. Read-only verbs (`list`, `show`, `metrics`, `keys list`) never prompt.
