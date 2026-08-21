@@ -56,7 +56,7 @@ marfa [--url <url>] [--key <key>] [--instance <name>] [--json] [--verbose]
   webhooks     create, list, get, update, delete, deliveries
   space       config {get, set}
   connections  list, get, configure, pause, resume, install, uninstall,
-               logs, activity, preview-event, verify, replay-dlq
+               logs, activity, preview-event, replay-dlq
   credentials  create-oauth-provider, create-api-token, list, revoke
   platform     spaces {list, show, suspend, unsuspend, quotas, metrics},
                keys {list},
@@ -175,9 +175,11 @@ marfa connections uninstall <connection-id>         # orchestrated teardown
 
 `--event-type` takes a bare verb, not the dotted wire name: `created`, `updated`, `deleted`, `restored`, `state_changed`, or `metadata_changed`. Passing `item.created` is rejected.
 
-`verify <id> --event <json>` synchronously dispatches a sample event through `runtime-control` into the integration via service binding. Operator-debug; requires a platform credential. Reads the runtime-control endpoint from `MARFA_RUNTIME_CONTROL_URL` or `--runtime-control-url`.
+`marfa connections logs <id> --dlq` lists the connection's dead-lettered dispatches: the queue job id, the integration, the dispatch kind, the recorded failure reason, and how many attempts were consumed. Read-only. It reads the server's `GET /admin/runtime/dead-letters`, which lists across every connection, so the narrowing to one connection happens client-side — `--limit` bounds the rows fetched rather than the rows kept, so raise it if a busy neighbour crowds a quiet connection out of the window.
 
-`replay-dlq <id> [--message-ids id1,id2] [--yes]` re-enqueues DLQ messages back onto their main queues for a connection. Destructive (handlers re-run upstream); interactive confirmation unless `--yes` is passed (and `--yes` is required in non-TTY contexts). `marfa connections logs <id> --dlq` reads the same DLQ surface.
+`replay-dlq <id> [--job-ids id1,id2] [--yes]` re-queues dead-lettered dispatches for one more attempt. Destructive (handlers re-run upstream); interactive confirmation unless `--yes` is passed, and `--yes` is required in non-TTY contexts. Without `--job-ids` it replays every dead-lettered dispatch for the connection, resolving the set before it prompts so the confirmation names a real count. The server replays one job per call, so each is reported on its own line: a job that has already been replayed, is running, or has since completed is refused with the state it is actually in, and a run that could not replay everything asked for exits non-zero.
+
+Both verbs are platform-admin gated and take no endpoint configuration of their own. They previously called a separate runtime-control plane through `MARFA_RUNTIME_CONTROL_URL` or `--runtime-control-url`; that plane is retired and both options are gone. A `verify` verb went with it — it dispatched a sample event through that plane into an integration Worker, and no server-side equivalent exists. Use `preview-event` to see the envelope a dispatch would carry.
 
 ### Credentials
 
