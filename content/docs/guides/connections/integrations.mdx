@@ -23,7 +23,7 @@ The manifest is the canonical description. The platform validates it on registra
 | `manifest_schema_version` | Semver of the manifest contract itself. The server rejects manifests whose major exceeds the supported major. |
 | `direction` | `read`, `write`, or `both` — the data flow this integration implements. |
 | `target_types` | Item types the integration reads or writes. It sets the credential's reach; it does not filter which events an `item-event` handler receives. Every entry must resolve to a registered type, or a type the manifest itself declares in `type_schemas`; registration refuses a manifest naming a type that exists nowhere. |
-| `triggers` | Array of discriminated `{ type, config? }` objects. `type` is one of `schedule`, `webhook`, `item-event`, `manual`. Schedule triggers carry `config: { cron }`; the others have no config payload today. |
+| `triggers` | Array of discriminated `{ type, config? }` objects. `type` is one of `schedule`, `webhook`, `item-event`, `manual`. Schedule triggers carry `config: { cron }`; the others have no config payload today. `manual` declares that a person may ask for a run through [`POST /connections/{id}/run`](#running-on-demand), and it reaches the same handler the schedule trigger does. |
 | `runtime_compatibility` | Which runtimes can host this integration. Every shipped integration declares `local`; see [Where an integration runs](#where-an-integration-runs). |
 | `bidirectional_handling` | The four positions: `echo_ttl_seconds`, `lag_window_seconds`, `tombstone_mapping` (`state-trashed | prompt-user | ignore`), `partial_write_mode` (`all-or-nothing | accept-partial`). Required even when `direction !== "both"`; defaults absorb the read-only case. |
 | `oauth_requirements` | Per-capability map — `proxy` (route through Marfa's OAuth proxy) or `leased` (issue a short-TTL bearer for the integration's own use). |
@@ -170,6 +170,24 @@ The owning integration re-syncs its mirror with faithful-mirror semantics: field
 To make an integration's copy your own, promote it: `POST /items/{id}/promote` mints a new item you own with the mirror's content, joined back by a `derived-from` edge. The mirror keeps re-syncing; your copy is never touched by a re-sync. Lifecycle transitions, tags, and tier changes stay ordinary user gestures on a mirror — they do not edit the copy, so the rule does not apply to them.
 
 The two drift from there, which is the point of the join. `GET /items/{id}/reconcile` reports the drift field by field against every mirror the item is joined to: each property is `same`, `diverged`, `only_yours`, or `only_mirror`, with the values on both sides. The read decides nothing and writes nothing — taking a field from the mirror is an ordinary `PATCH` on your own item, so which side wins stays yours to choose, one field at a time.
+
+## Running a connection on demand [#running-on-demand]
+
+An integration that declares the `manual` trigger can be run without waiting for its next scheduled tick:
+
+```bash
+curl -X POST https://api.marfa.so/connections/<connection-id>/run \
+  -H "Authorization: Bearer $MARFA_API_KEY"
+```
+
+Space-admin only, like pause and uninstall, and the console offers it as **Run now** on the connection's page. The run is queued exactly as a cron tick is, so it takes the same per-connection lock and cannot overlap a run already in flight. A manual run reaches the integration's scheduled handler, which is why an integration needs no extra code to support it: declaring the trigger is the whole opt-in.
+
+Four refusals, each naming what to do about it:
+
+- **The manifest declares no `manual` trigger.** The declaration is the contract; without it, nothing runs.
+- **The connection is paused.** Pause means stopped, and a queued run would be discarded at dispatch. Resume first.
+- **The deployment does not run that integration.** An integration whose code runs on your own machine is started by that program, not by Marfa. `marfa/sync` is the standing case: it is a client, and its daemon drives it.
+- **The running build and the stored manifest disagree** about whether manual runs are accepted. Moving the connection to the newer version resolves it, which is what the section below is about.
 
 ## Shipping a new version [#shipping-a-new-version]
 
