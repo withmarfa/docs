@@ -314,6 +314,18 @@ curl -X POST https://marfa.example.com/auth/oauth2/revoke \
 
 Apps should call this on sign-out to ensure server-side state matches the user's intent. The endpoint is advertised in the OIDC discovery doc as `revocation_endpoint`.
 
+### Signing out invalidates the tokens issued under that session
+
+RP-initiated logout at `/auth/oauth2/end-session` ends the browser session **and** invalidates the access and refresh tokens issued under it. The next request carrying one of those bearers returns `401 unauthorized`, whatever its remaining lifetime says.
+
+Three consequences worth designing around:
+
+- **A stored bearer stops working the moment the user signs out**, not when it expires. An app holding one should treat a `401` after sign-out as expected rather than as an error to retry.
+- **Refresh tokens carrying `offline_access` are deliberately exempt.** That scope exists so a client can keep working while the user is away, and ending a browser session is not a statement about background access. A client that wants sign-out to stop its background work too should revoke explicitly, at the endpoint above.
+- **Only tokens tied to that session are reached.** Device-flow tokens carry no session, so signing out of a browser does not touch a token minted on another device. Revoke those explicitly, or revoke the whole grant.
+
+Calling `POST /auth/oauth2/revoke` on sign-out remains worth doing: it is explicit, it covers the `offline_access` and device-flow cases this does not, and it works for clients that never had a browser session at all.
+
 ### Token introspection
 
 `POST /auth/oauth2/introspect` implements RFC 7662. Form-encoded body with `token` and (for confidential clients) `client_id` + `client_secret`. The server returns `{ active: boolean, scope?, client_id?, exp?, ... }` — `active: false` is the not-valid response, never an error.
