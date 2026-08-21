@@ -247,11 +247,15 @@ A single `kind: api_token` credential can be shared across Connections that targ
 
 The delete is hard rather than soft: the encrypted secret is gone, not left behind on a row marked inactive. A credential holds something a person pasted in from another service, so leaving it recoverable would defeat the point of removing it.
 
-Removal refuses with `credential_in_use` while any Connection that is not revoked still references the credential, and the response names those Connections. Uninstall them first. Refusing is deliberate — taking a working integration down as a side effect of tidying up a credential is the more surprising of the two behaviours, and uninstalling is one call away.
+Removal refuses with `credential_in_use` while any Connection that is not revoked still references the credential, and the response names those Connections. Uninstall them first — and uninstalling the last one removes the credential on its own, so this route is for a credential no Connection ever used, or one whose Connections were revoked before uninstall did this. Refusing is deliberate: taking a working integration down as a side effect of tidying up a credential is the more surprising of the two behaviours.
 
 Credential removal has its own route rather than going through `POST /items/{id}/transition`. Items carry the universal `active | archived | trashed` lifecycle, while `system.*` types carry a bounded `active | revoked` one, and the transition endpoint validates against the universal set — so the states a system type actually uses are not reachable through it.
 
-Uninstalling a Connection does not remove the credential it was installed with. Uninstall revokes the short-lived runtime credential the platform minted for that Connection; the upstream token the user supplied is a separate row with its own lifetime, deliberately, because several Connections may share it.
+Uninstalling a Connection removes the upstream credential it was installed with, unless another Connection that is not revoked still references it — several Connections may share one row, and the four Google integrations do.
+
+Three different things are called a credential here, and uninstall reports each separately for that reason. The **runtime credential** is Marfa's own, minted per dispatch and revoked routinely, so an uninstall often finds none left to revoke. The **cached upstream OAuth tokens** are the proxy's working copy, and a token-authenticated Connection never has any. The **upstream credential** is the secret a person pasted in, and nothing in the platform can recreate it. The response's `upstream_credential` field distinguishes `purged`, `retained` (naming the Connections still using it), `already_gone`, and `none`.
+
+Removing the stored credential does not invalidate the token at the far end. A token you want dead everywhere is revoked at the service that issued it.
 
 ## Runtime credential lifecycle
 
