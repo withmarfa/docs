@@ -150,6 +150,17 @@ Every Marfa server exposes `GET /health`, returning a JSON report of the server 
     "database": { "status": "ok", "latency_ms": 77 },
     "blob_storage": { "status": "ok", "latency_ms": 67 }
   },
+  "database_connections": {
+    "total": 9,
+    "ceiling": 22,
+    "clients": {
+      "marfa-web:app": { "active": 1, "idle": 2 },
+      "marfa-web:session": { "idle": 1 },
+      "marfa-worker:app": { "idle": 2 },
+      "other": { "idle": 3 }
+    }
+  },
+  "placement": { "region": "lon1", "location": "London", "country": "GB" },
   "version": { "sha": "677ab4a" }
 }
 ```
@@ -178,6 +189,50 @@ so an unbounded check turns the one endpoint whose job is to report the
 server's state into the one that cannot. A `degraded` database component most
 often means the connection pool is fully held, which is worth knowing as
 itself rather than as a timeout at the monitor.
+
+### Connection usage
+
+`database_connections` reports how much of the database's connection ceiling
+this deployment is holding, read from Postgres's own `pg_stat_activity` rather
+than from the driver. It sees every connection to the database whatever opened
+it, so one server's `/health` reports the whole deployment — a web process, a
+worker process and your own `psql` session all appear in the same `total` that
+is racing `ceiling`.
+
+`clients` attributes those connections. Marfa's own pools are named
+`marfa-<role>:<pool>`, where the pool is `app` (queries), `session` (streaming
+reservations) or `lock` (the coordination lock). Everything else is folded into
+`other`. The counts under each are Postgres backend states, so `idle` means a
+pooled connection open but unused, not a leak.
+
+Two things to know before you alert on it:
+
+- **The reading is omitted, not zeroed, when it cannot be taken.** A pool held
+  hard enough to starve the query has already turned the `database` component
+  `degraded`, which is what an uptime check watches. This block is for seeing
+  the number climb toward the ceiling beforehand.
+- **Attribution needs the right privileges.** A role that is not a superuser and
+  not a member of `pg_read_all_stats` can only read the application name and
+  state of backends belonging to itself, so connections opened by other roles
+  land in `other`. `total` is correct either way.
+
+The block is absent on SQLite, which has neither a pool nor the view to read.
+
+### Placement
+
+`placement` says where this server runs. It is optional, absent when unset, and
+built from three variables you set per environment:
+
+| Variable | Example |
+|---|---|
+| `MARFA_PLACEMENT_REGION` | `lon1` |
+| `MARFA_PLACEMENT_LOCATION` | `London` |
+| `MARFA_PLACEMENT_COUNTRY` | `GB` |
+
+Set them to whatever describes the location; nothing here is provider-specific.
+It is worth the two minutes: a server running far from its database produces no
+error, no failed deploy and no degraded status, only latency that the database
+then gets blamed for. This is the field that says so.
 
 Point an uptime monitor at it:
 
