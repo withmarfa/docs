@@ -171,6 +171,28 @@ To make an integration's copy your own, promote it: `POST /items/{id}/promote` m
 
 The two drift from there, which is the point of the join. `GET /items/{id}/reconcile` reports the drift field by field against every mirror the item is joined to: each property is `same`, `diverged`, `only_yours`, or `only_mirror`, with the values on both sides. The read decides nothing and writes nothing — taking a field from the mirror is an ordinary `PATCH` on your own item, so which side wins stays yours to choose, one field at a time.
 
+## Shipping a new version [#shipping-a-new-version]
+
+A Connection resolves the manifest it was installed against, frozen on the catalog entry at install time. That freeze is deliberate: what an integration is allowed to do should not change under someone who already installed it because an unrelated catalog edit landed. It also means **shipping a new version of your integration does not reach anybody's Connection on its own.**
+
+Registration keys on `(name, version)`. A new version registers as a sibling entry beside the old one, and existing Connections keep pointing at the entry they were installed against until they are deliberately moved.
+
+Two consequences worth knowing before you publish.
+
+**A manifest change needs a version bump, every time.** Because registration keys on `(name, version)`, a manifest whose content changes while its version stands still cannot be registered anywhere the old version already exists: it collides with the entry it was meant to replace. The change ships in your code and never reaches the catalog, with nothing reporting it. If you add a capability flag, a target type, or a trigger, move the version in the same change.
+
+**A version bump with nothing behind it is also wrong.** It registers a second catalog entry identical to the first, which is one more manifest for a Connection to be stranded on and no new capability for anyone.
+
+### Moving a Connection to a newer version
+
+`GET /connections/{id}/upgrade` reports whether a newer version is registered and exactly what it would newly be allowed to do. `POST` to the same path performs the move.
+
+An upgrade keeps the Connection's cursor state, so an integration resumes where it left off rather than re-pulling the upstream corpus. It re-validates the stored configuration against the new manifest and refuses the whole move if the settings no longer satisfy it, rather than leaving a Connection bound to a manifest its own configuration contradicts. It revokes the Connection's runtime credentials, so the next one minted projects its permissions from the manifest the Connection now resolves.
+
+**Widening needs consent.** The upgrade compares what the two manifests grant, not their version numbers: target types, extension and edge permissions, credential requirements, and configuration fields that become required. A version that takes the same or less proceeds. A version that reaches further is refused with `403`, naming exactly what is new, and the move happens only once a space admin approves it on the consent screen. This is why adding a target type to a shipped integration is a bigger change than it looks: everyone who installed it has to agree to the new one.
+
+This is also the difference between an upgrade and a reinstall. Uninstalling and reinstalling picks up the newest catalog entry, but it creates a new Connection with no cursor state and re-pulls everything the integration can see.
+
 ## Uninstall and reinstall [#uninstall-and-reinstall]
 
 Item provenance keys on the integration and the space, not the Connection, so removing an integration and installing it again lands on the items already there: the first re-sync resolves each upstream record by its natural key and updates the existing row rather than storing a second copy. Uninstall itself never touches items — what an integration synced stays in the space, attributed to the integration, whether or not a Connection currently exists for it.
