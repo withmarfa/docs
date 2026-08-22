@@ -130,15 +130,20 @@ describe_live_state() {
   [ "$live" = "$expected" ] && { printf 'current'; return 0; }
 
   git cat-file -e "${live}^{commit}" 2>/dev/null || { printf 'unknown-commit'; return 0; }
-  # The expected side is checked too. Left unchecked, a `git merge-base` failure
-  # on an unresolvable value is swallowed by `if !` and read as "not an
-  # ancestor", which then reports a wrong verdict confidently.
-  git cat-file -e "${expected}^{commit}" 2>/dev/null || { printf 'unknown-commit'; return 0; }
-  # And the comparison ref, for the same reason. `--is-ancestor` exits 1 for
-  # false and 128 for a ref that does not resolve, and `if !` cannot tell them
-  # apart, so a checkout missing `origin/main` would have reported every live
-  # commit as published from somewhere else.
+
+  # The comparison ref is checked before the expected commit, and the order is
+  # load-bearing. The workflow passes `resolve_main_ref`'s output as `expected`,
+  # and that returns the literal ref name when it does not resolve. Checking
+  # `expected` first therefore trips on the same broken checkout and answers
+  # `unknown-commit` — "the site reports a commit this repository has never
+  # heard of" — about a commit that is right there. The verdict written for a
+  # broken checkout was unreachable from the only caller that matters.
+  #
+  # `--is-ancestor` exits 1 for false and 128 for a ref that does not resolve,
+  # and `if !` cannot tell them apart, so without these a missing `origin/main`
+  # would report every live commit as published from somewhere else.
   git cat-file -e "${main_ref}^{commit}" 2>/dev/null || { printf 'unknown-ref'; return 0; }
+  git cat-file -e "${expected}^{commit}" 2>/dev/null || { printf 'unknown-commit'; return 0; }
 
   # Being a descendant of the expected commit is not the same as being on the
   # comparison branch. An unmerged branch built on its tip is a descendant, and
@@ -224,6 +229,20 @@ report_live_state() {
 #      carries the newer commit publishes it
 check_deploy_target() {
   local event="$1" ref="$2" deploy="$3" tip="$4"
+
+  # `resolve_main_ref` never fails: it hands back the literal ref name when the
+  # ref does not resolve. Without this, that string is compared against a sha,
+  # they differ, and a broken checkout takes the "main has moved on" arm —
+  # publishing nothing, succeeding, and suppressing the notifier, so the commit
+  # is never published and nothing says so. It also emitted the sentence "main
+  # has moved to origin/main", which is the confidently-wrong diagnostic the
+  # `unknown-ref` verdict exists to avoid, in the one place that had no
+  # equivalent.
+  case "$tip" in
+    *[!0-9a-f]*|"")
+      echo "::error title=Cannot tell whether this is main::The comparison ref did not resolve, so there is no tip to check ${deploy} against. That is a broken checkout rather than a verdict about the commit."
+      return 1 ;;
+  esac
 
   if [ "$event" = "workflow_dispatch" ] && [ "$ref" != "refs/heads/main" ] && [ "$deploy" != "$tip" ]; then
     echo "::error title=Publishing is restricted to main::Dispatched from ${ref}, at ${deploy}, while main is at ${tip}. Publishing a branch would put unmerged content on the live site, and the daily check would then report it healthy because it is a real commit."

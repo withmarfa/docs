@@ -203,10 +203,43 @@ git update-ref -d refs/remotes/origin/main
 check "an unresolvable ref exits 1" "1 ::error title=Cannot compare, main does not resolve here" "$(verdict_exit "$c3" "$c1")"
 git update-ref refs/remotes/origin/main "$saved_main"
 
-# `behind` must name the commits, not merely say it is behind.
+# `behind` must name exactly the unpublished commits. Asserting only that the
+# heading appears and that HEAD's subject is somewhere in the output is
+# satisfied by `git log` with no range at all, by a one-commit log, and by a
+# symmetric-difference range that names already-published commits as
+# unpublished. All four of those survived the previous version of this check.
 behind_out="$(report_live_state "$c3" "$c1" 2>&1 || true)"
-check "behind lists the unpublished commits" "yes" \
-      "$(printf '%s' "$behind_out" | grep -q 'Unpublished commits:' && printf '%s' "$behind_out" | grep -q "$(git log --format=%s -1 "$c3")" && echo yes || echo no)"
+behind_subjects="$(printf '%s' "$behind_out" | sed -n '/Unpublished commits:/,$p' | tail -n +2 | sed 's/^[0-9a-f]* //' | sort | tr '\n' ',')"
+check "behind names exactly the unpublished commits" "three,two," "$behind_subjects"
+check "behind heads the list" "yes" \
+      "$(printf '%s' "$behind_out" | grep -q 'Unpublished commits:' && echo yes || echo no)"
+# The reverse direction must not name anything: a site ahead of the expected
+# commit has nothing unpublished, and a symmetric range would claim otherwise.
+ahead_out="$(report_live_state "$c1" "$c3" 2>&1 || true)"
+check "ahead names no commits" "yes" \
+      "$(printf '%s' "$ahead_out" | grep -q 'Unpublished commits:' && echo no || echo yes)"
+
+# On a linear history a two-dot range and a symmetric difference agree, so the
+# assertions above cannot tell them apart. A diverged pair can: the live commit
+# sits off main, so a symmetric range would name it as unpublished when it is
+# the one thing that never was published.
+diverged_out="$(MAIN_REF=refs/heads/side report_live_state "$c3" "$side" 2>&1 || true)"
+diverged_subjects="$(printf '%s' "$diverged_out" | sed -n '/Unpublished commits:/,$p' | tail -n +2 | sed 's/^[0-9a-f]* //' | sort | tr '\n' ',')"
+check "a diverged live commit is not named as unpublished" "three," "$diverged_subjects"
+
+# The backstop arm exists so a verdict added later, without an arm here, cannot
+# report green. It is unreachable through the classifier by design, so the only
+# honest way to exercise it is to make the classifier return something new,
+# which is exactly the future this arm is for.
+backstop() {
+  local out rc
+  out="$(
+    describe_live_state() { printf 'a-verdict-nobody-wrote-an-arm-for'; }
+    report_live_state x y 2>&1
+  )"; rc=$?
+  printf '%s %s' "$rc" "$(printf '%s' "$out" | grep -o '::error title=[^:]*' | head -1)"
+}
+check "an unhandled verdict exits 1" "1 ::error title=Unrecognized verdict" "$(backstop)"
 
 # ------------------------------------------------ the publish/refuse decision
 target() { # target <event> <ref> <deploy> <tip> -> exit code
@@ -219,6 +252,21 @@ check "a main dispatch at the tip publishes" 0 "$(target workflow_dispatch refs/
 # A branch that happens to point at main's tip is the same commit, so refusing
 # it would be refusing something legitimate.
 check "a branch dispatch at the tip publishes" 0 "$(target workflow_dispatch refs/heads/side "$c3" "$c3")"
+# An unresolvable tip is a broken checkout, not "main has moved on". Reading it
+# as the latter published nothing, succeeded, and suppressed the notifier, so
+# the commit was never published and nothing reported it.
+check "an unresolvable tip is refused"       1 "$(target workflow_run refs/heads/main "$c3" "origin/main")"
+check "an empty tip is refused"              1 "$(target workflow_run refs/heads/main "$c3" "")"
+
+# The composition the workflow actually uses, rather than a hand-made pair.
+# `resolve_main_ref` returns the literal ref name on a broken checkout and the
+# workflow passes that as `expected`, so checking `expected` before `main_ref`
+# answered "unknown-commit" about a commit that is present.
+saved_ref="$(git rev-parse refs/remotes/origin/main)"
+git update-ref -d refs/remotes/origin/main
+check "the workflow's own composition reaches unknown-ref" unknown-ref \
+      "$(describe_live_state "$(resolve_main_ref)" "$c1")"
+git update-ref refs/remotes/origin/main "$saved_ref"
 
 # ------------------------------------------- the contract the helper promises
 # "never returns an empty string and never exits non-zero". Nothing tested it,
@@ -263,11 +311,46 @@ if [ ! -f "$workflow" ]; then
   # here would disappear without anyone noticing.
   fail=$((fail+1)); printf '  FAIL  %s does not exist\n' "$workflow"
 else
+  # Anchored to a line that is neither blank nor a comment. Grepping the whole
+  # file is satisfied by a comment mentioning the name just as well as by a
+  # call, so deleting the call outright still reported coverage.
+  #
+  # Stated rather than papered over: the workflow's own gating is not tested
+  # here and cannot be. The step-level `if:` conditions and the notifier's
+  # condition are GitHub expressions, not shell, and nothing in this repository
+  # evaluates them outside a run. The linter in CI catches a malformed file,
+  # which is the worst of those failure modes, because a parse error takes the
+  # daily guard down with no signal anywhere.
+  # A malformed workflow is the worst failure mode the untestable gating leaves
+  # open: the publish job and the daily check live in one file, so a parse error
+  # takes both down at once. Vite ships a YAML parser, so this costs no new
+  # dependency and no container, which matters because the pool this runs on is
+  # macOS and cannot run container actions.
+  if node -e "
+    const {parse} = require('yaml');
+    const fs = require('fs');
+    const doc = parse(fs.readFileSync('$workflow', 'utf8'));
+    if (!doc || !doc.jobs) throw new Error('no jobs block');
+    for (const j of ['publish','check','notify']) {
+      if (!doc.jobs[j]) throw new Error('missing job: ' + j);
+    }
+  " 2>/dev/null; then
+    pass=$((pass+1)); printf '  ok    the workflow parses and has its three jobs\n'
+  else
+    fail=$((fail+1)); printf '  FAIL  the workflow does not parse, or has lost a job\n'
+  fi
+
   for fn in report_live_state check_deploy_target resolve_main_ref read_live_commit; do
-    if grep -q "$fn" "$workflow"; then
+    # Comments are stripped before matching, both whole-line and trailing.
+    # Grepping the raw file is satisfied by a mention, including one appended to
+    # the end of the line that used to hold the call, which is how deleting the
+    # call outright still reported coverage. Anchoring to the first token is too
+    # strict the other way: two of these are called inside a command
+    # substitution rather than as a bare command.
+    if sed 's/#.*//' "$workflow" | grep -q "${fn}"; then
       pass=$((pass+1)); printf '  ok    the workflow calls %s\n' "$fn"
     else
-      fail=$((fail+1)); printf '  FAIL  the workflow no longer calls %s\n' "$fn"
+      fail=$((fail+1)); printf '  FAIL  the workflow no longer calls %s outside a comment\n' "$fn"
     fi
   done
 fi
