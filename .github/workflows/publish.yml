@@ -47,7 +47,13 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'publish')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The proof loop alone can take ten attempts at twenty seconds plus fifteen
+    # between them, so the budget has to clear that with room for a cold
+    # install and a full prerender. Too tight and the job dies before the step
+    # that writes the annotation explaining why.
+    timeout-minutes: 25
+    outputs:
+      published: ${{ steps.target.outputs.publish }}
     env:
       # One expression, used for the checkout, the build stamp and the proof, so
       # the three cannot disagree. On a workflow_run event `github.sha` is the
@@ -63,29 +69,33 @@ jobs:
           # Needed to prove the commit being deployed is main's tip.
           fetch-depth: 0
 
-      # Restricted to `main`, and refused rather than skipped. A hand-dispatch
-      # from a feature branch would otherwise put unmerged content on the live
-      # site; gating it in the job's `if:` instead would make that dispatch
-      # complete green having done nothing, which is the silent no-op this
-      # workflow exists to remove.
-      - name: Refuse to publish anything that is not main's tip
+      # Whether this run should publish at all. The decision lives in
+      # `check_deploy_target`, in the shell helper, because a `run:` block
+      # cannot be exercised by a test: an earlier version of this guard could
+      # be inverted so it deployed only when the commit was *not* main's tip,
+      # and a full green test run said nothing.
+      - name: Decide whether to publish
+        id: target
         run: |
-          if [ "${GITHUB_REF}" != "refs/heads/main" ] && [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            echo "::error title=Publishing is restricted to main::Dispatched from ${GITHUB_REF}. Publishing a branch would put unmerged content on the live site, and the daily check would then report it healthy because it is a real commit that is newer than main."
-            exit 1
-          fi
-          git fetch --quiet origin main
-          TIP="$(git rev-parse origin/main)"
-          if [ "$DEPLOY_COMMIT" != "$TIP" ]; then
-            echo "::error title=Not main's tip::This run would deploy ${DEPLOY_COMMIT}, but main is at ${TIP}. Re-running a superseded CI run deploys the older commit and rolls the site back, and because the stamp follows the deploy the publish would report success."
-            exit 1
-          fi
+          source .github/scripts/read-live-commit.sh
+          git fetch --quiet origin main || true
+          TIP="$(resolve_main_ref)"
+          set +e
+          check_deploy_target "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$DEPLOY_COMMIT" "$TIP"
+          verdict=$?
+          set -e
+          case "$verdict" in
+            0) echo "publish=yes" >> "$GITHUB_OUTPUT" ;;
+            2) echo "publish=no"  >> "$GITHUB_OUTPUT" ;;
+            *) exit 1 ;;
+          esac
 
       # Fails rather than skips when the credential is absent. A deploy step
       # that quietly does nothing is the defect this workflow removes, and a
       # guard that passes when it cannot run is worse than no guard because it
       # reports green.
       - name: Require the deploy credential
+        if: steps.target.outputs.publish == 'yes'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -107,24 +117,29 @@ jobs:
           fi
 
       - uses: pnpm/action-setup@v6
+        if: steps.target.outputs.publish == 'yes'
         with:
           dest: ${{ runner.temp }}/setup-pnpm
       - uses: actions/setup-node@v7
+        if: steps.target.outputs.publish == 'yes'
         with:
           node-version: 22
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+        if: steps.target.outputs.publish == 'yes'
 
       # `pnpm deploy` is pnpm's own command for something unrelated, so the
       # build and the wrangler call run separately rather than through the
       # package script.
       - name: Build
+        if: steps.target.outputs.publish == 'yes'
         env:
           MARFA_BUILD_COMMIT: ${{ env.DEPLOY_COMMIT }}
         run: pnpm build
 
       - name: Deploy
+        if: steps.target.outputs.publish == 'yes'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -133,6 +148,7 @@ jobs:
       # A deploy that returns zero is not proof that readers are served the new
       # bundle. Ask the site what it is running.
       - name: Prove the live site is serving this commit
+        if: steps.target.outputs.publish == 'yes'
         run: |
           source .github/scripts/read-live-commit.sh
           for attempt in $(seq 1 10); do
@@ -168,12 +184,11 @@ jobs:
       - name: Compare the live commit against main
         run: |
           source .github/scripts/read-live-commit.sh
-          # main's tip, not `github.sha`. On a schedule the two are the same,
-          # but a hand-dispatched check from a feature branch would otherwise
-          # compare the live site against that branch, call a healthy site
-          # behind, and open an alert naming feature commits as unpublished.
-          git fetch --quiet origin main
-          EXPECTED="$(git rev-parse origin/main)"
+          # Tolerant on purpose. Resolving this inline killed the step under
+          # `bash -e` on a checkout with no origin/main, before the classifier
+          # could return the verdict written for exactly that case.
+          git fetch --quiet origin main || true
+          EXPECTED="$(resolve_main_ref)"
 
           # Retried, unlike a one-shot read, because a single DNS or edge blip
           # at 07:23 would otherwise open an alert against a healthy site.
@@ -184,50 +199,10 @@ jobs:
               *) break ;;
             esac
             echo "Attempt ${attempt}: ${LIVE}."
-            [ "$attempt" -lt 3 ] && sleep 20
+            if [ "$attempt" -lt 3 ]; then sleep 20; fi
           done
 
-          VERDICT="$(describe_live_state "$EXPECTED" "$LIVE")"
-          echo "Live: ${LIVE}. Expected: ${EXPECTED}. Verdict: ${VERDICT}."
-
-          case "$VERDICT" in
-            current)
-              echo "Live site is serving main." ; exit 0 ;;
-            ahead)
-              # Benign and expected: a merge landing while this run is in flight
-              # publishes a commit newer than the one the run was created at.
-              echo "Live site is ahead of ${EXPECTED} and still on main. A merge landed while this run was in flight."
-              exit 0 ;;
-            behind)
-              echo "::error title=Published site is behind::The live site reports ${LIVE}; main is ${EXPECTED}."
-              echo "Unpublished commits:"
-              git log --oneline "${LIVE}..${EXPECTED}"
-              exit 1 ;;
-            off-main)
-              echo "::error title=The live site was published from something that is not main::It reports ${LIVE}, which is a real commit here but is not on main. Somebody published from a branch, or main was rewritten."
-              exit 1 ;;
-            unknown-ref)
-              echo "::error title=Cannot compare, main does not resolve here::The live site reports ${LIVE}, but this checkout has no origin/main to compare against. That is a broken checkout rather than a verdict about the site, and it is reported as such because reading it as 'published from somewhere else' is exactly the confidently-wrong diagnostic this guard exists to avoid."
-              exit 1 ;;
-            unknown-commit)
-              echo "::error title=The live commit is unknown here::The site reports ${LIVE}, which is not in this repository's history."
-              exit 1 ;;
-            dirty)
-              echo "::error title=The live site was built from a modified tree::It reports ${LIVE}. Somebody deployed by hand with uncommitted changes, so what is being served matches no commit."
-              exit 1 ;;
-            missing)
-              echo "::error title=The version endpoint is not deployed::The site answered 404. The route was lost in a deploy, or the live bundle predates it."
-              exit 1 ;;
-            unreachable)
-              echo "::error title=No usable response from the docs site::Three attempts. That covers a transport failure and any status that is neither success nor 404, so a redirect, a 403 from bot management, and a genuinely dead site all land here. curl's own reason is in the log above, and it is the thing to read first."
-              exit 1 ;;
-            unreadable)
-              echo "::error title=The version endpoint answered with something else::It returned a 200 that is not the version document."
-              exit 1 ;;
-            *)
-              echo "::error title=Unrecognised verdict::describe_live_state returned '${VERDICT}', which this job does not handle."
-              exit 1 ;;
-          esac
+          report_live_state "$EXPECTED" "$LIVE"
 
   notify:
     # Reports to aic-alerts. Unlike the estate's other notifiers this also fires
@@ -241,8 +216,17 @@ jobs:
     # jobs skipped; alerting on that would open an alert titled for a publishing
     # fault whose real cause is a red CI run that already has its own signal and
     # its own required check.
+    #
+    # A publish run that deliberately deployed nothing — main moved on, and the
+    # run carrying the newer commit publishes it — reports nothing either. It
+    # succeeded without reaching readers, and posting `resolved` for that would
+    # clear a genuine open alert on the strength of a run that published
+    # nothing.
     needs: [publish, check]
-    if: always() && (needs.publish.result != 'skipped' || needs.check.result != 'skipped')
+    if: >-
+      always()
+      && (needs.publish.result != 'skipped' || needs.check.result != 'skipped')
+      && needs.publish.outputs.published != 'no'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

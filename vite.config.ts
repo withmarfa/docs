@@ -54,7 +54,7 @@ export default defineConfig({
         // `no-store`, and the one endpoint whose job is answering "what is
         // live right now" would answer from a cache.
         //
-        // Crawled links arrive as the href was written rather than normalised,
+        // Crawled links arrive as the href was written rather than normalized,
         // so `./version.json` and `/version.json?x=1` both have to miss an
         // exact-string comparison. Compare the final path segment instead.
         filter: (page: { path: string }) => {

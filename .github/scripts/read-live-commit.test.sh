@@ -46,9 +46,12 @@ BODIES = {
     "server_err": (500, "application/json", '{"commit":"2222222222222222222222222222222222222222"}'),
     "forbidden":  (403, "text/html", "<html>blocked</html>"),
     "injected":   (200, "application/json", '{"commit":"deadbeef\\n::error title=INJECTED::hi"}'),
-    "numeric":    (200, "application/json", '{"commit":12345}'),
+    # Eight digits, not five: a five-digit number is rejected by the shape
+    # check anyway, so the fixture proved nothing about the type guard.
+    "numeric":    (200, "application/json", '{"commit":12345678}'),
     "object":     (200, "application/json", '{"commit":{"a":1}}'),
     "padded":     (200, "application/json", '{"commit":"  1111111111111111111111111111111111111111  "}'),
+    "short_hex":  (200, "application/json", '{"commit":"abc"}'),
 }
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -63,12 +66,25 @@ class H(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
     def log_message(self, *a): pass
-http.server.HTTPServer(("127.0.0.1", int(sys.argv[2])), H).serve_forever()
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+# Bind to whatever is free and publish it. A fixed port is a landmine on the
+# self-hosted pool: four runners share one machine, so two docs jobs run
+# concurrently by design, the second fails to bind, and the first job's server
+# answers the second job's requests. That produces a red required check on a
+# pull request that changed nothing to do with this.
+with open(os.path.join(WORK, "port"), "w") as fh:
+    fh.write(str(srv.server_address[1]))
+srv.serve_forever()
 PYEOF
 
-port=8781
 echo ok > "$work/mode"
-python3 "$work/server.py" "$work" "$port" & server_pid=$!
+python3 "$work/server.py" "$work" & server_pid=$!
+port=""
+for _ in $(seq 1 60); do
+  if [ -s "$work/port" ]; then port="$(cat "$work/port")"; break; fi
+  sleep 0.25
+done
+if [ -z "$port" ]; then echo "  FAIL  the fixture server never bound a port"; exit 1; fi
 for _ in $(seq 1 40); do
   curl -s -o /dev/null --max-time 1 "http://127.0.0.1:${port}/version.json" && break || sleep 0.25
 done
@@ -111,7 +127,7 @@ unset DOCS_SITE_URL
 # overrides DOCS_SITE_URL, so without this the default is never exercised and
 # could be pointed anywhere.
 check "the default host" "https://docs.marfa.so/version.json" "$(live_version_url | sed 's/?cb=.*//')"
-check "an override is honoured" "http://example.invalid/version.json" \
+check "an override is honored" "http://example.invalid/version.json" \
       "$(DOCS_SITE_URL=http://example.invalid live_version_url | sed 's/?cb=.*//')"
 check "the cache-buster is present" "yes" "$(live_version_url | grep -q 'cb=' && echo yes || echo no)"
 
@@ -153,19 +169,105 @@ check "a descendant of the remote tip"      off-main       "$(describe_live_stat
 # broken checkout, not evidence that the live commit is off main.
 git update-ref -d refs/remotes/origin/main
 check "no comparison ref is not off-main"   unknown-ref    "$(describe_live_state "$c3" "$c1")"
+check "and resolve_main_ref says so without failing" "origin/main" "$(resolve_main_ref)"
+# Restored: everything below compares against it, and leaving it deleted made
+# four later assertions fail for a reason that had nothing to do with them.
+git update-ref refs/remotes/origin/main "$c4"
 
-# ------------------------------------------------- the workflow handles them
-# Every verdict the classifier can emit needs an arm in the check job. Adding a
-# verdict and forgetting the arm sends it to the catch-all, which reports
-# "unrecognised" on a perfectly good answer.
+# --------------------------------------------- the decision the workflow makes
+# Executed, not grepped. The previous version of this file checked that the
+# workflow contained an arm per verdict and never ran one, so eight mutations
+# of the YAML — including inverting the tip guard and making the deploy proof
+# compare a value against itself — all passed a green run. The logic moved into
+# this file precisely so these can be exercised.
+
+verdict_exit() { # verdict_exit <expected> <live>  -> "<exit> <first annotation>"
+  local out rc
+  out="$(report_live_state "$1" "$2" 2>&1)"; rc=$?
+  printf '%s %s' "$rc" "$(printf '%s' "$out" | grep -o '::error title=[^:]*' | head -1)"
+}
+
+check "current exits 0"        "0 "                                        "$(verdict_exit "$c3" "$c3")"
+check "ahead exits 0"          "0 "                                        "$(verdict_exit "$c1" "$c3")"
+check "behind exits 1, named"  "1 ::error title=Published site is behind"  "$(verdict_exit "$c3" "$c1")"
+check "off-main exits 1"       "1 ::error title=The live site was published from something that is not main" "$(verdict_exit "$c3" "$side")"
+check "dirty exits 1"          "1 ::error title=The live site was built from a modified tree" "$(verdict_exit "$c3" "${c1}-dirty")"
+check "missing exits 1"        "1 ::error title=The version endpoint is not deployed" "$(verdict_exit "$c3" missing)"
+check "unreachable exits 1"    "1 ::error title=No usable response from the docs site" "$(verdict_exit "$c3" unreachable)"
+check "an unknown build exits 1" "1 ::error title=The live site cannot say what it was built from" "$(verdict_exit "$c3" unknown)"
+check "unreadable exits 1"       "1 ::error title=The version endpoint answered with something else" "$(verdict_exit "$c3" unreadable)"
+check "an unknown commit exits 1" "1 ::error title=The live commit is unknown here" "$(verdict_exit "$c3" "$(printf '0%.0s' $(seq 40))")"
+# The arm the last mutation round slipped past: nothing asserted its exit code.
+saved_main="$(git rev-parse refs/remotes/origin/main)"
+git update-ref -d refs/remotes/origin/main
+check "an unresolvable ref exits 1" "1 ::error title=Cannot compare, main does not resolve here" "$(verdict_exit "$c3" "$c1")"
+git update-ref refs/remotes/origin/main "$saved_main"
+
+# `behind` must name the commits, not merely say it is behind.
+behind_out="$(report_live_state "$c3" "$c1" 2>&1 || true)"
+check "behind lists the unpublished commits" "yes" \
+      "$(printf '%s' "$behind_out" | grep -q 'Unpublished commits:' && printf '%s' "$behind_out" | grep -q "$(git log --format=%s -1 "$c3")" && echo yes || echo no)"
+
+# ------------------------------------------------ the publish/refuse decision
+target() { # target <event> <ref> <deploy> <tip> -> exit code
+  check_deploy_target "$1" "$2" "$3" "$4" >/dev/null 2>&1; echo $?
+}
+check "the tip publishes"                    0 "$(target workflow_run refs/heads/main "$c3" "$c3")"
+check "a superseded commit does not publish" 2 "$(target workflow_run refs/heads/main "$c1" "$c3")"
+check "a branch dispatch is refused"         1 "$(target workflow_dispatch refs/heads/side "$side" "$c3")"
+check "a main dispatch at the tip publishes" 0 "$(target workflow_dispatch refs/heads/main "$c3" "$c3")"
+# A branch that happens to point at main's tip is the same commit, so refusing
+# it would be refusing something legitimate.
+check "a branch dispatch at the tip publishes" 0 "$(target workflow_dispatch refs/heads/side "$c3" "$c3")"
+
+# ------------------------------------------- the contract the helper promises
+# "never returns an empty string and never exits non-zero". Nothing tested it,
+# and five mutations that break it survived: every call site used the value as
+# an argument, which discards the status. A one-character regression there
+# removes the retry loop, the verdict and the whole diagnostic.
+echo ok > "$work/mode"
+# The port file is removed first. Left in place from the earlier server, this
+# read the old, now-dead port, every request failed, and all five assertions
+# below passed against `unreachable` without exercising a single one of the
+# paths they name. Found by mutation testing rather than by reading.
+rm -f "$work/port"
+python3 "$work/server.py" "$work" & server_pid=$!
+port=""; for _ in $(seq 1 60); do [ -s "$work/port" ] && { port="$(cat "$work/port")"; break; }; sleep 0.25; done
+if [ -z "$port" ]; then echo "  FAIL  the second fixture server never bound"; exit 1; fi
+export DOCS_SITE_URL="http://127.0.0.1:${port}"
+# Proven live rather than assumed, so a silent fixture failure cannot make the
+# assertions below vacuous a second time.
+echo ok > "$work/mode"
+check "the fixture server is answering" "1111111111111111111111111111111111111111" "$(read_live_commit)"
+for mode in ok notfound server_err html nokey short_hex; do
+  echo "$mode" > "$work/mode"
+  set +e; read_live_commit >/dev/null 2>&1; rc=$?; set -e
+  check "read_live_commit exits 0 on ${mode}" 0 "$rc"
+done
+# A short hex string is the one the shape bounds exist for: `{1,40}` would
+# accept it and hand a three-character value on as a commit.
+echo short_hex > "$work/mode"
+check "a short hex commit is refused" unreadable "$(read_live_commit)"
+set +e; DOCS_SITE_URL='http://127.0.0.1:9' read_live_commit >/dev/null 2>&1; rc=$?; set -e
+check "read_live_commit exits 0 when unreachable" 0 "$rc"
+kill "$server_pid" 2>/dev/null || true; server_pid=""
+unset DOCS_SITE_URL
+
+# ------------------------------------------------- the workflow calls into it
+# Presence, not behavior — the behavior is covered above. This catches the
+# workflow being rewired to do its own thing again.
 cd "$here/../.."
 workflow=".github/workflows/publish.yml"
-if [ -f "$workflow" ]; then
-  for verdict in current ahead behind off-main unknown-commit unknown-ref dirty missing unreachable unreadable; do
-    if grep -Eq "^ +${verdict}\)" "$workflow"; then
-      pass=$((pass+1)); printf '  ok    the workflow handles %s\n' "$verdict"
+if [ ! -f "$workflow" ]; then
+  # Reporting green because the file moved is how the only workflow coverage
+  # here would disappear without anyone noticing.
+  fail=$((fail+1)); printf '  FAIL  %s does not exist\n' "$workflow"
+else
+  for fn in report_live_state check_deploy_target resolve_main_ref read_live_commit; do
+    if grep -q "$fn" "$workflow"; then
+      pass=$((pass+1)); printf '  ok    the workflow calls %s\n' "$fn"
     else
-      fail=$((fail+1)); printf '  FAIL  the workflow has no arm for %s\n' "$verdict"
+      fail=$((fail+1)); printf '  FAIL  the workflow no longer calls %s\n' "$fn"
     fi
   done
 fi

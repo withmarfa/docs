@@ -30,7 +30,7 @@ live_version_url() {
   base="${DOCS_SITE_URL:-https://docs.marfa.so}"
   # A cache-buster on the query string. The route sets `no-store`, but the one
   # endpoint whose whole job is answering "what is live right now" should not
-  # depend on an edge honouring a header.
+  # depend on an edge honoring a header.
   printf '%s/version.json?cb=%s-%s' "${base%/}" "${GITHUB_RUN_ID:-$$}" "${RANDOM:-0}"
 }
 
@@ -82,6 +82,21 @@ read_live_commit() {
   printf '%s' "$commit"
 }
 
+# resolve_main_ref
+#
+# main's tip, or the literal ref name when it does not resolve. Never fails.
+#
+# The workflow used to do this inline as `EXPECTED="$(git rev-parse origin/main)"`,
+# which dies under `bash -e` on a checkout without that ref — before
+# `describe_live_state` is called, so the `unknown-ref` verdict written for
+# exactly that case could never fire and the reader got a raw `fatal:` and
+# exit 128 instead.
+resolve_main_ref() {
+  local main_ref="${MAIN_REF:-origin/main}"
+  git rev-parse --verify --quiet "${main_ref}^{commit}" 2>/dev/null \
+    || printf '%s' "$main_ref"
+}
+
 # describe_live_state <expected-sha> <live-value>
 #
 # Answers with one word. The caller owns the wording and the exit code; keeping
@@ -106,6 +121,10 @@ describe_live_state() {
   case "$live" in
     missing|unreachable|unreadable) printf '%s' "$live"; return 0 ;;
     *-dirty) printf 'dirty'; return 0 ;;
+    # What the build stamps when it runs with no git. The bundle is real and
+    # its provenance is not, which is a different thing from a lost route or a
+    # modified tree and reads badly as either.
+    unknown) printf 'unknown-build'; return 0 ;;
   esac
 
   [ "$live" = "$expected" ] && { printf 'current'; return 0; }
@@ -133,4 +152,94 @@ describe_live_state() {
     printf 'ahead'; return 0
   fi
   printf 'behind'
+}
+
+# report_live_state <expected> <live>
+#
+# The daily check's whole decision: verdict to wording to exit code. It lives
+# here rather than in the workflow because a `run:` block cannot be executed by
+# a test, and the previous version of this guard proved that matters — eight
+# separate mutations of the YAML, including inverting the tip check and making
+# the proof compare a value against itself, all passed a green test run.
+# Anything in this file can be mutated and caught.
+#
+# Writes annotations to stdout. Returns 0 when the site is current or benignly
+# ahead, 1 otherwise.
+report_live_state() {
+  local expected="$1" live="$2" verdict
+  verdict="$(describe_live_state "$expected" "$live")"
+  echo "Live: ${live}. Expected: ${expected}. Verdict: ${verdict}."
+
+  case "$verdict" in
+    current)
+      echo "Live site is serving main."
+      return 0 ;;
+    ahead)
+      # Benign and expected: a merge landing while this run is in flight
+      # publishes a commit newer than the one the run was created at.
+      echo "Live site is ahead of ${expected} and still on main. A merge landed while this run was in flight."
+      return 0 ;;
+    behind)
+      echo "::error title=Published site is behind::The live site reports ${live}; main is ${expected}."
+      echo "Unpublished commits:"
+      git log --oneline "${live}..${expected}" 2>/dev/null || echo "  (could not list them)"
+      return 1 ;;
+    off-main)
+      echo "::error title=The live site was published from something that is not main::It reports ${live}, which is a real commit here but is not on main. Somebody published from a branch, or main was rewritten."
+      return 1 ;;
+    unknown-commit)
+      echo "::error title=The live commit is unknown here::The site reports ${live}, which is not in this repository's history."
+      return 1 ;;
+    unknown-ref)
+      echo "::error title=Cannot compare, main does not resolve here::The live site reports ${live}, but this checkout has no origin/main to compare against. That is a broken checkout rather than a verdict about the site, and it is reported as such because reading it as published-from-somewhere-else is exactly the confidently-wrong diagnostic this guard exists to avoid."
+      return 1 ;;
+    dirty)
+      echo "::error title=The live site was built from a modified tree::It reports ${live}. Somebody deployed by hand with uncommitted changes, so what is being served matches no commit."
+      return 1 ;;
+    unknown-build)
+      echo "::error title=The live site cannot say what it was built from::It reports an unknown commit, which is what the build stamps when it runs with no git available. The bundle is real; its provenance is not recorded."
+      return 1 ;;
+    missing)
+      echo "::error title=The version endpoint is not deployed::The site answered 404. The route was lost in a deploy, or the live bundle predates it."
+      return 1 ;;
+    unreachable)
+      echo "::error title=No usable response from the docs site::That covers a transport failure and any status that is neither success nor 404, so a redirect, a 403 from bot management, and a genuinely dead site all land here. curl's own reason is in the log above, and it is the thing to read first."
+      return 1 ;;
+    unreadable)
+      echo "::error title=The version endpoint answered with something else::It returned a 200 that is not the version document."
+      return 1 ;;
+    *)
+      echo "::error title=Unrecognized verdict::describe_live_state returned '${verdict}', which this guard does not handle."
+      return 1 ;;
+  esac
+}
+
+# check_deploy_target <event-name> <ref> <deploy-commit> <tip>
+#
+# Whether the publish job should go ahead. Writes its reasoning to stdout.
+#
+#   0  deploy
+#   1  refuse loudly, this should not have been attempted
+#   2  do not deploy and do not alert: main has moved on, and the run that
+#      carries the newer commit publishes it
+check_deploy_target() {
+  local event="$1" ref="$2" deploy="$3" tip="$4"
+
+  if [ "$event" = "workflow_dispatch" ] && [ "$ref" != "refs/heads/main" ] && [ "$deploy" != "$tip" ]; then
+    echo "::error title=Publishing is restricted to main::Dispatched from ${ref}, at ${deploy}, while main is at ${tip}. Publishing a branch would put unmerged content on the live site, and the daily check would then report it healthy because it is a real commit."
+    return 1
+  fi
+
+  if [ "$deploy" != "$tip" ]; then
+    # Not an error. Two ordinary things reach here: merges landing a few
+    # minutes apart, and a re-run of a superseded run. In both, the newer
+    # commit is what should be live and something else publishes it, so
+    # deploying this one would roll the site back. Refusing loudly would
+    # open an alert saying publishing is broken when it is working.
+    echo "Not publishing ${deploy}: main has moved to ${tip}, and the run carrying that commit publishes it. Deploying this one would roll the site back."
+    return 2
+  fi
+
+  echo "Publishing ${deploy}, which is main's tip."
+  return 0
 }
