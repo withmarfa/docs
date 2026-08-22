@@ -6,6 +6,10 @@
 # again within a day. Both halves of that are silent, so both are closed here.
 # A merge publishes, and a site that has fallen behind says so.
 #
+# The comparison itself lives in `.github/scripts/read-live-commit.sh` and is
+# covered by the test beside it, so it can be run on demand rather than only
+# unattended.
+#
 # Hosted runners on purpose. A deploy job holds a credential, and a job whose
 # point is reporting that something broke cannot run on the machine whose
 # failure it is meant to report.
@@ -24,9 +28,6 @@ on:
   # did not take.
   schedule:
     - cron: '23 7 * * *'
-  # Both paths run by hand. The check path especially: a comparison that only
-  # ever runs unattended at 07:23 is a comparison nobody has watched work,
-  # which is how the first version of this file carried two bugs inside it.
   workflow_dispatch:
     inputs:
       mode:
@@ -42,17 +43,25 @@ concurrency:
 jobs:
   publish:
     name: Publish to Cloudflare
+    # A hand-dispatched publish is restricted to `main`. Without that, one click
+    # from a feature branch puts unmerged content on the live site, and the
+    # daily check then certifies it as healthy every morning after.
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
-      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'publish')
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # One expression, used for the checkout, the build stamp and the proof, so
+      # the three cannot disagree. On a workflow_run event `github.sha` is the
+      # default branch head rather than the commit CI passed on, which is how a
+      # re-run of an older CI run would have deployed old content while stamping
+      # current main, silently rolling the site back behind a green check.
+      DEPLOY_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+      DOCS_SITE_URL: ${{ vars.DOCS_SITE_URL }}
     steps:
       - uses: actions/checkout@v7
         with:
-          # On a workflow_run event the default ref is the branch tip at trigger
-          # time, which is not necessarily the commit CI passed on. Build what
-          # was tested.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       # Fails rather than skips when the credential is absent. A deploy step
@@ -66,15 +75,14 @@ jobs:
         run: |
           if [ -z "${CLOUDFLARE_ACCOUNT_ID}" ]; then
             echo "::error title=No account pinned::The CLOUDFLARE_ACCOUNT_ID repository variable is not set. Without it wrangler picks the account from the token, and a token reaching more than one fails on account selection with an error that reads nothing like its cause."
-            echo "The account id is deployment-specific, so it is a repository variable rather than a committed value: a third party deploying this site has their own."
             exit 1
           fi
           if [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
             echo "::error title=No deploy credential::CLOUDFLARE_API_TOKEN is not set on this repository, so this commit has not been published and the live site is now behind main."
-            echo "It wants an account-owned token on the marfa Cloudflare account, scoped to:"
+            echo "It wants an account-owned token scoped to:"
             echo "  Account, Workers Scripts, Edit"
-            echo "  Zone, Workers Routes, Edit, on marfa.so for the docs.marfa.so custom domain"
-            echo "  Zone, Zone, Read, on marfa.so"
+            echo "  Zone, Workers Routes, Edit, on the zone carrying the docs custom domain"
+            echo "  Zone, Zone, Read, on the same zone"
             echo "A broader token is not a shortcut. One that reaches more than one account makes"
             echo "wrangler fail on account selection, with an error reading nothing like the cause."
             echo "Until it exists, publishing is 'pnpm build && pnpm exec wrangler deploy' from an authenticated shell."
@@ -94,7 +102,10 @@ jobs:
       # `pnpm deploy` is pnpm's own command for something unrelated, so the
       # build and the wrangler call run separately rather than through the
       # package script.
-      - run: pnpm build
+      - name: Build
+        env:
+          MARFA_BUILD_COMMIT: ${{ env.DEPLOY_COMMIT }}
+        run: pnpm build
 
       - name: Deploy
         env:
@@ -105,20 +116,18 @@ jobs:
       # A deploy that returns zero is not proof that readers are served the new
       # bundle. Ask the site what it is running.
       - name: Prove the live site is serving this commit
-        env:
-          EXPECTED: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           source .github/scripts/read-live-commit.sh
           for attempt in $(seq 1 10); do
             LIVE="$(read_live_commit)"
-            if [ "$LIVE" = "$EXPECTED" ]; then
+            if [ "$LIVE" = "$DEPLOY_COMMIT" ]; then
               echo "Live site is serving ${LIVE}."
               exit 0
             fi
-            echo "Attempt ${attempt}: live site reports ${LIVE}, expected ${EXPECTED}."
+            echo "Attempt ${attempt}: live site reports ${LIVE}, expected ${DEPLOY_COMMIT}."
             if [ "$attempt" -lt 10 ]; then sleep 15; fi
           done
-          echo "::error title=Deploy did not take::wrangler reported success, but https://docs.marfa.so/version.json still reports ${LIVE} rather than ${EXPECTED}."
+          echo "::error title=Deploy did not take::wrangler reported success, but the live version endpoint still reports ${LIVE} rather than ${DEPLOY_COMMIT}."
           exit 1
 
   check:
@@ -128,13 +137,15 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'check')
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      DOCS_SITE_URL: ${{ vars.DOCS_SITE_URL }}
     steps:
       - uses: actions/checkout@v7
         with:
           # Full history. The value of this job is naming which commits are
-          # unpublished, and the default shallow checkout holds only the tip,
-          # so every real comparison would fall through to "built from
-          # something else" and send the reader after a phantom.
+          # unpublished, and on the default shallow checkout only the tip
+          # resolves, so every real comparison would fall through to
+          # "unknown-commit" and send the reader after a phantom.
           fetch-depth: 0
 
       - name: Compare the live commit against main
@@ -142,43 +153,57 @@ jobs:
           EXPECTED: ${{ github.sha }}
         run: |
           source .github/scripts/read-live-commit.sh
-          LIVE="$(read_live_commit)"
 
-          if [ "$LIVE" = "$EXPECTED" ]; then
-            echo "Live site is serving ${LIVE}, which is main."
-            exit 0
-          fi
+          # Retried, unlike a one-shot read, because a single DNS or edge blip
+          # at 07:23 would otherwise open an alert against a healthy site.
+          for attempt in 1 2 3; do
+            LIVE="$(read_live_commit)"
+            case "$LIVE" in
+              unreachable|unreadable) ;;
+              *) break ;;
+            esac
+            echo "Attempt ${attempt}: ${LIVE}."
+            [ "$attempt" -lt 3 ] && sleep 20
+          done
 
-          case "$LIVE" in
-            unreachable)
-              echo "::error title=The docs site did not answer::https://docs.marfa.so/version.json is unreachable. That is an availability problem rather than a publishing one."
+          VERDICT="$(describe_live_state "$EXPECTED" "$LIVE")"
+          echo "Live: ${LIVE}. Expected: ${EXPECTED}. Verdict: ${VERDICT}."
+
+          case "$VERDICT" in
+            current)
+              echo "Live site is serving main." ; exit 0 ;;
+            ahead)
+              # Benign and expected: a merge landing while this run is in flight
+              # publishes a commit newer than the one the run was created at.
+              echo "Live site is ahead of ${EXPECTED} and still on main. A merge landed while this run was in flight."
+              exit 0 ;;
+            behind)
+              echo "::error title=Published site is behind::The live site reports ${LIVE}; main is ${EXPECTED}."
+              echo "Unpublished commits:"
+              git log --oneline "${LIVE}..${EXPECTED}"
               exit 1 ;;
-            unreadable)
-              echo "::error title=The version endpoint answered with something else::https://docs.marfa.so/version.json returned a response that is not the version document. The route may have been lost in a deploy."
+            off-main)
+              echo "::error title=The live site was published from something that is not main::It reports ${LIVE}, which is a real commit here but is not on main. Somebody published from a branch, or main was rewritten."
               exit 1 ;;
-            *-dirty)
+            unknown-commit)
+              echo "::error title=The live commit is unknown here::The site reports ${LIVE}, which is not in this repository's history."
+              exit 1 ;;
+            dirty)
               echo "::error title=The live site was built from a modified tree::It reports ${LIVE}. Somebody deployed by hand with uncommitted changes, so what is being served matches no commit."
               exit 1 ;;
+            missing)
+              echo "::error title=The version endpoint is not deployed::The site answered 404. The route was lost in a deploy, or the live bundle predates it."
+              exit 1 ;;
+            unreachable)
+              echo "::error title=The docs site did not answer::Three attempts, no usable response. That is an availability problem rather than a publishing one."
+              exit 1 ;;
+            unreadable)
+              echo "::error title=The version endpoint answered with something else::It returned a 200 that is not the version document."
+              exit 1 ;;
+            *)
+              echo "::error title=Unrecognised verdict::describe_live_state returned '${VERDICT}', which this job does not handle."
+              exit 1 ;;
           esac
-
-          if ! git cat-file -e "${LIVE}^{commit}" 2>/dev/null; then
-            echo "::error title=The live commit is unknown here::The site reports ${LIVE}, which is not in this repository's history."
-            exit 1
-          fi
-
-          # Ahead is benign and happens by construction: a merge landing while
-          # this run is in flight publishes a commit newer than the one the run
-          # was created at. Reporting that as behind would be a false alarm on
-          # an ordinary morning.
-          if git merge-base --is-ancestor "$EXPECTED" "$LIVE"; then
-            echo "Live site is serving ${LIVE}, which is ahead of ${EXPECTED}. A merge landed while this run was in flight."
-            exit 0
-          fi
-
-          echo "::error title=Published site is behind::The live site reports ${LIVE}; main is ${EXPECTED}."
-          echo "Unpublished commits:"
-          git log --oneline "${LIVE}..${EXPECTED}"
-          exit 1
 
   notify:
     # Reports to aic-alerts. Unlike the estate's other notifiers this also fires
@@ -186,8 +211,14 @@ jobs:
     # the silent case this workflow exists for and nobody is watching the run.
     # The key is stable, so a repeated failure holds one alert open rather than
     # opening a new one per merge.
+    #
+    # Skipped entirely when neither job ran. `workflow_run` fires on every CI
+    # conclusion, so a failed or cancelled CI run on main reaches here with both
+    # jobs skipped; alerting on that would open an alert titled for a publishing
+    # fault whose real cause is a red CI run that already has its own signal and
+    # its own required check.
     needs: [publish, check]
-    if: always()
+    if: always() && (needs.publish.result != 'skipped' || needs.check.result != 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -203,7 +234,7 @@ jobs:
             *,failure,*|*,timed_out,*) STATE=open;     TITLE="The docs site is not publishing" ;;
             *,cancelled,*)             STATE=open;     TITLE="$WORKFLOW did not complete on $REPO" ;;
             *,success,*)               STATE=resolved; TITLE="The docs site is publishing again" ;;
-            *)                         STATE=open;     TITLE="$WORKFLOW ran but neither job did anything on $REPO" ;;
+            *)                         STATE=open;     TITLE="$WORKFLOW reached its notifier having proved nothing on $REPO" ;;
           esac
           jq -n --arg t "$TITLE" --arg s "$STATE" --arg k "github/$REPO/$WORKFLOW" \
                 --arg u "$RUN_URL" --arg r "$REPO" --arg w "$WORKFLOW" --arg j "$RESULTS" \
@@ -216,5 +247,4 @@ jobs:
           # which is defensible where the workflow is a required context and its
           # red run is the signal. This one gates nothing, so a swallowed POST
           # would leave no signal anywhere, which is the original defect
-          # reproduced inside the thing built to prevent it. A red notify job is
-          # at least a red run.
+          # reproduced inside the thing built to prevent it.

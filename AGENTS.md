@@ -23,6 +23,29 @@ pnpm preview        # serve the production build locally
 pnpm run deploy     # pnpm build && wrangler deploy (pnpm deploy is a built-in)
 ```
 
+## Publishing
+
+**Merging to `main` publishes the site.** The `Publish` workflow runs once CI has
+passed on `main`, builds the commit CI passed on, deploys it, and then fetches
+`/version.json` from the live site to confirm the deploy actually took. A deploy
+that returns zero is not proof that readers were served the new bundle.
+
+`/version.json` reports the commit the running bundle was built from, which
+makes "is my change live?" a fetch rather than a comparison of published prose
+against the repository. A build from a modified working tree reports
+`<sha>-dirty`, because a hand-deploy that stamped a clean sha would defeat every
+check downstream of it.
+
+A daily run compares the live commit against `main` and names the unpublished
+commits if it has fallen behind. Both paths report to the alerting service, and
+both can be run by hand from the Actions tab, the check path included.
+
+**This exists because none of it did.** Publishing was `pnpm run deploy` from
+somebody's shell with nothing reporting that nobody had run it, and the site
+reached fifteen merged commits behind while every run on `main` was green.
+`pnpm run deploy` still works and is the fallback if the credential is ever
+missing, but it should not be the normal path.
+
 ## Content shape
 
 Each `.mdx` page starts with YAML frontmatter:

@@ -9,13 +9,18 @@ import { cloudflare } from '@cloudflare/vite-plugin';
 // The commit this bundle was built from, served at /version.json so that
 // "is this change live?" is a fetch rather than a reading of the prose.
 //
-// The dirty suffix is the load-bearing part. A hand-deploy from a modified
-// tree would otherwise stamp the bundle with a commit whose tree does not
-// contain the code being served, and the staleness check would compare equal
-// and report green. That is the exact failure this endpoint exists to catch,
-// so it must not be the first thing the endpoint does.
+// MARFA_BUILD_COMMIT is set by the publish workflow to the same expression it
+// checks out, so the stamp cannot disagree with what was deployed.
+// Deliberately not GITHUB_SHA: on a `workflow_run` event that is the default
+// branch head rather than the commit the triggering run passed on, so a re-run
+// of an older run would have deployed old content while stamping current main
+// and every later check would have compared equal and reported green.
+//
+// The dirty suffix is the other half. A hand-deploy from a modified tree would
+// otherwise stamp a commit whose tree does not contain the code being served,
+// which defeats the same check the same way.
 function buildCommit(): string {
-  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
+  if (process.env.MARFA_BUILD_COMMIT) return process.env.MARFA_BUILD_COMMIT;
   try {
     const head = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
     const dirty = execSync('git status --porcelain', { encoding: 'utf8' }).trim();
@@ -46,9 +51,16 @@ export default defineConfig({
         // into the asset store. Prerender crawls links, so a docs page
         // linking to it would otherwise turn it into a static asset served
         // with the asset store's cache headers instead of the route's
-        // `no-store`. Excluding it explicitly means the endpoint's
-        // correctness does not depend on nobody linking it.
-        filter: (page: { path: string }) => page.path !== '/version.json',
+        // `no-store`, and the one endpoint whose job is answering "what is
+        // live right now" would answer from a cache.
+        //
+        // Crawled links arrive as the href was written rather than normalised,
+        // so `./version.json` and `/version.json?x=1` both have to miss an
+        // exact-string comparison. Compare the final path segment instead.
+        filter: (page: { path: string }) => {
+          const path = page.path.split('?')[0].split('#')[0];
+          return path.replace(/^.*\//, '') !== 'version.json';
+        },
       },
     }),
     react(),
