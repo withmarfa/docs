@@ -43,12 +43,9 @@ concurrency:
 jobs:
   publish:
     name: Publish to Cloudflare
-    # A hand-dispatched publish is restricted to `main`. Without that, one click
-    # from a feature branch puts unmerged content on the live site, and the
-    # daily check then certifies it as healthy every morning after.
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
-      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && github.ref == 'refs/heads/main')
+      || (github.event_name == 'workflow_dispatch' && inputs.mode == 'publish')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -63,6 +60,26 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # Needed to prove the commit being deployed is main's tip.
+          fetch-depth: 0
+
+      # Restricted to `main`, and refused rather than skipped. A hand-dispatch
+      # from a feature branch would otherwise put unmerged content on the live
+      # site; gating it in the job's `if:` instead would make that dispatch
+      # complete green having done nothing, which is the silent no-op this
+      # workflow exists to remove.
+      - name: Refuse to publish anything that is not main's tip
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ] && [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "::error title=Publishing is restricted to main::Dispatched from ${GITHUB_REF}. Publishing a branch would put unmerged content on the live site, and the daily check would then report it healthy because it is a real commit that is newer than main."
+            exit 1
+          fi
+          git fetch --quiet origin main
+          TIP="$(git rev-parse origin/main)"
+          if [ "$DEPLOY_COMMIT" != "$TIP" ]; then
+            echo "::error title=Not main's tip::This run would deploy ${DEPLOY_COMMIT}, but main is at ${TIP}. Re-running a superseded CI run deploys the older commit and rolls the site back, and because the stamp follows the deploy the publish would report success."
+            exit 1
+          fi
 
       # Fails rather than skips when the credential is absent. A deploy step
       # that quietly does nothing is the defect this workflow removes, and a
@@ -149,10 +166,14 @@ jobs:
           fetch-depth: 0
 
       - name: Compare the live commit against main
-        env:
-          EXPECTED: ${{ github.sha }}
         run: |
           source .github/scripts/read-live-commit.sh
+          # main's tip, not `github.sha`. On a schedule the two are the same,
+          # but a hand-dispatched check from a feature branch would otherwise
+          # compare the live site against that branch, call a healthy site
+          # behind, and open an alert naming feature commits as unpublished.
+          git fetch --quiet origin main
+          EXPECTED="$(git rev-parse origin/main)"
 
           # Retried, unlike a one-shot read, because a single DNS or edge blip
           # at 07:23 would otherwise open an alert against a healthy site.
@@ -185,6 +206,9 @@ jobs:
             off-main)
               echo "::error title=The live site was published from something that is not main::It reports ${LIVE}, which is a real commit here but is not on main. Somebody published from a branch, or main was rewritten."
               exit 1 ;;
+            unknown-ref)
+              echo "::error title=Cannot compare, main does not resolve here::The live site reports ${LIVE}, but this checkout has no origin/main to compare against. That is a broken checkout rather than a verdict about the site, and it is reported as such because reading it as 'published from somewhere else' is exactly the confidently-wrong diagnostic this guard exists to avoid."
+              exit 1 ;;
             unknown-commit)
               echo "::error title=The live commit is unknown here::The site reports ${LIVE}, which is not in this repository's history."
               exit 1 ;;
@@ -195,7 +219,7 @@ jobs:
               echo "::error title=The version endpoint is not deployed::The site answered 404. The route was lost in a deploy, or the live bundle predates it."
               exit 1 ;;
             unreachable)
-              echo "::error title=The docs site did not answer::Three attempts, no usable response. That is an availability problem rather than a publishing one."
+              echo "::error title=No usable response from the docs site::Three attempts. That covers a transport failure and any status that is neither success nor 404, so a redirect, a 403 from bot management, and a genuinely dead site all land here. curl's own reason is in the log above, and it is the thing to read first."
               exit 1 ;;
             unreadable)
               echo "::error title=The version endpoint answered with something else::It returned a 200 that is not the version document."
@@ -230,11 +254,22 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # `needs.*.result` only ever holds success, failure, cancelled or
+          # skipped; a job hitting `timeout-minutes` reports failure, so there
+          # is no `timed_out` arm to write.
+          #
+          # Cancellation exits without reporting, matching the conformance
+          # suite rather than the drift guard. The drift guard treats a cancel
+          # as an alert because it runs on the self-hosted pool and a run that
+          # never gets picked up is how a dead pool presents. These jobs are
+          # hosted, so a cancel here is GitHub dropping a queued run when
+          # several merges land together, and alerting on it would open
+          # "did not complete" on an ordinary busy morning.
           case ",$RESULTS," in
-            *,failure,*|*,timed_out,*) STATE=open;     TITLE="The docs site is not publishing" ;;
-            *,cancelled,*)             STATE=open;     TITLE="$WORKFLOW did not complete on $REPO" ;;
-            *,success,*)               STATE=resolved; TITLE="The docs site is publishing again" ;;
-            *)                         STATE=open;     TITLE="$WORKFLOW reached its notifier having proved nothing on $REPO" ;;
+            *,failure,*)   STATE=open;     TITLE="The docs site is not publishing" ;;
+            *,cancelled,*) echo "Run cancelled; nothing to report."; exit 0 ;;
+            *,success,*)   STATE=resolved; TITLE="The docs site is publishing again" ;;
+            *)             STATE=open;     TITLE="$WORKFLOW reached its notifier having proved nothing on $REPO" ;;
           esac
           jq -n --arg t "$TITLE" --arg s "$STATE" --arg k "github/$REPO/$WORKFLOW" \
                 --arg u "$RUN_URL" --arg r "$REPO" --arg w "$WORKFLOW" --arg j "$RESULTS" \
