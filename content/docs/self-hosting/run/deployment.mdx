@@ -148,7 +148,8 @@ Every Marfa server exposes `GET /health`, returning a JSON report of the server 
   "auth_mode": "hosted",
   "components": {
     "database": { "status": "ok", "latency_ms": 77 },
-    "blob_storage": { "status": "ok", "latency_ms": 67 }
+    "blob_storage": { "status": "ok", "latency_ms": 67 },
+    "dead_letters": { "status": "ok", "count": 0, "oldest_failed_at": null }
   },
   "database_connections": {
     "total": 9,
@@ -191,6 +192,42 @@ so an unbounded check turns the one endpoint whose job is to report the
 server's state into the one that cannot. A `degraded` database component most
 often means the connection pool is fully held, which is worth knowing as
 itself rather than as a timeout at the monitor.
+
+### Dispatches that gave up
+
+`dead_letters` reports integration dispatches that exhausted their retries and
+stopped. A non-zero `count` sets the component to `degraded` and the top-level
+`status` with it, so a monitor watching one field sees it.
+
+```json
+"dead_letters": {
+  "status": "degraded",
+  "count": 2,
+  "oldest_failed_at": "2026-08-20T13:39:39.925Z",
+  "connection_ids": ["01a01ef6-fb73-7c70-8cce-4dc9d02ff14d"],
+  "error": "2 dispatches gave up and reached nobody; replay or discard through the dead-letter route"
+}
+```
+
+`connection_ids` names the affected connections, up to ten, so the response
+that says something is wrong also says where to look. `count` is exact
+regardless of that cap.
+
+**It stays degraded until somebody acts on it.** A dead letter is an
+unresolved failure and no amount of elapsed time makes it not one, so the
+component clears when the jobs are replayed or discarded through
+`POST /admin/runtime/dead-letters/{id}/replay` and not before.
+
+This exists because the failure was previously honest in one place and
+invisible everywhere else: the dispatch was recorded on an admin route, while
+the connection that dropped the work went on reporting itself healthy and
+every liveness check stayed green. A captured email sat dropped for two days
+that way.
+
+The component is **absent entirely** on a deployment with no local integration
+substrate, which has no dispatch queue, and absent rather than zero when the
+probe cannot answer. A zero would be a claim that nothing has failed, made by
+a check that could not find out.
 
 ### Connection usage
 
