@@ -1,0 +1,146 @@
+# Publishing the docs site, and proving it happened.
+#
+# Merging here used to change nothing a reader sees: the deploy was `pnpm
+# deploy` from somebody's shell, and nothing reported that nobody had run it.
+# The site sat six merges behind, was cleared by hand, and was fifteen behind
+# again within a day. Both halves of that are silent, so both are closed here —
+# a merge publishes, and a site that has fallen behind says so.
+#
+# Hosted runners on purpose. Deploy jobs hold a credential and must not run on
+# the self-hosted pool, and a job that reports the estate's health cannot live
+# on the machine whose failure it is meant to report.
+name: Publish
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Catches a publish that stopped working for a reason no merge would show:
+    # an expired token, a revoked permission, a deploy that reported success
+    # and did not take.
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to Cloudflare
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Fails rather than skips when the credential is absent. A deploy step
+      # that quietly does nothing is the exact defect this workflow exists to
+      # remove, and a guard that passes when it cannot run is worse than no
+      # guard because it reports green.
+      - name: Require the deploy credential
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
+            echo "::error title=No deploy credential::CLOUDFLARE_API_TOKEN is not set on this repository, so this merge has not been published and the live site is now behind main."
+            echo "Create an account-owned API token on the marfa Cloudflare account with:"
+            echo "  Account · Workers Scripts · Edit"
+            echo "  Zone · Workers Routes · Edit   (marfa.so, for the docs.marfa.so custom domain)"
+            echo "Then add it as the repository secret CLOUDFLARE_API_TOKEN."
+            echo "Until it exists, publishing is 'pnpm deploy' from a shell with wrangler already authenticated."
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v6
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # `pnpm deploy` is pnpm's own command for something else entirely, so the
+      # build and the wrangler call are run separately rather than through the
+      # package script.
+      - run: pnpm build
+
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: pnpm exec wrangler deploy
+
+      # A deploy that returns zero is not proof that readers are served the new
+      # bundle. Ask the site what it is running.
+      - name: Prove the live site is serving this commit
+        env:
+          EXPECTED: ${{ github.sha }}
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            LIVE="$(curl -sS --max-time 20 https://docs.marfa.so/version.json | jq -r '.commit // "unreadable"')"
+            if [ "$LIVE" = "$EXPECTED" ]; then
+              echo "Live site is serving ${LIVE}."
+              exit 0
+            fi
+            echo "Attempt ${attempt}: live site reports ${LIVE}, expected ${EXPECTED}."
+            sleep 10
+          done
+          echo "::error title=Deploy did not take::wrangler reported success but https://docs.marfa.so/version.json still reports ${LIVE}."
+          exit 1
+
+  check:
+    name: Is the live site current
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compare the live commit against main
+        env:
+          EXPECTED: ${{ github.sha }}
+        run: |
+          LIVE="$(curl -sS --max-time 20 https://docs.marfa.so/version.json | jq -r '.commit // "unreadable"')"
+          if [ "$LIVE" = "$EXPECTED" ]; then
+            echo "Live site is serving ${LIVE}, which is main."
+            exit 0
+          fi
+          echo "::error title=Published site is behind::The live site reports ${LIVE}; main is ${EXPECTED}."
+          if git cat-file -e "${LIVE}^{commit}" 2>/dev/null; then
+            echo "Unpublished commits:"
+            git log --oneline "${LIVE}..${EXPECTED}"
+          else
+            echo "The live commit is not in this repository's history, so the site was built from something else."
+          fi
+          exit 1
+
+  notify:
+    # Reports to aic-alerts. Unlike the estate's other notifiers this also fires
+    # on a push failure, because a merge that failed to publish is precisely the
+    # silent case this workflow exists for and nobody is watching the run.
+    # The key is stable, so a repeated failure holds one alert open rather than
+    # opening a new one per merge.
+    needs: [publish, check]
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'push')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report outcome to aic-alerts
+        env:
+          ALERTS_SECRET: ${{ secrets.ALERTS_SECRET }}
+          RESULTS: ${{ join(needs.*.result, ',') }}
+          WORKFLOW: ${{ github.workflow }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          case ",$RESULTS," in
+            *,failure,*|*,timed_out,*) STATE=open;     TITLE="The docs site is not publishing" ;;
+            *,cancelled,*)             STATE=open;     TITLE="$WORKFLOW did not complete on $REPO" ;;
+            *)                         STATE=resolved; TITLE="The docs site is publishing again" ;;
+          esac
+          jq -n --arg t "$TITLE" --arg s "$STATE" --arg k "github/$REPO/$WORKFLOW" \
+                --arg u "$RUN_URL" --arg r "$REPO" --arg w "$WORKFLOW" --arg j "$RESULTS" \
+            '{source:"github",severity:"warning",title:$t,state:$s,key:$k,link:$u,
+              fields:{Repository:$r,Workflow:$w,Jobs:$j}}' \
+          | curl -sS --fail-with-body --max-time 20 -X POST https://alerts.cyzr.me/alert \
+              -H "Authorization: Bearer $ALERTS_SECRET" \
+              -H "Content-Type: application/json" --data @- \
+          || echo "aic-alerts POST did not succeed (see above); not failing the run over it."
