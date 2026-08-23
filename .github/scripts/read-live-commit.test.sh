@@ -120,7 +120,6 @@ check "the failure reason reaches the log" "yes" "$([ -n "$transport_err" ] && e
 check "a trailing slash is handled" "1111111111111111111111111111111111111111" \
       "$(echo ok > "$work/mode"; DOCS_SITE_URL="http://127.0.0.1:${port}/" read_live_commit)"
 
-kill "$server_pid" 2>/dev/null || true; server_pid=""
 unset DOCS_SITE_URL
 
 # The default target, reachable without a network call. Every case above
@@ -273,18 +272,14 @@ git update-ref refs/remotes/origin/main "$saved_ref"
 # and five mutations that break it survived: every call site used the value as
 # an argument, which discards the status. A one-character regression there
 # removes the retry loop, the verdict and the whole diagnostic.
-echo ok > "$work/mode"
-# The port file is removed first. Left in place from the earlier server, this
-# read the old, now-dead port, every request failed, and all five assertions
-# below passed against `unreachable` without exercising a single one of the
-# paths they name. Found by mutation testing rather than by reading.
-rm -f "$work/port"
-python3 "$work/server.py" "$work" & server_pid=$!
-port=""; for _ in $(seq 1 60); do [ -s "$work/port" ] && { port="$(cat "$work/port")"; break; }; sleep 0.25; done
-if [ -z "$port" ]; then echo "  FAIL  the second fixture server never bound"; exit 1; fi
+# The same server as the HTTP section above, still running. An earlier version
+# stopped it and started a second one, which bought nothing and gave the suite
+# another chance to fail on a busy machine: the restart timed out under load
+# and reported "the second fixture server never bound" on a change that had
+# nothing to do with it.
 export DOCS_SITE_URL="http://127.0.0.1:${port}"
 # Proven live rather than assumed, so a silent fixture failure cannot make the
-# assertions below vacuous a second time.
+# assertions below vacuous.
 echo ok > "$work/mode"
 check "the fixture server is answering" "1111111111111111111111111111111111111111" "$(read_live_commit)"
 for mode in ok notfound server_err html nokey short_hex; do
