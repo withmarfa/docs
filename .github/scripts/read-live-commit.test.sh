@@ -33,7 +33,7 @@ trap cleanup EXIT
 # always requests the same path, so the mode file is how a single server covers
 # every response shape.
 cat > "$work/server.py" <<'PYEOF'
-import http.server, os, sys
+import http.server, os, socketserver, sys
 WORK = sys.argv[1]
 BODIES = {
     "ok":         (200, "application/json", '{"commit":"1111111111111111111111111111111111111111"}'),
@@ -66,25 +66,53 @@ class H(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
     def log_message(self, *a): pass
-srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+class Server(http.server.HTTPServer):
+    # HTTPServer.server_bind() calls socket.getfqdn() to set server_name, which
+    # is a reverse-DNS lookup with no timeout. Nothing here reads server_name,
+    # and a fixture that can block on the network before it binds is a fixture
+    # that reports a DNS stall as a broken publish guard. Bind, and no more.
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+srv = Server(("127.0.0.1", 0), H)
 # Bind to whatever is free and publish it. A fixed port is a landmine on the
 # self-hosted pool: four runners share one machine, so two docs jobs run
 # concurrently by design, the second fails to bind, and the first job's server
 # answers the second job's requests. That produces a red required check on a
 # pull request that changed nothing to do with this.
-with open(os.path.join(WORK, "port"), "w") as fh:
+#
+# Written to a temporary name and renamed, so a reader never sees the file
+# exist while it is still empty.
+tmp = os.path.join(WORK, "port.tmp")
+with open(tmp, "w") as fh:
     fh.write(str(srv.server_address[1]))
+os.replace(tmp, os.path.join(WORK, "port"))
+print(f"fixture listening on {srv.server_address[1]}", file=sys.stderr, flush=True)
 srv.serve_forever()
 PYEOF
 
 echo ok > "$work/mode"
-python3 "$work/server.py" "$work" & server_pid=$!
+# Unbuffered and logged. A previous failure here said only that the port never
+# appeared, with the process still alive and nothing to say why, which left the
+# cause a guess. Whatever it prints now arrives in the job output.
+python3 -u "$work/server.py" "$work" > "$work/server.log" 2>&1 & server_pid=$!
 port=""
-for _ in $(seq 1 60); do
+for _ in $(seq 1 120); do
   if [ -s "$work/port" ]; then port="$(cat "$work/port")"; break; fi
   sleep 0.25
 done
-if [ -z "$port" ]; then echo "  FAIL  the fixture server never bound a port"; exit 1; fi
+if [ -z "$port" ]; then
+  echo "  FAIL  the fixture server never bound a port"
+  if kill -0 "$server_pid" 2>/dev/null; then
+    echo "        the process is still running, so it is stuck before the bind"
+  else
+    echo "        the process has exited"
+  fi
+  echo "        --- fixture output ---"
+  sed 's/^/        /' "$work/server.log" 2>/dev/null || echo "        (none)"
+  exit 1
+fi
 for _ in $(seq 1 40); do
   curl -s -o /dev/null --max-time 1 "http://127.0.0.1:${port}/version.json" && break || sleep 0.25
 done
@@ -120,7 +148,6 @@ check "the failure reason reaches the log" "yes" "$([ -n "$transport_err" ] && e
 check "a trailing slash is handled" "1111111111111111111111111111111111111111" \
       "$(echo ok > "$work/mode"; DOCS_SITE_URL="http://127.0.0.1:${port}/" read_live_commit)"
 
-kill "$server_pid" 2>/dev/null || true; server_pid=""
 unset DOCS_SITE_URL
 
 # The default target, reachable without a network call. Every case above
@@ -273,18 +300,14 @@ git update-ref refs/remotes/origin/main "$saved_ref"
 # and five mutations that break it survived: every call site used the value as
 # an argument, which discards the status. A one-character regression there
 # removes the retry loop, the verdict and the whole diagnostic.
-echo ok > "$work/mode"
-# The port file is removed first. Left in place from the earlier server, this
-# read the old, now-dead port, every request failed, and all five assertions
-# below passed against `unreachable` without exercising a single one of the
-# paths they name. Found by mutation testing rather than by reading.
-rm -f "$work/port"
-python3 "$work/server.py" "$work" & server_pid=$!
-port=""; for _ in $(seq 1 60); do [ -s "$work/port" ] && { port="$(cat "$work/port")"; break; }; sleep 0.25; done
-if [ -z "$port" ]; then echo "  FAIL  the second fixture server never bound"; exit 1; fi
+# The same server as the HTTP section above, still running. An earlier version
+# stopped it and started a second one, which bought nothing and gave the suite
+# another chance to fail on a busy machine: the restart timed out under load
+# and reported "the second fixture server never bound" on a change that had
+# nothing to do with it.
 export DOCS_SITE_URL="http://127.0.0.1:${port}"
 # Proven live rather than assumed, so a silent fixture failure cannot make the
-# assertions below vacuous a second time.
+# assertions below vacuous.
 echo ok > "$work/mode"
 check "the fixture server is answering" "1111111111111111111111111111111111111111" "$(read_live_commit)"
 for mode in ok notfound server_err html nokey short_hex; do
