@@ -143,7 +143,7 @@ curl -X PUT "$MARFA_API_URL/spaces/me/config" \
   -H "Authorization: Bearer $MARFA_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"activity_retention_day": 30}'
-# 400 validation_error — no such field. Nothing was written.
+# 400 validation_error: no such field. Nothing was written.
 ```
 
 Reads are not strict, deliberately. A client that refuses to parse a field added to the platform after it shipped is the same failure from the other side, and a response has never cleared anything.
@@ -152,14 +152,21 @@ Reads are not strict, deliberately. A client that refuses to parse a field added
 
 `max_event_hop_budget` is the other field a space writes through this route, and it is not a retention window. An integration reacting to an item event can write items itself, which produce further events; the budget is how many of those steps a single chain may take before the platform drops it as a suspected loop.
 
-The default is five. Raise it for a genuinely deep pipeline, lower it to tighten the leash, and `0` stops integration-originated events propagating at all. Writes a person makes are never subject to it.
+The default is five, and the ceiling is a hundred. Raise it for a genuinely deep pipeline, lower it to tighten the leash, and `0` stops integration-originated events propagating at all. Writes a person makes are never subject to it.
+
+Changing one field means sending all of them, because the write is a full replacement. Read, change, send back:
 
 ```bash
-curl -X PUT "$MARFA_API_URL/spaces/me/config" \
+curl -s "$MARFA_API_URL/spaces/me/config" \
   -H "Authorization: Bearer $MARFA_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"max_event_hop_budget": 8}'
+  | jq '.max_event_hop_budget = 8' \
+  | curl -X PUT "$MARFA_API_URL/spaces/me/config" \
+      -H "Authorization: Bearer $MARFA_API_KEY" \
+      -H "Content-Type: application/json" \
+      --data-binary @-
 ```
+
+Sending `{"max_event_hop_budget": 8}` on its own would set the budget and clear everything else the space had configured. That is the same harm a mistyped key used to do, reached with a key that is spelled correctly, and no validation can catch it because the request is exactly what a full replacement means.
 
 A change takes up to thirty seconds to apply, which is the cache the publish path keeps so a hot loop is not a database read per event.
 
