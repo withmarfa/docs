@@ -132,6 +132,37 @@ An unset field falls back to the instance default. `0` disables that job for tha
 
 Raising a window costs no deploy, which matters when a space is about to do something worth keeping more evidence of — a load test, a migration, an investigation. Lower it again afterwards rather than leaving it raised.
 
+### Writing space config
+
+`PUT /spaces/me/config` is a **full replacement, not a merge**. The body becomes the config: a field you leave out is a field you have cleared. Read the current config first and send it back with your change applied, or send the complete shape you want.
+
+Because of that, the route **refuses a key it does not recognize** rather than ignoring it. A single mistyped field name would otherwise be a request that reports success and clears every override the space had.
+
+```bash
+curl -X PUT "$MARFA_API_URL/spaces/me/config" \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"activity_retention_day": 30}'
+# 400 validation_error — no such field. Nothing was written.
+```
+
+Reads are not strict, deliberately. A client that refuses to parse a field added to the platform after it shipped is the same failure from the other side, and a response has never cleared anything.
+
+### The event hop budget
+
+`max_event_hop_budget` is the other field a space writes through this route, and it is not a retention window. An integration reacting to an item event can write items itself, which produce further events; the budget is how many of those steps a single chain may take before the platform drops it as a suspected loop.
+
+The default is five. Raise it for a genuinely deep pipeline, lower it to tighten the leash, and `0` stops integration-originated events propagating at all. Writes a person makes are never subject to it.
+
+```bash
+curl -X PUT "$MARFA_API_URL/spaces/me/config" \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"max_event_hop_budget": 8}'
+```
+
+A change takes up to thirty seconds to apply, which is the cache the publish path keeps so a hot loop is not a database read per event.
+
 ### Revoked key retention
 
 Two jobs remove revoked API keys, split by what minted them. The runtime-credential reaper above hard-deletes revoked **runtime credentials** seven days after revocation — machine artifacts minted per dispatch, where a week of post-revocation visibility is ample. A separate reaper removes revoked **ordinary keys** after thirty days, on the reasoning that a credential a person or a test suite created is worth reading back for longer. Neither window is tunable; both run on `MARFA_ACTIVITY_PURGE_INTERVAL_MS`.
