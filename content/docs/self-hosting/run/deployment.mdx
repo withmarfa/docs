@@ -148,7 +148,8 @@ Every Marfa server exposes `GET /health`, returning a JSON report of the server 
   "auth_mode": "hosted",
   "components": {
     "database": { "status": "ok", "latency_ms": 77 },
-    "blob_storage": { "status": "ok", "latency_ms": 67 }
+    "blob_storage": { "status": "ok", "latency_ms": 67 },
+    "dead_letters": { "status": "ok", "count": 0 }
   },
   "database_connections": {
     "total": 9,
@@ -191,6 +192,45 @@ so an unbounded check turns the one endpoint whose job is to report the
 server's state into the one that cannot. A `degraded` database component most
 often means the connection pool is fully held, which is worth knowing as
 itself rather than as a timeout at the monitor.
+
+### Dispatches that gave up
+
+`dead_letters` counts integration dispatches that exhausted their retries and
+stopped. A non-zero `count` sets the component to `degraded` and the top-level
+`status` with it, so a monitor watching one field sees it.
+
+```json
+"dead_letters": { "status": "degraded", "count": 2 }
+```
+
+**A count, and nothing else.** Which connections are affected is
+platform-admin data and this endpoint is unauthenticated, so the number is
+published and the identities are not. `GET /admin/runtime/dead-letters` names
+them behind auth, and `POST /admin/runtime/dead-letters/{id}/replay` puts one
+back on the queue.
+
+This exists because the failure was previously honest in one place and
+invisible everywhere else. The dispatch was recorded on an admin route
+somebody has to think to call, while the connection that dropped the work went
+on reporting itself active and healthy, because the connection was fine and
+the work was not. Every liveness check stayed green. A captured email sat
+dropped for two days that way.
+
+<Callout type="warn">
+  A dead letter is evidence with a shelf life. The queue deletes a failed job
+  seven days after it fails, so a component left alone eventually returns to
+  `ok` on its own and the job becomes unreplayable. The row goes at seven days
+  whether or not anyone was watching, which is the argument for the alert
+  rather than against it — but it does mean this is something to act on rather
+  than something to acknowledge.
+</Callout>
+
+The component is **absent entirely**, rather than reporting zero, on a
+deployment that runs no integrations: there is no dispatch queue there, and a
+zero would be a claim about something that does not exist. It is also absent
+when the count itself could not be read, for the same reason a zero would then
+be the one wrong answer — the `database` component above has already said what
+stopped it.
 
 ### Connection usage
 
