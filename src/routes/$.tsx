@@ -22,7 +22,10 @@ import {
 import { Suspense } from 'react';
 import { useMDXComponents } from '@/components/mdx';
 import { APIPage } from '@/components/api-page';
-import { PageTableOfContents } from '@/components/page-table-of-contents';
+import {
+  PageTableOfContents,
+  PageTableOfContentsPopover,
+} from '@/components/page-table-of-contents';
 
 // Legacy URL redirects — old URLs that drifted during the Fumadocs port and the
 // later restructures. Keep the entries here so a stale link out in the wild
@@ -170,7 +173,10 @@ const clientLoader = browserCollections.docs.createClientLoader({
           enabled: true,
           component: <PageTableOfContents />,
         }}
-        tableOfContentPopover={{ enabled: toc.length > 1 }}
+        tableOfContentPopover={{
+          enabled: toc.length > 1,
+          component: <PageTableOfContentsPopover />,
+        }}
         footer={{ component: <PageFooter className="mt-12" /> }}
       >
         {/* Title and the Copy button share the top row; the description spans the
