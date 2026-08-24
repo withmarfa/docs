@@ -214,16 +214,28 @@ Two consequences worth knowing before you publish.
 
 **A Connection that reaches nothing new moves on its own.** A background pass compares each live Connection against the newest registered version of its own Integration and applies the move where it widens nothing, writing an activity row naming the version change. That is not a decision anybody needs to make: the Connection is resolving a manifest its own deployment already ships, and holding it back protects nobody while leaving the drift number permanently above zero.
 
-`GET /connections/{id}/upgrade` reports whether a newer version is registered and exactly what it would newly be allowed to do. `POST` to the same path performs the move, which is how a Connection the pass will not touch is moved.
+`GET /connections/{id}/upgrade` reports whether a newer version is registered and exactly what it would newly be allowed to do. `POST` to the same path performs the move, for a Connection the pass has simply not reached yet. It does not override the two things the pass declines: a widening move needs the approval route below, and one that would strand a mapping is refused everywhere.
 
 An upgrade keeps the Connection's cursor state, so an integration resumes where it left off rather than re-pulling the upstream corpus. It re-validates the stored configuration against the new manifest and refuses the whole move if the settings no longer satisfy it, rather than leaving a Connection bound to a manifest its own configuration contradicts. It revokes the Connection's runtime credentials, so the next one minted projects its permissions from the manifest the Connection now resolves.
 
-**A stored user mapping holds a Connection back from the background pass**, even when the move widens nothing. A version that stops declaring support for mappings would strand one the space had already set, so the pass leaves a Connection carrying a mapping where it is rather than moving it onto a manifest that cannot honor it. That check belongs to the pass alone: `POST /connections/{id}/upgrade` does not make it, and a manifest dropping mapping support does not count as widening, so moving such a Connection by hand succeeds and strands the mapping. Read the mapping first if you are moving one deliberately.
+**A stored user mapping holds a Connection back**, even when the move widens nothing. A version that stops declaring support for mappings would strand one the space had already set: the rules would keep being applied and nothing could edit them again. Every route refuses the move with `409`, and the background pass leaves such a Connection alone rather than attempting it. Clear the mapping first if you want the Connection to move; clearing still works, it is only editing that the newer version takes away. This is not a consent question, because agreeing to it would not bring the mapping back.
 
-**Widening needs consent.** The upgrade compares what the two manifests grant, not their version numbers: target types, extension and edge permissions, credential requirements, and configuration fields that become required. A version that takes the same or less proceeds. A version that reaches further is refused with `403`, naming exactly what is new. This is why adding a target type to a shipped Integration is a bigger change than it looks: everyone who installed it has to agree to the new one.
+**Widening needs consent.** The upgrade compares what the two manifests grant, not their version numbers: target types, extension and edge permissions, credential requirements, and configuration fields that become required. A version that takes the same or less proceeds. A version that reaches further is refused with `403`, naming exactly what is new. One that would also strand a mapping is refused with `409` for that instead, since no amount of agreeing brings a mapping back. This is why adding a target type to a shipped Integration is a bigger change than it looks: everyone who installed it has to agree to the new one.
+
+**Approving one is a separate route.** `GET /connections/upgrades/pending` lists the Connections in your space held back this way, each with the version it would move to and the sentences describing what that move would newly allow. `POST /connections/{id}/upgrade/approve` performs it, and the body names the version being approved:
+
+```json
+{ "to_version": "2.0.0" }
+```
+
+Naming the version is what keeps an approval attached to what was read. If a further version registers between the list and the approval, the request is refused with `409` and names the candidate it found instead, rather than carrying the decision onto a widening nobody saw. Approving a move that turns out to need no approval is refused the same way, because the ordinary upgrade route already handles those and the background pass will take them without being asked.
+
+Both routes need space-admin authority, which a platform credential also carries.
+
+A Connection that would *both* widen and strand a mapping appears on neither list: it is not a decision anybody can make, so it is counted as blocked rather than offered for approval. `GET /connections/{id}/upgrade` on that Connection still reports what it would change, and the refusal names the mapping. The plain `POST /connections/{id}/upgrade` cannot approve anything: consent is not readable from its request body, so a caller cannot approve on its own behalf.
 
 <Callout type="warn">
-  **Approving a widening upgrade is not built yet.** The refusal is real and the platform knows exactly what would be newly granted, but there is no surface a space admin can approve it from, so a Connection whose Integration widens its reach stays on the version it installed. Uninstalling and reinstalling is the only route today, at the cost of the cursor state.
+  **There is no screen for this yet.** The routes above are the whole surface today, so approving a widening upgrade means calling the API. A Connection left unapproved stays on the version it installed and keeps working.
 </Callout>
 
 **Triggers are not part of that comparison, deliberately.** A trigger changes when an Integration runs, not what it can reach, so adding one is not a widening and moves on its own. Reach is target types, the permission maps and the credential requirements.
