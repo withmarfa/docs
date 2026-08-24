@@ -1,4 +1,12 @@
 import type * as PageTree from 'fumadocs-core/page-tree';
+import {
+  Children,
+  Fragment,
+  createElement,
+  isValidElement,
+  type ReactNode,
+} from 'react';
+import { ApiMethod, parseApiMethod } from '@/components/api-method';
 
 // Group the API reference's pages. The hand-written MDX pages (overview,
 // authentication, permissions, errors, rate limits) lead the sidebar as flat
@@ -56,6 +64,44 @@ function urlSlug(url: string): string {
   return segs[segs.length - 1] ?? '';
 }
 
+function decorateOperationName(name: PageTree.Item['name']): PageTree.Item['name'] {
+  if (!isValidElement<{ children?: ReactNode }>(name)) return name;
+
+  const children = Children.toArray(name.props.children);
+  const methodIndex = children.findIndex((child) => {
+    if (!isValidElement<{ children?: ReactNode }>(child)) return false;
+    return parseApiMethod(child.props.children) !== undefined;
+  });
+  if (methodIndex === -1) return name;
+
+  const methodNode = children[methodIndex];
+  if (!isValidElement<{ children?: ReactNode }>(methodNode)) return name;
+  const method = parseApiMethod(methodNode.props.children);
+  if (!method) return name;
+
+  const title = children.filter(
+    (child, index) =>
+      index !== methodIndex &&
+      (typeof child !== 'string' || child.trim().length > 0),
+  );
+
+  return createElement(
+    Fragment,
+    null,
+    createElement(ApiMethod, {
+      key: 'method',
+      method,
+    }),
+    ...title,
+  );
+}
+
+function decorateOperation(node: PageTree.Node): PageTree.Node {
+  return node.type === 'page'
+    ? { ...node, name: decorateOperationName(node.name) }
+    : node;
+}
+
 function regroupTagFolders(children: PageTree.Node[]): PageTree.Node[] {
   const folderByName = new Map<string, PageTree.Folder>();
   const pageBySlug = new Map<string, PageTree.Item>();
@@ -70,6 +116,7 @@ function regroupTagFolders(children: PageTree.Node[]): PageTree.Node[] {
       folderByName.set(nodeName(node.name).trim().toLowerCase(), {
         ...node,
         defaultOpen: false,
+        children: node.children.map(decorateOperation),
       });
       continue;
     }
