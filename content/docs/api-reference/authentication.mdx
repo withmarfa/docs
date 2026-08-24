@@ -192,7 +192,7 @@ Token requests may carry the RFC 8707 `resource` parameter naming the endpoint t
 
 ### Scopes
 
-Scopes use a verb-on-resource grammar that mirrors the permission maps:
+The grammar has five shapes. Three are verb-on-resource and mirror the permission maps; two carry no verb, because what they name is not a level of access to a resource.
 
 | Scope | Meaning |
 |---|---|
@@ -202,15 +202,61 @@ Scopes use a verb-on-resource grammar that mirrors the permission maps:
 | `edge.<type>:write` | Create / delete edges of this type (dual-gated with type write). |
 | `metadata:read` | Read tags. |
 | `metadata:write` | Write tags. |
+| `metadata.<sub>:read` | Read a specific metadata sub-resource. |
 | `metadata.<sub>:write` | Write a specific metadata sub-resource: `metadata.types:write` gates `POST /types`; `metadata.edge_types:write` gates `POST /edge-types`. |
+| `capability.<surface>` | Authority over one administrative surface. No verb; see [Capability scopes](#capability-scopes). |
+| `openid`, `profile`, `email`, `offline_access` | The standard OIDC literals. No verb, and no reach into a space's data: they govern identity claims and refresh-token issuance. |
 
 Wildcards are allowed on type scopes: `core.bookmark.*:read` covers bookmark and all its subtypes; `user.*:write` covers every runtime type in the `user.*` namespace; `*:read` covers everything. A wildcard is how an app reaches a space's runtime `user.*` types, which are never enumerated individually in the static scope allowlist.
+
+Wildcards stop there. The edge grammar takes them (`edge.*:read`, `edge.user.*:write`), the metadata grammar does not, and the two verb-less shapes are closed sets of exact literals.
 
 OAuth access tokens are enforced against exactly the scopes granted at consent. The `space_admin` role bypass that applies to API keys does not apply to OAuth tokens — the signed-in user's role is the ceiling on what an app can be granted, not a pass-through of the user's own access. An app granted only `*:read` can read but not write, even when the user is a space admin.
 
 Extension namespaces are not part of the OAuth scope grammar — extension reads and writes are governed by the credential's `extension_permissions` map (see [Permissions](/api-reference/permissions)). OAuth tokens carry no extension permissions: the map on an OAuth-derived credential is always empty, so the extension surface is reachable only with an API key.
 
 The consent screen groups the requested scopes into [permission bundles](/guides/identity/permission-bundles); expanding a group reveals a per-type toggle for each scope it covers.
+
+### Capability scopes
+
+The type, edge, and metadata scopes all name a resource and a level of access to it. A space's administrative surfaces are not resources in that sense: registering an outbound webhook, installing a connection, minting a key, emptying the trash for good. A capability scope names one of those surfaces.
+
+| Scope | What it covers |
+|---|---|
+| `capability.webhooks` | Outbound webhook subscriptions: what fires, and where the events are delivered. |
+| `capability.connections` | Installing, configuring, and removing connections to upstream services, and deciding what each one can reach. Covers a connection's data mapping, its inbound receipt endpoints, and the leased tokens it issues. |
+| `capability.upstream_access` | Calling a connected service directly through the proxy, spending that connection's live credential. |
+| `capability.schema` | Changing and removing item and relation type definitions that already exist. Registering a new one is a different grant, below. |
+| `capability.space_usage` | Reading the space's quotas and how much of each is used. |
+| `capability.space_settings` | The space's configuration and its schema-enforcement settings. |
+| `capability.audit_read` | Reading the space's audit log. |
+| `capability.item_purge` | Permanently deleting an item, past the trash. |
+| `capability.keys` | Creating, listing, and revoking the space's own API keys. |
+| `capability.credentials` | Registering and removing the upstream client secrets and API tokens that connections are installed against. |
+| `capability.app_grants` | Listing and revoking the other apps the space has authorized. |
+
+Several of those boundaries are decisions rather than groupings, and each is where an obvious grouping would have handed a holder more than the name implies.
+
+- **Using a connected account is not managing connections.** The proxy spends a connection's live upstream token, so `capability.upstream_access` reaches the person's actual account at the third-party service. Installing and removing connections does not.
+- **Grant administration is not key management.** The two sit beside each other, and folding them together would let an app trusted to rotate a key enumerate and revoke every other app the space has authorized.
+- **Credentials are not connections.** Registering the client secrets and tokens a connection is installed against is its own authority. Leased tokens are not here: one carries no reach beyond the connection that minted it.
+- **Schema change is not schema registration.** Registering a type is already governed by `metadata.types:write` and `metadata.edge_types:write`. `capability.schema` covers only what that grammar does not, so the two never describe the same act.
+- **Usage is not settings.** An app doing ordinary work may want to know how much room is left. That should not require the power to rewrite the space's enforcement policy, which is also what decides how long the audit trail survives.
+- **Outbound and inbound webhooks are different things.** `capability.webhooks` covers the subscriptions that send a space's events out. A connection's inbound receipt endpoints belong to that connection.
+
+Two rules govern the literal, and both are enforced rather than conventional.
+
+**The set is closed.** Those eleven are the whole of it. A literal under the `capability.` root that is not one of them is not a scope at all: it fails to parse, and it is refused wherever a scope is validated. The root is reserved alongside `core`, `system`, `app`, `user`, and `marfa` (see [Namespaces](/guides/schema/namespaces)), so no type can ever be registered under it and a capability literal can never collide with a type identifier.
+
+**A capability carries no verb.** `capability.webhooks:read` is not a narrower form of `capability.webhooks`; it is invalid. The read/write axis describes how far into a resource a grant reaches, and an administrative surface has no such axis: an app either holds the authority to manage a space's webhooks or it does not. Where a surface does divide, the division is in the name, which is why `capability.audit_read` is one capability and there is no writing counterpart.
+
+Capability scopes reach none of the three permission maps. A granted capability projects into `type_permissions`, `edge_permissions`, and `metadata_permissions` exactly as much as an OIDC literal does, which is not at all, so holding one widens nothing on the data plane.
+
+<Callout type="warn">
+No route consults a capability scope. The grammar recognizes these literals and the reserved root protects them, but the administrative surfaces above are gated on the caller's role, exactly as they were: a `space_admin` OAuth token reaches them without holding any capability, and holding one grants nothing a role does not already carry. Do not read a capability scope as a fence.
+</Callout>
+
+Because no bundle offers them and the scope allowlist does not enumerate them, an authorization request naming a capability is refused with `invalid_scope`.
 
 ### Partial grants
 
