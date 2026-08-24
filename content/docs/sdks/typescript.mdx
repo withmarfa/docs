@@ -50,6 +50,7 @@ The `callback` strategy pairs with a per-call resolver — see [Conflict handlin
 The client exposes one namespace per resource:
 
 - `client.items` — create, read, list, update, delete, transition
+- `client.occurrences` — list the events falling in a time window, recurring series expanded
 - `client.edges` — create, update properties, delete, list, edge types
 - `client.metadata` — tags, tier, state mutations
 - `client.blobs` — upload, download, presigned URL, exists
@@ -60,6 +61,7 @@ The client exposes one namespace per resource:
 - `client.connections` — install, list, get, configure, pause, resume, uninstall
 - `client.admin` — operator surface (system-space admin)
 - `client.auth` — sign-in flows plus `account.{requestDelete, confirmDelete, cancel}` post-sign-in lifecycle
+- `client.events` — subscribe to the change stream
 - `client.profile` — current user profile
 
 ### Items
@@ -246,6 +248,44 @@ const walk = paginate(async (cursor) => {
 
 const entries = await collect(walk, { maxItems: 20_000 });
 ```
+
+## Occurrences
+
+A recurring event is stored as one item carrying its rule, so `client.items.list` returns the series once, dated to its first occurrence. `client.occurrences.list` asks what is actually on the calendar: over the window you name, it returns the events that fall there, with recurring series expanded from their rules and stored exceptions standing in for the occurrences they replace.
+
+```typescript
+const { data, series_errors } = await client.occurrences.list({
+  from: "2026-05-01T00:00:00Z",   // inclusive; a Date is accepted
+  to: "2026-05-27T00:00:00Z",     // exclusive
+  type: "core.event",             // optional; defaults to every event type you can read
+});
+```
+
+[Recurring events](/guides/querying/recurring-events) carries the semantics: what an entry holds, how a rule expands, how a moved occurrence is stored, and how a series' own zone anchors its schedule. What follows is what the SDK adds on top.
+
+### The window is refused, never trimmed
+
+The window is required, and two ceilings bound it. A span of more than 400 days is refused, and so is a result holding more than 5,000 occurrences across every series in it. Both raise `ValidationError`, and neither is quietly narrowed into something that would have worked: a calendar missing its last week looks exactly like a calendar, so the caller is told and decides what to narrow.
+
+Read the limit off `err.details`, as `max_days` or `max_occurrences`, rather than hard-coding it. The second ceiling depends on what the window holds rather than on the dates, so the same span can pass against one space and be refused against another.
+
+A third refusal wears the same shape and does not answer to the same fix. When a space holds more events than one read can scan, the call fails with `max_events_scanned` and neither of the other keys, and asking for a narrower window does not clear it: the passes that gather series and their exceptions cannot be windowed, so they read the space whole however little you ask about. Branch on which key is present rather than retrying smaller.
+
+Neither span nor count is pre-checked locally. An over-long window makes the round trip and is refused by the server, which keeps one authority over the limit rather than a copy in every client that ages out of step with it. The one refusal raised without a request is a `Date` the SDK cannot convert. It throws `ValidationError` too, so there is a single catch shape, and carries `code: "invalid_window_bound"` with `status: 0` because no server saw it.
+
+### Series errors are part of the answer
+
+The call returns the whole envelope rather than a bare array. Beside `data` it carries `window`, the window the server read, and `series_errors`, one entry per series that could not be expanded.
+
+A series that fails does not fail the read, so those entries are the only record that something is missing. A caller that ignores them renders a calendar with a repeating meeting silently absent from it.
+
+This is also the one list that is not paginated. The window is the bound, so there is no cursor and no `listAll` sibling; a window too large to answer is refused rather than paged.
+
+### Instants stay instants
+
+`starts_at` and `ends_at` are the ISO 8601 UTC strings the server sent, and the SDK does not parse them. Turning an instant into a `Date` and rendering it collapses every event onto whatever zone the runtime sits in.
+
+Each event's own zone travels on the item instead: `properties.timezone` anchors the start, `properties.end_timezone` covers an event that ends somewhere else, and `properties.all_day` marks one that occupies calendar dates rather than a span of time. A weekly 09:00 meeting in `Europe/Berlin` is 08:00Z before the spring transition and 07:00Z after it, and that pair reads as one recurring hour only with the zone alongside.
 
 ## Conflict handling
 
