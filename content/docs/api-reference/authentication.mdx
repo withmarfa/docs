@@ -264,15 +264,23 @@ Users can approve a subset of requested scopes. The returned `scope` parameter i
 
 ### Consent persistence
 
-Consent is remembered per client and scope set. When a signed-in user reaches the authorization flow for an app they have already approved, and the requested scopes are covered by the prior grant (equal or narrower), the server approves silently with no consent screen and redirects straight back to `redirect_uri` with a fresh authorization code. Signing out and back in does not re-prompt.
+Consent is remembered per client. When a signed-in user reaches the authorization flow for an app they have already approved, and the standing grant reaches everything the request asks for, the server approves silently with no consent screen and redirects straight back to `redirect_uri` with a fresh authorization code. Signing out and back in does not re-prompt.
+
+**Reach, not set membership**, and the difference decides both directions:
+
+- **A broader grant covers a narrower request.** A standing grant of `core.*:read` covers a later request naming `core.note:read`, so an app that starts asking for one type by name does not send the user back through consent for access they already gave. Breadth is the wildcard and only the wildcard: a grant on `core.media` does not reach `core.media.book`, because `core.media` names one type. `core.media.*` names that type and everything under it.
+- **Asking for less is not automatically covered.** A grant can pair a broad scope with a narrower one at a lower level — `*:write` alongside `core.*:read` means "write anything, but only read what is under `core`". Dropping `core.*:read` from a later request leaves a strictly smaller scope list that asks for **more**: the narrower scope was what held the broader one down, and without it the token could write `core.note`. That renders the consent screen.
+- **A capability scope and an OIDC literal are reached by naming them exactly.** No wildcard covers either, and one never covers another.
 
 Re-consent happens when it should:
 
-- **Scope widening.** A request for any scope the user has not already granted renders the consent screen with a diff — new permissions are listed separately from those already allowed.
+- **Scope widening.** A request for anything the standing grant does not reach renders the consent screen with a diff — new permissions are listed separately from those already allowed.
 - **`prompt=consent`.** An app that wants an explicit re-approval passes the OIDC `prompt=consent` parameter; the consent screen always renders.
 - **Revocation.** Revoking a grant (via the grants surface below) deletes the stored consent, so the next authorization request renders the consent screen again.
 
 `prompt=none` behaves per OIDC: with a covering grant the server issues a code silently; without one it redirects back to the app's registered `redirect_uri` with `error=consent_required`, never rendering UI.
+
+**Request a stable scope set.** The cheapest way to never meet a re-prompt is to ask for the same thing every time. An app that computes its request from the server's advertised bundles will find the set moves whenever the platform registers a type, and each move is a scope the standing grant has not seen. Deciding the set at release time, and re-authorizing deliberately when a release changes it, is what keeps a returning user out of the consent screen.
 
 ### Authorization requests expire
 
