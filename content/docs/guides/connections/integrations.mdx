@@ -98,6 +98,33 @@ PUT /connections/{id}/mapping
 - **Validation is wholesale at PUT**, against the connection's space registry: target types must resolve (reserved namespaces refused), every assigned field must exist on its target, and required target fields must be covered. Each refusal names the field. A record that fails its target type's validation at write time surfaces as a per-item activity row — never a silent drop.
 - Only integrations declaring `supports_user_mappings` accept a mapping; the surface refuses the rest so configuration cannot silently do nothing.
 
+### What a mapping asks of the integration
+
+The engine is the platform's and is injected into every dispatch, so nothing about evaluating rules is an integration author's problem. What is theirs is presenting each record and honoring the answer, and the four rules below are the whole of it. An integration declares `supports_user_mappings` once these hold, and not before: the flag is what the configuration surface reads, so declaring it early means a mapping saves, validates, reports success, and is never read by anything.
+
+**Present the upstream-faithful record, not the item you were about to write.** `ctx.mapping.resolve(record)` takes the object as the upstream system gave it to you. Conditions are dot-paths into that record, so handing the engine your own built shape silently narrows what anybody can write a rule against.
+
+**A skip must still count as seen, and what that costs depends on how you dedupe.** `resolve` answers `skip` when the person's rules say this record should not be stored. Write nothing, and then make sure the record will not simply be offered again forever. For a sweep that dedupes on an upstream watermark or a sync token, that is usually nothing at all: the mark advances for the page whatever each record decided. For anything keeping a per-record ledger — a delivery ring, a seen-id set, a per-item checkpoint — the skip has to write to it, and it is the one place where the write does not follow a successful upsert and so is easy to leave out. Establish which of the two you are rather than copying another integration, because both shapes exist and they look alike from the handler. Emit nothing per record either way: the resolver counts skips and emits one summary a run.
+
+**On `user`, stamp your own `source_id`.** The answer carries a type and properties and nothing else, because provenance is a fact about where the record came from rather than about the shape a rule chose. Without the stamp the next sync cannot find the item this one wrote, creates a second, and both writes succeed.
+
+**Apply on create; on update, let the stored item decide.** Most inbound integrations upsert, and an item found by `(source, source_id)` carries no type predicate. So resolve for every record, before the create-or-update fork, and then:
+
+| What resolve said | What exists | What to write |
+| --- | --- | --- |
+| `user` | nothing | Create in the mapped shape, stamping `source_id`. |
+| `user` | an item already of the mapped type | Update it with the mapped shape. |
+| `user` | an item of a different type | **Leave it.** Attempt neither the type change nor the other shape. |
+| `family` | either | The shape you have always written. |
+
+The third row is the one that bites, and it bites through two doors rather than one. `PATCH /items/{id}` has no `type` field, so a type change on the update path is dropped rather than refused. `POST /items` carrying a `source_id` that resolves an existing row does have one and does not write it either: the server takes the resolved row's type as it stands and merges your properties onto it. Either way the properties land on a type that does not describe them, the write succeeds, and it repeats on every sync. A loud failure needs a same-named field with an incompatible type, which is the lucky case.
+
+Honouring the rule is only possible if you can learn the stored item's type. Where you hold its id — a cursor mapping upstream ids to Marfa ids — that is one read, on the `user` arm only, so an unmapped connection pays nothing. Where you hold no id, because the write is a bulk upsert the server resolves on the natural key, there is no lookup to make: say so at the site rather than approximating the rule, and be precise about what is then exposed. `PATCH /items/{id}` carries no `type` field, so a type change on the update path is dropped rather than refused, and the generated properties schema accepts unknown fields unless the type is strict — which means writing the family shape onto a user-typed item is accepted, merged, and validated against the type it already has. It corrupts silently, on every subsequent sync, rather than failing once. Leaving the item alone produces a split corpus, old records under one type and new under another, and that is a legitimate end state somebody chose rather than a failure. Report it once a run rather than once a record.
+
+**A user-typed item keeps its edges.** Containment is a fact about the upstream record, not about the type it is stored as: an episode belongs to its show whether it is filed as `marfa.podcast.episode` or as somebody's own type. `parent-of` constrains neither endpoint and `in-collection` constrains only its target, which is the container the integration writes itself, so nothing refuses the edge. Write it with `ensureEdge` after the batch rather than as an inline `edges:` on the item — inline edges replace rather than append per edge type, so a sweep would silently remove any collection the person had added the item to themselves.
+
+**A resolver that cannot read its mapping does not need catching.** It retries the connection read, falls back to the family shape, and reports that it did so through the run's summary. A handler-side `try` around `resolve` catches nothing that reaches it.
+
 ## Where an integration runs
 
 **There is one runtime.** An integration's handler code runs inside the Marfa server process, on the in-process runtime described in [Runtime substrates](/guides/connections/runtime-substrates). Hosted Marfa and a self-hosted deployment run the same server build, so an integration behaves identically on both, and where the deployment lives is not something a manifest declares.
