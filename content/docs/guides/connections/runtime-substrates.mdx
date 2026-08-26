@@ -20,8 +20,9 @@ The same handler code that registers schedule, webhook, and item-event handlers 
 | Surface | Behavior |
 |---|---|
 | **Cron precision** | One-minute floor (pg-boss `schedule()` granularity). |
-| **Queue retry policy** | pg-boss defaults — operators tuning retries consult `pg-boss`'s `retryLimit` / `retryDelay`. A dispatch that exhausts its retry ladder lands on the dead-letter surface at `GET /admin/runtime/dead-letters`. |
-| **Per-Connection state durability** | Postgres rows under transactions — strict consistency. A handler that wrote a cursor and then crashed sees the write on retry. |
+| **Dispatch time bound** | 900 seconds, and less for a dispatch that shares its batch. Overrunning it does not stop the run; the queue hands the same work out again behind it. See [The dispatch time bound](#the-dispatch-time-bound). |
+| **Queue retry policy** | Three retries after the first attempt, with exponential backoff, for a dispatch that asks to be retried, throws on its first delivery, or overruns its time bound. The runtime pins both values, so a deployment has nothing to tune. A dispatch that exhausts the ladder lands on the dead-letter surface at `GET /admin/runtime/dead-letters`. |
+| **Per-Connection state durability** | Cursor writes are held for the run and committed as one transaction when it returns, so a handler that wrote a cursor and then threw still sees the write on retry. A run that dies without returning, on a worker crash or a server restart, commits none of them. |
 | **Idempotency cache** | Postgres row keyed on (`subscription_id`, `delivery_id`) inside the connection's `connection.runtime` extension. |
 | **Isolation** | `worker_thread` — fault isolation, not adversarial. Operator-installed integrations are trusted, the same posture as installing an npm package in the host app. |
 | **Per-Connection serialization** | Postgres advisory lock on the connection id — at most one handler running per Connection at any given time. |
@@ -39,9 +40,17 @@ The same handler code that registers schedule, webhook, and item-event handlers 
   process](/guides/identity/deployment-modes#running-more-than-one-process).
 </Callout>
 
+## The dispatch time bound
+
+A dispatch has 900 seconds to return. Overrunning it does not stop the run, and that is what makes the bound worth designing around rather than merely knowing about. The queue takes the work back and hands it out again, so the same work is dispatched a second time. The original run carries on regardless, and once it outlives its credential every call it makes to Marfa fails, while its cursor writes go on succeeding and are still committed when it finally returns. A run that advances its cursor past entries it could no longer write strands them for good.
+
+Assume less than the full 900 seconds. Dispatches are fetched in batches and run one after another, and the clock starts for the whole batch when it is fetched, so a dispatch that runs after others gets what they left. One dispatch that overruns takes its batch-mates with it, and they are handed out a second time too. Treat the bound as a ceiling to stay well clear of, not a budget to spend.
+
+**Do long work across dispatches, not inside one.** A run that cannot finish should write its cursor and return, leaving the rest for the next scheduled run. Written that way an import makes progress every time it runs, and is bounded by the size of the source rather than by any one run. Returning `{ ok: false, retry: true }` to get the rest sooner is not the tool for it: the message is re-run from the start on a ladder of three retries, and the dispatch lands on the dead-letter surface once that runs out.
+
 ## How an integration gets its credential
 
-The runtime mints a credential in-process: the supervisor that routed the dispatch also issues the credential for it, and no secret crosses a boundary. Each credential is scoped to one Connection, carries exactly the reach the integration's manifest declares, and expires on its own — the lifetime is bounded above the longest possible dispatch, so expiry can never bite a live run.
+The runtime mints a credential in-process: the supervisor that routed the dispatch also issues the credential for it, and no secret crosses a boundary. Each credential is scoped to one Connection, carries exactly the reach the integration's manifest declares, and expires twenty minutes after it is minted, five minutes more than a dispatch is allowed to run. A run that stays inside the time bound can never meet that expiry. A run that overruns loses the ability to call Marfa partway through, with no way to recover it.
 
 ## Schedule teardown on uninstall
 
