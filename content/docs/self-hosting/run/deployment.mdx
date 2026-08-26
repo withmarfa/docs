@@ -149,7 +149,8 @@ Every Marfa server exposes `GET /health`, returning a JSON report of the server 
   "components": {
     "database": { "status": "ok", "latency_ms": 77 },
     "blob_storage": { "status": "ok", "latency_ms": 67 },
-    "dead_letters": { "status": "ok", "count": 0 }
+    "dead_letters": { "status": "ok", "count": 0 },
+    "platform_types": { "status": "ok", "count": 0 }
   },
   "database_connections": {
     "total": 9,
@@ -231,6 +232,47 @@ zero would be a claim about something that does not exist. It is also absent
 when the count itself could not be read, for the same reason a zero would then
 be the one wrong answer — the `database` component above has already said what
 stopped it.
+
+### Types the build no longer ships
+
+`platform_types` counts type definitions this instance still carries that the
+version of Marfa it is running no longer includes. A non-zero `count` sets the
+component to `degraded` and the top-level `status` with it.
+
+```json
+"platform_types": { "status": "degraded", "count": 1 }
+```
+
+**A count, and nothing else**, for the reason the dead-letter component gives:
+which types are affected says something about the instance that an
+unauthenticated endpoint should not. `GET /admin/platform-types/drift` names
+them behind auth, along with how many items still use each one, and
+`POST /admin/platform-types/{id}/remove` removes one.
+
+This can happen because the shipped vocabulary lives in your database rather
+than in the build. The server writes it there at every start and reads the
+definitions back from those rows, which is what lets a type arrive without a
+redeploy. The write only adds and updates, so upgrading to a version that
+dropped a type leaves the old definition in place: it keeps resolving, it
+still appears where permissions are described, and nothing says it is no
+longer part of Marfa.
+
+<Callout>
+  **Removal is deliberate rather than automatic, and that is the point.** The
+  case where an instance carries types the build does not is most often a
+  rollback, where the older build is simply unaware of definitions a newer one
+  wrote. Removing those on every restart would destroy data at exactly the
+  moment the running version is the least reliable authority on what should
+  exist. Adding a definition back is recoverable; taking one away is not.
+</Callout>
+
+**A removal is refused while any item still uses the type.** The definition is
+what makes those items readable, so removing it to tidy the list would leave
+them stranded. Move or delete the items first. The listing reports the count
+per type so you can see which are ready.
+
+The type stops resolving at the next restart, since the registry is filled
+from the rows when the server starts.
 
 ### Connection usage
 
