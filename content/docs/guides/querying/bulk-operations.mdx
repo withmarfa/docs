@@ -203,11 +203,16 @@ Restore reproduces the archive's content, not just its items:
 
 - **Custom type and edge-type registrations restore first**, before anything that needs them, so a space whose items use types it registered itself round-trips into an empty space. A registration the target already holds identically is skipped and counted in `custom_types_skipped` / `custom_edge_types_skipped`; the rest are counted in `custom_types_registered` / `custom_edge_types_registered`.
 - **Item ids are preserved**, so the archive's edges resolve after restore. A collision — the same id, or the same `(source, source_id)` natural key, already present in the restore space — counts as a duplicate and leaves the existing row untouched.
+- **Where each type came from is carried and replayed.** A `{custom_type}` line's `provenance` records whether the type was registered by the person or published by a connected integration, and the restore writes what it says rather than defaulting. That distinction decides what an application can be granted over the type: a person's own namespace is offered for reading and writing, an integration's is offered read-only, because its rows mirror an upstream record and a third-party write would fork them.
 - **Tags and extensions** restore with their items.
 - **Edges** restore in a second pass, after every item the archive carries exists. An edge whose endpoints do not both resolve in the restore space is skipped and counted in `edges_skipped`, so a partial or hand-edited archive cannot plant a reference to an item that is not there. Re-restoring the same archive is idempotent: existing edges count as skipped.
 - **Version history and row timestamps are re-stamped**, not carried. The restore is content-faithful, not history-faithful.
 
 An archive restores into the space it was exported from: the manifest's `space_id` must match the restore target, so moving a space between instances is export on one, restore on the other, under the same space. Cross-space copies are deliberately refused.
+
+Three claims in an archive are checked rather than believed, because an archive is a file and a file can be handed to you by anyone. A type claiming to be platform-shipped is refused with `403`, as is one claiming a family the platform reserves for types it ships. A type claiming to be the person's own under a publisher namespace is accepted, but recorded as unrecorded rather than as theirs unless the space holds that publisher handle, which is the same rule [`POST /types`](/guides/core-model/types) applies to registering there directly.
+
+An archive taken before archives carried provenance has none to replay. Its types restore and stay usable, recorded as unrecorded: their namespace is offered for reading rather than for writing, since nothing in the archive says whose they were.
 
 A restore refuses outright, with nothing written, when the archive redefines a type the target space already registers differently. The response is `409` and its `details.conflicting_ids` names every clashing identifier, so the fix is one decision rather than a per-type hunt: rename in the archive, or delete the target's registration and restore again. An archive claiming a reserved namespace (`core.*`, `system.*`, `marfa.*`) or redefining a core edge type is refused the same way, whatever credential is restoring it.
 
