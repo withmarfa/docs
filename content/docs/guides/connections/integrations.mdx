@@ -178,17 +178,19 @@ The credential shape follows the integration's authentication model. For OAuth-b
 
 <Step>
 
-### Mints a runtime credential
+### Creates the Connection
 
-A short-TTL API key scoped to the manifest's declared permissions and bound to the connection_id. It carries a hard expiry and the runtime refreshes it transparently as the integration runs — see [Runtime credential lifecycle](#runtime-credential-lifecycle).
+A `system.connection` item with `kind: integration`, `integration_ref` pointing at the manifest, `credential_ref` pointing at the persisted credential, and the manifest-derived `configuration`, `direction`, and `triggers` fields. The pipeline stamps `runtime_status: healthy` to seed the operational state.
 
 </Step>
 
 <Step>
 
-### Creates the Connection
+### Checks the Connection can hold a credential
 
-A `system.connection` item with `kind: integration`, `integration_ref` pointing at the manifest, `credential_ref` pointing at the persisted credential, and the manifest-derived `configuration`, `direction`, and `triggers` fields. The pipeline stamps `runtime_status: healthy` to seed the operational state.
+Installing mints no credential. It confirms instead that the Connection it just created is one a runtime credential may later be minted for: it takes the Connection's lifecycle lock, re-reads the row under it, refuses a state that is no longer active, and refuses a Connection with no space on a hosted deployment, because a credential minted for one would reach every space. Failing here rolls the install back and names the missing space, rather than installing cleanly and leaving the first dispatch to discover it.
+
+The credential itself arrives at dispatch time. The runtime mints one per dispatch and revokes the Connection's others as it does, so there is nothing for an install to seed — see [Runtime credential lifecycle](#runtime-credential-lifecycle).
 
 </Step>
 
@@ -325,7 +327,7 @@ A runtime credential is a machine credential, not a human one. The runtime obtai
 
 That applies to every surface reaching an item, not only the ones that write `properties`. Changing a row's lifecycle state, restoring it, tagging it, rewriting its metadata, or writing an extension namespace onto it all answer to the same rule. It is one check shared by those surfaces rather than a rule each of them remembers, because the surfaces that forgot it were found one at a time.
 
-**Scoped to a space.** A credential inherits the Connection's space, never the broker's. On a multi-space deployment the server refuses to mint for a Connection that belongs to no space at all: a credential with no space is not a narrow credential but a platform one, and it would read every space's items. The refusal covers every path that mints, installation included, so an install that names no space fails and rolls itself back rather than leaving a Connection behind. A Connection installed before that check existed stays installed and cannot dispatch until it is moved into a space. Either way the trade is the intended one: a Connection that refuses to run is recoverable, and one quietly reading other spaces' data is not.
+**Scoped to a space.** A credential inherits the Connection's space, never the broker's. On a multi-space deployment the server refuses to mint for a Connection that belongs to no space at all: a credential with no space is not a narrow credential but a platform one, and it would read every space's items. The refusal covers the mint and the install itself, so an install that names no space fails and rolls itself back rather than leaving a Connection behind for a later dispatch to refuse. A Connection installed before that check existed stays installed and cannot dispatch until it is moved into a space. Either way the trade is the intended one: a Connection that refuses to run is recoverable, and one quietly reading other spaces' data is not.
 
 **Bound to its Integration.** Every mint names the Integration the runtime authenticated as, and the server checks that name against the manifest persisted on the Connection at install time. An integration that somehow reaches the broker holding another Integration's Connection ID (Connection IDs are not secrets; they appear in operator surfaces and in logs) is refused. The check runs against state the runtime cannot edit, which is why it lives on the server rather than in the runtime that made the claim.
 
