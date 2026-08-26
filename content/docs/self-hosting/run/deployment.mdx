@@ -149,9 +149,9 @@ Every Marfa server exposes `GET /health`, returning a JSON report of the server 
   "components": {
     "database": { "status": "ok", "latency_ms": 77 },
     "blob_storage": { "status": "ok", "latency_ms": 67 },
-    "dead_letters": { "status": "ok", "count": 0 },
-    "platform_types": { "status": "ok", "count": 0 }
+    "dead_letters": { "status": "ok", "count": 0 }
   },
+  "platform_types": { "drifted": 0 },
   "database_connections": {
     "total": 9,
     "ceiling": 22,
@@ -236,11 +236,11 @@ stopped it.
 ### Types the build no longer ships
 
 `platform_types` counts type definitions this instance still carries that the
-version of Marfa it is running no longer includes. A non-zero `count` sets the
-component to `degraded` and the top-level `status` with it.
+version of Marfa it is running no longer includes. It sits beside `components`
+rather than inside it, and **it never moves the top-level `status`**.
 
 ```json
-"platform_types": { "status": "degraded", "count": 1 }
+"platform_types": { "drifted": 1 }
 ```
 
 **A count, and nothing else**, for the reason the dead-letter component gives:
@@ -248,6 +248,19 @@ which types are affected says something about the instance that an
 unauthenticated endpoint should not. `GET /admin/platform-types/drift` names
 them behind auth, along with how many items still use each one, and
 `POST /admin/platform-types/{id}/remove` removes one.
+
+**Drift is reported rather than treated as a fault.** A retired definition that
+still holds items is the designed outcome, because the definition is what makes
+those items resolve. One holding nothing is untidy rather than unhealthy: it
+resolves, it serves, and it costs nothing. A health check earns the right to
+degrade only when something is wrong now, and a check that can sit `degraded`
+indefinitely teaches everyone reading it to ignore the state that matters.
+
+**What keeps it out of `components` is that it can never move the top-level
+`status`.** That is the line, rather than whether it runs a probe: `dead_letters`
+is a plain count too, and it belongs in `components` precisely because a
+dispatch that exhausted its retries can move the verdict. Drift cannot, so it
+sits beside `database_connections`, which is out for the same reason.
 
 This can happen because the shipped vocabulary lives in your database rather
 than in the build. The server writes it there at every start and reads the
