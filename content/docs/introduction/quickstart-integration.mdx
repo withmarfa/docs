@@ -72,7 +72,7 @@ import {
   registerScheduleHandler,
   type ConnectionContext,
   type ScheduleMessage,
-  type HandlerResult,
+  type SweepResult,
 } from '@withmarfa/runtime-sdk';
 
 const CURSOR_KEY = 'main';
@@ -80,7 +80,7 @@ const CURSOR_KEY = 'main';
 registerScheduleHandler(async (
   ctx: ConnectionContext,
   message: ScheduleMessage,
-): Promise<HandlerResult> => {
+): Promise<SweepResult> => {
   const cursor = (await ctx.cursor.read(CURSOR_KEY)) as { since: string } | null;
   const entries = await fetchFeedEntries(cursor?.since);
 
@@ -107,7 +107,10 @@ registerScheduleHandler(async (
     last_run_at: new Date(message.scheduled_for_ms).toISOString(),
   });
 
-  return { ok: true };
+  // `done` is required. A scheduled sweep has to say whether it finished,
+  // because "the run ended" and "there is nothing left" are different
+  // facts and only one of them means the sync is up to date.
+  return { ok: true, done: true };
 });
 ```
 
@@ -123,11 +126,11 @@ Returning `{ ok: false, retry: true, reason }` instead asks the runtime to retry
 That shape is right for a tick that picks up what changed since the last one. It does not survive a first sync over a large upstream library, and the two failures arrive together:
 
 - **A write per entry is the cost that dominates.** At a few seconds per item write, a library of several thousand is more work than one dispatch is allowed to do. Collect a page and write it with `ctx.marfa.bulkUpsertItems(inputs)` — one request, resolved on the same `(source, source_id)` natural key, best-effort so one malformed entry is reported on its own rather than rolling back the page around it. Read `counts.errored` rather than assuming the batch applied in full.
-- **Keep the cursor current, and return before the bound.** A dispatch has 900 seconds to return, and less when it shares a batch with other work. Cursor writes are committed when the run returns, however it returns, so advance the cursor as each page lands and a pass that returns early still records what it got through. Stop the loop while there is budget left rather than running until the source is exhausted: a run that overruns is not stopped, the same work is dispatched again behind it, and once it outlives its credential its writes to Marfa fail while its cursor writes go on succeeding. See [The dispatch time bound](/guides/connections/runtime-substrates#the-dispatch-time-bound).
+- **Park and continue, rather than trying to finish.** A dispatch has 900 seconds to return, and `ctx.budget.shouldYield` goes true well before that. Poll it in the page loop; when it turns true, return `{ ok: true, done: false, continuation }` and the runtime schedules the next slice immediately. Cursor writes are committed when the run returns, however it returns, so advance the cursor as each page lands and the slice that follows starts from there. See [Long syncs run across dispatches](/guides/connections/runtime-substrates#long-syncs-run-across-dispatches).
 
-Keep the watermark stricter than the checkpoint: advance it only when a pass both reached the end of the upstream stream and wrote everything it saw. Moving it past an entry that failed to write strands that entry, because nothing will fetch it again unless it changes upstream.
+Keep the watermark stricter than the checkpoint: advance it only for entries actually written. Moving it past an entry that failed to write strands that entry, because nothing will fetch it again unless it changes upstream.
 
-Say how far a pass got, through `ctx.activity`. Returning `{ ok: true }` records a successful sync whether the run got through the whole library or a tenth of it, and clears the previous error stamp, so a connection's own timestamps never distinguish a finished import from a stalled one.
+**Do not report a partial pass as a finished one.** `done: true` stamps the connection's `last_sync_at` and clears its error stamp; `done: false` does neither. Before the discriminant existed, a bare `{ ok: true }` recorded a successful sync whether the run got through the whole library or a tenth of it, so a connection's own timestamps could not distinguish a finished import from a stalled one. That is the failure `done` exists to make impossible.
 
 </Step>
 

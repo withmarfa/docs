@@ -20,7 +20,7 @@ The same handler code that registers schedule, webhook, and item-event handlers 
 | Surface | Behavior |
 |---|---|
 | **Cron precision** | One-minute floor (pg-boss `schedule()` granularity). |
-| **Dispatch time bound** | 900 seconds, and less for a dispatch that shares its batch. Overrunning it does not stop the run; the queue hands the same work out again behind it. See [The dispatch time bound](#the-dispatch-time-bound). |
+| **Dispatch time bound** | 900 seconds, per dispatch. `ctx.budget.shouldYield` turns true well before it, and a handler that heeds it can hand the rest to the next slice. See [The dispatch time bound](#the-dispatch-time-bound). |
 | **Queue retry policy** | Three retries after the first attempt, with exponential backoff, for a dispatch that asks to be retried, throws on its first delivery, or overruns its time bound. The runtime pins both values, so a deployment has nothing to tune. A dispatch that exhausts the ladder lands on the dead-letter surface at `GET /admin/runtime/dead-letters`. |
 | **Per-Connection state durability** | Cursor writes are held for the run and committed as one transaction when it returns, so a handler that wrote a cursor and then threw still sees the write on retry. A run that dies without returning, on a worker crash or a server restart, commits none of them. |
 | **Idempotency cache** | Postgres row keyed on (`subscription_id`, `delivery_id`) inside the connection's `connection.runtime` extension. |
@@ -44,9 +44,93 @@ The same handler code that registers schedule, webhook, and item-event handlers 
 
 A dispatch has 900 seconds to return. Overrunning it does not stop the run, and that is what makes the bound worth designing around rather than merely knowing about. The queue takes the work back and hands it out again, so the same work is dispatched a second time. The original run carries on regardless, and once it outlives its credential every call it makes to Marfa fails, while its cursor writes go on succeeding and are still committed when it finally returns. A run that advances its cursor past entries it could no longer write strands them for good.
 
-Assume less than the full 900 seconds. Dispatches are fetched in batches and run one after another, and the clock starts for the whole batch when it is fetched, so a dispatch that runs after others gets what they left. One dispatch that overruns takes its batch-mates with it, and they are handed out a second time too. Treat the bound as a ceiling to stay well clear of, not a budget to spend.
+The bound is per dispatch: the runtime fetches one job at a time, so a slow run no longer spends anyone else's allowance. It did once — jobs were fetched in batches sharing a single expiry timer, and one overrun took its batch-mates with it — and a deployment that raised the batch would reintroduce that, which is why the runtime pins it. Treat the bound as a ceiling to stay clear of rather than a budget to spend, and let `ctx.budget` tell you when to stop.
 
-**Do long work across dispatches, not inside one.** A run that cannot finish should write its cursor and return, leaving the rest for the next scheduled run. Written that way an import makes progress every time it runs, and is bounded by the size of the source rather than by any one run. Returning `{ ok: false, retry: true }` to get the rest sooner is not the tool for it: the message is re-run from the start on a ladder of three retries, and the dispatch lands on the dead-letter surface once that runs out.
+**Do long work across dispatches, not inside one.** A run that cannot finish says so, and the runtime continues it — see [Long syncs run across dispatches](#long-syncs-run-across-dispatches) below. Returning `{ ok: false, retry: true }` to get the rest sooner is not the tool for it: the message is re-run from the start on a ladder of three retries, and the dispatch lands on the dead-letter surface once that runs out.
+
+## Long syncs run across dispatches
+
+A first sync over a large library is more work than one dispatch is allowed to do. Rather than racing the bound, a scheduled handler can stop partway and say so, and the runtime schedules the rest immediately as another dispatch. One sweep becomes a **chain** of **slices**.
+
+### Saying you have not finished
+
+A scheduled handler returns `SweepResult`:
+
+```ts
+type SweepResult =
+  | { ok: true; done: true }
+  | { ok: true; done: false; continuation: Continuation }
+  | { ok: false; retry: boolean; reason: string };
+```
+
+`done` is required, and that is deliberate. It is the difference between "this run ended" and "there is nothing left", and only the second means the connection is up to date. `done: true` stamps `last_sync_at` and clears the error stamp; `done: false` does neither, so a chain in progress never reports itself as a finished sync.
+
+Webhook and item-event handlers still return `HandlerResult`. A delivery and an item event have nothing to continue.
+
+### Knowing when to stop
+
+```ts
+interface Budget {
+  readonly shouldYield: boolean;   // what a page loop polls
+  readonly signal: AbortSignal;    // pass to fetch()
+  remainingMs(): number;           // diagnostics
+}
+```
+
+`ctx.budget.shouldYield` is a boolean rather than a countdown, so the runtime stays free to change how it decides without that becoming part of the contract. It turns true well inside the dispatch bound, leaving room for a parking handler to commit what it has. Pass `ctx.budget.signal` to `fetch` so a call still in flight at the deadline is not what carries the run past it.
+
+The clock starts when the runtime picked the dispatch up, not when your handler began, because queue latency and the credential mint are spent from the same allowance.
+
+### The four words
+
+Used precisely, because the design turns on the differences between them.
+
+| Term | What it means |
+| --- | --- |
+| **watermark** | How far a *finished* sweep got, in the provider's own key space — a timestamp, a monotonic id, a revision. Durable, committed as the sweep runs, and where a fresh sweep starts. Never an offset: "item 4,300" means nothing once the provider inserts something. |
+| **checkpoint** | Where *this slice* stopped. Travels in the queue payload, not the cursor, so a redelivered slice is deterministic. |
+| **signpost** | The upper bound, frozen before the first page and held for the whole chain. An entry added mid-chain is next chain's problem. Without one, a provider that keeps writing can feed a sweep forever. |
+| **sweep id** | A correlation identity for one chain. Use it in idempotency keys. The runtime compares it, so a straggler from an abandoned chain is discarded rather than appended to a chain nothing is tracking. |
+
+### `sweep()` writes the loop for you
+
+Most handlers should not hand-roll this. `sweep()` owns the page loop, the budget poll, the frozen signpost and the per-page watermark commit:
+
+```ts
+registerScheduleHandler((ctx, message) =>
+  sweep(ctx, message, {
+    key: 'main',
+    signpost: () => new Date().toISOString(),
+    async page({ resume, watermark, signpost, sweepId }) {
+      const { entries, nextToken } = await fetchPage(resume ?? watermark);
+      await ctx.marfa.bulkUpsertItems(entries.map(toItem));
+      return {
+        next: nextToken,                       // omit to say the sweep is finished
+        watermark: entries.at(-1)?.updated_at, // only for what was actually written
+        processed: entries.length,
+      };
+    },
+  }),
+);
+```
+
+**One default is worth knowing about.** A provider page token is *not* carried across a slice boundary unless you opt in with `resumeAcrossSlices: true`. A token valid for hours and one valid for five minutes have the same type signature, and a slice boundary can be minutes wide. An expired token gives you an error you can see; one the provider silently reinterprets gives you a sweep that skips records and reports success. The default throws the token away and re-derives from the watermark, which costs at most one re-fetched page and cannot skip. Opt in per integration, once, having read the provider's documentation on token lifetime.
+
+Report `watermark` only for work that was actually written. A watermark past a record that failed to write strands it permanently.
+
+### Rate limits
+
+`continuation.notBefore` is the honest answer to a 429: park with the upstream's own retry delay rather than sleeping inside the budget and spending a whole slice on nothing.
+
+### Chains are bounded
+
+The runtime abandons a chain that stops getting anywhere:
+
+- Two consecutive slices reporting the same position.
+- A slice returning to a position the chain had already left — an alternating loop, which the consecutive check never catches.
+- A slice ceiling, and a wall-clock ceiling measured from when the chain started.
+
+An abandoned chain is recorded where an operator can see it, on the same surface as any other terminal dispatch failure. Recovery is automatic: the watermark is committed as the sweep runs, so the next scheduled tick starts a fresh chain from wherever the abandoned one reached. That is what makes it right for the ceilings to be strict.
 
 ## How an integration gets its credential
 
