@@ -152,6 +152,7 @@ Every Marfa server exposes `GET /health`, returning a JSON report of the server 
     "dead_letters": { "status": "ok", "count": 0 }
   },
   "platform_types": { "drifted": 0 },
+  "unrecognized_stored_values": { "rows": 0, "scanned": true },
   "database_connections": {
     "total": 9,
     "ceiling": 22,
@@ -193,6 +194,45 @@ so an unbounded check turns the one endpoint whose job is to report the
 server's state into the one that cannot. A `degraded` database component most
 often means the connection pool is fully held, which is worth knowing as
 itself rather than as a timeout at the monitor.
+
+### Stored values this build does not recognize
+
+`unrecognized_stored_values` counts rows holding a value outside the set the
+running build understands, across the columns where a stored string decides
+something — roles, tiers, item state, account deletion state. It is checked
+once at boot rather than per request.
+
+```json
+"unrecognized_stored_values": { "rows": 12, "scanned": true }
+```
+
+**A count and a boolean, and nothing else.** Which table, which column and
+what the value actually was are all published on an `error`-level log line at
+boot. They are not published here, for the reason the dead-letter count gives
+and one more: the value itself would describe the shape of a partly-applied
+migration to anyone who asks, and this endpoint is unauthenticated.
+
+**`scanned` is the field that makes the number mean something.** `rows: 0`
+alone has three readings — nothing is wrong, no boot has looked yet, or a boot
+looked and the query failed. The first is the answer; the other two are the
+absence of one. `scanned: false` says the number is not an answer, and the
+boot log says which of the two it is.
+
+**A non-zero count does not degrade the component or the top-level status.**
+Nothing is failing right now: the affected rows are already projected to a
+safe value at read time and the server is serving normally. What is true is
+that a migration did not reach every row, or a rollback is live, and clearing
+it takes a migration or a hand-written update rather than a button. A
+component that can sit degraded for weeks with nothing to press teaches its
+readers to ignore the components that cannot.
+
+This exists because a rename once left every user row on both environments
+holding a role no build recognized, and it stayed that way for a full rename
+cycle. Nothing was broken enough to notice: each read projected the value down
+to the least authority and logged a line, so the symptom was people quietly
+having less access than they should. The per-request log said so thousands of
+times. Nobody was reading it, and nothing anywhere answered the question that
+would have ended it, which is how many rows.
 
 ### Dispatches that gave up
 
