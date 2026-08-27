@@ -124,6 +124,52 @@ The route only sweeps accounts already past their `pending_deletion_at + grace_d
 
 The action emits a `system.activity` audit row with `action: admin.account_deletion.purge_now`, `space_id: null` (instance-wide sweep), and `details` carrying the purged count + run timestamp. Prompts for typed `purge` by default; pass `--yes` to skip in scripts. When `MARFA_ACCOUNT_DELETION_GRACE_DAYS=0` (purger disabled), the route returns `purged_count: 0` cleanly rather than throwing.
 
+## Retiring a shipped type
+
+The shipped type vocabulary is seeded into the database at every boot and the
+running server reads that copy back, so the rows rather than the files are what
+the API resolves. Seeding upserts and never deletes. Removing a type's
+definition from the build therefore removes it from a **fresh** instance and
+from **no existing one**: the row stays, keeps resolving, and the immutability
+gate refuses to delete it, correctly, because everything in the platform set is
+locked.
+
+`/health` publishes the count of rows in that state as `platform_types`, and
+two platform-admin routes act on it.
+
+```bash
+GET  /admin/platform-types/drift
+POST /admin/platform-types/{id}/remove
+```
+
+The listing names each drifted identifier with a **live** item count, the types
+that declare it as their parent, and whether it can be removed. The count is
+recomputed per request rather than cached at boot, because it is the one part of
+the answer that changes without a restart and a removal reasoning from a stale
+copy is the failure worth avoiding.
+
+Removal is per-type and refuses rather than forcing. It answers `409` if the
+running build still ships the identifier, if any item still holds it, or if
+another registered type inherits from it; `404` if the row has already gone. A
+type still holding items keeps its registration, because the row is what makes
+those items resolve, and orphaning readable data to tidy a registry is the wrong
+trade.
+
+<Callout type="warn">
+  Removal is irreversible from the build's side: a server cannot re-seed a type
+  it no longer ships. The row is deleted instance-wide, across every space, and
+  the type stops resolving on the next restart.
+</Callout>
+
+**Why a route rather than a migration.** A migration runs once per instance. One
+written to retire an identifier declines on instances that still hold items, and
+the journal marks it applied regardless — so those instances stay divergent with
+no path back short of a second migration authored for them specifically. A route
+can be run again when the items are gone.
+
+In the TypeScript SDK the pair is `client.admin.platformTypes.drift()` and
+`client.admin.platformTypes.remove(id)`.
+
 ## Knowing when it breaks
 
 A server cannot report its own death: when the process is down, so is everything that would have told you. The watcher therefore has to run somewhere the instance is not, and the instance's only job is to keep proving it is alive.
