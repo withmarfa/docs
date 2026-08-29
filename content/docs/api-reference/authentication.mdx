@@ -192,7 +192,7 @@ Token requests may carry the RFC 8707 `resource` parameter naming the endpoint t
 
 ### Scopes
 
-The grammar has five shapes. Three are verb-on-resource and mirror the permission maps; two carry no verb, because what they name is not a level of access to a resource.
+The grammar has six shapes. Four are verb-on-resource and mirror the permission maps; two carry no verb, because what they name is not a level of access to a resource.
 
 | Scope | Meaning |
 |---|---|
@@ -204,12 +204,33 @@ The grammar has five shapes. Three are verb-on-resource and mirror the permissio
 | `metadata:write` | Write tags. |
 | `metadata.<sub>:read` | Read a specific metadata sub-resource. |
 | `metadata.<sub>:write` | Write a specific metadata sub-resource: `metadata.types:write` gates `POST /types`; `metadata.edge_types:write` gates `POST /edge-types`. |
+| `content:read` | Read every type in the content category — everything whose family is not `system`, including types added later. |
+| `content:write` | Write the same set, except that `marfa.*` types stay read-only. See [The content category](#the-content-category). |
 | `capability.<surface>` | Authority over one administrative surface. No verb; see [Capability scopes](#capability-scopes). |
 | `openid`, `profile`, `email`, `offline_access` | The standard OIDC literals. No verb, and no reach into a space's data: they govern identity claims and refresh-token issuance. |
 
 Wildcards are allowed on type scopes: `core.bookmark.*:read` covers bookmark and all its subtypes; `user.*:write` covers every runtime type in the `user.*` namespace; `*:read` covers everything. A wildcard is how an app reaches a space's runtime `user.*` types, which are never enumerated individually in the static scope allowlist.
 
 Wildcards stop there. The edge grammar takes them (`edge.*:read`, `edge.user.*:write`), the metadata grammar does not, and the two verb-less shapes are closed sets of exact literals.
+
+`content` is a reserved root and a closed pair: `content:read` and `content:write` are the only two literals under it, and no type may be registered there.
+
+#### The content category
+
+`content:read` and `content:write` name the category rather than its members. **A type registered after the grant was made is covered**, which is what makes them different from naming every type individually.
+
+That difference is the point, and both behaviours are intended:
+
+- **A grant holding `content:read` is not asked again when a release ships a new type.** It already covers it.
+- **A grant naming individual types is asked**, because it named things rather than a category, and a type nobody approved is not one of them.
+
+For the same reason a standing grant that lists every type today **does not** count as holding the category — coverage is membership, not enumeration — so an app moving to the category asks once.
+
+**What the category excludes.** Everything whose family is `system`: stored credentials, devices, webhooks, connections, and the other records that describe a space rather than living in it. That set is read from the family recorded against each type rather than inferred from its name, so a type that is renamed, retired or restored is classified the same way throughout.
+
+**One asymmetry worth knowing.** `content:write` grants read rather than write over `marfa.*` types. Those are platform-shipped integration types, and writes to them are refused to any credential that is not the platform's own — so a grant claiming to write them would describe access the server will not give, which is the one thing a consent screen must never do.
+
+**A named type still wins over the category.** A scope naming a row sits above or below the category's default for that row, so requesting `content:read` alongside `system.connection:read` grants the category plus that one system type. Naming something has always granted it, and the category does not take that away.
 
 OAuth access tokens are enforced against exactly the scopes granted at consent. The `space_admin` role bypass that applies to API keys does not apply to OAuth tokens — the signed-in user's role is the ceiling on what an app can be granted, not a pass-through of the user's own access. An app granted only `*:read` can read but not write, even when the user is a space admin.
 
