@@ -69,8 +69,19 @@ The window may span at most 400 days; a wider ask is refused with `400 validatio
 
 A window may also hold at most 5000 occurrences in total, counted across every series in it. A window can sit inside the day limit and still cross this one, on a space holding enough events, so the refusal names the ceiling and the count it found rather than the dates.
 
-One series may contribute at most 2000 occurrences to a window, counted against the window itself, so a long-running series is bounded by what you asked about rather than by its age. A series that cannot expand does not fail the read: a rule the server cannot read, one that floods the window, one too frequent to reach the window from its start, or one carrying an `EXRULE` line (which is refused rather than silently not applied) is reported in `series_errors`, one entry per series with the item id and the reason, while the rest of the calendar returns.
+One series may contribute at most 2000 occurrences to a window, counted against the window itself, so a long-running series is bounded by what you asked about rather than by its age. A series that cannot expand does not fail the read: a rule the server cannot read, one that floods the window, one too frequent to reach the window from its start, or one carrying an `EXRULE` line (which is refused rather than silently not applied) is reported in `series_errors` while the rest of the calendar returns.
 
-A space holding more events than one read can scan is refused too, and that one is not answered by asking for less. The passes that gather series and their exceptions cannot be windowed, since a rule written years ago produces occurrences in any window and an exception moved out of one still shadows the slot it left, so both read the space whole whatever the window is. The refusal names the scan ceiling rather than the dates.
+Entries there are failures rather than rows, and one row can account for two — an unreadable line dropped from a rule is one failure, and expanding what is left then failing is another. Group on `item_id` to get the number of rows to go and look at. The count is scoped to the event types the read covered, so a request narrowed by `type`, or a credential permissioned for one event type, learns nothing about the rules it did not read: zero is the absence of a detected failure rather than a statement of health.
 
-Nothing is silently trimmed without saying so: a short list that looks complete is worse than an error, because a calendar that quietly omits next Tuesday is indistinguishable from an empty one.
+## What the read reports about itself
+
+Every successful read carries a `scan` object naming the ceilings that applied and what this read spent against them. It is there on reads nowhere near a limit, deliberately — a bound that is only mentioned when it fires announces itself too late to be acted on.
+
+Two flags appear on the envelope when a ceiling was reached:
+
+- **`series_errors_truncated`** — the failure list was capped rather than the read refused, at `scan.max_series_errors`. `scan.series_errors` still carries the true total, so the difference is between "these are the failures" and "these are some of them". The list is a diagnostic beside the calendar and nothing in `data` depends on it, which is why capping it is not the silent trimming this page refuses elsewhere.
+- **`expansion_incomplete`** — the read stopped expanding before it had walked every series, having spent `scan.max_unproductive_iterations` on expansions that returned no occurrence. `scan.series_unexpanded` says how many were left, and `data` may be missing what they held. Narrowing the window does not recover it, because the budget is spent walking rules from their own start before the window is reached; narrow by `type`, or fix the rules `series_errors` names.
+
+**A space full of events is no longer refused a calendar.** An earlier version of this read refused outright past a scan ceiling, which could not be answered by asking for less: the passes that gather series and their exceptions cannot be windowed, since a rule written years ago produces occurrences in any window and an exception moved out of one still shadows the slot it left. The read is bounded instead, and says where it stopped.
+
+Nothing is silently trimmed without saying so: a short list that looks complete is worse than an error, because a calendar that quietly omits next Tuesday is indistinguishable from an empty one. Every bound above is either a refusal or a flag on the response, and none of them is a quiet shortening.
