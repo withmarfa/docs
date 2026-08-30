@@ -97,9 +97,12 @@ Used precisely, because the design turns on the differences between them.
 Most handlers should not hand-roll this. `sweep()` owns the page loop, the budget poll, the frozen signpost and the per-page watermark commit:
 
 ```ts
+// The driver's own key, never the one your handler keeps its state under.
+const SWEEP_KEY = 'sweep';
+
 registerScheduleHandler((ctx, message) =>
   sweep(ctx, message, {
-    key: 'main',
+    key: SWEEP_KEY,
     signpost: () => new Date().toISOString(),
     async page({ resume, watermark, signpost, sweepId }) {
       const { entries, nextToken } = await fetchPage(resume ?? watermark);
@@ -113,6 +116,8 @@ registerScheduleHandler((ctx, message) =>
   }),
 );
 ```
+
+**Give the driver a cursor key of its own.** `sweep()` ends every page and every exit with `ctx.cursor.write(spec.key, …)`, and a cursor write replaces the value rather than merging it — so handing it the key you already keep state under destroys everything else living there on the sweep's first page, silently and on the first production run.
 
 **One default is worth knowing about.** A provider page token is *not* carried across a slice boundary unless you opt in with `resumeAcrossSlices: true`. A token valid for hours and one valid for five minutes have the same type signature, and a slice boundary can be minutes wide. An expired token gives you an error you can see; one the provider silently reinterprets gives you a sweep that skips records and reports success. The default throws the token away and re-derives from the watermark, which costs at most one re-fetched page and cannot skip. Opt in per integration, once, having read the provider's documentation on token lifetime.
 
