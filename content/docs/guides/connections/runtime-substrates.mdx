@@ -77,7 +77,7 @@ interface Budget {
 }
 ```
 
-`ctx.budget.shouldYield` is a boolean rather than a countdown, so the runtime stays free to change how it decides without that becoming part of the contract. It turns true well inside the dispatch bound, leaving room for a parking handler to commit what it has. Pass `ctx.budget.signal` to `fetch` so a call still in flight at the deadline is not what carries the run past it.
+`ctx.budget.shouldYield` is a boolean rather than a countdown, so the runtime stays free to change how it decides without that becoming part of the contract. It turns true well inside the dispatch bound, leaving room for a parking handler to commit what it has. `ctx.budget.signal` fires at the deadline so a provider call still in flight is not what carries the run past it. **The runtime already applies it to `ctx.marfa.proxyRequest`**, which is how integrations reach a provider, so there is nothing to thread through your own call sites — pass it explicitly only to a `fetch` you make yourself. It is deliberately not applied to the client's own Marfa calls: the deadline is when you are asked to wrap up, and wrapping up means writing.
 
 The clock starts when the runtime picked the dispatch up, not when your handler began, because queue latency and the credential mint are spent from the same allowance.
 
@@ -88,7 +88,7 @@ Used precisely, because the design turns on the differences between them.
 | Term | What it means |
 | --- | --- |
 | **watermark** | How far a *finished* sweep got, in the provider's own key space — a timestamp, a monotonic id, a revision. Durable, committed as the sweep runs, and where a fresh sweep starts. Never an offset: "item 4,300" means nothing once the provider inserts something. |
-| **checkpoint** | Where *this slice* stopped. Travels in the queue payload, not the cursor, so a redelivered slice is deterministic. |
+| **checkpoint** | Where *this slice* stopped. Travels in the queue payload, not the cursor, so a redelivered slice is deterministic. It survives a process death; it does **not** survive a chain the queue never delivers, because the position goes with the payload. Where that matters, see `resumeAcrossChains` below. |
 | **signpost** | The upper bound, frozen before the first page and held for the whole chain. An entry added mid-chain is next chain's problem. Without one, a provider that keeps writing can feed a sweep forever. |
 | **sweep id** | A correlation identity for one chain. Use it in idempotency keys. The runtime compares it, so a straggler from an abandoned chain is discarded rather than appended to a chain nothing is tracking. |
 
@@ -105,10 +105,19 @@ registerScheduleHandler((ctx, message) =>
     key: SWEEP_KEY,
     signpost: () => new Date().toISOString(),
     async page({ resume, watermark, signpost, sweepId }) {
-      const { entries, nextToken } = await fetchPage(resume ?? watermark);
+      const response = await fetchPage(resume ?? watermark);
+      if (!response.ok) {
+        // A failure cannot be spelled the same way as a success.
+        return { outcome: 'failed', reason: `provider answered ${response.status}`, retry: true };
+      }
+      const { entries, nextToken } = response;
       await ctx.marfa.bulkUpsertItems(entries.map(toItem));
+      if (nextToken === undefined) {
+        return { outcome: 'done', watermark: entries.at(-1)?.updated_at };
+      }
       return {
-        next: nextToken,                       // omit to say the sweep is finished
+        outcome: 'continue',
+        next: nextToken,
         watermark: entries.at(-1)?.updated_at, // only for what was actually written
         processed: entries.length,
       };
@@ -119,9 +128,21 @@ registerScheduleHandler((ctx, message) =>
 
 **Give the driver a cursor key of its own.** `sweep()` ends every page and every exit with `ctx.cursor.write(spec.key, …)`, and a cursor write replaces the value rather than merging it — so handing it the key you already keep state under destroys everything else living there on the sweep's first page, silently and on the first production run.
 
+**A page says which of three things happened**, and there is no fourth. `continue` carries where the next page starts, `done` says the sweep reached the end, and `failed` carries a reason and whether another attempt could succeed.
+
+That shape exists because its absence made the obvious code wrong. When omitting a field was the only exit, a page that met a 500 and reached for `return {}` reported a sweep that had finished — a run that stopped early and said it succeeded, which is the failure this whole contract exists to end. Report `failed` and the runtime records it as a failure, retries it if you said it could be retried, and never mistakes it for completion.
+
 **One default is worth knowing about.** A provider page token is *not* carried across a slice boundary unless you opt in with `resumeAcrossSlices: true`. A token valid for hours and one valid for five minutes have the same type signature, and a slice boundary can be minutes wide. An expired token gives you an error you can see; one the provider silently reinterprets gives you a sweep that skips records and reports success. The default throws the token away and re-derives from the watermark, which costs at most one re-fetched page and cannot skip. Opt in per integration, once, having read the provider's documentation on token lifetime.
 
 Report `watermark` only for work that was actually written. A watermark past a record that failed to write strands it permanently.
+
+**If your position has to outlive the chain, say so with `resumeAcrossChains: true`.** It implies `resumeAcrossSlices`, and it also mirrors the position into the sweep's own cursor key, so a chain the queue never delivers resumes where it stopped rather than walking back from the watermark.
+
+Reach for it where the watermark is not a position: a coarse or unordered key space, or none at all, where "start fresh from the watermark" means walking the whole source again. It carries `resumeAcrossSlices`' precondition twice over, because a chain gap can be a whole scheduling interval rather than minutes — so set it for a domain key or an index, never for a provider page token.
+
+**A source served as one whole document can say so with `atomicUnit: true`.** Parking is cheap when the next slice asks for the next page; it is not cheap when the unit is a document, because the slice that resumes pulls the whole thing again, and a conditional request cannot help — a `304` returns no body and a resumed drain has nothing to continue into.
+
+Declaring it does not move where the driver parks. The budget still decides that, and a driver that ran on because a page asked it to could overrun the dispatch bound. What it changes is that a source which cannot be got through in one slice is **reported** instead of retried silently forever: after several consecutive attempts that write nothing, the connection raises an `action_required` activity naming the cause. The count clears the moment an attempt writes anything, so a provider having one bad interval does not raise one.
 
 ### Rate limits
 
@@ -138,6 +159,8 @@ The runtime abandons a chain that stops getting anywhere:
 - A slice ceiling, and a wall-clock ceiling measured from when the chain started.
 
 A slice that parked carrying `notBefore` is exempt from the first two. A fully throttled slice writes nothing and holds its watermark, so it reports the position the slice before it did, and a sustained throttle returns to a position it has already reported — which read as a stall and as a loop respectively, and are neither. Such a chain stays bounded by the ceilings instead.
+
+**A sweep with nothing that advances says so with `stallGuard: 'ceilings'`.** The first two checks compare the processed count, the watermark and the carried position together, so a sweep that walks pages of an unordered listing is seen to advance even with no watermark to report. Where a provider offers none of the three — no domain key, no carried position, a fixed count per slice — declare it and the chain is bounded by the ceilings alone. The alternative is inventing a watermark to keep the comparison moving, which defeats the guard silently rather than saying so.
 
 An abandoned chain is recorded where an operator can see it, on the same surface as any other terminal dispatch failure. Recovery is automatic: the watermark is committed as the sweep runs, so the next scheduled tick starts a fresh chain from wherever the abandoned one reached. That is what makes it right for the ceilings to be strict.
 
