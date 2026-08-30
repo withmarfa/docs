@@ -127,6 +127,8 @@ Report `watermark` only for work that was actually written. A watermark past a r
 
 `continuation.notBefore` is the honest answer to a 429: park with the upstream's own retry delay rather than sleeping inside the budget and spending a whole slice on nothing.
 
+Returning it **ends the slice**. `sweep()` stops its page loop where the refusal was reported rather than calling the page again, so you do not need a re-entry guard of your own to stop the loop running on.
+
 ### Chains are bounded
 
 The runtime abandons a chain that stops getting anywhere:
@@ -134,6 +136,8 @@ The runtime abandons a chain that stops getting anywhere:
 - Two consecutive slices reporting the same position.
 - A slice returning to a position the chain had already left — an alternating loop, which the consecutive check never catches.
 - A slice ceiling, and a wall-clock ceiling measured from when the chain started.
+
+A slice that parked carrying `notBefore` is exempt from the first two. A fully throttled slice writes nothing and holds its watermark, so it reports the position the slice before it did, and a sustained throttle returns to a position it has already reported — which read as a stall and as a loop respectively, and are neither. Such a chain stays bounded by the ceilings instead.
 
 An abandoned chain is recorded where an operator can see it, on the same surface as any other terminal dispatch failure. Recovery is automatic: the watermark is committed as the sweep runs, so the next scheduled tick starts a fresh chain from wherever the abandoned one reached. That is what makes it right for the ceilings to be strict.
 
