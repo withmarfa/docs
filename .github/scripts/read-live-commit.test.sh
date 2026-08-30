@@ -363,14 +363,25 @@ else
     fail=$((fail+1)); printf '  FAIL  the workflow does not parse, or has lost a job\n'
   fi
 
+  # Comments are stripped before matching, both whole-line and trailing.
+  # Grepping the raw file is satisfied by a mention, including one appended to
+  # the end of the line that used to hold the call, which is how deleting the
+  # call outright still reported coverage. Anchoring to the first token is too
+  # strict the other way: two of these are called inside a command
+  # substitution rather than as a bare command.
+  #
+  # Stripped once into a variable, and matched with a glob rather than a
+  # pipeline, because `sed ... | grep -q` cannot be trusted under the
+  # `pipefail` this script sets. `grep -q` exits the moment it matches, `sed`
+  # is left writing into a closed pipe and dies on EPIPE, and `pipefail` then
+  # reports the pipeline as failed — so the assertion failed precisely when
+  # the function WAS present, and passed only when `sed` happened to finish
+  # first. That is a race against file size and machine speed: it passed on a
+  # laptop and failed in CI, reporting that a publish guard had stopped being
+  # called when it had not.
+  workflow_body="$(sed 's/#.*//' "$workflow")"
   for fn in report_live_state check_deploy_target resolve_main_ref read_live_commit; do
-    # Comments are stripped before matching, both whole-line and trailing.
-    # Grepping the raw file is satisfied by a mention, including one appended to
-    # the end of the line that used to hold the call, which is how deleting the
-    # call outright still reported coverage. Anchoring to the first token is too
-    # strict the other way: two of these are called inside a command
-    # substitution rather than as a bare command.
-    if sed 's/#.*//' "$workflow" | grep -q "${fn}"; then
+    if [[ $workflow_body == *"$fn"* ]]; then
       pass=$((pass+1)); printf '  ok    the workflow calls %s\n' "$fn"
     else
       fail=$((fail+1)); printf '  FAIL  the workflow no longer calls %s outside a comment\n' "$fn"
