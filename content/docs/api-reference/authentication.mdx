@@ -62,14 +62,14 @@ Call `POST /keys` with the label, role, and the four permission maps (types, ext
 
 Full request and response shapes live in the API reference. A few fields carry rules worth calling out:
 
-- **`role`** — `admin` bypasses every permission check. `space_admin` is admin-shaped within its own space: an API key with this role bypasses the data-plane permission maps for its space and manages that space's keys (reserved `system.*` / `marfa.*` writes still require a platform credential). `member` is scoped by the permission maps with no key-management rights. The role bypass applies to API keys only — OAuth access tokens are always held to their granted scopes regardless of role (see [Scopes](#scopes)). A caller may not mint a key above its own role; see [Role ceiling](#role-ceiling).
+- **`role`** — `instance_admin` bypasses every permission check. `space_admin` is admin-shaped within its own space: an API key with this role bypasses the data-plane permission maps for its space and manages that space's keys (reserved `system.*` / `marfa.*` writes still require a platform credential). `member` is scoped by the permission maps with no key-management rights. The role bypass applies to API keys only — OAuth access tokens are always held to their granted scopes regardless of role (see [Scopes](#scopes)). A caller may not mint a key above its own role; see [Role ceiling](#role-ceiling).
 - **`source`** — stamped onto every item written by this key. Unique per space; clients can't override.
 - **`default_tier`** — stamps onto items when the client omits the field. Clients can override per item. See [Tier](/guides/core-model/tier).
 - **`type_permissions`**, **`extension_permissions`**, **`edge_permissions`**, **`metadata_permissions`** — see [Permissions](/api-reference/permissions) for resolution rules and the dual-gate.
 
 ### Role ceiling
 
-The roles are ordered: `admin` > `space_admin` > `member`. A caller may mint a key at its own role or below, never above. A `space_admin` asking for `role: "admin"` gets `403 forbidden`; so does a request for any role the caller does not itself hold. The refusal is explicit rather than a silent downgrade, so a client never walks away holding a credential weaker than the one it asked for without knowing.
+The roles are ordered: `instance_admin` > `space_admin` > `member`. Both of the admin-shaped roles name what they govern, which is the point of the top one's name: read beside `space_admin`, a bare `admin` looks like the smaller of the two when it is the larger. A caller may mint a key at its own role or below, never above. A `space_admin` asking for `role: "instance_admin"` gets `403 forbidden`; so does a request for any role the caller does not itself hold. The refusal is explicit rather than a silent downgrade, so a client never walks away holding a credential weaker than the one it asked for without knowing.
 
 This bounds what a credential can turn into. Minting is not an escalation path: the strongest key a request can produce is a copy of the one that authorized it.
 
@@ -78,13 +78,17 @@ Two further axes are constrained separately and are not covered by the ordering:
 - **`is_platform`** — only a caller that is already a platform credential can set it. Requested by anyone else, it is coerced to `false`.
 - **Space** — inherited from the caller, never chosen by the request body. See [Space binding](#space-binding).
 
-Bootstrap is the one exemption: on a fresh server there is no credential to compare against, so the seed key is minted as `admin`.
+Bootstrap is the one exemption: on a fresh server there is no credential to compare against, so the seed key is minted as `instance_admin`.
+
+<Callout type="info">
+  `admin` was this role's name until recently and is still accepted in a request body, resolving to `instance_admin`. Responses always answer `instance_admin`. The old spelling is transitional and will be refused once stored rows are realigned, so move any client that sends it.
+</Callout>
 
 ### Platform admin and space-bound admin
 
-`admin` describes the role, not automatically the reach. Platform authority — the `/admin/*` space surface, cross-space quota writes, instance metrics — requires a credential that is **not bound to a space**. A key can legitimately carry `role: "admin"` and still be confined to one space: `POST /admin/spaces/{id}/keys` mints exactly that, and its authority stops at that space's boundary. Such a key is admin-shaped inside its own space and is refused, with `403 forbidden`, on the cross-space surfaces.
+`instance_admin` describes the role, not automatically the reach. Platform authority — the `/admin/*` space surface, cross-space quota writes, instance metrics — requires a credential that is **not bound to a space**. A key can legitimately carry `role: "instance_admin"` and still be confined to one space: `POST /admin/spaces/{id}/keys` mints exactly that, and its authority stops at that space's boundary. Such a key is admin-shaped inside its own space and is refused, with `403 forbidden`, on the cross-space surfaces.
 
-Read `admin` as "bypasses the permission maps" and space binding as "and here is how far that reaches".
+Read `instance_admin` as "bypasses the permission maps" and space binding as "and here is how far that reaches".
 
 ### Space binding
 
