@@ -101,6 +101,14 @@ PUT /connections/{id}/mapping
 - **Validation is wholesale at PUT**, against the connection's space registry: target types must resolve (reserved namespaces refused), every assigned field must exist on its target, and required target fields must be covered. Each refusal names the field. A record that fails its target type's validation at write time surfaces as a per-item activity row — never a silent drop.
 - Only integrations declaring `supports_user_mappings` accept a mapping; the surface refuses the rest so configuration cannot silently do nothing.
 
+**Validation does not stop at the PUT.** A mapping is a document about the registry, and the registry keeps moving: deleting a mapping's target type, or adding a required field to it, breaks a mapping the platform has already asserted is valid. Both are revalidated at the moment they happen, rather than discovered per item at the next sync.
+
+- **The type change succeeds and says what it broke.** `PUT /types/{id}` and `DELETE /types/{id}` return `broken_mappings`, listing each connection whose stored mapping no longer validates and naming the rule and field, in the same words the save-time refusal uses. This is a report rather than a refusal: a type belongs to the space's registry and a mapping is one person's configuration on a connection, so an administrator removing their own type is not made to hunt through connection settings first.
+- **Each break is also an `action_required` activity row** on the connection that holds the mapping, which is where somebody who was not the person deleting the type will find it.
+- **A broken mapping keeps failing loudly.** It is still consulted, so records still fail against a target that no longer resolves, one activity row at a time. Skipping the rule instead would be quieter and would put content somewhere nobody chose.
+- **Repairing or clearing the mapping closes the break**, so the row leaves the Repairs inbox rather than standing as a permanent complaint about a document that is now correct. The row is downgraded rather than deleted: the break did happen, and its summary still says so.
+- **`broken_mappings: null` is not `broken_mappings: []`.** An empty list means the check ran and found nothing. `null` means the check could not run, and the type change still landed. A check that did not run has established nothing, so the two answers are kept apart.
+
 ### What a mapping asks of the integration
 
 The engine is the platform's and is injected into every dispatch, so nothing about evaluating rules is an integration author's problem. What is theirs is presenting each record and honoring the answer, and the four rules below are the whole of it. An integration declares `supports_user_mappings` once these hold, and not before: the flag is what the configuration surface reads, so declaring it early means a mapping saves, validates, reports success, and is never read by anything.
