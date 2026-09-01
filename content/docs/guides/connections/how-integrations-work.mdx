@@ -73,6 +73,32 @@ An integration ships one or more write families: coherent sets of types its own 
 
 The manifest sets the ceiling on what an integration may touch; the mapping decides what it does touch. See [write families](/guides/connections/integrations#write-families) and [user-defined mappings](/guides/connections/integrations#user-defined-mappings).
 
+## What names a synced item
+
+An item mirrored from upstream is identified by `(source, source_id)`. **`source` is stamped by the platform** from the integration and the space — never from the individual connection. That is deliberate: it means uninstalling and reinstalling lands on the items already there rather than forking the corpus.
+
+**`source_id` is the handler's**, and the consequence of the rule above is the thing to design for: **two connections of one integration in one space share a single `source_id` namespace.** Somebody connecting two accounts of the same service gets two connections, and if both write a bare upstream id, the second collides with the first.
+
+**Scope `source_id` unless the upstream documents that its identifier is globally unique.** Take the scope from upstream data — the account, the calendar, the mailbox, the feed — rather than from the connection's configuration, and compose it per record:
+
+```ts
+// The account this record belongs to, read once from upstream and kept on
+// the cursor, then composed into every key the handler writes.
+source_id: `note:${accountId}:${note.id}`
+```
+
+Three properties make that work, and each fails differently if dropped.
+
+**Read the scope from upstream, not from configuration.** A connection id changes on every reinstall, so keying on one re-imports the whole corpus as duplicates. Configuration a person edits has the same problem in slower motion.
+
+**Compute it once and read it from stored state.** Re-deriving it per tick invites two derivations to disagree.
+
+**Land every write path on the same rung.** Taking identity from upstream is necessary and not sufficient. Where a handler falls back — a guid, else an enclosure URL, else a digest — two passes over the same record can land on different rungs and produce two keys for one thing. That is not hypothetical: a feed drain and a directory backfill did exactly this, agreed on the rule, disagreed on the rung, and turned 57 recordings into 171.
+
+**Over-scoping is the safe direction.** Two connections pointed at one account keeping separate copies is untidy and visible. Under-scoping overwrites silently, and the platform cannot always catch it for you: a write that resolves a row a *live* sibling connection wrote is refused with `provenance_collision`, but a row whose writer has been uninstalled is adopted, and that is what keeps reinstall working.
+
+**Some records genuinely need no scope.** An identifier the upstream guarantees platform-wide is already unique, and scoping one can be actively wrong — an email delivered to two of your addresses is one email, and giving it two keys makes it two.
+
 ## Hosted runs a curated set, and that is the trade
 
 Because handler code runs inside Marfa's process beside every credential, a hosted deployment installs only what Marfa publishes. Opening that catalog to arbitrary code means isolating every integration from the process it runs in, which is a materially heavier runtime. The trade is not taken.
