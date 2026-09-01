@@ -75,9 +75,15 @@ Every endpoint's response shapes — including the set of error codes it returns
     `item_not_found` also fires when an item exists but isn't visible to this credential — don't leak existence.
   </Accordion>
   <Accordion title="409 — conflicts">
-    `conflict`, `version_conflict`, `duplicate_source`, `type_mismatch`, `type_already_exists`, `type_in_use`.
+    `conflict`, `version_conflict`, `duplicate_source`, `type_mismatch`, `provenance_collision`, `type_already_exists`, `type_in_use`.
 
     `version_conflict` is the one with an enriched payload — see [below](#version-conflict). `duplicate_source` fires inside `POST /items/bulk` with `mode: create_only` as a per-item outcome reason, when `(source, source_id)` already exists and the caller asked not to update. The single-item `POST /items` path treats a duplicate `(source, source_id)` as an upsert: it short-circuits to update and returns `200`, provided the `type` in the body is the resolved item's own. `type_mismatch` is what you get when it is not, and it is worth knowing why it exists: the natural key resolves the row without consulting `type` at all, so a body naming a different one used to be merged in silently and the item kept its original type. A write never re-types the row it lands on, on any door. See [Items — relationships, lists, and writes](/guides/core-model/items#relationships-lists-and-writes).
+
+    `provenance_collision` is the one an integration author is most likely to meet. An item's provenance is stamped from the integration and the space rather than from the individual connection, so that reinstalling adopts the items already there instead of duplicating them — which means **two connections of one integration share a single `(source, source_id)` namespace**. If both write the same upstream identifier, the second is refused with this code rather than overwriting the first, and the response names the connection that owns the row.
+
+    **Do not retry it.** It cannot succeed while the owning connection stays installed. The fix belongs in the handler: scope `source_id` to the upstream source the record came from — the account, the calendar, the feed — so two connections stop competing for one key. See [How integrations work — what names a synced item](/guides/connections/how-integrations-work#what-names-a-synced-item).
+
+    **It refuses a write and asserts nothing wider.** A row whose recorded writer has been uninstalled is adopted rather than refused, which is what keeps reinstall working. And lifecycle operations — transition, restore, delete — are deliberately not gated on it, so this is not a statement that the row belongs to one connection.
   </Accordion>
   <Accordion title="413 and 429">
     `blob_too_large` — exceeds the configured upload size limit. `rate_limited` — see [Rate limits](/api-reference/rate-limits).
