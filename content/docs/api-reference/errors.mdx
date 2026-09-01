@@ -68,6 +68,8 @@ Every endpoint's response shapes — including the set of error codes it returns
     `forbidden`, `type_not_permitted`, `edge_permission_denied`, `core_type_immutable`.
 
     An edge mutation is dual-gated on the source item's type and on the edge type, and the two gates report separately: a missing type write returns `type_not_permitted`, a missing edge-type write returns `edge_permission_denied`. See [Permissions](/api-reference/permissions).
+
+    `DELETE /items/{id}/purge` answers `type_not_permitted` when the item is in a reserved namespace this credential may not write. Purging is trash-then-purge, so the refusal you would otherwise meet is that the item is not trashed — which is true, and describes an ordering mistake you did not make: the trash step was refused for the namespace, and the item never became trashable. The purge door names that reason directly rather than sending you back to a step that will refuse you again.
   </Accordion>
   <Accordion title="404 — not found">
     `not_found`, `item_not_found`, `blob_not_found`, `type_not_found`, `edge_not_found`, `edge_type_not_found`, `webhook_not_found`.
@@ -83,7 +85,13 @@ Every endpoint's response shapes — including the set of error codes it returns
 
     **Do not retry it.** It cannot succeed while the owning connection stays installed. The fix belongs in the handler: scope `source_id` to the upstream source the record came from — the account, the calendar, the feed — so two connections stop competing for one key. See [How integrations work — what names a synced item](/guides/connections/how-integrations-work#what-names-a-synced-item).
 
-    **It refuses a write and asserts nothing wider.** A row whose recorded writer has been uninstalled is adopted rather than refused, which is what keeps reinstall working. And lifecycle operations — transition, restore, delete — are deliberately not gated on it, so this is not a statement that the row belongs to one connection.
+    **A row whose recorded writer has been uninstalled is adopted rather than refused**, which is what keeps reinstall working and what stops a corpus becoming unreachable when the connection that wrote it goes away.
+
+    **Destroying is gated the same way as writing.** An integration acting through its own runtime credential may only trash, archive, restore or delete rows it wrote: `DELETE /items/{id}`, `POST /items/{id}/transition`, `POST /items/{id}/restore` and the bulk route's `transition` action all answer `provenance_collision` when the row's writer is a sibling connection that is still installed. There is no remedy to apply here — unlike the refused write above, the answer is that this is not your row — so the connection that owns it is the one that can remove it.
+
+    The bulk route **narrows rather than refusing**: rows written by a live sibling drop out of the match set and the rest of the action proceeds, because one unreachable row must not fail an action over thousands.
+
+    **A person acting through their own credential is unaffected.** This narrows what an integration may do to rows it did not write, and nothing about what you can do in your own space.
   </Accordion>
   <Accordion title="413 and 429">
     `blob_too_large` — exceeds the configured upload size limit. `rate_limited` — see [Rate limits](/api-reference/rate-limits).
