@@ -677,6 +677,25 @@ Each entry is a `PendingMutationSummary` with `id`, `kind` (e.g. `.createItem`, 
 - `.pending` — queued, not yet attempted.
 - `.inFlight` — the sync engine is issuing the transport call right now.
 - `.retrying(attemptCount: Int, lastError: String)` — a transient failure, will retry on the next drain cycle.
+- `.blocked(reason: PendingMutationBlockReason, attemptCount: Int, lastError: String)` — the engine has stopped retrying. The write is still queued, but nothing will move it until something changes app-side.
+
+`.retrying` says wait; `.blocked` says the waiting will not end on its own, so it is the one to render differently. Three reasons:
+
+| Reason | What happened | How it clears |
+| --- | --- | --- |
+| `.resolverMissing` | A `.callback` update reached replay with no resolver registered on the client. Blocks on the first attempt, because a second cannot differ. | Call `registerConflictResolver(_:)`. No retry call — the next drain finds the resolver and replays the write. |
+| `.conflictUnresolved` | A `409` on an update outlived the conflict loop: a `.manual` strategy, a `.callback` resolver that kept declining, or a `sourceId` the server already holds against another row. | Resolve the conflict, then `syncEngine.retry(id:)`. |
+| `.retriesExhausted` | A refusal that is neither permanent nor either of the above failed `maxReplayAttempts` times (default 5). | Fix the cause, then `syncEngine.retry(id:)`. |
+
+`SyncEngine.retry(id:)` clears the block, resets the attempt count and asks for a drain.
+
+**Network failures never block.** A connectivity failure, a `5xx`, a `429` and a `401` are all statements about the environment rather than about the write, and they clear on their own, so they retry indefinitely and their attempt count keeps climbing past the ceiling. Stranding a valid write behind an outage — and then needing someone to release it by hand — would be worse than the problem the ceiling solves.
+
+A blocked row holds back writes queued *after* it for the same item, so the queue's per-item ordering is kept; writes queued before it, and writes to other items, are unaffected.
+
+<Callout type="warn">
+  A queue whose only remaining rows are blocked also holds off the catch-up import, so a store that has never imported stays empty until the block clears. The import replaces every row it receives with no merge, and a blocked row is still an unsent write, so importing over one would discard it — the gate deliberately counts the whole queue rather than only what the drain will attempt. This was already true of a write that retried forever; blocking makes it visible and gives the app something to show.
+</Callout>
 
 The query refreshes on every `ModelContext.didSave`. Returns `nil` on clients without a mutation queue (network-only mode).
 
@@ -700,7 +719,7 @@ The engine:
 2. Catches up before it subscribes: drains the `MutationQueue` if anything is in it, then imports the library if this store has never completed an import. The event stream carries only what happens after it opens, so a store that has never synced is filled here or not at all, and a write queued while the engine was stopped replays here rather than waiting for a stream close that a live server never delivers.
 3. Opens an SSE stream on `GET /events` and applies events into the local store: item creates, updates, deletes, restores and state changes; edge creates, updates and deletes; and `metadata.changed`, which carries an item's whole metadata row and replaces the local one with it, storing the item it carries alongside it. Persists `Last-Event-ID` so reconnection resumes from the correct point. The engine reports `.online` for as long as that stream is open, rather than only once it has closed.
 4. Drains the `MutationQueue` within a short debounce window of any new enqueue, and again when the stream closes, replaying local writes against the server. The mutation queue captures per-call `UpdateOptions.conflict` so the chosen strategy applies on replay. A closure is not serializable, so a `.callback` replay resolves through the resolver registered on the client rather than the one passed at the call site. See [Conflict handling](#conflict-handling).
-5. On failure, records the attempt against the queue record and retries on the next reachability cycle — unless the failure is one no retry can clear, which is dropped to the dead-letter log instead. A `409` is the case worth knowing: on an update it is the ordinary version conflict and resolves through the [conflict strategy](#conflict-handling), while on a create it is final, because a repeat of the caller's own id is acknowledged rather than refused. See [Local IDs](#local-ids-uuidv7).
+5. On failure, records the attempt against the queue record and retries on the next reachability cycle — unless the failure is one no retry can clear. Those split two ways. A refusal the server will repeat forever is **dropped** to the dead-letter log. A write that could still succeed once the app changes something is **blocked**: kept in the queue, skipped by the drain, and surfaced through [pending mutations](#pending-mutations) so the app can say what has to happen. A `409` is the case worth knowing: on a create it is final, because a repeat of the caller's own id is acknowledged rather than refused, while on an update it resolves through the [conflict strategy](#conflict-handling) — and blocks if that strategy cannot settle it. See [Local IDs](#local-ids-uuidv7).
 
 `stop()` tears the engine down gracefully.
 
@@ -765,6 +784,8 @@ for await event in client.syncEngine?.events ?? .init({ _ in }) {
   case .edgeDeleted(let id):
   case .mutationDropped(let kind, let itemId,
                         let attempt, let error): // permanent failure; queue record removed
+  case .mutationBlocked(let kind, let itemId,
+                        let reason):             // stopped retrying; queue record kept
   case .blobUploadStarted(let hash, let total):
   case .blobUploadProgress(let hash, let sent, let total):
   case .blobUploadCompleted(let hash):
@@ -773,7 +794,13 @@ for await event in client.syncEngine?.events ?? .init({ _ in }) {
 }
 ```
 
-The four `.blobUpload*` cases are the raw signal that `BlobUploadProgressQuery` projects into its observable dict — most apps subscribe to the query, not the events directly. `.mutationDropped` fires when a queued mutation meets a failure no retry can clear — a `400`, `403` or `404`, or a `409` on a create — and is removed from the queue and written to the dead-letter log. There is no retry ceiling: a mutation is dropped because the server's answer is final, not because it has been attempted enough times. Multi-subscriber — each access to `events` returns a fresh stream; past events are not replayed to late subscribers.
+The four `.blobUpload*` cases are the raw signal that `BlobUploadProgressQuery` projects into its observable dict — most apps subscribe to the query, not the events directly.
+
+`.mutationDropped` fires when a queued mutation meets a failure no retry can clear — a `400`, `403` or `404`, or a `409` on a create — and is removed from the queue and written to the dead-letter log. A mutation is dropped because the server's answer is final, not because it has been attempted enough times.
+
+`.mutationBlocked` fires once, when a mutation stops for a reason the app can still do something about. The write stays in the queue and can be replayed; see [pending mutations](#pending-mutations) for the reasons and how each clears. It is the one case with a ceiling — `.retriesExhausted` — and that ceiling counts only refusals outside the network class.
+
+`.failed` means the cycle could not drain. A blocked row does not produce it: the engine has stopped asking about that row, so a cycle whose only outstanding writes are blocked reports `.synced`. Multi-subscriber — each access to `events` returns a fresh stream; past events are not replayed to late subscribers.
 
 ### End-to-end subscription
 
@@ -789,6 +816,7 @@ final class SyncActivity {
   private(set) var lastSyncedAt: Date?
   private(set) var lastError: Error?
   private(set) var pendingConflictedCopies: [String] = []
+  private(set) var blockedWrites: [(itemId: String?, reason: PendingMutationBlockReason)] = []
 
   private var client: MarfaClient?
   private var task: Task<Void, Never>?
@@ -820,6 +848,10 @@ final class SyncActivity {
       if let sibling = payload.conflictedCopyId {
         pendingConflictedCopies.append(sibling)
       }
+    case .mutationBlocked(_, let itemId, let reason):
+      // Needs a person, not a retry — surface it rather than letting it sit
+      // behind a spinner that will never stop.
+      blockedWrites.append((itemId: itemId, reason: reason))
     case .itemCreated, .itemUpdated, .itemDeleted,
          .edgeCreated, .edgeUpdated, .edgeDeleted, .mutationDropped,
          .blobUploadStarted, .blobUploadProgress,
@@ -906,7 +938,7 @@ await client.registerConflictResolver { conflict in
 
 Register before the first write and before starting the sync engine. This is the write that most needs app logic: in synced mode the edit that races is rarely the online one, it is the replay against a server the device could not reach at the time.
 
-Nothing substitutes one strategy for another. A `.callback` update with no resolver anywhere — none passed to the call and none registered — is refused at the call site rather than queued. A replay that finds none keeps the mutation queued and retries on the next drain, so registering a resolver later carries it.
+Nothing substitutes one strategy for another. A `.callback` update with no resolver anywhere — none passed to the call and none registered — is refused at the call site rather than queued. A replay that finds none blocks the mutation rather than retrying it: a second attempt could not differ while no resolver is registered, and retrying regardless is what used to make every later sync cycle report failure. It surfaces as `.blocked(reason: .resolverMissing, ...)`. Registering a resolver is the whole remedy — the next drain finds it and carries the write, with no call to `retry(id:)`.
 
 `ConflictData` names the item in `itemId`. A per-call closure already knows it, but a registered one has no call site to learn it from, and it is the registered resolver a replay reaches.
 
