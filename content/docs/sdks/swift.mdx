@@ -697,7 +697,7 @@ The engine:
 
 1. Watches `NWPathMonitor` via `ConnectionStateManager` and comes online when the network path does.
 2. Catches up before it subscribes: drains the `MutationQueue` if anything is in it, then imports the library if this store has never completed an import. The event stream carries only what happens after it opens, so a store that has never synced is filled here or not at all, and a write queued while the engine was stopped replays here rather than waiting for a stream close that a live server never delivers.
-3. Opens an SSE stream on `GET /events` and applies events into the local store: item creates, updates, deletes, restores and state changes; edge creates and deletes; and `metadata.changed`, which carries an item's whole metadata row and replaces the local one with it, storing the item it carries alongside it. Persists `Last-Event-ID` so reconnection resumes from the correct point. The engine reports `.online` for as long as that stream is open, rather than only once it has closed.
+3. Opens an SSE stream on `GET /events` and applies events into the local store: item creates, updates, deletes, restores and state changes; edge creates, updates and deletes; and `metadata.changed`, which carries an item's whole metadata row and replaces the local one with it, storing the item it carries alongside it. Persists `Last-Event-ID` so reconnection resumes from the correct point. The engine reports `.online` for as long as that stream is open, rather than only once it has closed.
 4. Drains the `MutationQueue` within a short debounce window of any new enqueue, and again when the stream closes, replaying local writes against the server. The mutation queue captures per-call `UpdateOptions.conflict` so the chosen strategy applies on replay. A closure is not serializable, so a `.callback` replay resolves through the resolver registered on the client rather than the one passed at the call site. See [Conflict handling](#conflict-handling).
 5. On failure, records the attempt against the queue record and retries on the next reachability cycle — unless the failure is one no retry can clear, which is dropped to the dead-letter log instead. A `409` is the case worth knowing: on an update it is the ordinary version conflict and resolves through the [conflict strategy](#conflict-handling), while on a create it is final, because a repeat of the caller's own id is acknowledged rather than refused. See [Local IDs](#local-ids-uuidv7).
 
@@ -744,6 +744,7 @@ for await event in client.syncEngine?.events ?? .init({ _ in }) {
   case .itemUpdated(let id):
   case .itemDeleted(let id):
   case .edgeCreated(let id):
+  case .edgeUpdated(let id):                     // an edge edited on another device
   case .edgeDeleted(let id):
   case .mutationDropped(let kind, let itemId,
                         let attempt, let error): // permanent failure; queue record removed
@@ -803,7 +804,7 @@ final class SyncActivity {
         pendingConflictedCopies.append(sibling)
       }
     case .itemCreated, .itemUpdated, .itemDeleted,
-         .edgeCreated, .edgeDeleted, .mutationDropped,
+         .edgeCreated, .edgeUpdated, .edgeDeleted, .mutationDropped,
          .blobUploadStarted, .blobUploadProgress,
          .blobUploadCompleted, .blobUploadFailed:
       break   // SwiftData-backed MarfaStore queries pick these up automatically
