@@ -106,6 +106,7 @@ var config = ClientConfiguration(url: url, apiKey: key)
 config.conflictStrategy = .auto         // or .manual, .callback
 config.timeoutInterval = 30
 config.resourceTimeout = 120
+config.streamTimeout = 60               // event-stream inactivity bound
 config.cdnBaseURL = URL(string: "https://cdn.marfa.example.com")  // optional
 config.debugLogging = true              // full-body logging at .private
 
@@ -702,6 +703,22 @@ The engine:
 5. On failure, records the attempt against the queue record and retries on the next reachability cycle — unless the failure is one no retry can clear, which is dropped to the dead-letter log instead. A `409` is the case worth knowing: on an update it is the ordinary version conflict and resolves through the [conflict strategy](#conflict-handling), while on a create it is final, because a repeat of the caller's own id is acknowledged rather than refused. See [Local IDs](#local-ids-uuidv7).
 
 `stop()` tears the engine down gracefully.
+
+### Stream lifetime
+
+One stream is held for as long as the engine runs. The server sends a heartbeat comment every thirty seconds, which keeps the connection alive and, on the client, keeps resetting the clock that would otherwise end it. See [Realtime](/guides/realtime/realtime) for the frame format.
+
+Three things close a stream:
+
+- **Silence.** `ClientConfiguration.streamTimeout` bounds how long the stream may deliver nothing at all, heartbeats included. It defaults to 60 seconds, twice the server's heartbeat interval, so one late or dropped ping does not end a stream that is otherwise healthy. Raise it for a deployment whose proxy batches SSE frames. A value below the heartbeat interval tears down healthy streams.
+- **A network change.** `ConnectionStateManager` watches the path, and the engine opens a new stream on the way back.
+- **The server.** A restart, a shutdown, or the `catchup_too_old` case where the events the cursor points at have been discarded.
+
+Elapsed time is not among them. `ClientConfiguration.resourceTimeout` bounds an ordinary request's whole life and is not applied to the stream's session, which keeps URLSession's own seven-day default — a ceiling no stream is expected to reach, rather than no ceiling at all.
+
+Opening the stream is bounded by `streamTimeout` too, not by the shorter `timeoutInterval`, so a subscribe against a server that accepts the connection and then never answers waits twice as long as an ordinary request would before giving up. That is the right trade here: the reconnect path retries anyway, and a slow open is far more often a server assembling a replay than a dead one, so failing fast would abandon exactly the subscribes worth waiting for.
+
+Whatever closes it, the close is handled the same way: replay the mutation queue, then reconnect after a back-off, resuming from `Last-Event-ID`. A stream that failed without delivering anything backs off exponentially; one that closed healthily reconnects on the base delay.
 
 ### Proactive drain
 
