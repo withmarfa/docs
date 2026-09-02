@@ -54,6 +54,13 @@ jobs:
     timeout-minutes: 25
     outputs:
       published: ${{ steps.target.outputs.publish }}
+      # What the notifier needs to name a finding rather than restate a job
+      # conclusion. `expected` is written before the first step that can
+      # refuse, and `live` and `verdict` immediately before the proof gives up,
+      # so a failed job still carries all three.
+      expected: ${{ steps.target.outputs.expected }}
+      live: ${{ steps.proof.outputs.live }}
+      verdict: ${{ steps.proof.outputs.verdict }}
     env:
       # One expression, used for the checkout, the build stamp and the proof, so
       # the three cannot disagree. On a workflow_run event `github.sha` is the
@@ -80,6 +87,16 @@ jobs:
           source .github/scripts/read-live-commit.sh
           git fetch --quiet origin main || true
           TIP="$(resolve_main_ref)"
+          # Written before anything can refuse, so a publish that fails at any
+          # later step still tells the notifier which commit should be live.
+          # Only when it really is a sha: `resolve_main_ref` hands back the
+          # literal ref name on a checkout without origin/main, and an alert
+          # reading "main is origin/main" is a fabricated finding rather than
+          # an absent one.
+          case "$TIP" in
+            *[!0-9a-f]*|"") ;;
+            *) echo "expected=$TIP" >> "$GITHUB_OUTPUT" ;;
+          esac
           set +e
           check_deploy_target "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$DEPLOY_COMMIT" "$TIP"
           verdict=$?
@@ -148,6 +165,7 @@ jobs:
       # A deploy that returns zero is not proof that readers are served the new
       # bundle. Ask the site what it is running.
       - name: Prove the live site is serving this commit
+        id: proof
         if: steps.target.outputs.publish == 'yes'
         run: |
           source .github/scripts/read-live-commit.sh
@@ -155,11 +173,21 @@ jobs:
             LIVE="$(read_live_commit)"
             if [ "$LIVE" = "$DEPLOY_COMMIT" ]; then
               echo "Live site is serving ${LIVE}."
+              { echo "live=$LIVE"; echo "verdict=current"; } >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "Attempt ${attempt}: live site reports ${LIVE}, expected ${DEPLOY_COMMIT}."
             if [ "$attempt" -lt 10 ]; then sleep 15; fi
           done
+          # Written before the failure rather than after it. A step that exits
+          # non-zero still publishes what it put in GITHUB_OUTPUT, but only what
+          # it got there first, and this is the difference between an alert
+          # naming the commit the site is stuck on and one saying merely that
+          # something failed.
+          {
+            echo "live=$LIVE"
+            echo "verdict=$(describe_live_state "$DEPLOY_COMMIT" "$LIVE")"
+          } >> "$GITHUB_OUTPUT"
           echo "::error title=Deploy did not take::wrangler reported success, but the live version endpoint still reports ${LIVE} rather than ${DEPLOY_COMMIT}."
           exit 1
 
@@ -170,6 +198,10 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.mode == 'check')
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      live: ${{ steps.compare.outputs.live }}
+      expected: ${{ steps.compare.outputs.expected }}
+      verdict: ${{ steps.compare.outputs.verdict }}
     env:
       DOCS_SITE_URL: ${{ vars.DOCS_SITE_URL }}
     steps:
@@ -182,6 +214,7 @@ jobs:
           fetch-depth: 0
 
       - name: Compare the live commit against main
+        id: compare
         run: |
           source .github/scripts/read-live-commit.sh
           # Tolerant on purpose. Resolving this inline killed the step under
@@ -201,6 +234,21 @@ jobs:
             echo "Attempt ${attempt}: ${LIVE}."
             if [ "$attempt" -lt 3 ]; then sleep 20; fi
           done
+
+          # The verdict and both commits, written before `report_live_state`
+          # returns non-zero. Setting them after it would mean the one alert
+          # that matters is the one arriving with nothing in it.
+          {
+            echo "live=$LIVE"
+            echo "verdict=$(describe_live_state "$EXPECTED" "$LIVE")"
+            # Only when the comparison ref resolved to a sha. `resolve_main_ref`
+            # returns the literal ref name when it does not, and reporting that
+            # as main invents a finding where the checkout is what is at fault.
+            case "$EXPECTED" in
+              *[!0-9a-f]*|"") ;;
+              *) echo "expected=$EXPECTED" ;;
+            esac
+          } >> "$GITHUB_OUTPUT"
 
           report_live_state "$EXPECTED" "$LIVE"
 
@@ -241,6 +289,17 @@ jobs:
           WORKFLOW: ${{ github.workflow }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          RUN_NUMBER: ${{ github.run_number }}
+          SITE_URL: ${{ vars.DOCS_SITE_URL }}
+          # The finding itself. Whichever of the two jobs ran holds it; the
+          # other is skipped and contributes empty strings.
+          PUBLISH_LIVE: ${{ needs.publish.outputs.live }}
+          PUBLISH_EXPECTED: ${{ needs.publish.outputs.expected }}
+          PUBLISH_VERDICT: ${{ needs.publish.outputs.verdict }}
+          CHECK_LIVE: ${{ needs.check.outputs.live }}
+          CHECK_EXPECTED: ${{ needs.check.outputs.expected }}
+          CHECK_VERDICT: ${{ needs.check.outputs.verdict }}
         run: |
           # `needs.*.result` only ever holds success, failure, cancelled or
           # skipped; a job hitting `timeout-minutes` reports failure, so there
@@ -253,11 +312,42 @@ jobs:
           # hosted, so a cancel here is GitHub dropping a queued run when
           # several merges land together, and alerting on it would open
           # "did not complete" on an ordinary busy morning.
+          LIVE="${PUBLISH_LIVE:-$CHECK_LIVE}"
+          EXPECTED="${PUBLISH_EXPECTED:-$CHECK_EXPECTED}"
+          VERDICT="${PUBLISH_VERDICT:-$CHECK_VERDICT}"
+
+          # The title carries the commits themselves. Seven characters is what a
+          # reader compares against a git log; the fields carry them in full.
+          short() { printf '%s' "${1:0:7}"; }
+
           case ",$RESULTS," in
-            *,failure,*)   STATE=open;     TITLE="The docs site is not publishing" ;;
+            *,failure,*)
+              STATE=open
+              if [ "$VERDICT" = unknown-ref ]; then
+                # A statement about the checkout rather than about the site, so
+                # it changes subject to the check in the same way the did-not-run
+                # case does. Naming a verdict here would be the confidently-wrong
+                # diagnostic the guard itself refuses to make.
+                TITLE="Docs publish check: inconclusive"
+              elif printf '%s' "$LIVE" | grep -Eq '^[0-9a-f]{7,40}$' &&
+                   printf '%s' "$EXPECTED" | grep -Eq '^[0-9a-f]{7,40}$'; then
+                TITLE="Docs site: serving $(short "$LIVE"), main is $(short "$EXPECTED")"
+              elif [ -n "$VERDICT" ]; then
+                # The site answered with something that is not a commit:
+                # unreachable, unreadable, missing, or built from a dirty tree.
+                TITLE="Docs site: $VERDICT"
+              elif [ -n "$EXPECTED" ]; then
+                # It failed before it ever got to read the site.
+                TITLE="Docs site: not publishing $(short "$EXPECTED")"
+              else
+                TITLE="Docs publish check: inconclusive"
+              fi ;;
             *,cancelled,*) echo "Run cancelled; nothing to report."; exit 0 ;;
-            *,success,*)   STATE=resolved; TITLE="The docs site is publishing again" ;;
-            *)             STATE=open;     TITLE="$WORKFLOW reached its notifier having proved nothing on $REPO" ;;
+            *,success,*)   STATE=resolved; TITLE="Docs site: current" ;;
+            # Neither job reached a verdict. `inconclusive` rather than
+            # `skipped`, which implies a decision and would make a guard that
+            # silently stopped running read as routine.
+            *)             STATE=open;     TITLE="Docs publish check: inconclusive" ;;
           esac
           # The destination may or may not need a credential, so the header is
           # built rather than hardcoded: an empty token would otherwise be sent
@@ -267,10 +357,33 @@ jobs:
           if [ -n "${ALERT_TOKEN:-}" ]; then
             AUTH=(-H "Authorization: Bearer $ALERT_TOKEN")
           fi
+          # `github.workflow` is the workflow's *display name*, not its
+          # filename, and this key is what pairs an open alert with the resolve
+          # that later clears it. Renaming this workflow's `name:` therefore
+          # re-keys every alert from it: the open one can never be resolved, and
+          # the next failure opens a second alongside it. Downstream filtering
+          # keys on the same string and breaks silently.
+          #
+          # This key deliberately covers both the publish outcome and the daily
+          # freshness check. On a publish failure that means two messages, one
+          # from here and one from the central delivery reporting, which is an
+          # accepted duplicate: splitting the key is more machinery than a
+          # second message about a real failure costs.
+          #
+          # Links live in field values as Markdown and never in the title, so a
+          # destination rendering the title as plain text shows prose rather
+          # than bracket syntax.
           jq -n --arg t "$TITLE" --arg s "$STATE" --arg k "github/$REPO/$WORKFLOW" \
                 --arg u "$RUN_URL" --arg r "$REPO" --arg w "$WORKFLOW" --arg j "$RESULTS" \
+                --arg ru "$REPO_URL" --arg rn "$RUN_NUMBER" --arg site "$SITE_URL" \
+                --arg live "$LIVE" --arg main "$EXPECTED" --arg verdict "$VERDICT" \
             '{source:"github",severity:"warning",title:$t,state:$s,key:$k,link:$u,
-              fields:{Repository:$r,Workflow:$w,Jobs:$j}}' \
+              fields:(
+                {Repository:"[\($r)](\($ru))",Workflow:$w,Run:"[#\($rn)](\($u))",Jobs:$j}
+                + (if $site == "" then {} else {Site:"[docs site](\($site))"} end)
+                + (if $live == "" then {} else {Live:$live} end)
+                + (if $main == "" then {} else {Main:$main} end)
+                + (if $verdict == "" then {} else {Verdict:$verdict} end))}' \
           | curl -sS --fail-with-body --max-time 20 -X POST "$ALERT_URL" \
               "${AUTH[@]}" \
               -H "Content-Type: application/json" --data @-
