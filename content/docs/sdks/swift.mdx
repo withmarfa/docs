@@ -377,6 +377,10 @@ let tags = try await client.metadata.listTags()
 
 `metadata.listTags()` is mode-aware. In synced and pure-local modes the call fetches metadata rows whose parent item is not trashed and buckets the tags in Swift; in remote mode it hits `GET /metadata/tags`. Either way the return shape is `[TagWithCount]` ordered `count DESC, tag ASC`. Local-mode reads short-circuit the network round-trip.
 
+On a synced client the server's metadata row is authoritative. A `metadata.changed` event carries the whole row — tags and extensions together — and the engine replaces the local row with it, so a tag added on another device arrives without a re-import and a namespace the server no longer holds goes away here too. The same row lands on the initial import. Metadata converges to the server rather than being merged locally, which is what makes two devices agree.
+
+`metadata.set` is the exception, and it mirrors the route it replays against: `PUT /items/{id}/metadata` writes the tag set and touches nothing else, so setting tags locally leaves the item's [extensions](#extensions) alone.
+
 The `tier` field sits on the item itself, not in metadata. Set it on create via `CreateItemInput.tier`, or flip it post-creation via `items.update(id:properties:options:)` with `UpdateOptions(tier: .library)`. Tier-only updates don't conflict — tier is metadata-axis, last-writer-wins. `system.*` items have no tier; the field is optional in the SDK shape (`Tier?`).
 
 #### Consuming per-item metadata in UIs
@@ -402,6 +406,10 @@ let all  = try await client.extensions.getAll(itemId: note.id)
 let one  = try await client.extensions.get(itemId: note.id, namespace: "my-app.reading_progress")
 try await client.extensions.delete(itemId: note.id, namespace: "my-app.reading_progress")
 ```
+
+A namespace is merged into the item's existing extensions, so writing one leaves the others alone. On a synced client the whole metadata row still converges to the server: an inbound `metadata.changed` event and the initial import both replace the local extensions with the server's, and a namespace missing from what the server sent is removed locally.
+
+That is safe for a write made offline because the write is replayed, not discarded. The queued write reaches the server on reconnect, the server emits `metadata.changed` for it, and the row that comes back carries the namespace — so the extension ends up on every device without the client needing a local-wins rule. Namespaces under the reserved `connection.` root are silent and emit no event; see [extensions](/guides/core-model/extensions) for what that covers.
 
 ### Blobs
 
@@ -683,7 +691,7 @@ The engine:
 
 1. Watches `NWPathMonitor` via `ConnectionStateManager` and comes online when the network path does.
 2. Catches up before it subscribes: drains the `MutationQueue` if anything is in it, then imports the library if this store has never completed an import. The event stream carries only what happens after it opens, so a store that has never synced is filled here or not at all, and a write queued while the engine was stopped replays here rather than waiting for a stream close that a live server never delivers.
-3. Opens an SSE stream on `GET /events` and applies events into the local store. Persists `Last-Event-ID` so reconnection resumes from the correct point. The engine reports `.online` for as long as that stream is open, rather than only once it has closed.
+3. Opens an SSE stream on `GET /events` and applies events into the local store: item creates, updates, deletes, restores and state changes; edge creates and deletes; and `metadata.changed`, which carries an item's whole metadata row and replaces the local one with it. Persists `Last-Event-ID` so reconnection resumes from the correct point. The engine reports `.online` for as long as that stream is open, rather than only once it has closed.
 4. Drains the `MutationQueue` within a short debounce window of any new enqueue, and again when the stream closes, replaying local writes against the server. The mutation queue captures per-call `UpdateOptions.conflict` so the chosen strategy applies on replay. A closure is not serializable, so a `.callback` replay resolves through the resolver registered on the client rather than the one passed at the call site. See [Conflict handling](#conflict-handling).
 5. On failure, records the attempt against the queue record and retries on the next reachability cycle.
 
