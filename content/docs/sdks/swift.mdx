@@ -319,6 +319,14 @@ Admin-only bulk surfaces match the [bulk operations](/guides/querying/bulk-opera
 
 On a synced client each entry is written locally before the replay runs, under an id the store mints where you did not supply one, and the queued page carries those ids so the server stores the same rows rather than a second set beside them — the same guarantee `items.create` and `edges.create` give, applied per entry. Supplying `BulkItemInput.id` or `BulkEdgeInputItem.id` yourself names the local row and travels the same way. See [Local IDs](#local-ids-uuidv7).
 
+When the replay runs, the sync engine reads the per-entry answer rather than only the status. An entry the server refuses goes to the dropped-mutation log with the code the server gave it and emits `.mutationDropped`, so a page where some or all entries fail surfaces through `store.queryDroppedMutations()` instead of disappearing as a success. An entry the server resolved to a different row — an upsert matching on `(source, source_id)` rather than the id the page carried — is logged and left alone: the answer carries ids, not rows, so there is nothing to adopt, and the catch-up import is what reconciles the device.
+
+`atomic` defaults to `true` server-side, so one refused entry rolls the whole page back. That rollback is always final — the route rolls back only on a validation-class refusal of one entry's content — and the page is dead-lettered carrying the code from `details.code` rather than the `bulk_atomic_rollback` wrapper, which says only that something was refused. Nothing was written, so nothing is lost by not retrying. Send `atomic: false` when you would rather have each entry reported on its own and the rest of the page applied.
+
+`items.bulkAction` behaves the same way. It takes a filter rather than a list, but it still fails per item, and each id in `BulkActionResult.errors` becomes its own dropped row keyed by that id.
+
+One thing to know if you read the log directly: for a bulk kind, `payloadJson` holds the whole enqueued call when the record was dropped as a unit, and the single refused entry when the row stands for one entry. The row id tells them apart — a `#` suffix means the second.
+
 ```swift
 // Items
 let items = try await client.items.bulk(BulkInput(items: payload))
