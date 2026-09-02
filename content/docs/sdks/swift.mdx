@@ -697,7 +697,7 @@ The engine:
 2. Catches up before it subscribes: drains the `MutationQueue` if anything is in it, then imports the library if this store has never completed an import. The event stream carries only what happens after it opens, so a store that has never synced is filled here or not at all, and a write queued while the engine was stopped replays here rather than waiting for a stream close that a live server never delivers.
 3. Opens an SSE stream on `GET /events` and applies events into the local store: item creates, updates, deletes, restores and state changes; edge creates and deletes; and `metadata.changed`, which carries an item's whole metadata row and replaces the local one with it, storing the item it carries alongside it. Persists `Last-Event-ID` so reconnection resumes from the correct point. The engine reports `.online` for as long as that stream is open, rather than only once it has closed.
 4. Drains the `MutationQueue` within a short debounce window of any new enqueue, and again when the stream closes, replaying local writes against the server. The mutation queue captures per-call `UpdateOptions.conflict` so the chosen strategy applies on replay. A closure is not serializable, so a `.callback` replay resolves through the resolver registered on the client rather than the one passed at the call site. See [Conflict handling](#conflict-handling).
-5. On failure, records the attempt against the queue record and retries on the next reachability cycle.
+5. On failure, records the attempt against the queue record and retries on the next reachability cycle — unless the failure is one no retry can clear, which is dropped to the dead-letter log instead. A `409` is the case worth knowing: on an update it is the ordinary version conflict and resolves through the [conflict strategy](#conflict-handling), while on a create it is final, because a repeat of the caller's own id is acknowledged rather than refused. See [Local IDs](#local-ids-uuidv7).
 
 `stop()` tears the engine down gracefully.
 
@@ -753,7 +753,7 @@ for await event in client.syncEngine?.events ?? .init({ _ in }) {
 }
 ```
 
-The four `.blobUpload*` cases are the raw signal that `BlobUploadProgressQuery` projects into its observable dict — most apps subscribe to the query, not the events directly. `.mutationDropped` fires when a queued mutation exhausts its retries and is removed permanently. Multi-subscriber — each access to `events` returns a fresh stream; past events are not replayed to late subscribers.
+The four `.blobUpload*` cases are the raw signal that `BlobUploadProgressQuery` projects into its observable dict — most apps subscribe to the query, not the events directly. `.mutationDropped` fires when a queued mutation meets a failure no retry can clear — a `400`, `403` or `404`, or a `409` on a create — and is removed from the queue and written to the dead-letter log. There is no retry ceiling: a mutation is dropped because the server's answer is final, not because it has been attempted enough times. Multi-subscriber — each access to `events` returns a fresh stream; past events are not replayed to late subscribers.
 
 ### End-to-end subscription
 
@@ -827,6 +827,10 @@ See [Realtime](/guides/realtime/realtime) for the underlying SSE contract, event
 `LocalStore.createItem` and `LocalStore.createEdge` both mint a UUIDv7 — RFC 9562, timestamp-prefixed, globally unique. Pass `CreateItemInput.id` explicitly to override for an item (still encouraged for callers that need to reference the new id before `createItem` returns; both paths produce server-compatible IDs). For `edges.create` an edge's id is always the one the store mints; `edges.bulk` accepts a per-edge override, and honors it on both sides.
 
 In synced mode that id travels. The replayed `POST /items` and `POST /edges` each name the id the store minted, the server stores the row under it, and the event that comes back afterwards matches the row already there. An id read from a `create` call is therefore the id the row keeps once the write reaches the server, not a placeholder swapped for a server id later on.
+
+Naming the row is also what makes a create safe to send twice. If the response to a create is lost, the sync engine replays it under the same id; the server recognizes an id the caller already holds, writes nothing, publishes nothing, and answers with the stored row. The replay adopts that row — item and metadata — so a device that retried a create ends up showing what the server actually holds rather than the copy it minted before the round trip.
+
+A create that comes back `409` instead is refused for good. The id names a row in a space this caller cannot see, or the row's type is not the one declared, and neither changes however often the request is repeated. The engine drops the mutation to the dead-letter log with the server's own code — `conflict` or `type_mismatch` — emits `.mutationDropped`, and surfaces it through `store.queryDroppedMutations()`. A dropped `createItem` takes its queued dependents with it and purges the local row, so nothing is left showing an item that can never sync; a dropped `createEdge` removes its local edge for the same reason.
 
 ## Conflict handling
 
@@ -905,6 +909,8 @@ do {
 </Callout>
 
 Subclasses: `NotFoundError`, `ValidationError`, `UnauthorizedError`, `ForbiddenError`, `ConflictError`, `NetworkError`, `ResponseDecodingError`, `LocalModeUnsupportedError`.
+
+A `409` reaches you as `ConflictError` when the response carries version-conflict data, and as a plain `MarfaError` with the server's `code` — `conflict`, `type_mismatch`, `source_id_conflict` — when it does not. In synced mode the two go different ways on replay: a conflict on an update resolves through the conflict strategy, while a conflict on a create is dropped to the dead-letter log, since the server has already acknowledged any repeat of an id this caller minted. See [Local IDs](#local-ids-uuidv7).
 
 ## Testing
 
