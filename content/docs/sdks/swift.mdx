@@ -86,6 +86,8 @@ One SDK, three factories. Pick the one that matches your app:
     )
     ```
 
+    `start()` is the whole of the setup. Coming online catches the store up before the client subscribes to live events: writes queued while the engine was stopped replay, and a store that has never synced imports what the server already holds. See [Sync engine](#sync-engine) for what an app watches while that first import runs.
+
     Best for: user-facing apps that need instant UI, offline tolerance, and multi-device consistency.
   </Tab>
 </Tabs>
@@ -679,16 +681,40 @@ await client.syncEngine?.start()
 
 The engine:
 
-1. Watches `NWPathMonitor` via `ConnectionStateManager` and opens an SSE stream on `GET /events` when the path goes online.
-2. Applies SSE events into the local store. Persists `Last-Event-ID` so reconnection resumes from the correct point.
-3. Drains the `MutationQueue` both when the stream is idle and within a short debounce window of any new enqueue, replaying local writes against the server. The mutation queue captures per-call `UpdateOptions.conflict` so the chosen strategy applies on replay. A closure is not serializable, so a `.callback` replay resolves through the resolver registered on the client rather than the one passed at the call site. See [Conflict handling](#conflict-handling).
-4. On failure, records the attempt against the queue record and retries on the next reachability cycle.
+1. Watches `NWPathMonitor` via `ConnectionStateManager` and comes online when the network path does.
+2. Catches up before it subscribes: drains the `MutationQueue` if anything is in it, then imports the library if this store has never completed an import. The event stream carries only what happens after it opens, so a store that has never synced is filled here or not at all, and a write queued while the engine was stopped replays here rather than waiting for a stream close that a live server never delivers.
+3. Opens an SSE stream on `GET /events` and applies events into the local store. Persists `Last-Event-ID` so reconnection resumes from the correct point. The engine reports `.online` for as long as that stream is open, rather than only once it has closed.
+4. Drains the `MutationQueue` within a short debounce window of any new enqueue, and again when the stream closes, replaying local writes against the server. The mutation queue captures per-call `UpdateOptions.conflict` so the chosen strategy applies on replay. A closure is not serializable, so a `.callback` replay resolves through the resolver registered on the client rather than the one passed at the call site. See [Conflict handling](#conflict-handling).
+5. On failure, records the attempt against the queue record and retries on the next reachability cycle.
 
 `stop()` tears the engine down gracefully.
 
 ### Proactive drain
 
-The engine listens on `MutationQueue.drainRequests` and schedules a replay within `drainDebounceInterval` of each enqueue while the connection is online, so a device that's online but idle flushes pending writes promptly rather than waiting for the next SSE reconnect. Offline, connecting, and syncing states short out: the queue sits silently, the post-SSE-close drain picks up, or an in-flight drain coalesces the burst respectively. Tune via `SyncEngine.init(drainDebounceInterval:)` (default `.milliseconds(150)`).
+The engine listens on `MutationQueue.drainRequests` and schedules a replay within `drainDebounceInterval` of each enqueue while the connection is online, so a device that's online but idle flushes pending writes promptly rather than waiting for the next SSE reconnect. Because the engine reports `.online` for as long as its stream is open, that covers the ordinary case of an app that is simply running. Offline and syncing states short out: the queue sits silently, or an in-flight drain coalesces the burst. The window before the stream opens is the one to know about — it spans the first import, so it is wide enough for someone opening the app to write inside it — and a request made there is dropped by the state gate rather than deferred, so the engine asks the queue again itself once the stream is up. Tune via `SyncEngine.init(drainDebounceInterval:)` (default `.milliseconds(150)`).
+
+### Watching the first sync
+
+`SyncEngine.fullSyncState` is a point-in-time read; `store.queryFullSyncState()` returns an `@Observable` `FullSyncStateQuery` bound to the same signals, which is what a SwiftUI app renders against.
+
+```swift
+if let sync = store.queryFullSyncState() {
+  switch sync.state {
+  case .notYetSynced:         ProgressView("First sync…")
+  case .syncing:              ProgressView("Syncing…")
+  case .synced(let at):       Text("Last synced \(at, format: .relative(presentation: .named))")
+  case .failed(_, let error): Text("Couldn't sync: \(error.localizedDescription)")
+  }
+}
+```
+
+A store that has never imported reads `.notYetSynced` until that first import lands, and `.synced(at:)` once it does — it cannot report itself synced before then, whatever its write queue is doing, because an empty queue on an empty store is a device that has not started rather than one in sync. It reads `.syncing` in between only while queued writes are replaying. An import that fails reads `.failed(at:error:)` — the stream still opens, so the device keeps receiving live events, and the next time it comes online it imports again.
+
+### Re-importing on demand
+
+`performInitialSync(pageSize:)` runs that same import explicitly. A fresh store does not need it: the engine imports on its own when it comes online. Reach for it when you want to re-pull the library deliberately. The engine also uses it for the retention-gap case, where the server has discarded the events your cursor points at.
+
+It refuses over a queue that has not drained, throwing `InitialSyncError.pendingMutations(count:)`. The import replaces every row it receives with no version check and no merge, so importing over a write that has not reached the server would discard it silently. Let the engine drain first — `hasPendingMutations` reports when it is done — and ask again. A call made while the engine is already catching up joins that run rather than starting a second one.
 
 ### Sync events
 
