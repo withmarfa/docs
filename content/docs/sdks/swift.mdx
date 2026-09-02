@@ -254,7 +254,9 @@ let allReplies = try await client.edges.list(edgeType: "in-thread")
 try await client.edges.delete(id: edge.id)
 ```
 
-In synced mode `edges.create` writes the edge to the local store and returns before anything reaches the network, under an id the store mints. The replay sends that id, so the server stores the edge under it as well and the `edge.created` event that follows updates the row the device already has instead of adding a second one beside it. Repeating a create with an id the server already holds for the same source, target and type is answered as a repeat rather than a duplicate, so a lost response costs a retry. See [Local IDs](#local-ids-uuidv7).
+In synced mode `edges.create` writes the edge to the local store and returns before anything reaches the network, under an id the store mints. The replay sends that id, so the server stores the edge under it as well and the `edge.created` event that follows updates the row the device already has instead of adding a second one beside it. `edges.bulk` does the same for every edge in the call, and honors a per-edge `BulkEdgeInputItem.id` you supply: the local row is written under your id and that id travels on replay.
+
+Repeating a create under an id the server already holds for the same source, target and type is answered as a repeat rather than a duplicate, so a lost response costs a retry. The server publishes no event for a repeat, so no `SyncEvent.edgeCreated` follows one — the same as a repeated item create. See [Local IDs](#local-ids-uuidv7).
 
 #### Batched backrefs
 
@@ -814,7 +816,7 @@ See [Realtime](/guides/realtime/realtime) for the underlying SSE contract, event
 
 ### Local IDs (UUIDv7)
 
-`LocalStore.createItem` and `LocalStore.createEdge` both mint a UUIDv7 — RFC 9562, timestamp-prefixed, globally unique. Pass `CreateItemInput.id` explicitly to override for an item (still encouraged for callers that need to reference the new id before `createItem` returns; both paths produce server-compatible IDs). An edge's id is always the one the store mints.
+`LocalStore.createItem` and `LocalStore.createEdge` both mint a UUIDv7 — RFC 9562, timestamp-prefixed, globally unique. Pass `CreateItemInput.id` explicitly to override for an item (still encouraged for callers that need to reference the new id before `createItem` returns; both paths produce server-compatible IDs). For `edges.create` an edge's id is always the one the store mints; `edges.bulk` accepts a per-edge override, and honors it on both sides.
 
 In synced mode that id travels. The replayed `POST /items` and `POST /edges` each name the id the store minted, the server stores the row under it, and the event that comes back afterwards matches the row already there. An id read from a `create` call is therefore the id the row keeps once the write reaches the server, not a placeholder swapped for a server id later on.
 
