@@ -316,6 +316,8 @@ try await client.edges.edgeTypes.delete(id: "team.commented-on")
 
 Admin-only bulk surfaces match the [bulk operations](/guides/querying/bulk-operations) shape. Pure-local clients iterate through the local store and return per-record outcomes; synced clients enqueue a single replay record; network clients round-trip straight through.
 
+On a synced client each entry is written locally before the replay runs, under an id the store mints where you did not supply one, and the queued page carries those ids so the server stores the same rows rather than a second set beside them — the same guarantee `items.create` and `edges.create` give, applied per entry. Supplying `BulkItemInput.id` or `BulkEdgeInputItem.id` yourself names the local row and travels the same way. See [Local IDs](#local-ids-uuidv7).
+
 ```swift
 // Items
 let items = try await client.items.bulk(BulkInput(items: payload))
@@ -827,6 +829,8 @@ See [Realtime](/guides/realtime/realtime) for the underlying SSE contract, event
 `LocalStore.createItem` and `LocalStore.createEdge` both mint a UUIDv7 — RFC 9562, timestamp-prefixed, globally unique. Pass `CreateItemInput.id` explicitly to override for an item (still encouraged for callers that need to reference the new id before `createItem` returns; both paths produce server-compatible IDs). For `edges.create` an edge's id is always the one the store mints; `edges.bulk` accepts a per-edge override, and honors it on both sides.
 
 In synced mode that id travels. The replayed `POST /items` and `POST /edges` each name the id the store minted, the server stores the row under it, and the event that comes back afterwards matches the row already there. An id read from a `create` call is therefore the id the row keeps once the write reaches the server, not a placeholder swapped for a server id later on.
+
+Both bulk doors do the same, per entry: a replayed `POST /items/bulk` and `POST /edges/bulk` name the id each local row was written under, whether you supplied it as `BulkItemInput.id` / `BulkEdgeInputItem.id` or left the store to mint one. See [Bulk writes](#bulk-writes-and-chunked-iteration).
 
 Naming the row is also what makes a create safe to send twice. If the response to a create is lost, the sync engine replays it under the same id; the server recognizes an id the caller already holds, writes nothing, publishes nothing, and answers with the stored row. The replay adopts that row — item and metadata — so a device that retried a create ends up showing what the server actually holds rather than the copy it minted before the round trip.
 
