@@ -691,7 +691,7 @@ The engine:
 
 ### Proactive drain
 
-The engine listens on `MutationQueue.drainRequests` and schedules a replay within `drainDebounceInterval` of each enqueue while the connection is online, so a device that's online but idle flushes pending writes promptly rather than waiting for the next SSE reconnect. Because the engine reports `.online` for as long as its stream is open, that covers the ordinary case of an app that is simply running. Offline and syncing states short out — the queue sits silently, or an in-flight drain coalesces the burst — and anything queued during the brief window before the stream opens is picked up by the catch-up. Tune via `SyncEngine.init(drainDebounceInterval:)` (default `.milliseconds(150)`).
+The engine listens on `MutationQueue.drainRequests` and schedules a replay within `drainDebounceInterval` of each enqueue while the connection is online, so a device that's online but idle flushes pending writes promptly rather than waiting for the next SSE reconnect. Because the engine reports `.online` for as long as its stream is open, that covers the ordinary case of an app that is simply running. Offline and syncing states short out: the queue sits silently, or an in-flight drain coalesces the burst. The window before the stream opens is the one to know about — it spans the first import, so it is wide enough for someone opening the app to write inside it — and a request made there is dropped by the state gate rather than deferred, so the engine asks the queue again itself once the stream is up. Tune via `SyncEngine.init(drainDebounceInterval:)` (default `.milliseconds(150)`).
 
 ### Watching the first sync
 
@@ -708,7 +708,7 @@ if let sync = store.queryFullSyncState() {
 }
 ```
 
-A store that has never imported reads `.notYetSynced` for the duration of that first import and `.synced(at:)` once it lands. An import that fails reads `.failed(at:error:)` — the stream still opens, so the device keeps receiving live events, and the next time it comes online it imports again.
+A store that has never imported reads `.notYetSynced` until that first import lands, and `.synced(at:)` once it does — it cannot report itself synced before then, whatever its write queue is doing, because an empty queue on an empty store is a device that has not started rather than one in sync. It reads `.syncing` in between only while queued writes are replaying. An import that fails reads `.failed(at:error:)` — the stream still opens, so the device keeps receiving live events, and the next time it comes online it imports again.
 
 ### Re-importing on demand
 
