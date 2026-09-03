@@ -9,7 +9,7 @@ Relationships between items are **first-class typed edges**, not embedded refere
 
 ## Edge shape
 
-Beyond the source, target, type, and optional `properties` already named, an edge carries its own `id`, the `space_id`, and `created_at` / `updated_at` timestamps. The full wire shape is in the [API reference](/api-reference).
+Beyond the source, target, type, and optional `properties` already named, an edge carries its own `id`, the `space_id`, `created_at` / `updated_at` timestamps, and a `version`. The full wire shape is in the [API reference](/api-reference).
 
 The `id` is the server's to mint unless you supply one. `POST /edges` accepts an `id` in the body, as `POST /items` does for an item, so a client that mints identifiers locally — an offline-capable or syncing client, which has to name a row before the server has seen it — keeps its own identifier for the row rather than reconciling against one it is handed back.
 
@@ -18,6 +18,40 @@ Send the same create twice under one id and the second is recognized as a repeat
 Edge ids and item ids are independent. They are drawn from the same format and live in different tables, so an edge may carry an id equal to an item's without either shadowing the other, and nothing needs to reconcile the two spaces of identifiers.
 
 Edges sit in the same space as their source and target items. Cross-space edges don't exist.
+
+## Updating an edge safely
+
+`version` starts at 1 and moves on with every write that changes the row, so comparing two reads tells you whether anything happened in between.
+
+Pass it back on `PATCH /edges/{id}` to make the write conditional:
+
+```http
+PATCH /edges/01JD.../
+Content-Type: application/json
+
+{ "properties": { "note": "revised" }, "version": 3 }
+```
+
+If the edge has moved on since you read it, the write is refused with `409` and the body carries the edge as it now stands, under the same `edge` key a `200` uses:
+
+```json
+{
+  "error": { "code": "version_conflict", "status": 409 },
+  "edge": { "id": "01JD...", "version": 4, "properties": { "note": "someone else's" }, "...": "..." }
+}
+```
+
+**Edges have no merge policy**, so resolving a conflict means re-applying your change over the edge in that body and sending again. There is no field-level merge and no keep-both sibling; those belong to items, whose types declare how their fields combine. The 409 body is deliberately not an item's conflict envelope for that reason — an ancestor snapshot, a list of conflicting fields and a merge policy would all be invented here.
+
+Because the refusal carries the current edge, it is also the way back to a usable version: a client that has been refused does not need a separate read before retrying.
+
+**Omitting `version` keeps the previous behavior.** The write lands unconditionally, last writer wins, and the version still moves on. That is what every client written before this got, and nothing needs changing to keep working — but two clients editing one edge will still overwrite each other in silence, which is the reason to start sending it.
+
+<Callout type="info">
+  The bulk door takes no precondition. `POST /edges/bulk` upserts without one and still moves each edge's version on, because the bump belongs to the write itself rather than to the route that reached it. If you need optimistic concurrency on an edge, use the single-edge route.
+</Callout>
+
+Replacing an edge through an item's inline `edges` payload is a delete followed by a create, so the replacement is a new row starting at version 1 rather than a continuation of the old one.
 
 ## Querying edges
 
