@@ -110,9 +110,18 @@ event: catchup_too_old
 data: {"type":"catchup_too_old","min_retained_id":"...","requested":"..."}
 ```
 
-Clients should recover by falling back to an incremental `GET /items?since=<timestamp>&limit=...` sweep (paginated), then reconnect to live streaming.
+Clients should recover by falling back to an incremental sweep, then reconnect to live streaming:
 
-This path doesn't surface deletes — items deleted during the gap aren't returned. A subsequent SSE delete event will reconcile on receipt. Clients that need deterministic delete reconciliation after long outages should keep the SSE stream within retention or re-seed the local store.
+```
+GET /items?updated_after=<last_applied_updated_at>&state=any&limit=...
+GET /edges?updated_after=<last_applied_updated_at>&limit=...
+```
+
+Both parameters are load-bearing. `updated_after` reads `updated_at`, so the sweep returns everything written during the gap — including a change that touched only tags or an extension. `state=any` widens the listing past its default, which excludes trashed items: without it a row that reached the bin during the gap is simply absent from the sweep, and a client cannot tell that from a row that never existed.
+
+The sweep is inclusive at the bound, because `updated_at` is a millisecond timestamp and a bulk write ties many rows on one instant. Passing the last value you applied therefore re-delivers the rows sharing it; deduplicate by id. A strict bound would drop them instead, which is the failure this inclusivity exists to avoid.
+
+Deletes are surfaced this way as long as the row is still present as trashed. A row purged outright during the gap is gone from the sweep as well, so a client that needs deterministic reconciliation after a very long outage prunes anything it holds that the sweep did not return, rather than relying on a delete event it may never see.
 
 ## Catch-up strategy
 
@@ -148,7 +157,7 @@ Send persisted `Last-Event-ID`. Server replays from that point.
 
 ### Handle the stale-cursor signal
 
-When the server emits a terminal `catchup_too_old` event, fall back to `GET /items?since=<last_sync_timestamp>` with pagination. Reconnect live after catch-up completes.
+When the server emits a terminal `catchup_too_old` event, fall back to the incremental sweep above — `GET /items?updated_after=<last_applied_updated_at>&state=any`, then the same over `GET /edges` — with pagination. Reconnect live after catch-up completes.
 
 </Step>
 

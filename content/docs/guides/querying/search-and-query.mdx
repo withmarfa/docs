@@ -22,10 +22,18 @@ GET /items?filter=properties.author eq "George Orwell"
 The full parameter list and response shape are in the API reference. A few semantics worth knowing:
 
 - **`type`** — matches subtypes via inheritance. `type=core.media` returns `core.media.book`, `core.media.article`, etc. It resolves both halves of the subtree: types named under the parent, and types that declare it as their `parent` while living elsewhere in the namespace. `core.media` and `core.media.*` are two spellings of the same thing. The bare `*` is rejected — everything is the request with no `type` at all.
-- **`since`** and **`until`** — operate on the item's effective time (`timestamp`, falling back to `created_at`), not `updated_at`.
+- **`timestamp_after`** and **`timestamp_before`** — bound the item's own time (`timestamp`, falling back to `created_at`). Both are inclusive. They are named for the field they read: neither says anything about when the row was last written, which is `updated_after` below.
+- **`updated_after`** — bound `updated_at`, when the row last changed. This is the catch-up filter: hand it the cursor you hold and get back everything that has changed since. It is inclusive, because `updated_at` is a millisecond timestamp and a bulk write ties many rows on one instant — deduplicate by id. It orders by `(updated_at, id)` ascending and so cannot be combined with `sort` or a descending `direction`; a request that asks for both is refused rather than silently resolved one way.
+- **`state`** — a lifecycle state, or `any` for every state including trashed. Omitting it keeps the default, which excludes trashed items. A client reconciling a local copy wants `any`: a row reaching the bin is how it learns to prune, and the default hides exactly that.
 - **`include`** — off by default to keep list responses lean. See [Including extras](#including-extras) below.
 - **`tier`** — `library`, `feed`, or omitted (returns both slices).
 - **`sort`** — a system column (`created_at`, `updated_at`, `timestamp`) or a property field via `properties.<field>`, paired with `direction` (`asc` / `desc`). A property sort orders on the extracted value: numeric fields compare numerically (so `2` precedes `10`), datetimes and strings lexically, and items missing the field sort last in either direction. Enum fields such as `status` or `priority` are not sortable this way; their order is meaning-bearing rather than lexical, so sort those client-side.
+
+<Callout type="warn">
+  `since` and `until` were the previous names for `timestamp_after` and `timestamp_before`. A request still carrying one is refused with a `400` naming the replacement, on `GET /items`, `GET /export` and `POST /items/bulk-actions` alike.
+
+  The refusal is deliberate rather than strict. Unknown query parameters are ignored, so a request carrying the old name would otherwise succeed with the filter quietly dropped — a `200` and a full listing where a narrow one was asked for. On a bulk action that is worse than a bad read: the filter is the match set, so a dropped bound turns an action on a dated slice into an action on everything.
+</Callout>
 
 <Callout type="info">
   Cursors are stable within the cursor's lifetime (24h typical) — concurrent writes don't shift pages already returned. Paginate by passing `cursor` back as a query parameter.
