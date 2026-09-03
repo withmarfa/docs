@@ -1,12 +1,12 @@
 ---
 title: Swift SDK
-description: Three client modes for Apple platforms with Swift 6 concurrency.
+description: The Swift client for Apple platforms, in remote mode or local mode, with Swift 6 concurrency.
 ---
 
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The Swift SDK is a Swift Package Manager library for Apple platforms. It exposes three client modes over the same API surface — a remote HTTP client, a pure-local on-device store, and a synced mode that queues writes locally and replays them against a server. Swift 6 concurrency throughout.
+The Swift SDK is a Swift Package Manager library for Apple platforms. It offers both [client modes](/guides/identity/deployment-modes) over one API surface: a remote HTTP client, and a local SwiftData store that reconciles with a server when one is configured. Swift 6 concurrency throughout.
 
 Repository: [withmarfa/swift-sdk](https://github.com/withmarfa/swift-sdk). Pin to the major version that tracks your server.
 
@@ -24,11 +24,11 @@ dependencies: [
 
 Or in Xcode: **File → Add Package Dependencies → `https://github.com/withmarfa/swift-sdk.git`**.
 
-## Three client modes
+## Two client modes, three factories
 
-One SDK, three factories. Pick the one that matches your app:
+Remote is one factory. Local is two, because a local store either has a server to reconcile with or it does not:
 
-<Tabs items={['Remote', 'Pure-local', 'Synced']}>
+<Tabs items={['Remote', 'Local, no server', 'Local, with a server']}>
   <Tab value="Remote">
     A thin typed HTTP client. Every call hits the server.
 
@@ -47,7 +47,7 @@ One SDK, three factories. Pick the one that matches your app:
 
     Best for: server-first apps, scripts, CI, server-to-server integrations.
   </Tab>
-  <Tab value="Pure-local">
+  <Tab value="Local, no server">
     SwiftData-backed on-device store. No server, no API key. Same namespace surface — every call resolves against the local store.
 
     ```swift
@@ -61,15 +61,15 @@ One SDK, three factories. Pick the one that matches your app:
     Best for: offline-first apps, privacy-first apps, prototyping before adding a server.
 
     <Callout type="info">
-      Server-only namespaces — `blobs`, `types`, `keys`, `webhooks` — throw `LocalModeUnsupportedError` on a pure-local client. `client.blobs.url(hash:)` is the lone exception; it returns a constructed URL without touching the network.
+      Server-only namespaces — `blobs`, `types`, `keys`, `webhooks` — throw `LocalModeUnsupportedError` on a local client with no server. `client.blobs.url(hash:)` is the lone exception; it returns a constructed URL without touching the network.
     </Callout>
 
     <Callout type="info">
-      For iCloud sync, build the container yourself with `MarfaModelContainer.make(path:cloudKitDatabase: .automatic(containerIdentifier: "iCloud.example.app"))` and pass it to `MarfaClient.local(container:)`. The schema is CloudKit-compatible from day one.
+      For iCloud sync, build the container yourself with `MarfaModelContainer.make(path:cloudKitDatabase: .automatic(containerIdentifier: "iCloud.example.app"))` and pass it to `MarfaClient.local(container:)`. The schema is CloudKit-compatible from day one. That is Apple's sync rather than Marfa's: it replicates the store's file, so conflicts resolve by CloudKit's rules and a space maps to an iCloud account.
     </Callout>
   </Tab>
-  <Tab value="Synced">
-    Writes hit the local store first (optimistic) and replay against the server in the background. SSE keeps the local store fresh from the server.
+  <Tab value="Local, with a server">
+    Writes hit the local store first (optimistic) and replay against the server in the background. SSE keeps the local store fresh from the server. This is the shape the [sync contract](/sdks/sync-contract) governs.
 
     ```swift
     let client = try await MarfaClient.synced(
@@ -255,7 +255,7 @@ let allReplies = try await client.edges.list(edgeType: "in-thread")
 try await client.edges.delete(id: edge.id)
 ```
 
-In synced mode `edges.create` writes the edge to the local store and returns before anything reaches the network, under an id the store mints. The replay sends that id, so the server stores the edge under it as well and the `edge.created` event that follows updates the row the device already has instead of adding a second one beside it. `edges.bulk` does the same for every edge in the call, and honors a per-edge `BulkEdgeInputItem.id` you supply: the local row is written under your id and that id travels on replay.
+In local mode `edges.create` writes the edge to the local store and returns before anything reaches the network, under an id the store mints. The replay sends that id, so the server stores the edge under it as well and the `edge.created` event that follows updates the row the device already has instead of adding a second one beside it. `edges.bulk` does the same for every edge in the call, and honors a per-edge `BulkEdgeInputItem.id` you supply: the local row is written under your id and that id travels on replay.
 
 Repeating a create under an id the server already holds for the same source, target and type is answered as a repeat rather than a duplicate, so a lost response costs a retry. The server publishes no event for a repeat, so no `SyncEvent.edgeCreated` follows one — the same as a repeated item create. See [Local IDs](#local-ids-uuidv7).
 
@@ -272,7 +272,7 @@ let backrefs = try await client.edges.listToTargets(
 backrefs["msg-1"]?.count   // reply count for msg-1
 ```
 
-In synced and pure-local modes this is one SQL query against the local store. In remote mode it fans out via a bounded `TaskGroup`; cap concurrency via `ClientConfiguration.maxBackrefBatchConcurrency` (default 8). Empty `targetIds` short-circuits to `[:]`, duplicate ids are deduplicated, and unknown ids map to an empty array.
+In local mode this is one SQL query against the local store. In remote mode it fans out via a bounded `TaskGroup`; cap concurrency via `ClientConfiguration.maxBackrefBatchConcurrency` (default 8). Empty `targetIds` short-circuits to `[:]`, duplicate ids are deduplicated, and unknown ids map to an empty array.
 
 #### Atomic item + edges
 
@@ -315,9 +315,9 @@ try await client.edges.edgeTypes.delete(id: "team.commented-on")
 
 #### Bulk writes and chunked iteration
 
-Admin-only bulk surfaces match the [bulk operations](/guides/querying/bulk-operations) shape. Pure-local clients iterate through the local store and return per-record outcomes; synced clients enqueue a single replay record; network clients round-trip straight through.
+Admin-only bulk surfaces match the [bulk operations](/guides/querying/bulk-operations) shape. A local client with no server iterates through the store and returns per-record outcomes; one with a server enqueues a single replay record; a remote client round-trips straight through.
 
-On a synced client each entry is written locally before the replay runs, under an id the store mints where you did not supply one, and the queued page carries those ids so the server stores the same rows rather than a second set beside them — the same guarantee `items.create` and `edges.create` give, applied per entry. Supplying `BulkItemInput.id` or `BulkEdgeInputItem.id` yourself names the local row and travels the same way. See [Local IDs](#local-ids-uuidv7).
+On a local client with a server each entry is written locally before the replay runs, under an id the store mints where you did not supply one, and the queued page carries those ids so the server stores the same rows rather than a second set beside them — the same guarantee `items.create` and `edges.create` give, applied per entry. Supplying `BulkItemInput.id` or `BulkEdgeInputItem.id` yourself names the local row and travels the same way. See [Local IDs](#local-ids-uuidv7).
 
 When the replay runs, the sync engine reads the per-entry answer rather than only the status. An entry the server refuses goes to the dropped-mutation log with the code the server gave it and emits `.mutationDropped`, so a page where some or all entries fail surfaces through `store.queryDroppedMutations()` instead of disappearing as a success. An entry the server resolved to a different row — an upsert matching on `(source, source_id)` rather than the id the page carried — is logged and left alone: the answer carries ids, not rows, so there is nothing to adopt, and the catch-up import is what reconciles the device.
 
@@ -362,7 +362,7 @@ let result = try await client.items.bulkAction(
 // result.matched / .succeeded / .errored / .dryRun
 ```
 
-`BulkActionInput` is a discriminated enum — `.transition`, `.purge`, `.updateTags`, `.updateLibrary`, `.updateProperties`, `.updateTimestamp`. Purge requires `options.confirm == "PURGE"`. Synced clients queue the action for replay; pure-local clients apply it in a single local-store transaction.
+`BulkActionInput` is a discriminated enum — `.transition`, `.purge`, `.updateTags`, `.updateLibrary`, `.updateProperties`, `.updateTimestamp`. Purge requires `options.confirm == "PURGE"`. A local client with a server queues the action for replay; one without applies it in a single local-store transaction.
 
 In remote mode, `bulkAction(_:options:)` polls the server-side job until it reaches a terminal status — `completed`, `failed`, or `cancelled`. Surface progress to the UI by passing `BulkActionPollOptions(onProgress:)`:
 
@@ -390,9 +390,9 @@ try await client.metadata.merge(itemId: note.id, input: MetadataInput(tags: ["q2
 let tags = try await client.metadata.listTags()
 ```
 
-`metadata.listTags()` is mode-aware. In synced and pure-local modes the call fetches metadata rows whose parent item is not trashed and buckets the tags in Swift; in remote mode it hits `GET /metadata/tags`. Either way the return shape is `[TagWithCount]` ordered `count DESC, tag ASC`. Local-mode reads short-circuit the network round-trip.
+`metadata.listTags()` is mode-aware. In local mode the call fetches metadata rows whose parent item is not trashed and buckets the tags in Swift; in remote mode it hits `GET /metadata/tags`. Either way the return shape is `[TagWithCount]` ordered `count DESC, tag ASC`. A local-mode read short-circuits the network round trip.
 
-On a synced client the server's metadata row is authoritative. A `metadata.changed` event carries the whole row — tags and extensions together — and the engine replaces the local row with it, so a tag added on another device arrives without a re-import and a namespace the server no longer holds goes away here too. The same row lands on the initial import. Metadata converges to the server rather than being merged locally, which is what makes two devices agree.
+When a local client has a server, the server's metadata row is authoritative. A `metadata.changed` event carries the whole row — tags and extensions together — and the engine replaces the local row with it, so a tag added on another device arrives without a re-import and a namespace the server no longer holds goes away here too. The same row lands on the initial import. Metadata converges to the server rather than being merged locally, which is what makes two devices agree.
 
 `metadata.set` is the exception, and it mirrors the route it replays against: `PUT /items/{id}/metadata` writes the tag set and touches nothing else, so setting tags locally leaves the item's [extensions](#extensions) alone.
 
@@ -402,13 +402,13 @@ The `tier` field sits on the item itself, not in metadata. Set it on create via 
 
 Two paths, depending on client mode:
 
-- **Synced / pure-local mode.** Apps render lists of items with their tags or favorite flag — a timeline, a grid, a detail view. Use the SDK's reactive layer rather than polling. In Swift, `store.queryItemsWithMetadata(filters:)` returns an `@Observable ItemsWithMetadataQuery` that re-emits `[ItemWithMetadata]` pairs whenever any matching item or metadata row changes. The query reads from the local SQLite store, so no network round-trip per view frame. See [SwiftUI reactive queries](#swiftui-reactive-queries) for the full list.
+- **Local mode.** Apps render lists of items with their tags or favorite flag — a timeline, a grid, a detail view. Use the SDK's reactive layer rather than polling. In Swift, `store.queryItemsWithMetadata(filters:)` returns an `@Observable ItemsWithMetadataQuery` that re-emits `[ItemWithMetadata]` pairs whenever any matching item or metadata row changes. The query reads from the local SQLite store, so no network round-trip per view frame. See [SwiftUI reactive queries](#swiftui-reactive-queries) for the full list.
 
 - **Remote-only mode.** Fetch pairs in bulk via `client.items.listWithMetadata(filters:)` (wire: `GET /items?include=metadata`). For ad-hoc single-item lookups use `client.metadata.get(itemId:)`.
 
 ### Extensions
 
-Namespaced sidecar data. Writes route through the mutation queue in synced mode.
+Namespaced sidecar data. Writes route through the mutation queue on a local client with a server.
 
 ```swift
 try await client.extensions.set(
@@ -422,7 +422,7 @@ let one  = try await client.extensions.get(itemId: note.id, namespace: "my-app.r
 try await client.extensions.delete(itemId: note.id, namespace: "my-app.reading_progress")
 ```
 
-A namespace is merged into the item's existing extensions, so writing one leaves the others alone. On a synced client the whole metadata row still converges to the server: an inbound `metadata.changed` event and the initial import both replace the local extensions with the server's, and a namespace missing from what the server sent is removed locally.
+A namespace is merged into the item's existing extensions, so writing one leaves the others alone. On a local client with a server the whole metadata row still converges to it: an inbound `metadata.changed` event and the initial import both replace the local extensions with the server's, and a namespace missing from what the server sent is removed locally.
 
 That is safe for a write made offline because the write is replayed, not discarded. The queued write reaches the server on reconnect, the server emits `metadata.changed` for it, and the row that comes back carries the namespace — so the extension ends up on every device without the client needing a local-wins rule. Namespaces under the reserved `connection.` root are silent and emit no event; see [extensions](/guides/core-model/extensions) for what that covers.
 
@@ -438,7 +438,7 @@ let url = client.blobs.url(hash: response.hash)
 let signed = try await client.blobs.presignedURL(hash: response.hash, ttl: 300)
 ```
 
-`upload` accepts an optional `onProgress: (@Sendable (Int64, Int64) -> Void)?` for network-only clients that want inline byte-progress updates. The callback fires on the `URLSession` delegate queue with `(bytesSent, totalBytes)` — hop to the main actor yourself if you're driving SwiftUI state from it. Synced-mode clients ignore the callback; progress for queued uploads arrives via [`BlobUploadProgressQuery`](#blob-upload-progress) on the reactive layer instead.
+`upload` accepts an optional `onProgress: (@Sendable (Int64, Int64) -> Void)?` for remote clients that want inline byte-progress updates. The callback fires on the `URLSession` delegate queue with `(bytesSent, totalBytes)` — hop to the main actor yourself if you're driving SwiftUI state from it. A local client ignores the callback; progress for queued uploads arrives via [`BlobUploadProgressQuery`](#blob-upload-progress) on the reactive layer instead.
 
 ```swift
 let response = try await client.blobs.upload(
@@ -451,7 +451,7 @@ let response = try await client.blobs.upload(
 ```
 
 <Callout type="warn">
-  Blob operations require a live server. A pure-local client throws `LocalModeUnsupportedError` for every blob method except `url(hash:)`. The same guard applies to `client.types`, `client.keys`, and `client.webhooks`.
+  Blob operations require a live server. A local client with no server throws `LocalModeUnsupportedError` for every blob method except `url(hash:)`. The same guard applies to `client.types`, `client.keys`, and `client.webhooks`.
 </Callout>
 
 ### Search
@@ -543,7 +543,7 @@ swift run codegen-custom-types
 MARFA_API_URL=… MARFA_API_KEY=… swift run sync-custom-types
 ```
 
-The `--sync` flow and `sync-custom-types` executable both call `GET /types`, so `MARFA_API_KEY` must carry the `list_types` permission. Pure-local codegen needs no credentials. `core.*` ids are always excluded from generation regardless of include/exclude globs — core wrappers ship with the SDK, so a misconfigured glob can't clobber them.
+The `--sync` flow and `sync-custom-types` executable both call `GET /types`, so `MARFA_API_KEY` must carry the `list_types` permission. Generating from a vendored payload needs no credentials. `core.*` ids are always excluded from generation regardless of include/exclude globs — core wrappers ship with the SDK, so a misconfigured glob can't clobber them.
 
 **3. Use the generated types.**
 
@@ -589,7 +589,7 @@ let created = try await client.items.create(
 
 ## SwiftUI reactive queries
 
-On a pure-local or synced client, `client.makeStore()` returns a `MarfaStore` — a `@MainActor @Observable` factory for live queries driven by `ModelContext.didSave` with a short debounce window and a `FetchDescriptor` refetch per save.
+On a local client, `client.makeStore()` returns a `MarfaStore` — a `@MainActor @Observable` factory for live queries driven by `ModelContext.didSave` with a short debounce window and a `FetchDescriptor` refetch per save.
 
 ```swift
 import SwiftUI
@@ -633,7 +633,7 @@ All are `@Observable @MainActor`. Views observe them directly — no `Observable
   `TagsQuery` and `ItemsWithMetadataQuery` both re-run their aggregations on every relevant write. They're tuned for UI-scale surfaces, not unbounded analytics.
 </Callout>
 
-Network-only clients return `nil` from `makeStore()` — the reactive layer only materialises when a local store is configured.
+A remote client returns `nil` from `makeStore()` — the reactive layer only materializes when a local store is configured.
 
 ### Local search
 
@@ -705,17 +705,17 @@ A blocked row holds back writes queued *after* it for the same item, so the queu
   A queue whose only remaining rows are blocked also holds off the catch-up import, so a store that has never imported stays empty until the block clears. The import replaces every row it receives with no merge, and a blocked row is still an unsent write, so importing over one would discard it — the gate deliberately counts the whole queue rather than only what the drain will attempt. This was already true of a write that retried forever; blocking makes it visible and gives the app something to show.
 </Callout>
 
-The query refreshes on every `ModelContext.didSave`. Returns `nil` on clients without a mutation queue (network-only mode).
+The query refreshes on every `ModelContext.didSave`. Returns `nil` on a client with no mutation queue, which is any remote client.
 
 ### Blob upload progress
 
 `store.queryBlobUploadProgress()` vends a `BlobUploadProgressQuery` that projects the four `.blobUpload*` sync events into a dict keyed by content hash. Use it for global upload HUDs or per-attachment progress bars without reading the raw event stream.
 
-Entries are evicted on `.completed` — apps wanting a "recently completed" fade should snapshot the final value in their own view layer. `.failed` entries linger so a consumer can render a retry affordance; a subsequent transient retry overwrites the entry with a fresh `.uploading(0, total)`. Returns `nil` on clients without a sync engine (network-only and pure-local modes).
+Entries are evicted on `.completed` — apps wanting a "recently completed" fade should snapshot the final value in their own view layer. `.failed` entries linger so a consumer can render a retry affordance; a subsequent transient retry overwrites the entry with a fresh `.uploading(0, total)`. Returns `nil` on a client with no sync engine: a remote client, or a local store with no server.
 
 ## Sync engine
 
-In synced mode, `client.syncEngine` is non-nil. Start it when your app is ready to sync:
+On a local client with a server, `client.syncEngine` is non-nil. Start it when your app is ready to sync:
 
 ```swift
 await client.syncEngine?.start()
@@ -886,7 +886,7 @@ See [Realtime](/guides/realtime/realtime) for the underlying SSE contract, event
 
 `LocalStore.createItem` and `LocalStore.createEdge` both mint a UUIDv7 — RFC 9562, timestamp-prefixed, globally unique. Pass `CreateItemInput.id` explicitly to override for an item (still encouraged for callers that need to reference the new id before `createItem` returns; both paths produce server-compatible IDs). For `edges.create` an edge's id is always the one the store mints; `edges.bulk` accepts a per-edge override, and honors it on both sides.
 
-In synced mode that id travels. The replayed `POST /items` and `POST /edges` each name the id the store minted, the server stores the row under it, and the event that comes back afterwards matches the row already there. An id read from a `create` call is therefore the id the row keeps once the write reaches the server, not a placeholder swapped for a server id later on.
+In local mode that id travels. The replayed `POST /items` and `POST /edges` each name the id the store minted, the server stores the row under it, and the event that comes back afterwards matches the row already there. An id read from a `create` call is therefore the id the row keeps once the write reaches the server, not a placeholder swapped for a server id later on.
 
 Both bulk doors do the same, per entry: a replayed `POST /items/bulk` and `POST /edges/bulk` name the id each local row was written under, whether you supplied it as `BulkItemInput.id` / `BulkEdgeInputItem.id` or left the store to mint one. See [Bulk writes](#bulk-writes-and-chunked-iteration).
 
@@ -934,7 +934,7 @@ Apps typically toast when `conflictedCopyId != nil` — the user's in-flight edi
 
 ### Resolvers on the replay path
 
-In synced mode the chosen `conflict` strategy is captured with the queued mutation, so it applies on replay against any 409 the server returns. The resolver closure cannot be queued alongside it, so a `.callback` replay looks one up on the client instead:
+In local mode the chosen `conflict` strategy is captured with the queued mutation, so it applies on replay against any 409 the server returns. The resolver closure cannot be queued alongside it, so a `.callback` replay looks one up on the client instead:
 
 ```swift
 await client.registerConflictResolver { conflict in
@@ -944,7 +944,7 @@ await client.registerConflictResolver { conflict in
 }
 ```
 
-Register before the first write and before starting the sync engine. This is the write that most needs app logic: in synced mode the edit that races is rarely the online one, it is the replay against a server the device could not reach at the time.
+Register before the first write and before starting the sync engine. This is the write that most needs app logic: in local mode the edit that races is rarely the online one, it is the replay against a server the device could not reach at the time.
 
 Nothing substitutes one strategy for another. A `.callback` update with no resolver anywhere — none passed to the call and none registered — is refused at the call site rather than queued. A replay that finds none blocks the mutation rather than retrying it: a second attempt could not differ while no resolver is registered, and retrying regardless is what used to make every later sync cycle report failure. It surfaces as `.blocked(reason: .resolverMissing, ...)`. Registering a resolver is the whole remedy — the next drain finds it and carries the write, with no call to `retry(id:)`.
 
@@ -962,7 +962,7 @@ do {
 } catch let error as ConflictError {
   // error.current, error.ancestor, error.conflictingFields
 } catch let error as LocalModeUnsupportedError {
-  // remote-only call (blobs, types, keys, webhooks) on a pure-local client
+  // remote-only call (blobs, types, keys, webhooks) on a local client with no server
 } catch let error as MarfaError {
   // everything else — error.code (String), error.message, error.status, error.details
 }
@@ -974,7 +974,7 @@ do {
 
 Subclasses: `NotFoundError`, `ValidationError`, `UnauthorizedError`, `ForbiddenError`, `ConflictError`, `NetworkError`, `ResponseDecodingError`, `LocalModeUnsupportedError`.
 
-A `409` reaches you as `ConflictError` when the response carries version-conflict data, and as a plain `MarfaError` with the server's `code` — `conflict`, `type_mismatch`, `source_id_conflict` — when it does not. In synced mode the two go different ways on replay: a conflict on an update resolves through the conflict strategy, while a conflict on a create is dropped to the dead-letter log, since the server has already acknowledged any repeat of an id this caller minted. See [Local IDs](#local-ids-uuidv7).
+A `409` reaches you as `ConflictError` when the response carries version-conflict data, and as a plain `MarfaError` with the server's `code` — `conflict`, `type_mismatch`, `source_id_conflict` — when it does not. In local mode the two go different ways on replay: a conflict on an update resolves through the conflict strategy, while a conflict on a create is dropped to the dead-letter log, since the server has already acknowledged any repeat of an id this caller minted. See [Local IDs](#local-ids-uuidv7).
 
 ## Testing
 
@@ -982,7 +982,7 @@ A `409` reaches you as `ConflictError` when the response carries version-conflic
 
 - `MockTransport` — stub for the `Transport` protocol. Queue responses, assert on captured requests.
 - `InMemoryKeychain` — in-memory `SecureStorage` substitute. SPM test binaries run unsigned and can't reach the real Keychain.
-- `MarfaSDKTest.makeInMemoryClient()` — pure-local `MarfaClient` backed by an in-memory `ModelContainer`. Drop-in replacement for `MarfaClient.local(path:)` in test setups; sidesteps the cross-test container issues that show up when sharing a file-backed store across cases in the same process.
+- `MarfaSDKTest.makeInMemoryClient()` — a local `MarfaClient` with no server, backed by an in-memory `ModelContainer`. Drop-in replacement for `MarfaClient.local(path:)` in test setups; sidesteps the cross-test container issues that show up when sharing a file-backed store across cases in the same process.
 
 Add `MarfaSDKTestSupport` as a dependency on your test target only. The product is non-semver-stable across SDK minor versions and is not intended for production code.
 

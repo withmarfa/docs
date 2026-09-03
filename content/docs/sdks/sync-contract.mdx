@@ -1,0 +1,140 @@
+---
+title: Sync contract
+description: The rules a durable client keeps, and the guarantees the server gives it today.
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+A local client writes to its own store first and reconciles with the server afterwards, so it is holding state the server has not seen and state the server has changed since. The rules below are what keep those two from drifting. They are behavior, not code: any engine that keeps them is correct, whatever language it is written in.
+
+<Callout type="info">
+  **What this page states.** The server half is what the server guarantees
+  today, not a specification of what a synchronizing server ought to do. Where a
+  rule costs a client something today, the client's part says what to do about
+  it. The client half is what an engine keeps regardless of which server it
+  points at.
+</Callout>
+
+## What the server guarantees
+
+### A client names its own rows
+
+`POST /items` and `POST /edges` both accept an `id` in the body. A client that renders a row before the write leaves the device names that row itself, and the row the server stores carries the same id, so the event that arrives afterwards updates the row already on screen instead of adding a second one beside it.
+
+**A repeat of a create the caller already made is acknowledged, not duplicated.** Send the same client-minted `id` again and nothing is written, no event is published, and the stored row comes back with `acknowledged: true` and status `200`. That holds for a row the user has since trashed, which comes back in whatever state it holds. So a queue that loses a response to a create can resend it: the id is what makes the retry safe.
+
+The repeat has to name the row the first attempt named. An item repeat whose body declares a different `type` is refused with `409 type_mismatch` rather than reinterpreted, and an edge id naming a different source, target or edge type is refused with `409 conflict` rather than acknowledged. Both are what a queue replaying a write that has drifted from what was stored actually hits, and the server declines to absorb the drift rather than re-typing the row or re-pointing the edge.
+
+### A write names the version it read
+
+Passing `version` on `PATCH /items/{id}` or `PATCH /edges/{id}` opts into optimistic concurrency, and a stale value is refused with `409`. Omitting it keeps last-writer-wins.
+
+The two refusals carry different bodies because a client recovers from them differently.
+
+- **An item's `409`** carries `current`, `ancestor`, `conflicting_fields` and the type's `merge_policy` — everything a three-way merge needs. `conflicting_fields` is the overlap between the fields the server changed since the ancestor and the fields the client changed, both measured against that same ancestor, so a field submitted at the value the ancestor already held belongs to neither set and collides with nothing.
+- **An edge's `409`** carries the edge as it now stands, under `edge`, which reads identically to the `200`. There is no route that reads one edge by its id, so that body is the client's only way to learn what it lost to.
+
+Send only what changed regardless, for two reasons that comparison does not cover. An update omitting `version` is never compared against an ancestor, so every submitted key lands on the row and an echoed stale value reverts a server edit with nothing reporting it. And the ancestor is a [version snapshot](/guides/schema/versions), which the server thins on a schedule: when the one the client named is gone there is nothing to compare against, and the server names every submitted field in conflict instead. A patch carrying the whole property bag turns that fallback into a collision on everything.
+
+An edge's version moves on every update applied, not only on one that changes the properties, so a bulk write that rewrites identical properties still invalidates a version another client holds.
+
+### Fields that do not collide merge on their own
+
+A stale update whose changed fields do not overlap what changed on the server is applied rather than refused: the server lays the client's changes over its own state and the write succeeds at a new version.
+
+Any overlap is refused with the `409`, whatever the type's [merge policy](/guides/schema/conflicts) says. The server does not consult the policy to decide — it resolves it only to fill in the refusal body. `last_writer_wins` and `keep_both_copies` are what an SDK applies *to* a `409` it has already been handed, not modes the server picks between. The policy travels in the refusal, so a client never needs a private rule of its own.
+
+### An event is published after its write commits
+
+A write that rolls back announces nothing on any door — no item route, no edge route, no bulk write. A subscriber therefore never sees an event for a version the row never reached, which matters because nothing would ever correct it: from the server's side the write did not happen.
+
+Every bulk write reaches the event log for the same reason. The fan-out flag governs webhook delivery, never whether the log records the write, so a catch-up after an import is complete.
+
+### A replay is what a live subscriber would have seen
+
+Resuming with `Last-Event-ID` replays the log from that point, and the replay resolves a `type` filter through the same inheritance subtree the live stream does — a `user.recipe` that inherits from `core.note` arrives on a `core.note` subscription either way. Replay deduplicates on the ids it actually sent rather than on a high-water mark, so an event that commits after a higher id is still delivered.
+
+Event ids are not strictly increasing under concurrent writes, so a cursor is a resume point rather than an ordering. See [Realtime](/guides/realtime/realtime) for what the stream delivers.
+
+<Callout type="warn">
+  A subscription filtered by `type` carries item events only. A client that
+  holds edges subscribes without a type filter, or its graph decays while every
+  item in its store stays correct.
+</Callout>
+
+### An aged-out cursor says so
+
+When a resume point predates the event log's retention window, the server sends `catchup_too_old` and closes rather than replaying a gap it cannot fill. That is the signal to re-import: read the space again and prune what the server no longer has.
+
+### The catch-up read is bounded by modification time
+
+The read that fills a gap the log cannot is `GET /items?updated_after=<cursor>&state=any`, then `GET /edges?updated_after=<cursor>`. `updated_after` bounds on `updated_at`, so it returns everything written during the gap including a change that touched only tags or an extension, and it forces `(updated_at, id)` ascending — a different `sort` or `direction` alongside it is refused rather than half-honored. The bound is inclusive, because `updated_at` ties across a bulk write and a strict bound would drop the whole tied group, so deduplicate by id.
+
+Neither read reports removals. A purge leaves no row and a deleted edge leaves no tombstone, so nothing in either listing separates a row that was removed from one that never existed. A client reconciling completely reads the event stream as well, or prunes whatever the sweep did not return. See [Realtime](/guides/realtime/realtime) for the full sequence.
+
+### Only the items read needs a state filter
+
+The two catch-up reads look asymmetric and the asymmetry is deliberate, so a client should not read the missing parameter as an oversight.
+
+`GET /items` excludes trashed rows by default. Without `state=any` a row that reached the bin during the gap is simply absent, and absent from a listing is indistinguishable from never having existed — so the client holds it as active forever and nothing later corrects it.
+
+`GET /edges` declares no `state` parameter and needs none. Edges carry no lifecycle state of their own and are never hidden by the state of the items they join, so an edge whose endpoints are both in the bin is returned like any other. That is what a client reconciling its copy needs: the graph has to stay legible while an endpoint is trashed rather than decay every time one is, and a trashed item is restorable, so the edges pointing at it have to survive with it.
+
+### A modification time moves when the item changes
+
+A tag or extension write moves the item's `updated_at`, not only a property write. Metadata lives in its own table, so a server that wrote it without touching the item would make a modification-time read report a short list that looks complete.
+
+### The type graph travels
+
+`GET /types` returns a payload that hydrates a registry off-server, so a client validates a write against the same rules the server applies before it queues anything. See [Types](/guides/core-model/types).
+
+## What a client keeps
+
+The server cannot check these, and an engine that skips one fails in a way that looks like data loss rather than like an error.
+
+| Rule                                                                                                                                                                                                                                                                                                                                                            | Why                                                                                                                                             |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Ids are minted by the client**, UUIDv7, for items and edges, and sent with the create.                                                                                                                                                                                                                                                                        | The row exists on screen before the server has seen it, so it needs a name.                                                                     |
+| **An update carries only the fields that changed, and the version the row was read at.**                                                                                                                                                                                                                                                                        | An update with no version is not compared against an ancestor, so every key it carries lands on the row and an echoed stale value reverts a server edit.  |
+| **The queue is persisted and ordered.** A change waits behind that row's unsent create, an edge behind either endpoint's, a write referencing a blob behind that blob's upload.                                                                                                                                                                                 | A queue that drains out of order sends writes against rows the server does not have yet.                                                        |
+| **Failures are classified, and the classification is closed.** Permanent for `400`, `403`, `404` and a schema mismatch, except that a schema refusal first triggers one registry refresh and a revalidation. Auth refreshes once, then parks the whole queue. Everything else retries to a ceiling, counting only attempts made while the server was reachable. | An unclassified failure either retries forever or drops the write, and both are silent.                                                         |
+| **A refused write is kept, not dropped.** It moves to a dead-letter log the app can show. A refused create removes its local ghost and cascades to its dependants; a refused update rolls the local row back to the server's state.                                                                                                                             | The person typed it. A write the engine discards is work nobody can recover.                                                                    |
+| **Visible state is server state with this client's pending mutations replayed on top.**                                                                                                                                                                                                                                                                         | Three layers, not one: another device's change arriving must not hide what this device has typed and not yet sent.                              |
+| **Events apply in log order, and an item payload applies only if its version is not older than the row held.** Metadata events carry no version and apply in order. An item event never touches tags or extensions. The cursor is saved after the event is applied, never before.                                                                               | A late event that overwrites a newer row is a silent regression, and a cursor saved early skips the event it names.                             |
+| **Hydration subscribes first, then reads.** Events arriving during the read are buffered and applied by the rule above.                                                                                                                                                                                                                                         | The other order loses every change landing between the read finishing and the stream starting, and the store then looks populated and is stale. |
+| **A stale cursor means re-import, not reconnect.** Drain first, refuse to import over pending writes, read the space, prune what the server no longer has — never a row with a queued create.                                                                                                                                                                   | The gap cannot be replayed, so reconnecting resumes from a point that is already wrong.                                                         |
+| **The type graph is local.** Platform types ship with the SDK, custom types are cached whenever the server is reachable, and a write is validated before it is queued. A stale cache refreshes once before a schema refusal is treated as permanent.                                                                                                            | A write that only fails on reconnect fails hours after the person could have fixed it.                                                          |
+| **Blobs queue with their bytes**, uploaded before the write that references them. A permanently failed upload dead-letters the referencing write with the bytes retained.                                                                                                                                                                                       | An item referencing a blob the server does not hold is a broken attachment on every other device.                                               |
+| **Search works offline** over the fields the type's display hints name, with subtype resolution.                                                                                                                                                                                                                                                                | An app whose search stops working without a network is an app that stops working without a network.                                             |
+| **The store has a version and a fail-safe.** A store newer than the code, or a failed migration, is only rebuilt after the queue and the dead-letter log are written to a sidecar and the app is told.                                                                                                                                                          | A rebuild is data loss unless the unsent work survives it.                                                                                      |
+| **One writer per store.** A second process opening it gets a read-only client.                                                                                                                                                                                                                                                                                  | Two engines sharing one cursor each believe they applied what the other did.                                                                    |
+| **A store knows whose it is.** It records origin, space and account, and refuses to open against a mismatch.                                                                                                                                                                                                                                                    | Two accounts on one device otherwise merge into one store, silently.                                                                            |
+| **The engine reports itself.** Connection state, pending and blocked and dead-lettered counts, last clean drain, and hydration progress as monotonic counts against a known total.                                                                                                                                                                              | An app cannot tell a person their work is unsent if it cannot ask.                                                                              |
+
+## Proving an engine
+
+An engine is held to the rules by a scenario list rather than by inspection, because most of the failures above are silent — a short list that looks complete, a row that quietly stopped arriving. Each scenario names an observable that does not depend on how long anything took.
+
+| Scenario                                                               | Observable                                                                                 |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Create offline, reconnect                                              | Exactly one row, under the id the client minted                                            |
+| A create resent after a lost response                                  | The same row acknowledged, no sibling                                                      |
+| The same field edited on two clients                                   | One outcome, by the type's policy                                                          |
+| Different fields edited on two clients                                 | Both fields present on both                                                                |
+| A mutation queued after a create                                       | The create is sent first; an edge after its endpoints; a write after its blob              |
+| An update sent at the transport                                        | Carries only the changed fields and the version read                                       |
+| Another device's change to a different field, while an edit is pending | The pending edit stays visible and the other field is present                              |
+| Fresh store, start                                                     | Progress counts rise monotonically to the server's row count, then match                   |
+| The process killed mid-hydration, restart                              | Counts match and the cursor is the last event applied                                      |
+| The cursor aged out                                                    | Drain, re-import; a row removed meanwhile is absent, a row with a queued create is present |
+| A refused write                                                        | Dead-lettered, visible, dismissible, and the local row rolled back                         |
+| A transient failure past the retry ceiling                             | Parked with its reason, and the app told                                                   |
+| A token expired mid-drain                                              | The queue parked on auth, the app told, nothing dropped                                    |
+| A photo attached offline, then reconnect                               | The blob uploaded before the write that references it                                      |
+| A property the type forbids                                            | Refused before it is queued                                                                |
+| A term found by server search over a display-hint field                | The same rows found offline                                                                |
+| A second process opening the store                                     | Read-only                                                                                  |
+| A store opened against another origin or space                         | Refused                                                                                    |
+| A store newer than the code                                            | Sidecar written, store rebuilt, app told                                                   |
+
+The server's half of the contract is checked separately, over HTTP, by the [conformance suite](/self-hosting/operate/conformance) — so a self-hosted server and the hosted service are held to the same promise.

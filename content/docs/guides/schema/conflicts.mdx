@@ -37,10 +37,10 @@ The shape of resolution is **declared on each type** via a `merge_policy` block.
 
 - `current` — the server's state at the time of the conflict.
 - `ancestor` — the version the client was working from.
-- `conflicting_fields` — fields changed on the server since the ancestor that are also present in the client's patch.
+- `conflicting_fields` — fields the server changed since the ancestor that the client also changed relative to that same ancestor.
 - `merge_policy` — the type's resolved policy, with inheritance applied. Always present.
 
-Detection compares the ancestor snapshot against the current server state to find server-side changes, and treats every key present in the submitted properties as a client change. `conflicting_fields` is the overlap, so it is only as accurate as the patch is honest: see [The client write contract](#the-client-write-contract).
+Detection compares the ancestor snapshot against the current server state to find the server's changes, and compares the submitted properties against that same snapshot to find the client's. `conflicting_fields` is the overlap, so a key submitted at the value the ancestor already held is in neither set and cannot collide. When the ancestor snapshot has been [thinned away](/guides/schema/versions) there is nothing to compare against, and the server names every submitted field in conflict instead.
 
 The server resolves inheritance and emits the policy on every conflict response. Clients don't fetch the type schema or maintain a policy cache — the answer travels with the conflict.
 
@@ -48,7 +48,7 @@ The server resolves inheritance and emits the policy on every conflict response.
 
 A client write sends only the fields it changed, and the version it read.
 
-- **Only the fields you changed.** Detection counts every submitted key as a client change. A patch that echoes unchanged fields manufactures conflicts against edits nobody made; under `keep_both_copies`, each false conflict spawns a sibling item holding text the user never typed, which reads as corruption. Partial patches are safe by construction: properties merge shallowly, so omitted fields keep their server values.
+- **Only the fields you changed.** An echoed field is measured against the ancestor and dropped from the client's change set, so on its own it manufactures no conflict. It is still the wrong habit, for two reasons detection cannot reach. An update with no version is never compared against an ancestor, so every key it carries lands on the row and an echoed stale value reverts a server edit with nothing reporting it. And once the ancestor snapshot has been [thinned](/guides/schema/versions) the server falls back to naming every submitted field in conflict, so under `keep_both_copies` a fat patch spawns a sibling item holding text the user never typed, which reads as corruption. Partial patches are safe by construction: properties merge shallowly, so omitted fields keep their server values.
 - **The version you read.** An update without a version opts out of conflict detection, and nothing reports the skip. The write lands over whatever changed underneath, and the loss stays invisible until a user notices. Pass the version from the item the edit was based on, not one fetched at write time.
 
 In the TypeScript SDK the version travels as `expectedVersion` on `items.update`; in the Swift SDK, as `UpdateOptions.version`.
