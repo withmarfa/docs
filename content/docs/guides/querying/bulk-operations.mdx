@@ -20,7 +20,9 @@ Three endpoints move data and mutate many items at once, each shaped around wher
 A fourth endpoint, `POST /admin/restore-archive`, ingests a tar.gz produced by [`GET /export?format=archive`](/guides/querying/export). It sits under Admin because it is a space-restore operation, not an item-level write.
 
 <Callout type="info">
-  Every bulk endpoint writes **one aggregate audit entry per call** and defaults `emit_events: false`. Per-item or per-edge webhook fanout is an opt-in flag — bulk calls should not flood subscribers.
+  Every bulk endpoint writes **one aggregate audit entry per call**, and every bulk write reaches the event log and the change stream unconditionally. That record is what a client rebuilding its state reads, so a write kept out of it is one that client can never learn about.
+
+  `enable_fanout` defaults to `false` and governs the outbound work only: per-item and per-edge webhook delivery, and the integration reactions a bulk import would otherwise trigger. Bulk calls should not flood subscribers with deliveries; they are in the record either way.
 </Callout>
 
 ## Inline edges on items.bulk vs standalone edges.bulk
@@ -73,7 +75,7 @@ Each item may carry an `edges` block: a map from `edge_type` to target-item ids.
 
 This path only works when source and target both land in the same call. For cross-batch edges — the target exists already, or lands in a separate bulk call — use `/edges/bulk`.
 
-Inline edges follow the batch's own `emit_events`: the edges an item is written with are announced when the item is, and are silent when it is. They are announced after the batch commits, so a batch that rolls back announces nothing at all.
+Inline edges are announced with the item, after the batch commits, so a batch that rolls back announces nothing at all. They follow the batch's own `enable_fanout` for webhook delivery, and reach the stream either way.
 
 ## Bulk edges
 
@@ -92,7 +94,7 @@ Every edge runs the same rules as `POST /edges`: edge type registered, source an
 
 ### Events
 
-`emit_events: true` fires an `edge.created` webhook per newly-created edge and an `edge.updated` webhook per upsert that replaced an existing edge's properties. A subscriber cannot tell a bulk edit from one made through `PATCH /edges/{id}`, so both routes emit the same event; `skipped` and `errored` outcomes wrote nothing and emit nothing.
+Every newly-created edge publishes `edge.created`, and every upsert that replaced an existing edge's properties publishes `edge.updated`. A subscriber cannot tell a bulk edit from one made through `PATCH /edges/{id}`, so both routes emit the same event; `skipped` and `errored` outcomes wrote nothing and emit nothing. `enable_fanout: true` delivers each as a webhook as well.
 
 ## Bulk actions
 
@@ -128,7 +130,9 @@ The `filter` field accepts the same grammar as `GET /items` — see [Search and 
 
 ### Events
 
-`emit_events` defaults to `false`, like every other bulk endpoint. Set it and a `transition` fires an `item.state_changed` webhook per item it moved, and a `purge` fires an `edge.deleted` webhook per edge its removal cascaded. Leave it unset and neither fires.
+Every action publishes what it wrote, after its chunk commits: a `transition` an `item.state_changed` per item it moved, a `purge` an `edge.deleted` per edge its removal cascaded, a tag change a `metadata.changed`, and a tier, properties or timestamp change an `item.updated`. Those last four announced nothing at all before, whatever the flag was set to.
+
+`enable_fanout` defaults to `false`, like every other bulk endpoint, and decides only whether each of those is also delivered as a webhook.
 
 A purge publishes no item event, on this door or on `DELETE /items/{id}/purge`: there is no purge event, and the trash transition that has to precede a purge already announced the item. The cascade is announced per edge because an edge pointing *at* a purged item lives on an item that is not being purged, so nothing else tells its holder the relationship is gone.
 
