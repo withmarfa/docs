@@ -164,7 +164,7 @@ Every Marfa server exposes `GET /health`, returning a JSON report of the server 
       "marfa-worker:app": { "idle": 2 },
       "other": { "idle": 3 }
     },
-    "pool": { "size": 3, "in_use": 1, "idle_in_transaction": 0, "free": 2 }
+    "pool": { "size": 3, "in_use": 0, "idle_in_transaction": 0, "free": 3 }
   },
   "placement": { "region": "lon1", "location": "London", "country": "GB" },
   "version": { "sha": "677ab4a" }
@@ -188,11 +188,23 @@ two unhealthy ones is what tells you where to look:
 | `down` | The probe answered with a failure — the database refused the connection, object storage returned an error. `error` carries the message. |
 | `degraded` | Either the probe did not answer within its budget, or it answered and something the component watches is wrong anyway. `error` says which. |
 
-`latency_ms` is on all three, not only on `ok`. A probe that failed after most
-of its budget and one that failed at once are different faults, and it is the
-unhealthy branches where the number says most. On a timed-out probe it is the
-budget by construction, so a graph of it shows the climb and then the cap
-rather than a gap.
+`latency_ms` is on all three statuses, not only on `ok` — but only for
+`database` and `blob_storage`, the two probes that are timed round trips.
+`identity_providers` and `dead_letters` never carry it, because neither is a
+probe whose duration means anything. A probe that failed after most of its
+budget and one that failed at once are different faults, and it is the
+unhealthy branches where the number was missing. On a timed-out probe it is
+the budget by construction, so a graph shows the climb and then the cap rather
+than a gap.
+
+<Callout type="warn">
+  **`degraded` does not imply a slow probe**, and this catches monitors out.
+  The database component also degrades on a pool it cannot hand a connection
+  out of, and that probe is answering normally — single-digit milliseconds
+  beside a `degraded` status is the expected shape, not a contradiction. A
+  graph of `latency_ms` filtered to `status != "ok"` therefore mixes healthy
+  values in. Read `error` to tell the two apart.
+</Callout>
 
 Probes are bounded so that this endpoint always answers. Both the database
 and blob-storage checks can block indefinitely by nature — the database probe
@@ -201,13 +213,19 @@ so an unbounded check turns the one endpoint whose job is to report the
 server's state into the one that cannot.
 
 The database component has a second reason to be `degraded`, and it is the
-more useful one: **the connection pool has no free slot, while the probe is
-still answering normally**. Waiting for the probe to starve makes the first
-signal of exhaustion arrive after exhaustion — a pool with one slot left
-answers exactly as fast as an idle one, so nothing distinguished them until
-the endpoint could say nothing at all. See
-[connection usage](#connection-usage) for the figures the verdict is taken
-from.
+more useful one: **two successive readings found the connection pool with no
+free slot, while the probe kept answering normally**. Waiting for the probe to
+starve makes the first signal of exhaustion arrive after exhaustion — a pool
+with one slot left answers exactly as fast as an idle one, so nothing
+distinguished them until the endpoint could say nothing at all.
+
+Two readings rather than one, because a reading is cached (see below) and a
+verdict taken from a single sample outlives the condition behind it: a pool
+that cleared a moment later would go on being reported exhausted for the rest
+of the cache window. Readings are a cache-length apart, so this reads as "full,
+and still full fifteen seconds later" — a burst cannot raise it and a recovery
+cannot be masked by a stale sample. See [connection usage](#connection-usage)
+for the figures it is taken from.
 
 ### Stored values this build does not recognize
 
@@ -367,9 +385,27 @@ reservations) or `lock` (the coordination lock). Everything else is folded into
 `other`. The counts under each are Postgres backend states, so `idle` means a
 pooled connection open but unused, not a leak.
 
-`pool` is this process's own query pool — the one a request actually competes
-for, which the figures above do not answer. A cluster with plenty of headroom
-can still be serving a container whose own three slots are all taken.
+`pool` is the query pool a request actually competes for, which the figures
+above do not answer: a cluster with plenty of headroom can still be serving a
+container whose own three slots are all taken.
+
+Two things about how it is measured, because both change how you read it:
+
+- **It excludes the connection taking the reading.** That query runs on the
+  app pool, so it is `active` in this very bucket while it executes. Counting
+  it would add a constant one to every reading a process takes of itself,
+  which is the instrument's own weight rather than occupancy — a third of the
+  range on a pool of three. It is still present in `clients` and `total`,
+  which describe the database as it is.
+- **It is attributed by role, not by process.** `application_name` carries
+  `MARFA_PROCESS_ROLE`, so every replica of a role stamps the same label and
+  lands in one bucket, while `size` stays a single process's own cap. Run one
+  process per role — the only shape the supplied compose files describe — and
+  the two agree. Run more, and `in_use` sums the role while `size` does not,
+  so the comparison stops meaning anything. The server refuses to judge that
+  case rather than reporting it: a tally larger than one pool can hold yields
+  no verdict, because otherwise scaling out would turn the check red for doing
+  the right thing.
 
 | Field | Meaning |
 |---|---|
@@ -398,7 +434,7 @@ Two things to know before you alert on it:
   `degraded`, which is what an uptime check watches.
 - **Alert on the component, graph the numbers.** `database_connections` carries
   no status of its own and never moves the top-level `status`. The one verdict
-  taken from it — the pool having no free slot — is reported on
+  taken from it — two successive readings finding no free slot — is reported on
   `components.database`, so there is one thing to alert on rather than two
   saying the same thing in different words. There is deliberately no threshold
   in between: the pools are three and two, so any threshold between "some free"
