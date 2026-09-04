@@ -494,7 +494,10 @@ Returns `{ valid: true }` on success and `{ valid: false; reason: string }` on f
 
 ```typescript
 const sub = client.events.subscribe({
+  type: "core.note,core.media",      // up to ten, each covering its subtypes
+  edges: "none",                     // edges arrive by default, filter or not
   lastEventId: savedCursor,          // omit to receive only what happens next
+  onCursor: (cursor) => persist(cursor),
   onEvent: async (event, eventId) => {
     await apply(event);              // awaited before the cursor moves
   },
@@ -506,6 +509,12 @@ const sub = client.events.subscribe({
 sub.close();
 persist(sub.lastEventId);
 ```
+
+### The first frame says where the stream is
+
+`onCursor` fires once per connection, before any event, with the log position the stream opened at. It is what makes "subscribe, then read a snapshot" safe on a quiet space: without it a store that finished a full read and was then interrupted has no resume point at all, and no way to know it is missing one.
+
+The subscription adopts the announced value as its own cursor **only when it has none yet**. On a resuming connection the announcement names the head of the log, which sits past the backlog that connection is about to replay, so adopting it there and then dropping mid-replay would leave the cursor over events you never saw and never ask for again.
 
 ### The cursor advances on acknowledgement
 

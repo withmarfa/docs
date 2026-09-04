@@ -36,11 +36,28 @@ Each `data` payload is a JSON envelope: `{ type, item }` for item events (the fu
 
 Comments (lines starting with `:`) are heartbeats. The server sends one every ~30 seconds. Treat an idle stream longer than 60s as disconnected and reconnect.
 
+## The stream says where it is
+
+The first frame of every connection is the log position the stream opened at:
+
+```
+event: stream_cursor
+data: {"type":"stream_cursor","cursor":"4521"}
+```
+
+It arrives whether or not anything has happened, which is the point. A client that subscribes and then reads a snapshot — the order that keeps a write landing between the two from falling in the gap — otherwise holds nothing to resume from until an event happens to arrive. On a quiet space it can finish a full read, be interrupted, and come back with no way to ask what it missed and no way to know that it missed anything. The announcement closes that: everything after the announced cursor either arrives on this connection or replays from it.
+
+**The frame carries no `id:` field, deliberately.** A resuming client is sent it too, before its backlog, and SSE clients treat `id:` as the cursor to resume from next time. One here would move a reconnecting client's cursor to the head of the log before a single replayed event had been applied, discarding exactly the backlog the reconnect existed to fetch. Read the value from `data.cursor` instead, and adopt it only when you have no cursor of your own.
+
+**A cursor is a position in the log, not in the filter.** The filters below select a subset of the log rather than reordering it, so a cursor taken under one filter is safe to replay under another: the set of rows changes, the sequence does not, and nothing is skipped or repeated. The announced value is the log's head rather than the newest row your filter admits, so it never sits behind a row you have already been shown.
+
 ## Event types
 
 Item events are filtered by the subscriber's permissions: the server won't stream an event for an item whose type the credential can't read, and every payload carrying a metadata row — `metadata.changed`, and `item.created`, `item.updated`, `item.restored` and `item.state_changed` alike — carries only the extension namespaces the credential's `extension_permissions` admit — the same narrowing a REST read of that metadata applies, on the live stream and on a `Last-Event-ID` replay alike. Admin and space-admin API keys bypass it, as they bypass the same map on a read. An OAuth access token does not, whatever role it projects: it is minted with no extension permissions at all, so it receives no namespace on the stream, exactly as it would read none over REST.
 
 Edge events reach every authenticated subscriber in the space, as edge reads do. `GET /edges` and the per-item edge listings gate on authentication and space rather than on `edge_permissions`, which govern writes, so the stream is exactly as wide as a read of the same edges. Do not rely on `edge_permissions` to keep an edge off a subscriber; it does not narrow reads and does not narrow the stream.
+
+A `type` filter does not narrow them either. An edge carries no item type, so the parameter has nothing to say about one, and a client watching two types needs to hear about the edges joining them — that is the half nothing else can reconstruct, since an edge has no row to re-read and leaves no tombstone when it goes. Use `edges=none` if your subscriber only ever looks at items.
 
 <Accordions type="single">
   <Accordion title="Event catalog (quick reference)">
@@ -75,19 +92,31 @@ Edge events reach every authenticated subscriber in the space, as edge reads do.
 
 ## Filtering
 
-Clients can narrow the stream to a single item type:
+Two parameters narrow the stream, both applied on the server so unwanted events never leave it.
+
+`type` takes one item type or several, comma-separated, up to ten:
 
 ```
 GET /events?type=core.note
+GET /events?type=core.note,core.media
 ```
 
-The filter applies on the server, and it covers the type's subtypes as well, so unwanted events never leave the stream.
+Each entry covers its own subtypes, so `core.media` delivers `core.media.song`. More than ten entries is refused with `400`. The rule is the same live and on a `Last-Event-ID` replay.
+
+`edges` decides whether edge lifecycle events reach the stream. It is `all` by default, including under a `type` filter for the reason above, and `none` opts out:
+
+```
+GET /events?type=core.note&edges=none
+```
+
+A value outside `all` and `none` is refused with `400` rather than ignored, because an ignored one would open a stream carrying everything while the caller believed it had opted out.
 
 <Callout type="warn">
-  `type` is the only filter the endpoint reads. Unrecognized query parameters
-  are ignored rather than rejected, so a request that appears to filter on an
-  event name or an edge type opens a stream carrying everything. Filter the rest
-  client-side on the `type` field of each payload.
+  Those are the only two filters the endpoint reads, and only their values are
+  checked. An unrecognized parameter *name* is still ignored rather than
+  rejected, so a request that appears to filter on an event name opens a stream
+  carrying everything. Filter the rest client-side on the `type` field of each
+  payload.
 </Callout>
 
 ## Reconnecting after a drop
@@ -140,7 +169,7 @@ A typical sync engine follows this pattern:
 
 ### First connection
 
-Connect to `GET /events` without `Last-Event-ID`. Persist the most recent id received.
+Connect to `GET /events` without `Last-Event-ID` and persist the `stream_cursor` frame's `cursor`. It arrives before anything else, so the store holds a resume point from the first moment rather than from the first write — which on a quiet space may be days away, or never. After that, persist the most recent id received.
 
 </Step>
 
