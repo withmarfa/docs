@@ -25,6 +25,34 @@ A local client writes to its own store first and reconciles with the server afte
 
 The repeat has to name the row the first attempt named. An item repeat whose body declares a different `type` is refused with `409 type_mismatch` rather than reinterpreted, and an edge id naming a different source, target or edge type is refused with `409 conflict` rather than acknowledged. Both are what a queue replaying a write that has drifted from what was stored actually hits, and the server declines to absorb the drift rather than re-typing the row or re-pointing the edge.
 
+### A write can be retried safely
+
+Every item and edge write door accepts an `Idempotency-Key`: a client-chosen string, up to 255 characters, naming one logical write. The server records the status and body that write returned and answers a repeat carrying the same key from the record, performing no second write. The replay carries `Idempotency-Replayed: true`, so a client can tell a served answer from a fresh one.
+
+The doors are `POST /items`, `PATCH /items/{id}`, `DELETE /items/{id}`, `DELETE /items/{id}/purge`, `POST /items/{id}/transition`, `POST /items/{id}/restore`, `POST /items/{id}/promote`, `POST /edges`, `PATCH /edges/{id}` and `DELETE /edges/{id}`. The header is optional on all of them, and a write that carries no key behaves exactly as it did before: two identical creates are two items.
+
+**A `409` is recorded like any other outcome, and that is the case the key exists for most.** A client told a second time that a row conflicts cannot tell "somebody else holds this" from "my own earlier attempt holds this", and those call for opposite responses. Replaying the stored envelope says which. The same applies to an update: a retried `PATCH` is answered with what the first attempt returned rather than refused as a stale version against its own change, and a retried delete is a replayed success rather than a `404`.
+
+**A key stands for one request.** The server compares the method, the path, the query, the body and the credential against what the key was first used for, and a key replayed with a different request is refused with `422 idempotency_key_reused` rather than served — serving it would silently discard a write the caller believes it made. Mint a fresh key per logical write and reuse it only when retrying that same write. In particular, a conflict strategy that re-sends a merged body is a new write, not a retry, and needs a new key.
+
+Three more answers a client handles:
+
+| Answer | What it means |
+| --- | --- |
+| `409 idempotency_key_in_flight` | The key is held by an attempt still being served, or contention kept it changing hands. Nothing was written either way. Retry. |
+| `422 idempotency_result_not_retained` | The first attempt's response was too large to keep, so it cannot be replayed. `details.original_status` reports the status it returned, and no second write happened. |
+| A `5xx`, a `401` or a `403` | Not recorded, and the key is free for the next attempt. A server fault is not an outcome to pin a caller to, and an authorization refusal describes the credential rather than the request — a caller that fixes its credential and retries would otherwise be replayed the refusal. |
+
+**The lease is not a promise that the first attempt finished.** A claim is held for 60 seconds; past that, another arrival may take it over — and taking it over means **running the write again**, because the record says only that an attempt started, never what it did. So a `409 idempotency_key_in_flight` that persists past the lease resolves into a fresh attempt rather than into the first one's answer. The same is true of a writer that dies between committing its write and recording the outcome: the key is in flight with nothing coming to complete it, and the retry after the lease re-runs the write. A key removes the duplicate that a *lost response* causes; it does not make a write atomic with its own recording.
+
+Keys are scoped to the space, so two spaces may use one key for different writes. **A caller with no space shares one keyspace with every other space-less caller** — that is every credential on a single-space self-hosted instance, and every platform-admin credential on any instance. Two such callers picking the same key are picking the same record, so choose keys that are unique to the client rather than to the operation: a UUID per write, not `delete-item-42`.
+
+Records age out on the same sweep as the event log, which makes the window a repeat is answerable for the window an event stays replayable for: a client that can still catch up on the stream can still ask what its write did. A space that disables its event-log retention disables this sweep with it.
+
+**The header on a bulk door is a different mechanism.** `POST /items/bulk-actions` reads `Idempotency-Key` to return the original job rather than starting a second one. `POST /items/bulk` and `POST /edges/bulk` do not read it at all — both resolve an existing row by id or natural key and update it, so a retry converges without needing a record.
+
+**Independent of the id acknowledgement above.** Neither mechanism is built on the other and neither consults the other, so a client may use the id, the key, or both.
+
 ### A write names the version it read
 
 Passing `version` on `PATCH /items/{id}` or `PATCH /edges/{id}` opts into optimistic concurrency, and a stale value is refused with `409`. Omitting it keeps last-writer-wins.
