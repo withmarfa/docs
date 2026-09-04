@@ -39,6 +39,24 @@ The most recent snapshot is never thinned, even if all windows expire — an ite
 
 The thinning job runs on a server-wide interval controlled by `VERSION_THINNING_INTERVAL_MS`. Thinning is advisory — snapshot reads see whatever survives the most recent run. See [Configuration](/self-hosting/run/configuration) for the full variable list and defaults.
 
+## Retention against the event-log window
+
+Two windows decide whether an offline client can come back and merge, and they are not the same window:
+
+| Window | Default | What it bounds |
+|---|---|---|
+| Version snapshots, recent | 30 days (`VERSION_RECENT_DAYS`) | How far back a stale write can still find its ancestor and be resolved |
+| Event log | 7 days (`MARFA_EVENT_LOG_RETENTION_HOURS`) | How far back an SSE cursor can still replay |
+
+**On the defaults the snapshot window is the longer of the two, and deliberately so.** A client whose cursor is still replayable can always merge against the base version it holds, because any version it could have read within the replay window is inside the snapshot window several times over. A client outside the event-log window is re-importing anyway, and re-reads before it writes.
+
+Two things break that ordering, and both are worth checking before you shorten either window:
+
+- **The hard cap is per item, not per day.** `VERSION_MAX_VERSIONS` drops the oldest snapshots even inside the recent window, so a heavily-edited item can lose its ancestor while a quiet one keeps a year of history.
+- **A per-type `version_policy` overrides the global window.** A type that keeps history tighter than the event log can strand a client that is still within replay.
+
+Past its snapshot, a stale write is refused as [`ancestor_unavailable`](/guides/schema/conflicts#when-the-ancestor-is-gone) and cannot be resolved automatically — the client has to re-read and re-apply.
+
 ## Per-type overrides
 
 Types can declare their own `version_policy` block that overrides any of the four fields per-type. Custom `core.highlight` snapshots might keep history tighter than bulky `core.file.video` metadata; the per-type policy merges field-by-field over the global defaults.

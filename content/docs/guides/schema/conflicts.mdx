@@ -1,11 +1,11 @@
 ---
 title: Conflicts
-description: How concurrent edits resolve — per-type merge policy, keep-both semantics, and the 409 envelope.
+description: How concurrent edits resolve — per-type merge policy, server-side resolution, keep-both semantics, and the 409 envelope.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-When two clients edit the same item from the same starting version, the second write fails with a `version_conflict`. Resolution is client-side, layered over the existing 409 envelope and item primitives — no server enforcement, no new endpoints, no new edge types.
+When two clients edit the same item from the same starting version, the second write collides. **Resolution defaults to the server**: send `conflict=auto` on the update and the server merges by the type's policy inside the transaction that performs the write. Ask for `manual` or `callback` instead, or send no parameter at all, and you get the `409 version_conflict` envelope to resolve yourself.
 
 The shape of resolution is **declared on each type** via a `merge_policy` block. Long-text user-authored fields (`body`, `notes`; `note` on `core.highlight`) keep both copies. Everything else is last-writer-wins. Custom types inherit or override.
 
@@ -17,7 +17,8 @@ The shape of resolution is **declared on each type** via a `merge_policy` block.
 {
   "error": {
     "code": "version_conflict",
-    "message": "Version 3 is stale; current version is 5"
+    "status": 409,
+    "message": "Version 3 is stale; current version is 5. Conflicting fields: body."
   },
   "current": {
     "version": 5,
@@ -35,12 +36,35 @@ The shape of resolution is **declared on each type** via a `merge_policy` block.
 }
 ```
 
+- `error.status` — the HTTP status, repeated in the body so a client that only has the parsed payload can still branch on it.
+- `error.message` — prose for a person. Its wording is not a contract: branch on `error.code`, never on this text.
 - `current` — the server's state at the time of the conflict.
 - `ancestor` — the version the client was working from.
 - `conflicting_fields` — fields the server changed since the ancestor that the client also changed relative to that same ancestor.
 - `merge_policy` — the type's resolved policy, with inheritance applied. Always present.
 
-Detection compares the ancestor snapshot against the current server state to find the server's changes, and compares the submitted properties against that same snapshot to find the client's. `conflicting_fields` is the overlap, so a key submitted at the value the ancestor already held is in neither set and cannot collide. When the ancestor snapshot has been [thinned away](/guides/schema/versions) there is nothing to compare against, and the server names every submitted field in conflict instead.
+Detection compares the ancestor snapshot against the current server state to find the server's changes, and compares the submitted properties against that same snapshot to find the client's. `conflicting_fields` is the overlap, so a key submitted at the value the ancestor already held is in neither set and cannot collide.
+
+### When the ancestor is gone
+
+A version snapshot does not live for ever — see [Versions](/guides/schema/versions#retention-against-the-event-log-window) for what is retained and how that window compares to the event log's. A write based on a version whose snapshot has been [thinned away](/guides/schema/versions) has no common ancestor, so it is refused with its own code rather than as a `version_conflict`:
+
+```json
+{
+  "error": {
+    "code": "ancestor_unavailable",
+    "status": 409,
+    "message": "The snapshot for version 3 is no longer retained, so this write cannot be merged. Re-read the item at version 9 and re-apply the change."
+  },
+  "current": {
+    "version": 9,
+    "properties": { "body": "...", "title": "..." }
+  },
+  "requested_version": 3
+}
+```
+
+**It is never auto-merged, whatever `conflict` asked for.** With no ancestor, nothing can be shown *not* to have collided, so treating it as an ordinary conflict names every submitted field — and under `keep_both_copies` that spawns a sibling holding text the person never typed, which reads as corruption. There is no `ancestor`, no `conflicting_fields` and no `merge_policy` here, because there is genuinely none to give. The only correct response is to re-read at `current.version` and re-apply, which is why the current state travels with the refusal.
 
 The server resolves inheritance and emits the policy on every conflict response. Clients don't fetch the type schema or maintain a policy cache — the answer travels with the conflict.
 
@@ -48,20 +72,48 @@ The server resolves inheritance and emits the policy on every conflict response.
 
 A client write sends only the fields it changed, and the version it read.
 
-- **Only the fields you changed.** An echoed field is measured against the ancestor and dropped from the client's change set, so on its own it manufactures no conflict. It is still the wrong habit, for two reasons detection cannot reach. An update with no version is never compared against an ancestor, so every key it carries lands on the row and an echoed stale value reverts a server edit with nothing reporting it. And once the ancestor snapshot has been [thinned](/guides/schema/versions) the server falls back to naming every submitted field in conflict, so under `keep_both_copies` a fat patch spawns a sibling item holding text the user never typed, which reads as corruption. Partial patches are safe by construction: properties merge shallowly, so omitted fields keep their server values.
+- **Only the fields you changed.** An echoed field is measured against the ancestor and dropped from the client's change set, so on its own it manufactures no conflict. It is still the wrong habit, for two reasons detection cannot reach. An update with no version is never compared against an ancestor, so every key it carries lands on the row and an echoed stale value reverts a server edit with nothing reporting it. And once the ancestor snapshot has been [thinned](/guides/schema/versions) the write is refused as [`ancestor_unavailable`](#when-the-ancestor-is-gone) and cannot be resolved at all, so a client that sends fat patches loses the ability to merge sooner than one that does not. Partial patches are safe by construction: properties merge shallowly, so omitted fields keep their server values.
 - **The version you read.** An update without a version opts out of conflict detection, and nothing reports the skip. The write lands over whatever changed underneath, and the loss stays invisible until a user notices. Pass the version from the item the edit was based on, not one fetched at write time.
 
 In the TypeScript SDK the version travels as `expectedVersion` on `items.update`; in the Swift SDK, as `UpdateOptions.version`.
 
 ## Resolution strategies
 
-Three modes, picked by the SDK caller.
+Three modes, named by the `conflict` query parameter on `PATCH /items/{id}`.
 
-- **`auto`** (default) — apply the type's `merge_policy` per conflicting field. `last_writer_wins` fields take the server's value; `keep_both_copies` fields spawn a sibling item (see [Keep-both semantics](#keep-both-semantics)). Non-conflicting client changes apply normally; the update retries with the server's version.
-- **`manual`** — surface the error to the app with the full three-way payload. The app decides.
-- **`callback`** — the SDK invokes a per-call resolver with the three-way context plus `conflictingFields`; the resolver returns the properties to apply.
+- **`auto`** — the server applies the type's `merge_policy` per conflicting field, in the transaction that performs the update, and answers `200`. `last_writer_wins` fields take **this write's** value, because of the two writers it is the later one. `keep_both_copies` fields leave the server's value on the item and the losing value lands on a sibling (see [Keep-both semantics](#keep-both-semantics)). Non-conflicting client changes apply as they would have anyway. The SDK sends this for you when its strategy is `auto`, which is its default.
+- **`manual`** — the `409` envelope above, with the full three-way payload. The app decides.
+- **`callback`** — also the `409` envelope. The SDK invokes a per-call resolver with the three-way context plus `conflictingFields`, and the resolver returns the properties to apply.
 
-`auto` is the right default for almost every app. Use `callback` when the merge logic depends on app-specific semantics that aren't expressible at the type level.
+**Omitting the parameter means `manual`.** A client written before server-side resolution existed keeps the exact contract it was written against, and a stale write is still refused rather than silently merged.
+
+An unrecognised value is refused with `400`. A conflict mode the server does not implement is not dropped: a dropped parameter reads to the caller as a resolution that happened, and the losing edit is gone before anyone can see it did not.
+
+`auto` is the right choice for almost every app. Use `callback` when the merge logic depends on app-specific semantics that aren't expressible at the type level.
+
+<Callout type="warn">
+  `last_writer_wins` takes the later writer — the write being resolved — not the value already on the server. Kits before the server owned resolution kept the server's value here, which is first-writer-wins under a name saying the opposite. If you relied on the old direction, `callback` lets you keep it explicitly.
+</Callout>
+
+### What the server did
+
+An update that resolved a conflict reports it, alongside `item` and `metadata`:
+
+```json
+{
+  "item": { "id": "...", "version": 6, "properties": { "body": "...", "title": "..." } },
+  "metadata": { "tags": [], "extensions": {} },
+  "conflict_resolution": {
+    "fields": ["body", "title"],
+    "strategy": { "body": "keep_both_copies", "title": "last_writer_wins" },
+    "conflicted_copy_id": "01a06d6c-d155-7eec-8628-500b85ecb781"
+  }
+}
+```
+
+The block is **absent** on any write that resolved nothing, which is nearly all of them — so its presence is itself the signal that a collision happened.
+
+`conflicted_copy_id` is the only place the sibling is named. No route reports what a write created, so without reading it here you have a row you cannot reach. It is present only when at least one `keep_both_copies` field actually collided.
 
 ## The merge policy declaration
 
@@ -85,16 +137,26 @@ Fields named in `merge_policy.fields` must exist in the type's `fields` map; unk
 
 ## Keep-both semantics
 
-When `auto` resolution sees a `keep_both_copies` field in `conflicting_fields`, the SDK:
+When `auto` resolution sees a `keep_both_copies` field in `conflicting_fields`, the server, in one transaction:
 
-1. Calls `items.create` with a new item of the same type — populated from the client's in-flight values for the keep-both fields and the server's `current` values for everything else, tagged `conflicted-copy` inline on the create.
-2. Lets the original item retain the server's winning state for the conflicted keep-both fields. Non-keep-both client changes still apply normally via the usual auto-merge path.
-3. Emits a `conflictAutoMerged` event with `{ itemId, mergedItemId, conflictedCopyId?, fields, strategy }` so the app can surface the outcome — typically a toast: "Your edit saved as a conflicted copy — the older version is preserved alongside it."
+1. Writes a sibling item of the same type — the item as the server holds it, with the losing writer's value laid over for each keep-both field, tagged `conflicted-copy`. It is a coherent copy of the item at the moment of collision rather than a bag of the conflicting fields alone, so it satisfies the type's required fields. It inherits the original's `source` so it lists beside it, and deliberately does not inherit `source_id`: that tuple is unique per space, and a copy claiming the original's natural key would be a second row asserting it is the same upstream record.
+2. Leaves the original holding the server's value for those fields. Non-keep-both client changes apply as usual.
+3. Reports both in `conflict_resolution` on the `200`, so the app can surface the outcome — typically a toast: "Your edit saved as a conflicted copy — the older version is preserved alongside it."
 
 The `conflicted-copy` tag is the existing tag-API primitive; no new edge type, no new endpoint. Apps surface conflicted copies the same way they surface any other tagged item.
 
+### Retrying safely
+
+Send an `Idempotency-Key` on the update. The sibling's id is derived from the item, the base version and that key, so a write that executes twice writes **one** sibling rather than two.
+
+The replay cache in front of the route already absorbs an ordinary repeat, but only for a request that completed. A request whose connection died mid-flight releases its claim, and the retry then executes for real — that is the case the derived id covers.
+
+<Callout type="warn">
+  Without an `Idempotency-Key` the server cannot tell a retry from a second edit, so a re-executed write spawns a second sibling: a "conflicted copy" the person created once, appearing twice. Send the key on any update you might retry.
+</Callout>
+
 <Callout type="info">
-  Keep-both doubles the write count on the conflicting `PATCH`: one `items.create` for the sibling plus the original `items.update` retry. Two writes versus the current one. At expected conflict rates this is negligible, since conflicts are rare per item, but it's worth knowing if you're modeling write throughput.
+  Keep-both used to cost extra round trips: the kit fetched the type, created the sibling, then re-sent the update. It is now one request, and the sibling and the merge commit together — so a client that dies mid-resolution can no longer leave the losing edit unwritten with the original already moved on.
 </Callout>
 
 ## Defaults

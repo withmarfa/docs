@@ -311,20 +311,30 @@ await client.items.update(
 
 The `callback` strategy invokes a resolver with the three-way context plus the type's resolved `mergePolicy`; `auto` (default) and `manual` need no resolver. A client-level `conflictStrategy` sets the default; `UpdateOptions` overrides it per call.
 
-When `auto` runs the SDK emits a `conflictAutoMerged` event:
+Under `auto` **the SDK does not resolve anything**. It sends `conflict=auto` and reads the outcome, so the resolution happens once, on the server, in the transaction that performs the write — one request rather than the four the SDK used to make, and atomic, which no arrangement of separate client writes could be.
+
+When the server reports a resolution the SDK emits a `conflictAutoMerged` event:
 
 ```typescript
 {
   itemId: string;            // the original item
-  mergedItemId: string;      // the original item id (post-retry)
-  conflictedCopyId?: string; // the new sibling, when keep-both spawned one
+  mergedItemId: string;      // the original item id
+  conflictedCopyId?: string; // the sibling, when a keep-both field collided
   fields: string[];          // the conflicting fields
   strategy: Record<string, "last_writer_wins" | "keep_both_copies">;
                              // per-field: which merge policy resolved each conflict
 }
 ```
 
-Apps typically toast on `conflictedCopyId` being present — the user's in-flight edit was preserved as a sibling rather than discarded.
+Apps typically toast on `conflictedCopyId` being present — the user's in-flight edit was preserved as a sibling rather than discarded. The id comes from the server's `conflict_resolution` block; no route reports what a write created, so this is the only thing that names the sibling.
+
+<Callout type="warn">
+  `last_writer_wins` takes the later writer — the write being resolved — not the value already on the server. Before resolution moved to the server the SDK kept the server's value here, which is first-writer-wins under a name saying the opposite. Pin the old direction with `callback` if you relied on it.
+</Callout>
+
+Send an `Idempotency-Key` on any update you might retry: the sibling's id is derived from it, so a write that executes twice writes one sibling rather than two.
+
+`UpdateOptions.type` is gone. It existed only to save a type lookup before the SDK created a sibling itself, and nothing creates one client-side now.
 
 ## Errors
 
