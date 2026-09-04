@@ -1,41 +1,24 @@
 ---
-title: Deployment modes
-description: Three ways Marfa can run — local-only, server-synced, third-party-synced.
+title: Client modes
+description: Two ways a client holds its data, remote and local, and what each mode guarantees.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Marfa has one SDK surface and three deployment modes. Apps use the same client code regardless of mode; only the transport and enforcement guarantees change.
+Marfa has one SDK surface and two client modes. Apps use the same call sites in either; what changes is where a read is answered from and what the deployment can enforce.
 
 <Callout type="info">
-  **Mode versus client.** Sync agents, importers, CLIs, and similar automation tools are **apps with credentials**, not a deployment mode and not a server feature. Each runs against whichever mode its host chose. The word _sync_ in "server-synced" describes data movement between a client and the server — it is independent of any particular client, including clients that happen to carry _sync_ in their name.
+  **Mode versus client.** Sync agents, importers, CLIs and similar automation
+  tools are **apps with credentials**. Each runs against whichever mode its host
+  chose, and the word _sync_ in a client's name says nothing about the mode it
+  runs in.
 </Callout>
 
-## Local-only
+## Remote
 
-**SDK + local SQLite store. No server.**
+**The SDK and a Marfa server. Every call crosses the network.**
 
-The SDK talks to an on-device store rather than a remote API. Items, edges, metadata, extensions — all persisted locally. Suitable for:
-
-- Single-app, single-device setups. A journal app that doesn't need cross-app data.
-- Multi-app setups sharing a local store via OS mechanisms (iOS App Groups, macOS shared containers).
-- Apps that want to start local and optionally graduate to server-synced later.
-
-### Trade-offs
-
-- **No conflict resolution.** Single writer per store, or app-coordinated. The server's version-conflict machinery doesn't apply.
-- **No cross-app provenance enforcement.** Apps trust the local SDK. `source` is stamped best-effort by whichever SDK writes; there's no server to validate it.
-- **No sync.** Data stays on-device. Reconciling across devices needs an external mechanism.
-
-### When to use
-
-Prototypes, offline-first apps, privacy-first apps, apps that run disconnected for extended periods. Apps that later move to server-synced without changing their code.
-
-## Server-synced
-
-**SDK + the Marfa server.**
-
-The canonical mode. Multi-space, multi-app, real-time via SSE, durable storage, server-stamped non-forgeable provenance, OAuth grants, audit trail, metrics.
+The canonical mode, and the one most features target: multi-space, multi-app, realtime over SSE, durable storage, server-stamped non-forgeable provenance, OAuth grants, an audit trail, metrics.
 
 <Callout type="warn">
   Run one server process per database. The event bus lives in the process, so a
@@ -44,57 +27,62 @@ The canonical mode. Multi-space, multi-app, real-time via SSE, durable storage, 
   process](#running-more-than-one-process) before adding a second instance.
 </Callout>
 
-All the mode-specific features called out across these docs (server-stamped `source`, SSE `/events`, OAuth flow, webhook delivery, admin metrics) apply only here.
+A remote client holds nothing, so it reads nothing without a network. That is the trade: everything the server enforces applies, and nothing is available when the server is not.
 
-### Trade-offs
+Reach for it when the data matters across apps, devices and time, and the app can assume connectivity — a CLI, an MCP server, a scheduled job, a web app.
 
-- **Requires connectivity.** Without a network, apps can't read or write unless they run their own local cache on top.
-- **Introduces a server to operate.** Self-hosted or managed by someone — someone is running Postgres and keeping it healthy.
+## Local
 
-### When to use
+**The SDK and a durable on-device store, with a server if one is configured.**
 
-The platform-thesis mode. Any time data matters across apps, devices, and time.
+The store is the app's read path. Items, edges, metadata and extensions are persisted locally, so a read is a local query and a write is applied before it leaves the device. Whether that store reconciles with anything is a separate question, and it has three answers.
 
-## Third-party-synced
+| Configuration | What reconciles the store | Where the guarantees come from |
+| --- | --- | --- |
+| A Marfa server | The SDK's own queue and change stream | The server: non-forgeable `source`, field-level conflict resolution, OAuth, audit, realtime |
+| An external sync layer, such as CloudKit or a file-sync tool | That tool, replicating the store's file across devices | That tool: a space maps to its account, and conflicts resolve by its rules, not Marfa's |
+| Nothing | Nothing. The store is private to the app and the device | The SDK alone, best-effort |
 
-**SDK + local SQLite + an external sync layer.**
+The SDK surface is identical across all three, and moving between them is a change to the client configuration rather than to the call sites.
 
-The SDK reads and writes locally, same as in local-only mode. An external sync engine (CloudKit, a custom WebDAV bridge, a file-sync system) replicates the SQLite store across devices.
+### What a local store cannot do on its own
 
-### Trade-offs
+- **Provenance is best-effort without a server.** `source` is stamped by whichever SDK writes it, and there is nothing to validate it. With a Marfa server configured it is credential-stamped and non-forgeable.
+- **Conflict resolution belongs to whatever reconciles the store.** With a Marfa server that is the server's field-level machinery. With an external sync layer it is that tool's, typically last-writer-wins over a whole record. With nothing configured there is a single writer and the question does not arise.
+- **The server-only surfaces stay server-only.** SSE `/events`, OAuth grants, webhook delivery, the audit trail and admin metrics all need a Marfa server, whichever mode the client runs in.
 
-- **No Marfa server.** No OAuth, no SSE, no server-enforced provenance. Whatever the third-party tool provides is what you get.
-- **Conflict resolution is the third-party tool's.** Apps inherit CloudKit's last-writer-wins-per-zone semantics, for example.
-- **Provenance is best-effort.** Same as local-only — no server to enforce `source`.
-- **Space boundaries map to the third-party account.** One iCloud account = one space. A user with personal and work iCloud accounts runs them as separate Marfa spaces.
+A client that keeps a durable store and reconciles it with a server is holding state the server has not seen. The rules that keep the two from drifting are the [sync contract](/sdks/sync-contract).
 
-### When to use
+## What is the same in both
 
-Apps that want cross-device sync without standing up a Marfa server. Consumer iOS/macOS apps that lean on CloudKit for free sync. Privacy-first setups where data never leaves the user's own cloud account.
+- The **SDK surface**. `client.items.create`, `client.edges.create` and the rest are identical.
+- The **data shape**. Items, edges, metadata, extensions and attachments have the same structure.
+- The **type system**. Core and custom types register the same way, and inheritance works the same way.
+- The **edge model**. Dual-gate write semantics apply where permissions are present, and are trust-based where they are not.
 
-## What's the same across modes
+## What differs
 
-- The **SDK surface.** `client.items.create`, `client.edges.create`, etc. are identical.
-- The **data shape.** Items, edges, metadata, extensions, attachments all have the same structure.
-- The **type system.** Core types and custom types register the same way. Inheritance works the same way.
-- The **edge model.** Dual-gate write semantics apply when permissions are present; otherwise trust-based (local-only, third-party-synced).
-
-## What's mode-specific
-
-| Feature | Local-only | Server-synced | Third-party-synced |
+| Feature | Remote | Local, with a Marfa server | Local, without one |
 |---|---|---|---|
-| `source` non-forgeable | No (SDK best-effort) | Yes (credential-stamped) | No (SDK best-effort) |
-| SSE `/events` | No | Yes | No |
-| OAuth grants | No | Yes | No |
-| Webhook delivery | No | Yes | No |
-| Audit trail | No | Yes | No |
-| Admin metrics | No | Yes | No |
-| Rate limiting | N/A | Yes | N/A |
-| Conflict resolution | app-coordinated | field-level optimistic concurrency | third-party tool's semantics |
-| Retention / storage tiering | app-coordinated | tier-aware, server-enforced | per the third-party tool |
-| Works offline | Yes (always local) | No (unless local cache layered) | Yes (sync on reconnect) |
+| `source` non-forgeable | Yes (credential-stamped) | Yes (credential-stamped on replay) | No (SDK best-effort) |
+| SSE `/events` | Yes | Yes | No |
+| OAuth grants | Yes | Yes | No |
+| Webhook delivery | Yes | Yes | No |
+| Audit trail | Yes | Yes | No |
+| Admin metrics | Yes | Yes | No |
+| Rate limiting | Yes | Yes | N/A |
+| Conflict resolution | Field-level optimistic concurrency | The same, applied on replay | Single writer, or the external tool's semantics |
+| Retention and storage tiering | Tier-aware, server-enforced | The same | App-coordinated |
+| Reads without a network | No | Yes | Yes |
 
-## Server-synced: scaling and operational limits
+## Which SDK offers which
+
+| SDK | Remote | Local |
+|---|---|---|
+| [Swift SDK](/sdks/swift) | Yes | Yes, backed by SwiftData — with a server or without one |
+| [TypeScript SDK](/sdks/typescript) | Yes | A volatile in-process store for one type, the [local replica](/sdks/local-replica) |
+
+## Running a server: scaling and operational limits
 
 <Callout type="warn">
   Run one server process per database. The event bus is in-process, so a second
@@ -124,12 +112,12 @@ Two consequences, both silent — no error, no warning, no failed health check:
 - **Realtime events go missing.** An SSE client attached to instance A never sees a write made on instance B. Sticky sessions do not fix this. Stickiness pins the *reader* to one instance; the problem is which instance the *writer* happened to land on. A healthy long-lived connection never reconnects, so it never triggers the `Last-Event-ID` replay that would otherwise fill the gap from `event_log`.
 - **Reactive integrations stop firing for most writes.** The bridge that fans events out to installed integrations runs under a Postgres advisory lock so exactly one instance drains it. That instance drains its own in-process emitter, so with N instances roughly (N − 1) / N of all events reach no integration at all. The same lock covers the subscription-registry cache, so a connection installed or paused on another instance is not seen either.
 
-Until the bus has a cross-process transport, a server-synced deployment scales vertically. One process per database, restarted gracefully, is the supported shape. If you need more request throughput than one process delivers and can accept the constraints, the safe partial pattern is to keep exactly one process publishing writes and serving `/events`, and use webhooks rather than SSE for anything a second process would need to observe.
+Until the bus has a cross-process transport, a server deployment scales vertically. One process per database, restarted gracefully, is the supported shape. If you need more request throughput than one process delivers and can accept the constraints, the safe partial pattern is to keep exactly one process publishing writes and serving `/events`, and use webhooks rather than SSE for anything a second process would need to observe.
 
 ## Choosing
 
-- **Build against server-synced by default.** It's the mode with the most guarantees and the one most features target.
-- **Add local-only as an option** if your app has a meaningful offline story or a "free tier" that doesn't need a server. Same SDK call sites; different client config.
-- **Use third-party-synced** when you specifically want to avoid running a server and your platform's sync layer meets the bar.
+- **Remote when the app can assume a network.** Nothing to migrate, nothing to reconcile, and every guarantee the server enforces.
+- **Local when a read has to be answered with no network**, or has to be answered in a frame. Point it at a server for the full guarantees, or at nothing for a private single-app store.
+- **Local with an external sync layer** when you specifically want cross-device sync without running a Marfa server, and that tool's conflict semantics meet the bar.
 
-Switching modes later is mostly a config change in the SDK. The type system, edge model, and data shape don't change.
+Switching later is a change to the client configuration. The type system, the edge model and the data shape do not change.

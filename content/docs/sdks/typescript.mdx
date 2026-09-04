@@ -9,6 +9,8 @@ The TypeScript SDK is an ES module, published on npm as [@withmarfa/sdk](https:/
 
 Electron consumers should pre-externalize the SDK using `externalizeDepsPlugin` from `electron-vite` — same one-line config the broader ESM ecosystem uses.
 
+The client runs in [remote mode](/guides/identity/deployment-modes): every call crosses the network, and a read without one fails rather than being answered from a store. The [local replica](/sdks/local-replica) subpath adds a volatile in-process copy of a single type, which serves reads for as long as the process lives and holds nothing across a restart.
+
 ## Install
 
 ```bash
@@ -109,7 +111,7 @@ const note = await client.items.get(id);
 await client.items.update(note.id, { body: edited }, { expectedVersion: note.version });
 ```
 
-The server counts every submitted key as a client change, so echoing unchanged fields manufactures conflicts against edits nobody made, and under keep-both policy that surfaces as a duplicate item holding text the user never typed. Omitting `expectedVersion` makes the SDK fetch the current version at write time, which cannot detect anything that changed since your actual read. Properties merge shallowly, so a partial patch never loses omitted fields; pass `properties_mode: "replace"` when you mean the set you are sending to be the item's whole property set instead. See [the client write contract](/guides/schema/conflicts#the-client-write-contract).
+The server measures the patch against the ancestor snapshot rather than counting the keys it carries, so a field echoed at its unchanged value is dropped from the comparison and from the merge, and collides with nothing. Send only what changed regardless: a write that lands at the row's current version has every key it carries applied, and once the ancestor snapshot has been thinned the server falls back to naming every submitted field in conflict — under keep-both policy that is what surfaces as a duplicate item holding text the user never typed. Omitting `expectedVersion` makes the SDK fetch the current version at write time, which cannot detect anything that changed since your actual read. Properties merge shallowly, so a partial patch never loses omitted fields; pass `properties_mode: "replace"` when you mean the set you are sending to be the item's whole property set instead. See [the client write contract](/guides/schema/conflicts#the-client-write-contract).
 
 Conflict-resolution behavior is unchanged. A 409 from the server still resolves through the configured `conflictStrategy`; the lazy type fetch on `keep_both_copies` paths still happens automatically. Pass `type` in options only if you also want to skip that specific lazy fetch.
 
@@ -291,7 +293,7 @@ Each event's own zone travels on the item instead: `properties.timezone` anchors
 
 The TypeScript SDK exposes the three modes as `conflictStrategy` on the client config and `UpdateOptions.conflict` per call. See [Conflicts](/guides/schema/conflicts) for the resolution model, keep-both semantics, and per-core-type defaults; [Errors — version_conflict](/api-reference/errors#version-conflict) for the 409 payload.
 
-Every mode assumes an honest patch. `conflicting_fields` is computed from the keys you submitted, so send only the fields you changed, with the version you read as `expectedVersion`; the contract and its failure modes are on [Conflicts](/guides/schema/conflicts#the-client-write-contract).
+Every mode assumes an honest patch. `conflicting_fields` is the overlap between what the server changed since the ancestor and what you changed against that same ancestor, so send only the fields you changed, with the version you read as `expectedVersion`; the contract and its failure modes are on [Conflicts](/guides/schema/conflicts#the-client-write-contract).
 
 ```typescript
 await client.items.update(
