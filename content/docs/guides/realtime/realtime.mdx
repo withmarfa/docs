@@ -45,11 +45,13 @@ event: stream_cursor
 data: {"type":"stream_cursor","cursor":"4521"}
 ```
 
-It arrives whether or not anything has happened, which is the point. A client that subscribes and then reads a snapshot — the order that keeps a write landing between the two from falling in the gap — otherwise holds nothing to resume from until an event happens to arrive. On a quiet space it can finish a full read, be interrupted, and come back with no way to ask what it missed and no way to know that it missed anything. The announcement closes that: everything after the announced cursor either arrives on this connection or replays from it.
+It arrives whether or not anything has happened, which is the point. A client that subscribes and then reads a snapshot — the order that keeps a write landing between the two from falling in the gap — otherwise holds nothing to resume from until an event happens to arrive. On a quiet space it can finish a full read, be interrupted, and come back with no way to ask what it missed and no way to know that it missed anything. The announcement is what it comes back to: a resume point from the first moment of the connection, instead of from whenever a write happens to land.
 
 **The frame carries no `id:` field, deliberately.** A resuming client is sent it too, before its backlog, and SSE clients treat `id:` as the cursor to resume from next time. One here would move a reconnecting client's cursor to the head of the log before a single replayed event had been applied, discarding exactly the backlog the reconnect existed to fetch. Read the value from `data.cursor` instead, and adopt it only when you have no cursor of your own.
 
-**A cursor is a position in the log, not in the filter.** The filters below select a subset of the log rather than reordering it, so a cursor taken under one filter is safe to replay under another: the set of rows changes, the sequence does not, and nothing is skipped or repeated. The announced value is the log's head rather than the newest row your filter admits, so it never sits behind a row you have already been shown.
+**Adopting it is a starting position, not a promise that nothing precedes it.** The announced value is the highest id visible when the stream opened. On Postgres an id is taken when a row is written and the row becomes visible when its transaction commits, so a write already in flight can commit below a cursor you have just adopted. If that write's live frame went out before you subscribed, it reaches you on neither path: a replay returns only ids above the cursor. Adopt the cursor anyway when you hold nothing, since you have received no event it could put you behind. Once events are arriving, the rule above takes over, and it is the one that matters here too: store the last id you received rather than the highest you have seen. A client that cannot tolerate the remaining gap reconciles on `updated_after` as well, the same sweep the stale-cursor path below describes.
+
+**A cursor is a position in the log, not in the filter.** The filters below select a subset of the log rather than reordering it, so a cursor taken under one filter is safe to replay under another: the set of rows changes, the sequence does not. The announced value is the log's head rather than the newest row your filter admits, which is what makes that true. A head computed with your filter applied would sit below rows the log already held, so replaying from it under a wider filter would walk back over them.
 
 ## Event types
 
@@ -169,7 +171,7 @@ A typical sync engine follows this pattern:
 
 ### First connection
 
-Connect to `GET /events` without `Last-Event-ID` and persist the `stream_cursor` frame's `cursor`. It arrives before anything else, so the store holds a resume point from the first moment rather than from the first write — which on a quiet space may be days away, or never. After that, persist the most recent id received.
+Connect to `GET /events` without `Last-Event-ID` and persist the `stream_cursor` frame's `cursor`. It arrives before anything else, so the store has somewhere to resume from before the first write, which on a quiet space may be days away or never. Adopt it only on a store that holds no cursor, with the caveat stated above. After that, persist the most recent id received, not the highest.
 
 </Step>
 
