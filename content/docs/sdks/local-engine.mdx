@@ -112,11 +112,23 @@ Every way a send can end has a class, and the classification is closed: an uncla
 | **Offline** | The request never reached a server: a transport error or a timeout. | Ends the pass with no attempt recorded against anything. | Reaching the server. A laptop shut for a week arrives with its queue intact. |
 | **Auth** | A `401`, after the transport has already made its one refresh. | Parks the whole queue and emits `queue.parked`. Nothing is dropped. | A working credential, then `outbox.retryAll('auth', …)`. |
 | **Blocked** | A refusal whose stated cause is temporary: `space_suspended` or `quota_exceeded`. | Parks that mutation and holds whatever waits behind it. | The operator action the code names, then a retry. |
-| **Conflict** | A `409` on an update: the row moved on, or its ancestor snapshot has been thinned past merging. | Parks the mutation as `needs_review`, with the edit intact and still on screen. | The app re-applying the edit over what the server now holds, or dropping it. Waiting does not help. |
+| **Conflict** | A `409` on an update the server could not merge — its ancestor snapshot has been thinned past merging. | Parks the mutation as `needs_review`, with the edit intact and still on screen. | The app re-applying the edit over what the server now holds, or dropping it. Waiting does not help. |
 | **Permanent** | `400`, `403`, `404`, and a `409` on a create or a delete. | Dead-letters the write. A refused create takes its dependents with it, marked `cascaded`. | Nothing. It is kept for the app to show and dismiss. |
 | **Transient** | `5xx`, a rate limit, `idempotency_key_in_flight`, and a local fault after the request went out. | Retries, counting toward the ceiling. | The next drain, or the ceiling, after which it parks as `retry_ceiling`. |
 
 `DEFAULT_RETRY_CEILING` is 5 and `retryCeiling` overrides it. **Only attempts made while the server was reachable count**, which is why being offline is not a failed attempt.
+
+### Conflicts are settled by the server
+
+The engine sends every update with `conflict=auto`, and does not merge anything itself.
+
+The server resolves inside the write's own transaction, by the type's policy: fields that do not collide merge, fields that do resolve by the policy, and a field the type marks `keep_both_copies` spawns a sibling there, with a deterministic id, in the same transaction. So two clients editing one such field leaves **one PATCH on the wire and two rows on the server** — the row, and a sibling carrying the edit that lost.
+
+**This is deliberate and is not a convenience.** Settling a conflict inside one client is a resolution rule no other client shares: a second device on a different kit would settle the same edit differently, and a `keep_both_copies` field would spawn a different sibling on each. One outcome per write, for every client, is only possible where the write happens.
+
+What still reaches the app as a conflict is the case the server could not merge at all: `ancestor_unavailable`, where the base version's snapshot has been thinned so far that there is nothing left to merge against. That parks as `needs_review` with the server's current state, and is never auto-merged.
+
+One property worth knowing before relying on it. **A replayed update is not a no-op.** An update carries no idempotency key today, where a create repeats safely on the client-minted id and a delete on the key it carries. So an update whose response was lost re-sends the version it was computed against, meets the merge, and settles correctly — but the row is written twice, and the version moves twice for one edit. The outcome is right; the write is not yet idempotent.
 
 `classifyFailure(error, kind)` is exported, and the mutation's kind is a parameter because one status means two things: a `409` on a create says the id is held by a row this client did not make, while a `409` on an update says the row moved on under an edit that is still wanted.
 
@@ -273,7 +285,6 @@ A store this build cannot open, whether it was written by a newer engine or its 
 
 The [sync contract](/sdks/sync-contract) names more than this engine keeps. Each boundary below is stated rather than left for a reader to discover, because an app built as though one of them were closed fails quietly.
 
-- **A same-field conflict parks for review, and the engine does not apply the type's merge policy.** The refusal carries the policy, and this engine declines to act on it: settling a conflict inside one client is a resolution rule no other client shares, so a second device on a different kit settles the same edit differently. The contract's scenario, one outcome by the type's policy, needs the server to settle the write inside its own transaction, and no server does that today. The write stays queued and stays on screen, waiting for the app to re-apply it over what the server now holds or to drop it.
 - **An edge conflict parks without the server's current edge in the store.** The refusal carries it, and there is no route that reads one edge by its id, so an app resolving an edge conflict has only what it can reach through the error.
 - **There is no browser store.** The engine needs a filesystem for its lock, its fail-safe and its migrations.
 - **Nothing queues a metadata write.** Tags and extensions are held as server state, so an item event cannot clobber them, but the outbox carries item and edge writes only.
