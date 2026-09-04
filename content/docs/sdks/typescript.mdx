@@ -367,9 +367,17 @@ validateProperties("acme.invoice", { total: 12 });
 
 The payload does not need sorting. The helper works out parent order itself, and a child listed before its parent is registered correctly either way.
 
+**A hydration replaces this space's overlay; it does not merge into it.** Every custom type the space holds that the payload does not name is unregistered, and `report.removed` names each one. That is what makes a deletion reach a client at all: a type deleted on the server stops appearing in the listing and is never announced as anything, so an absence is the only signal there is. Without convergence a client would go on validating against a type the server has forgotten, accept the write locally, and meet a refusal it cannot distinguish from a permanent one.
+
 <Callout type="warn">
   **Read `report.unresolvedParents`.** It names types whose declared parent resolves nowhere — not in the payload, not in the shipped registry, not already registered for this space. Field resolution stops at the break, so such a type validates against a narrower set of fields than the server holds, and a required field declared by the missing ancestor is not enforced at all. Local validation then **accepts** a write the server refuses. Refetch with a credential that can read the ancestor; ignoring it queues writes that come back refused.
 </Callout>
+
+<Callout type="warn">
+  **Pass the whole listing, never a slice of one.** The payload is the space's entire custom vocabulary, and anything absent from it is treated as deleted — so hydrating a filtered subset tells the helper that everything outside the subset is gone. `GET /types` returns the whole vocabulary and takes no filter, so the correct call is the response as it came back. If you must inspect a subset, filter what you read from `report`, not what you pass in.
+</Callout>
+
+`report.unshippedPlatform` names reserved-namespace types the instance holds and this build of the SDK does not ship. An instance's shipped vocabulary is seeded data, so a newer server can carry platform types a client was compiled before. They hydrate and validate like any other type and take their own family's lifecycle rather than the ordinary one, so a `system.*` row soft-deletes to `revoked` rather than `trashed`. A non-empty entry is a signal that the client build is behind the instance, not an error.
 
 `report.skippedPlatform` names payload entries the SDK already ships, which are deliberately left alone: the shipped vocabulary resolves globally, and copying it into a space's overlay would shadow it. `report.cycles` names types whose parent chain closes on itself; they are registered rather than skipped, because the server holds the same rows and raises `type_chain_unresolvable` for them too, so skipping would invent a disagreement.
 
