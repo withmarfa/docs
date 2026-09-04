@@ -77,7 +77,7 @@ Every endpoint's response shapes — including the set of error codes it returns
     `item_not_found` also fires when an item exists but isn't visible to this credential — don't leak existence.
   </Accordion>
   <Accordion title="409 — conflicts">
-    `conflict`, `version_conflict`, `duplicate_source`, `type_mismatch`, `provenance_collision`, `type_already_exists`, `type_in_use`.
+    `conflict`, `version_conflict`, `duplicate_source`, `type_mismatch`, `provenance_collision`, `type_already_exists`, `type_in_use`, `idempotency_key_in_flight`.
 
     A `conflict` on `POST /items` or `POST /edges` means the `id` in the body is held by a row you cannot see — one in another space. An `id` naming a row of your own that the create would have produced anyway is not a conflict: it is a repeat, and answers `200` with `acknowledged: true`. On `POST /edges` an id you hold that names a *different* edge is still a conflict, since the id and the endpoints disagree about which row you mean. `version_conflict` is the one with an enriched payload — see [below](#version-conflict). `duplicate_source` fires inside `POST /items/bulk` with `mode: create_only` as a per-item outcome reason, when `(source, source_id)` already exists and the caller asked not to update. The single-item `POST /items` path treats a duplicate `(source, source_id)` as an upsert: it short-circuits to update and returns `200`, provided the `type` in the body is the resolved item's own. `type_mismatch` is what you get when it is not, and it is worth knowing why it exists: the natural key resolves the row without consulting `type` at all, so a body naming a different one used to be merged in silently and the item kept its original type. A write never re-types the row it lands on, on any door. See [Items — relationships, lists, and writes](/guides/core-model/items#relationships-lists-and-writes).
 
@@ -92,9 +92,17 @@ Every endpoint's response shapes — including the set of error codes it returns
     The bulk route **narrows rather than refusing**: rows written by a live sibling drop out of the match set and the rest of the action proceeds, because one unreachable row must not fail an action over thousands.
 
     **A person acting through their own credential is unaffected.** This narrows what an integration may do to rows it did not write, and nothing about what you can do in your own space.
+
+    `idempotency_key_in_flight` belongs to the `Idempotency-Key` header on the item and edge write doors, and it is a true conflict: the key was not available, because an attempt carrying it is still being served or contention kept it changing hands. Nothing was written either way, so retry it. See [Sync contract — a write can be retried safely](/sdks/sync-contract#a-write-can-be-retried-safely).
   </Accordion>
-  <Accordion title="413 and 429">
+  <Accordion title="413, 422 and 429">
     `blob_too_large` — exceeds the configured upload size limit. `rate_limited` — see [Rate limits](/api-reference/rate-limits).
+
+    The two idempotency codes here are `422` rather than `409` for the same reason: neither is a conflict, so a client branching on `409` to mean somebody else got there first must not catch them.
+
+    `idempotency_result_not_retained` — the first attempt's response was too large to keep, so it cannot be replayed. Nothing got there first and no second write happened; `details.original_status` reports the status the first attempt returned.
+
+    `idempotency_key_reused` — an `Idempotency-Key` was sent with a request that differs from the one it was first used for. The comparison covers the method, the path, the query, the body and the credential. The request is refused because of what the caller sent rather than because of what the server holds. Mint a fresh key per logical write. See [Sync contract — a write can be retried safely](/sdks/sync-contract#a-write-can-be-retried-safely).
   </Accordion>
 </Accordions>
 
