@@ -237,6 +237,8 @@ for try await item in client.items.all(filters: ListFilters(type: "core.note")) 
 }
 ```
 
+**`system.*` items are left out of a listing unless you name a system type.** These are operational records — devices, connections, activity — rather than anything a person filed, and they would otherwise dominate an untyped list: a synced device holds far more activity rows than everything else combined. Naming the type outright returns them, which is what `client.connections.list()` does. Search behaves the same way, as does the server. Counts from `client.items.stats()` deliberately do not: they include every row, matching the server.
+
 ### Edges
 
 ```swift
@@ -798,7 +800,9 @@ Three things keep that from destroying work, and all of them matter if you drive
 
 The common thread is worth holding onto if you are reading the import as a plain read: it is not one. Every id it sees is a keep-set, so anything that narrows the answer widens what gets deleted.
 
-**A partial answer is refused rather than pruned against.** If a page reports more results and carries no cursor to reach them with, the import throws `InitialSyncError.unresumablePage` and changes nothing, because finishing on a partial answer would delete every row the pages it never read would have named. Marfa's own server does not send that pair; the check is here because this SDK also talks to self-hosted servers. A read that fails partway through behaves the same way — the error propagates and nothing is pruned.
+**A partial answer is refused rather than pruned against.** If a page reports more results and carries no cursor to reach them with, the import throws `InitialSyncError.unresumablePage`, because finishing on a partial answer would delete every row the pages it never read would have named. Marfa's own server does not send that pair; the check is here because this SDK also talks to self-hosted servers. A read that fails partway through behaves the same way — the error propagates and nothing is pruned.
+
+That refusal is not a rollback. Each page is written as it arrives, so rows that landed before the throw are still in the store, and on the edges pass the item pass has already finished — its prune has run and its `.itemPurged` events have already fired. The guarantee is the narrower one: **no row is removed on the strength of an answer nothing finished reading.** Re-running the import is the way to reconcile, and it is safe to do.
 
 Edges are not pruned.
 
