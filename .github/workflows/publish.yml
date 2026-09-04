@@ -373,17 +373,36 @@ jobs:
           # Links live in field values as Markdown and never in the title, so a
           # destination rendering the title as plain text shows prose rather
           # than bracket syntax.
-          jq -n --arg t "$TITLE" --arg s "$STATE" --arg k "github/$REPO/$WORKFLOW" \
-                --arg u "$RUN_URL" --arg r "$REPO" --arg w "$WORKFLOW" --arg j "$RESULTS" \
-                --arg ru "$REPO_URL" --arg rn "$RUN_NUMBER" --arg site "$SITE_URL" \
-                --arg live "$LIVE" --arg main "$EXPECTED" --arg verdict "$VERDICT" \
-            '{source:"github",severity:"warning",title:$t,state:$s,key:$k,link:$u,
-              fields:(
-                {Repository:"[\($r)](\($ru))",Workflow:$w,Run:"[#\($rn)](\($u))",Jobs:$j}
-                + (if $site == "" then {} else {Site:"[docs site](\($site))"} end)
-                + (if $live == "" then {} else {Live:$live} end)
-                + (if $main == "" then {} else {Main:$main} end)
-                + (if $verdict == "" then {} else {Verdict:$verdict} end))}' \
+          # Built into a variable and checked before anything is posted,
+          # rather than piped straight into curl. A pipeline exits with the
+          # status of its last command, so a jq that writes nothing leaves
+          # curl posting an empty body to a destination that accepts it, and
+          # the step goes green having sent no alert. `set -o pipefail` is the
+          # usual answer and it is not enough here: it makes the pipeline red
+          # but cannot tell a body that failed to build from a POST that
+          # failed to land, and those two want opposite handling.
+          BODY="$(
+            jq -n --arg t "$TITLE" --arg s "$STATE" --arg k "github/$REPO/$WORKFLOW" \
+                  --arg u "$RUN_URL" --arg r "$REPO" --arg w "$WORKFLOW" --arg j "$RESULTS" \
+                  --arg ru "$REPO_URL" --arg rn "$RUN_NUMBER" --arg site "$SITE_URL" \
+                  --arg live "$LIVE" --arg main "$EXPECTED" --arg verdict "$VERDICT" \
+              '{source:"github",severity:"warning",title:$t,state:$s,key:$k,link:$u,
+                fields:(
+                  {Repository:"[\($r)](\($ru))",Workflow:$w,Run:"[#\($rn)](\($u))",Jobs:$j}
+                  + (if $site == "" then {} else {Site:"[docs site](\($site))"} end)
+                  + (if $live == "" then {} else {Live:$live} end)
+                  + (if $main == "" then {} else {Main:$main} end)
+                  + (if $verdict == "" then {} else {Verdict:$verdict} end))}'
+          )" || {
+            echo "::error::The alert body could not be built. Nothing was sent."
+            exit 1
+          }
+          if [ -z "$BODY" ]; then
+            echo "::error::The alert body came out empty. Nothing was sent."
+            exit 1
+          fi
+
+          printf '%s' "$BODY" \
           | curl -sS --fail-with-body --max-time 20 -X POST "$ALERT_URL" \
               "${AUTH[@]}" \
               -H "Content-Type: application/json" --data @-
