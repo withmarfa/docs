@@ -163,7 +163,8 @@ Every Marfa server exposes `GET /health`, returning a JSON report of the server 
       "marfa-web:session": { "idle": 1 },
       "marfa-worker:app": { "idle": 2 },
       "other": { "idle": 3 }
-    }
+    },
+    "pool": { "size": 3, "in_use": 0, "idle_in_transaction": 0, "free": 3 }
   },
   "placement": { "region": "lon1", "location": "London", "country": "GB" },
   "version": { "sha": "677ab4a" }
@@ -187,13 +188,25 @@ two unhealthy ones is what tells you where to look:
 | `down` | The probe answered with a failure — the database refused the connection, object storage returned an error. `error` carries the message. |
 | `degraded` | The probe did not answer within its budget. Nothing has necessarily failed; the server could not find out in time. |
 
+`latency_ms` is on all three statuses, not only on `ok` — but only for
+`database` and `blob_storage`, the two probes that are timed round trips.
+`identity_providers` and `dead_letters` never carry it, because neither is a
+probe whose duration means anything. A probe that failed after most of its
+budget and one that failed at once are different faults, and it is the
+unhealthy branches where the number was missing. On a timed-out probe it is
+the budget by construction, so a graph shows the climb and then the cap rather
+than a gap.
+
 Probes are bounded so that this endpoint always answers. Both the database
 and blob-storage checks can block indefinitely by nature — the database probe
 waits for a connection-pool slot, and the blob probe is a network round trip —
 so an unbounded check turns the one endpoint whose job is to report the
-server's state into the one that cannot. A `degraded` database component most
-often means the connection pool is fully held, which is worth knowing as
-itself rather than as a timeout at the monitor.
+server's state into the one that cannot.
+
+A `degraded` database component most often means the connection pool is fully
+held, which is worth knowing as itself rather than as a timeout at the monitor.
+The `pool` figures below say how much of it is left before that happens, and
+they are a reading rather than a judgment: nothing in them can move `status`.
 
 ### Stored values this build does not recognize
 
@@ -353,12 +366,66 @@ reservations) or `lock` (the coordination lock). Everything else is folded into
 `other`. The counts under each are Postgres backend states, so `idle` means a
 pooled connection open but unused, not a leak.
 
+`pool` is the query pool a request actually competes for, which the figures
+above do not answer: a cluster with plenty of headroom can still be serving a
+container whose own three slots are all taken.
+
+Two things about how it is measured, because both change how you read it:
+
+- **It excludes the connection taking the reading.** That query runs on the
+  app pool, so it is `active` in this very bucket while it executes. Counting
+  it would add a constant one to every reading a process takes of itself,
+  which is the instrument's own weight rather than occupancy — a third of the
+  range on a pool of three. It is still present in `clients` and `total`,
+  which describe the database as it is.
+- **It is attributed by role, not by process.** `application_name` carries
+  `MARFA_PROCESS_ROLE`, so every replica of a role stamps the same label and
+  lands in one bucket, while `size` stays a single process's own cap. Run one
+  process per role — the only shape the supplied compose files describe — and
+  the two agree. Run more, and `in_use` sums the role while `size` does not,
+  so `free` stops meaning what it says. Read it as a per-role tally against one
+  process's ceiling, and treat a `free` at or below zero on a scaled-out
+  deployment as an artifact of that rather than as saturation.
+- **A masked row is not counted.** A caller without privileges on another role
+  reads its `application_name` but gets no state for it, and a row whose state
+  cannot be read is somebody else's rather than this pool's. Counting it would
+  report another role's traffic as this pool filling up. It stays in `clients`,
+  which describes the database rather than this process.
+
+| Field | Meaning |
+|---|---|
+| `size` | `MARFA_DB_POOL_SIZE`, or 10 if unset. |
+| `in_use` | Connections the pool holds in any state but `idle`. A slot it has not opened yet is free, so this is counted rather than subtracted from the number of sockets. |
+| `idle_in_transaction` | How many of those an open transaction holds without running a query. |
+| `free` | `size - in_use`. Zero means the next query waits for a slot. |
+
+`idle_in_transaction` is the field worth watching, because it is what separates
+a busy pool from a wedged one. A pool full of `active` backends is doing work
+and will hand the slots back. A pool full of these is holding connections while
+waiting on something that is not the database — which is what a request holds
+one for under row-level security, for the whole of its handler.
+
+That last point is also the pool size's less obvious meaning. **With
+`MARFA_RLS_ENFORCE` on, the pool size is the ceiling on concurrent
+space-scoped requests**, because each one owns a connection until its response
+is finished. On a web container set to three, three such requests is the whole
+tier's capacity, and the rest queue — nothing errors and nothing deadlocks, the
+server simply reads as slow.
+
 Two things to know before you alert on it:
 
 - **The reading is omitted, not zeroed, when it cannot be taken.** A pool held
   hard enough to starve the query has already turned the `database` component
-  `degraded`, which is what an uptime check watches. This block is for seeing
-  the number climb toward the ceiling beforehand.
+  `degraded`, which is what an uptime check watches.
+- **Alert on the component, graph the numbers.** `database_connections` carries
+  no status of its own and never moves the top-level `status`. The one verdict
+  taken from it — two successive readings finding no free slot — is reported on
+  `components.database`, so there is one thing to alert on rather than two
+  saying the same thing in different words. There is deliberately no threshold
+  in between: the pools are three and two, so any threshold between "some free"
+  and "none" is one request wide, and a check that fires on one concurrent
+  request is one you learn to ignore. Watch `pool.free` falling and
+  `pool.idle_in_transaction` rising on a graph instead.
 - **Attribution needs the right privileges.** A role that is not a superuser and
   not a member of `pg_read_all_stats` can only read the application name and
   state of backends belonging to itself, so connections opened by other roles

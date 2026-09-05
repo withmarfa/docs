@@ -916,7 +916,13 @@ try await client.items.update(
 
 `.auto` (default), `.manual` (throws `ConflictError` with `current`, `ancestor`, `conflictingFields`, `clientPatch`, `mergePolicy`), and `.callback` are the three modes.
 
-`.auto` is policy-aware. The SDK reads the type's `merge_policy` directly from the 409 response and resolves each conflicting field per its strategy. `last_writer_wins` fields take the server's value; `keep_both_copies` fields spawn a sibling item of the same type, tagged `conflicted-copy`, populated from the client's in-flight values for the keep-both fields and the server's `current` values for the rest. The original item retains the server's winning state for the conflicted keep-both fields; non-keep-both client changes apply normally.
+`.auto` is policy-aware and, in this kit, still resolves on the client. The SDK reads the type's `merge_policy` directly from the 409 response and resolves each conflicting field per its strategy. `last_writer_wins` fields take the server's value; `keep_both_copies` fields spawn a sibling item of the same type, tagged `conflicted-copy`, populated from the client's in-flight values for the keep-both fields and the server's `current` values for the rest. The original item retains the server's winning state for the conflicted keep-both fields; non-keep-both client changes apply normally.
+
+<Callout type="warn">
+  **This kit has not yet moved to server-side resolution, and until it does the two kits answer one conflict differently.** The server now resolves a conflict itself when the update carries `conflict=auto`, and the TypeScript kit sends it. This kit does not, so it still receives the `409` envelope and merges locally — where `last_writer_wins` keeps the server's value rather than taking the later writer, which is the opposite of what the server does. Two consequences worth knowing while that is true: a keep-both resolution here is two writes rather than one and so is not atomic, and its sibling is created without a derived id, so a retry can leave a duplicate. Prefer `.manual` or `.callback` where either matters.
+
+  A write whose base version has been thinned away now returns [`ancestor_unavailable`](/guides/schema/conflicts#when-the-ancestor-is-gone) rather than a `version_conflict` naming every field. That is the safer answer — the old shape led this kit to spawn siblings holding text nobody typed — but it arrives as an unmodelled `409`, so handle it as an error rather than a conflict until the kit models it.
+</Callout>
 
 The `SyncEngine.events` stream emits `.conflictAutoMerged(payload:)` whenever a replay auto-merge fires:
 

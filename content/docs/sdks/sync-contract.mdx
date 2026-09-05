@@ -60,7 +60,7 @@ Passing `version` on `PATCH /items/{id}` or `PATCH /edges/{id}` opts into optimi
 The two refusals carry different bodies because a client recovers from them differently.
 
 - **An item's `409`** carries `current`, `ancestor`, `conflicting_fields` and the type's `merge_policy` — everything a three-way merge needs. `conflicting_fields` is the overlap between the fields the server changed since the ancestor and the fields the client changed, both measured against that same ancestor, so a field submitted at the value the ancestor already held belongs to neither set and collides with nothing.
-- **An edge's `409`** carries the edge as it now stands, under `edge`, which reads identically to the `200`. There is no route that reads one edge by its id, so that body is the client's only way to learn what it lost to.
+- **An edge's `409`** carries the edge as it now stands, under `edge`, which reads identically to the `200`. It is there so a refused client can re-apply over what it was handed rather than spending a round trip on [`GET /edges/{id}`](/guides/core-model/edges#reading-one-edge) to re-read what the refusal already knew.
 
 Send only what changed regardless, for two reasons that comparison does not cover. An update omitting `version` is never compared against an ancestor, so every submitted key lands on the row and an echoed stale value reverts a server edit with nothing reporting it. And the ancestor is a [version snapshot](/guides/schema/versions), which the server thins on a schedule: when the one the client named is gone there is nothing to compare against, and the server names every submitted field in conflict instead. A patch carrying the whole property bag turns that fallback into a collision on everything.
 
@@ -110,6 +110,8 @@ The two catch-up reads look asymmetric and the asymmetry is deliberate, so a cli
 `GET /items` excludes trashed rows by default. Without `state=any` a row that reached the bin during the gap is simply absent, and absent from a listing is indistinguishable from never having existed — so the client holds it as active forever and nothing later corrects it.
 
 `GET /edges` declares no `state` parameter and needs none. Edges carry no lifecycle state of their own and are never hidden by the state of the items they join, so an edge whose endpoints are both in the bin is returned like any other. That is what a client reconciling its copy needs: the graph has to stay legible while an endpoint is trashed rather than decay every time one is, and a trashed item is restorable, so the edges pointing at it have to survive with it.
+
+The per-item listings answer the same way. `GET /items/{id}/edges` and `GET /items/{id}/backrefs` resolve an anchor that is in the trash and return its edges, so the same edge is never reachable through one door and absent through another. A `404` from either means no such item.
 
 ### A modification time moves when the item changes
 
