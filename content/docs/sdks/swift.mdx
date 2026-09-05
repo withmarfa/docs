@@ -813,7 +813,12 @@ Every queued write carries the credential that was refused, so sending the rest 
 
 - **Rows already blocked keep the reason they have.** A conflict awaiting review is not settled by a new credential, which is why `retryAll` takes a reason: releasing everything would tell an app those writes were moving again when nothing has changed for them.
 - **`queueParked` is not latched.** A write made while the credential is still dead is attempted, refused, and parks the queue again — so it fires once per new write rather than once per queued write. Read `status.queue.blocked[.credentialRefused]` to ask whether the state is still true rather than whether it just changed.
-- **A parked queue is not a synced one.** While any write is parked on a refused credential the engine stamps no clean drain and reports no `.synced`, whichever path asks — not merely on the pass that parked. So `fullSyncState` and `queryFullSyncState()` cannot show a green tick over a queue that cannot move, and they resume reporting normally once `retryAll` has released it and a drain has succeeded.
+- **A parked queue is not a synced one.** `FullSyncState` gains `parked(reason:count:)`, and both `fullSyncState` and `queryFullSyncState()` report it while any write is parked on a refused credential. It outranks `synced(at:)` and `failed(at:error:)`, which matters more than it sounds:
+
+  - A store that synced cleanly an hour ago still holds that timestamp, and a refused credential does not erase it. Without the new state an app renders "last synced an hour ago" over a queue that has stopped — true, and not the answer to the question being asked.
+  - A transient failure recorded *before* the parking would otherwise stand for ever. A clean drain is the only thing that clears one, and a parked queue cannot produce a clean drain, so the app would show "the Internet connection appears to be offline" indefinitely while the remedy was to sign in again.
+
+  It clears when `retryAll` releases the queue and a drain succeeds.
 
 A spent idempotency key parks the same way and on the first refusal: `idempotency_key_reused` means the key has already answered a different body, so repeating it is refused identically however often anyone tries. **`retry(id:)` does not clear it** — the key is spent, not the write. Re-apply the edit, which makes a fresh mutation carrying a fresh key.
 
