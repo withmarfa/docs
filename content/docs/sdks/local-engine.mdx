@@ -113,6 +113,8 @@ Every way a send can end has a class, and the classification is closed: an uncla
 | **Auth** | A `401`, after the transport has already made its one refresh. | Parks the whole queue and emits `queue.parked`. Nothing is dropped. | A working credential, then `outbox.retryAll('auth', …)`. |
 | **Blocked** | A refusal whose stated cause is temporary: `space_suspended` or `quota_exceeded`. | Parks that mutation and holds whatever waits behind it. | The operator action the code names, then a retry. |
 | **Conflict** | A `409` on an update the server could not merge — its ancestor snapshot has been thinned past merging. | Parks the mutation as `needs_review`, with the edit intact and still on screen. | The app re-applying the edit over what the server now holds, or dropping it. Waiting does not help. |
+| **Blocked, key spent** | `idempotency_key_reused`: the key has already been answered for a different body. | Parks as `needs_review`. | The app re-applying the edit, which makes a fresh mutation with a fresh key. Retrying does not help — the key is spent, not the write. |
+| **Permanent, too large** | `request_too_large`: the body is over the server's ceiling. | Dead-letters the write, keeping it. | Nothing waiting achieves. A queued payload cannot be edited, so the write is resent in a shape that fits or dropped. |
 | **Permanent** | `400`, `403`, `404`, and a `409` on a create or a delete. | Dead-letters the write. A refused create takes its dependents with it, marked `cascaded`. | Nothing. It is kept for the app to show and dismiss. |
 | **Transient** | `5xx`, a rate limit, `idempotency_key_in_flight`, and a local fault after the request went out. | Retries, counting toward the ceiling. | The next drain, or the ceiling, after which it parks as `retry_ceiling`. |
 
@@ -178,6 +180,7 @@ const off = engine.on((event) => {
 | `queue.parked` | The credential is spent. Carries how many mutations were parked. |
 | `mutation.blocked` | One mutation parked, with its reason. |
 | `mutation.dead_lettered` | A write was refused, or cascaded from a refused create. |
+| `store.changed` | An inbound change has been applied to the store. Fires after the apply, so a listener that refreshes on it reads a store that already holds the change. |
 | `mutation.merged` | The server resolved a conflicting update. Carries the fields that collided, the policy applied to each, and the id of the sibling holding the losing values when a field keeps both. |
 | `drain.finished` | A pass ended. Carries what was sent and what remains. |
 | `hydration.progress` | A first read is walking. Counts rise and never fall, so a progress bar built on them cannot run backwards. |
@@ -186,6 +189,10 @@ const off = engine.on((event) => {
 | `reimport.finished` | The cursor had aged out, so everything was read again. Carries the pruned counts, which are rows that were on screen a moment ago. |
 
 A catch-up that stops running looks, from every other signal, exactly like a quiet period. That is why it is reported rather than done quietly.
+
+**`store.changed` is the one an app most needs to handle.** A projection reads the store and the engine writes to it, so without this an app converges on its own writes and never on another device's — the rows are in the store and nothing says they arrived, which reads as sync being broken with nothing visibly wrong. Call `refresh()` on it.
+
+It is deliberately coarse: it says a change landed, not what changed. A projection re-reads the store anyway, and naming the row would invite an app to apply it from the event and keep a second copy of the merge rules.
 
 `mutation.merged` is worth handling for the same reason. A merged row arrives through the ordinary settle and looks like any other write, so without it a person's text leaves the row they typed it into and nothing says where it went. **The `conflictedCopyId` it carries is the only place that sibling is named** — no route reports what a write created — so an app that ignores this event cannot find the copy until the stream happens to deliver it.
 
