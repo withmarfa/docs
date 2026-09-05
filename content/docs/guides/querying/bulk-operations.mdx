@@ -110,7 +110,7 @@ Every newly-created edge publishes `edge.created`, and every upsert that replace
 | `purge` | — | **admin-only** (hard 403) | `"confirm": "PURGE"` |
 | `update_tags` | `add?`, `remove?` (at least one non-empty) | write-access per matched type | — |
 | `update_tier` | `tier: "library" \| "feed"` | write-access per matched type | — |
-| `update_properties` | `patch: object` (shallow-merged into properties) | write-access per matched type | — |
+| `update_properties` | `patch: object` (shallow-merged into properties, and validated against each row's type) | write-access per matched type | — |
 | `update_timestamp` | `timestamp: ISO 8601` | write-access per matched type | — |
 
 Non-admin callers see their match set narrowed to types they hold `write` on — consistent with `GET /items`. `purge` is the exception and returns 403 for non-admin regardless of filter.
@@ -119,9 +119,30 @@ Non-admin callers see their match set narrowed to types they hold `write` on —
 
 The `filter` field takes the [`GET /items`](/guides/querying/search-and-query) grammar, narrowed in one place: `tier` accepts `library` and `feed`, not the read's `all`. `state` accepts every lifecycle value — `active`, `archived`, `trashed` and `revoked` — but not the read's `any` catch-all. The narrowing is enforced: a value outside it is refused with a `400` rather than ignored, which matters more here than on a read, because the filter *is* the match set and a value the server dropped would leave a wider one behind.
 
-**Selecting a revoked row and moving one into `revoked` are different questions, and only the second is refused.** The filter takes `revoked` deliberately: the reserved `system.*` lifecycle is exactly `active` and `revoked`, so a filter offering three states would put every reserved row beyond the reach of any bulk action. A `transition`'s own target state is the narrower set — `active`, `archived`, `trashed` — because `revoked` is terminal and a bulk action may not move a row into it.
+**Selecting a revoked row and moving one into `revoked` are different questions, and only the second is refused.** The filter takes `revoked` because the reserved `system.*` lifecycle is exactly `active` and `revoked`, so a filter offering three states could not select a reserved row at all. A `transition`'s own target state is the narrower set — `active`, `archived`, `trashed` — because `revoked` is terminal and a bulk action may not move a row into it.
 
-There are two further routes to a revoked row that do not pass through this field at all: omitting `state` applies the default mask, which drops only trashed rows, and the free-text `filter` string names `state` with no value allowlist.
+### Reserved rows are matched only by a platform credential naming them
+
+**A filter that names no type never matches a `system.*` row**, as [`GET /items`](/guides/querying/search-and-query) never returns one without being asked. The opt-in is narrower than the read's, in two ways.
+
+**It is a concrete reserved type**, not a pattern. This door validates `filter.type` as an identifier rather than as a pattern, so `system.*` is a `400` rather than a widening and each reserved type is named on its own:
+
+```json
+{ "type": "system.device", "state": "revoked" }
+```
+
+**And the credential has to be a platform one.** This is the difference that matters, because this door has no per-row permission check: the type filter it derives from a credential admits every type that credential can *read*, so a key granted read across the board arrives with nothing narrowed. On a single-item write door the platform-credential gate refuses a reserved-namespace write regardless; here there is no such gate to reach, so the widening is what carries it.
+
+There is deliberately no `include` token beside the type filter. Widening a read answers a bigger question; widening an action acts on more rows.
+
+**Both ways of reaching a reserved row without asking are closed by the same rule**, because it narrows the type rather than the state. Omitting `state` applies the default mask, which drops only trashed rows and so would otherwise keep revoked ones; and the free-text `filter` string recognizes `state` with no value allowlist, so it compiles straight through to the query. Neither reaches a reserved row now, and `dry_run` therefore no longer enumerates one.
+
+<Callout type="info">
+  This door and `GET /items` agree about the reserved namespace and not yet
+  about everything. A space's read-narrowing source filter applies to the read
+  and not to this filter, so a match set can still include rows a read hides
+  for that separate reason.
+</Callout>
 
 ```json
 {
@@ -147,6 +168,7 @@ A purge announces its rows as well as its cascade, on this door and on `DELETE /
 ### Safety rails
 
 - **`dry_run: true`** returns matched ids and count without writing. Synchronous, returns 200.
+- **`update_properties` is judged per row.** The patch is validated against each matched row's own type, on the properties the write would leave rather than on the patch alone — so a patch that removes a required field is refused even though it names no invalid value. A row the type refuses is reported in `errors` under `invalid_properties` and the rest of the action proceeds, which is how this door reports every other per-row refusal.
 - **`max_items`** caps the match set (default 10000, hard ceiling 50000). Going over returns `400 bulk_cap_exceeded`.
 - **`confirm: "PURGE"`** is required on the purge action. Missing it returns `400 bulk_confirmation_required`.
 - **`Idempotency-Key`** header (optional) — retrying a `POST` with the same key returns the original job, not a duplicate. Scoped per space.
