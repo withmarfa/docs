@@ -170,7 +170,23 @@ const result = await client.items.bulkAction(
 );
 ```
 
-Need explicit control? `client.items.bulkActionAsync(input)` returns the queued envelope without polling; `bulkActionStatus(jobId)` and `bulkActionCancel(jobId)` are thin wrappers over the GET / DELETE endpoints.
+**Asking about the job is not the job**, and the poll is built on that distinction. A status response that times out, fails at the network, or comes back 429 or 5xx says nothing about the write, which is still running on the server — so the poll waits and asks again. Anything else ends it at once: a 404 means the job is gone and a 401 means the credential is. Two separate budgets control this, and confusing them is the usual mistake:
+
+| option | bounds |
+| --- | --- |
+| `statusTimeoutMs` | one status response. Defaults to the client's own `timeoutMs`. |
+| `maxWaitMs` | the whole wait, across every poll. Default 30 minutes. |
+
+```typescript
+await client.items.bulkAction(
+  { action: "transition", state: "archived", filter: { tags: ["wip"] } },
+  { statusTimeoutMs: 60_000, maxWaitMs: 10 * 60_000 },
+);
+```
+
+If the whole budget expires while the status polls are failing, the error you get is the last real one rather than a poll timeout, because a poll timeout would describe the job when the problem was the question.
+
+Need explicit control? `client.items.bulkActionAsync(input)` returns the queued envelope without polling; `bulkActionStatus(jobId, { timeoutMs })` and `bulkActionCancel(jobId)` are thin wrappers over the GET / DELETE endpoints — driving your own poll means owning this distinction yourself.
 
 Semantics and outcome shape are documented on [Bulk operations](/guides/querying/bulk-operations); the SDK methods are thin wrappers.
 
