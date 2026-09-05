@@ -237,6 +237,8 @@ for try await item in client.items.all(filters: ListFilters(type: "core.note")) 
 }
 ```
 
+**`system.*` items are left out of a listing unless you name a system type.** These are operational records — devices, connections, activity — rather than anything a person filed, and they would otherwise dominate an untyped list: a synced device holds far more activity rows than everything else combined. Naming the type outright returns them, which is what `client.connections.list()` does. Search behaves the same way, as does the server. Counts from `client.items.stats()` deliberately do not: they include every row, matching the server.
+
 ### Edges
 
 ```swift
@@ -725,11 +727,25 @@ The engine:
 
 1. Watches `NWPathMonitor` via `ConnectionStateManager` and comes online when the network path does.
 2. Catches up before it subscribes: drains the `MutationQueue` if anything is in it, then imports the library if this store has never completed an import. The event stream carries only what happens after it opens, so a store that has never synced is filled here or not at all, and a write queued while the engine was stopped replays here rather than waiting for a stream close that a live server never delivers.
-3. Opens an SSE stream on `GET /events` and applies events into the local store: item creates, updates, deletes, restores and state changes; edge creates, updates and deletes; and `metadata.changed`, which carries an item's whole metadata row and replaces the local one with it, storing the item it carries alongside it. Persists `Last-Event-ID` so reconnection resumes from the correct point. The engine reports `.online` for as long as that stream is open, rather than only once it has closed.
+3. Opens an SSE stream on `GET /events` and applies events into the local store: item creates, updates, deletes, restores, state changes and purges; edge creates, updates and deletes; and `metadata.changed`, which carries an item's whole metadata row and replaces the local one with it, storing the item it carries alongside it. What an item frame does to a row it already holds is [its own section](#what-an-inbound-item-event-does-to-a-row). An event type this build has no case for is logged rather than dropped in silence. Persists `Last-Event-ID` so reconnection resumes from the correct point. The engine reports `.online` for as long as that stream is open, rather than only once it has closed.
 4. Drains the `MutationQueue` within a short debounce window of any new enqueue, and again when the stream closes, replaying local writes against the server. The mutation queue captures per-call `UpdateOptions.conflict` so the chosen strategy applies on replay. A closure is not serializable, so a `.callback` replay resolves through the resolver registered on the client rather than the one passed at the call site. See [Conflict handling](#conflict-handling).
 5. On failure, records the attempt against the queue record and retries on the next reachability cycle — unless the failure is one no retry can clear. Those split two ways. A refusal the server will repeat forever is **dropped** to the dead-letter log. A write that could still succeed once the app changes something is **blocked**: kept in the queue, skipped by the drain, and surfaced through [pending mutations](#pending-mutations) so the app can say what has to happen. A `409` is the case worth knowing: on a create it is final, because a repeat of the caller's own id is acknowledged rather than refused, while on an update it resolves through the [conflict strategy](#conflict-handling) — and blocks if that strategy cannot settle it. See [Local IDs](#local-ids-uuidv7).
 
 `stop()` tears the engine down gracefully.
+
+### What an inbound item event does to a row
+
+An item frame is not copied over the local row. The engine recomputes what the app should show from the server's row plus the writes still queued against that row, so an edit that has not reached the server stays visible **and** another device's change to a different field lands in the same frame. Trashing, restoring and transitioning rebase the same way, and `metadata.changed` — which carries an item alongside its sidecar — takes the same path rather than a second one.
+
+A frame naming a version older than the row it describes does not apply. The comparison is "not older" rather than "newer": a reconnect resumes from its cursor and re-delivers the frame it stopped on, so a frame at the version the row already holds is applied rather than refused.
+
+One limit is worth knowing. That version check is skipped while the device holds queued writes for the row, because a local edit bumps the stored version and the column is then this device's guess at what the server will assign rather than a server fact. The queued edit survives regardless; a stale frame can still land in a field that edit does not mention.
+
+**When both devices changed the same field, the local edit wins** until the queue drains and the server settles it. Queued writes are applied last, so your own unsent value is what stays on screen and the other device's value for that field is not shown at all. That is the right answer for the person typing — the alternative replaces a sentence as they write it — but it does mean someone can be looking at a field another device has already changed, with nothing on screen saying so.
+
+An item frame never writes the metadata layer. The server owns tags and extensions and announces them as `metadata.changed`.
+
+A frame the engine refuses announces nothing. Sync events describe what the local store actually did, so a stale `item.deleted` that the version check turns away leaves the row active and publishes no `.itemDeleted` for it.
 
 ### Stream lifetime
 
@@ -772,7 +788,23 @@ A store that has never imported reads `.notYetSynced` until that first import la
 
 `performInitialSync(pageSize:)` runs that same import explicitly. A fresh store does not need it: the engine imports on its own when it comes online. Reach for it when you want to re-pull the library deliberately. The engine also uses it for the retention-gap case, where the server has discarded the events your cursor points at.
 
-It refuses over a queue that has not drained, throwing `InitialSyncError.pendingMutations(count:)`. The import replaces every row it receives with no version check and no merge, so importing over a write that has not reached the server would discard it silently. Let the engine drain first — `hasPendingMutations` reports when it is done — and ask again. A call made while the engine is already catching up joins that run rather than starting a second one.
+It refuses over a queue that has not drained, throwing `InitialSyncError.pendingMutations(count:)`. The import replaces every row it receives with no version check and no merge — unlike a stream frame, which [rebases](#what-an-inbound-item-event-does-to-a-row); the two paths differ deliberately, because the import is a bulk replacement of the whole library rather than news about one row. So importing over a write that has not reached the server would discard it silently. Let the engine drain first — `hasPendingMutations` reports when it is done — and ask again. A call made while the engine is already catching up joins that run rather than starting a second one.
+
+**The import also removes the rows the server did not send.** A row purged while the device was away is absent from the answer rather than changed in it, so no event describes it and nothing else ever corrects it — this pass is the only thing that can notice. Each row it removes is announced as `.itemPurged(id:)`.
+
+Three things keep that from destroying work, and all of them matter if you drive the import yourself, because each one is a different set of rows that would otherwise go.
+
+- **It reads every lifecycle state** rather than the default slice, which excludes trashed rows. Without that widening a full bin reads as a server that purged all of it, and the device's bin would empty itself on every re-import.
+- **It reads `system.*` rows**, which the same route also excludes by default while the event stream that fills the store does not. Without that, a re-import would remove every device, connection and activity row the store holds — `client.connections.list()` would come back empty against a server that still has all of them, and no later event would correct it, because no event describes a row that did not change. Holding them is separate from surfacing them: they stay out of search results unless you name a `system.*` type, exactly as before.
+- **A row the mutation queue still holds a create for is never removed.** The refusal above asks once, before the first page, so a write made during the paging that follows is queued *and* absent from the answer, which is exactly the shape a prune would otherwise mistake for a purge.
+
+The common thread is worth holding onto if you are reading the import as a plain read: it is not one. Every id it sees is a keep-set, so anything that narrows the answer widens what gets deleted.
+
+**A partial answer is refused rather than pruned against.** If a page reports more results and carries no cursor to reach them with, the import throws `InitialSyncError.unresumablePage`, because finishing on a partial answer would delete every row the pages it never read would have named. Marfa's own server does not send that pair; the check is here because this SDK also talks to self-hosted servers. A read that fails partway through behaves the same way — the error propagates and nothing is pruned.
+
+That refusal is not a rollback. Each page is written as it arrives, so rows that landed before the throw are still in the store, and on the edges pass the item pass has already finished — its prune has run and its `.itemPurged` events have already fired. The guarantee is the narrower one: **no row is removed on the strength of an answer nothing finished reading.** Re-running the import is the way to reconcile, and it is safe to do.
+
+Edges are not pruned.
 
 ### Sync events
 
@@ -786,7 +818,8 @@ for await event in client.syncEngine?.events ?? .init({ _ in }) {
   case .conflictAutoMerged(let payload):         // replay auto-merged a 409
   case .itemCreated(let id):
   case .itemUpdated(let id):
-  case .itemDeleted(let id):
+  case .itemDeleted(let id):                     // trashed; the row can come back
+  case .itemPurged(let id):                      // gone for good; the local row is removed
   case .edgeCreated(let id):
   case .edgeUpdated(let id):                     // an edge edited on another device
   case .edgeDeleted(let id):
@@ -801,6 +834,8 @@ for await event in client.syncEngine?.events ?? .init({ _ in }) {
   }
 }
 ```
+
+`.itemPurged` is not the news `.itemDeleted` carries. A delete says the row was trashed and can come back; a purge says it is gone for good, and nothing later will correct a copy of it, so a view still holding one is showing something that no longer exists anywhere. It fires for both routes a removal reaches a device by — the server's `item.purged` announcement, and a re-import that finds the row absent. The reactive queries update on their own; subscribe only if you hold item ids outside the store.
 
 The four `.blobUpload*` cases are the raw signal that `BlobUploadProgressQuery` projects into its observable dict — most apps subscribe to the query, not the events directly.
 
