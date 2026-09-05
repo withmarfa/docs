@@ -316,6 +316,7 @@ Under `auto` **the SDK does not resolve anything**. It sends `conflict=auto` and
 When the server reports a resolution the SDK emits a `conflictAutoMerged` event:
 
 ```typescript
+// snippet: skip-check — the shape of the event payload, not a statement.
 {
   itemId: string;            // the original item
   mergedItemId: string;      // the original item id
@@ -332,7 +333,7 @@ Apps typically toast on `conflictedCopyId` being present — the user's in-fligh
   `last_writer_wins` takes the later writer — the write being resolved — not the value already on the server. Before resolution moved to the server the SDK kept the server's value here, which is first-writer-wins under a name saying the opposite. Pin the old direction with `callback` if you relied on it.
 </Callout>
 
-Send an `Idempotency-Key` on any update you might retry: the sibling's id is derived from it, so a write that executes twice writes one sibling rather than two.
+Pass an [`idempotencyKey`](#idempotency) on any update you might retry: the sibling's id is derived from it, so a write that executes twice writes one sibling rather than two.
 
 <Callout type="warn">
   **A thinned base version now throws a different error.** A write whose base version's snapshot has been [thinned away](/guides/schema/conflicts#when-the-ancestor-is-gone) refuses with `ancestor_unavailable`, and the SDK throws `AncestorUnavailableError` rather than `ConflictError` — under every strategy, `manual` included. **An app catching `ConflictError` stops handling that case.** Catch both, or catch `MarfaError` and branch on `code`.
@@ -341,6 +342,53 @@ Send an `Idempotency-Key` on any update you might retry: the sibling's id is der
 </Callout>
 
 `UpdateOptions.type` is gone. It existed only to save a type lookup before the SDK created a sibling itself, and nothing creates one client-side now.
+
+## Idempotency
+
+Every write door takes an `idempotencyKey`: a string you choose, naming one logical write. The server records what that write returned and answers a repeat carrying the same key from its record, performing no second write. **The key travels with the mutation, not with the attempt** — a retry has to send the key the first attempt sent, or it is a different write as far as the server is concerned.
+
+```typescript
+// One key per logical write, minted once and kept for its retries. The
+// same key on a different request is refused `422 idempotency_key_reused`,
+// so these are six keys rather than one.
+await client.items.create(
+  { type: "core.note", properties: { body: "written once" } },
+  { idempotencyKey: crypto.randomUUID() },
+);
+await client.items.update(
+  id,
+  { body: "edited" },
+  { expectedVersion: 3, idempotencyKey: crypto.randomUUID() },
+);
+await client.items.delete(id, { idempotencyKey: crypto.randomUUID() });
+
+await client.edges.create(
+  { source_id: from, target_id: to, edge_type: "references" },
+  { idempotencyKey: crypto.randomUUID() },
+);
+await client.edges.update(
+  edgeId,
+  { weight: 2 },
+  { idempotencyKey: crypto.randomUUID() },
+);
+await client.edges.delete(edgeId, { idempotencyKey: crypto.randomUUID() });
+```
+
+**A key stands for one request, not one row.** The server compares the method, path, query, body and credential against what the key was first used for, and the same key on a different request is refused with `422 idempotency_key_reused` rather than served — because serving it would silently discard a write the caller believes it made. So mint one key per logical write and reuse it only when retrying *that* write.
+
+That also means a `callback` strategy re-sending a merged body is a new write rather than a retry, and needs a new key. `auto` and `manual` make one request, so for them a single key covers everything.
+
+Keep the key for as long as you might retry, which is the part that is easy to get wrong: a key generated at the call site is generated afresh on the retry too, and the mechanism then does nothing at all while looking exactly like it works.
+
+**On an update it is what separates a lost answer from a collision.** Pair `idempotencyKey` with `expectedVersion` and a retry after a dropped response is answered from the record. Without the key the retry is a fresh write, and the first attempt has already moved the version — so it is refused as a conflict over an edit that in fact landed, and the caller is told a write collided when it succeeded.
+
+On an update that keeps both copies, the sibling's id is derived from the key, so a write that executes twice produces one sibling rather than two.
+
+<Callout>
+  Two doors do not read it, and deliberately. `POST /items/bulk` and `POST /edges/bulk` resolve each row by id or natural key and update it, so a retry converges without a record to answer from. `POST /items/bulk-actions` has its own mechanism over the same header: it returns the original job rather than starting a second one.
+</Callout>
+
+The wire-level behavior, including the `Idempotency-Replayed` response header and the 255-character limit, is on [the sync contract](/sdks/sync-contract#a-write-can-be-retried-safely).
 
 ## Errors
 
@@ -376,8 +424,8 @@ Platform types ship with the SDK, so `validateProperties` already answers for th
 ```ts
 import { hydrateTypeRegistry, validateProperties } from "@withmarfa/sdk";
 
-const { data } = await client.types.list();
-const report = hydrateTypeRegistry(data.types, { spaceId });
+const types = await client.types.list();
+const report = hydrateTypeRegistry(types, { spaceId });
 
 validateProperties("acme.invoice", { total: 12 });
 ```
@@ -423,6 +471,8 @@ import {
 The high-level helper for the Authorization Code + PKCE flow. Generates the PKCE verifier, builds the authorize URL, exchanges the redirected code for a token provider, and refreshes on demand. Pair it with a `TokenStorage` to persist the resulting tokens.
 
 ```typescript
+import { MarfaAuth, LocalStorageTokenStorage } from "@withmarfa/sdk/auth";
+
 const auth = new MarfaAuth({
   issuer: "https://marfa.example.com",
   clientId: "my-app",
@@ -577,6 +627,8 @@ Use the `externalizeDepsPlugin` from `electron-vite`. It reads `package.json` an
 
 ```typescript
 // electron.vite.config.ts
+// snippet: skip-check — an electron-vite config, not an SDK call, and the
+// docs site does not depend on that build tool.
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
 export default defineConfig({

@@ -26,9 +26,11 @@ const OUT = join(ROOT, '.snippet-check');
 
 const FILES = [
   'content/docs/guides/realtime/optimistic-updates.mdx',
+  'content/docs/sdks/typescript.mdx',
 ];
 
-const GLOBALS = `import type { MarfaClient, Item } from '@withmarfa/sdk';
+const GLOBALS = `import type { MarfaClient, Item, TypeSchema, BulkItemInput, BulkEdgeInputItem } from '@withmarfa/sdk';
+import type { MarfaClient as MarfaClientCtor } from '@withmarfa/sdk';
 declare global {
   const client: MarfaClient;
   const id: string;
@@ -41,6 +43,35 @@ declare global {
   function loadCursor(): string | undefined;
   function saveCursor(id: string): void;
   function resyncFromScratch(): Promise<void>;
+  // Caller-supplied values and handlers on the SDK-consuming pages. Named
+  // here rather than skipped, so the fences around them stay compiled: the
+  // point is to check the SDK call, and only the app's half is unknown.
+  const signatureHeader: string;
+  const rawRequestBody: string;
+  const subscriptionSecret: string;
+  const savedCursor: string | undefined;
+  const from: string;
+  const to: string;
+  const edgeId: string;
+  const spaceId: string;
+  const clientId: string;
+  const issuer: string;
+  const note: Item;
+  const fileBytes: Uint8Array;
+  const key: string;
+  const types: readonly TypeSchema[];
+  // Constructed by a fence that does not import it, the same way the
+  // client above is provided rather than imported.
+  const MarfaClient: new (config: Record<string, unknown>) => MarfaClientCtor;
+  const edited: string;
+  const person: Item;
+  const documentId: string;
+  const payload: BulkItemInput[];
+  const edgePayload: BulkEdgeInputItem[];
+  function persist(cursor: string | undefined): void;
+  function apply(event: unknown): Promise<void>;
+  function reseed(): void;
+  function report(err: unknown): void;
 }
 export {};
 `;
@@ -51,6 +82,9 @@ const TSCONFIG = {
     module: 'esnext',
     moduleResolution: 'bundler',
     lib: ['es2022', 'dom'],
+    // `process.env` appears in the connect example, which is the first
+    // fence a reader meets and should stay compiled rather than skipped.
+    types: ['node'],
     strict: true,
     noEmit: true,
     skipLibCheck: true,
