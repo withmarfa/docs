@@ -704,7 +704,7 @@ Each entry is a `PendingMutationSummary` with `id`, `kind` (e.g. `.createItem`, 
 | Reason | What happened | How it clears |
 | --- | --- | --- |
 | `.resolverMissing` | A `.callback` update reached replay with no resolver registered on the client. Blocks on the first attempt, because a second cannot differ. | Call `registerConflictResolver(_:)`. No retry call — the next drain finds the resolver and replays the write. |
-| `.conflictUnresolved` | A `409` on an update outlived the conflict loop. **Most often an `.auto` write the server declined** — that is the ordinary outcome for one it could not resolve, not an edge case. Also `.manual`, a `.callback` resolver that kept declining, a `sourceId` the server already holds against another row, or a thinned ancestor once `.auto`'s rebase budget is spent. | Resolve the conflict, then `syncEngine.retry(id:)` — **except for a thinned ancestor**, where retrying re-sends the same stale version and is refused identically. See below. |
+| `.conflictUnresolved` | A `409` on an update outlived the conflict loop. **Most often an `.auto` write the server declined** — that is the ordinary outcome for one it could not resolve, not an edge case. Also `.manual`, a `.callback` resolver that kept declining, a `sourceId` the server already holds against another row, or a thinned ancestor, which reaches this state under every strategy — on the first refusal for `.manual` and `.callback`, and once the rebase budget is spent for `.auto`. | Resolve the conflict, then `syncEngine.retry(id:)`. **A thinned ancestor differs by strategy**: worth retrying under `.auto`, refused identically under the other two. See below. |
 | `.retriesExhausted` | A refusal that is neither permanent nor any of the others failed `maxReplayAttempts` times (default 5). | Fix the cause, then `syncEngine.retry(id:)`. |
 | `.credentialRefused` | A `401` the transport's one refresh could not clear. **This one parks every queued write together**, because they all carry the credential that was refused. | A working credential, then `syncEngine.retryAll(reason: .credentialRefused)`. See [When the credential is refused](#when-the-credential-is-refused). |
 | `.idempotencyKeyReused` | The key on this write has already answered a different body, so the server refuses it identically however often it is sent. Blocks on the first refusal rather than spending the ceiling. | **Nothing yet.** `retry(id:)` re-sends the same spent key; re-applying the edit queues behind the blocked row rather than around it. See below. |
@@ -832,7 +832,12 @@ Every queued write carries the credential that was refused, so sending the rest 
 
 **A spent idempotency key blocks that one write, not the queue.** It shares the *timing* — it blocks on the first refusal rather than spending the ceiling — and nothing else: it produces a `mutationBlocked`, never a `queueParked`, and `fullSyncState` does not go to `.parked` for it. A refused credential is the only reason that stops everything, because it is the only one that is about the client rather than about a write.
 
-**A `.conflictUnresolved` row whose error is an `AncestorUnavailableError` is the other one `retry(id:)` cannot clear.** The write names a version history no longer retains, so re-sending it is refused identically however often anyone tries — the same shape as a spent key, arriving from a different direction. The error carries `current` and `requestedVersion`, so settling it means writing against the version the server does hold rather than retrying this row. Under `.auto` the kit already rebased and retried up to its budget before parking here; under `.manual` and `.callback` it arrives on the first refusal, because rebasing would apply an edit onto a base the caller never saw.
+**A `.conflictUnresolved` row can be a thinned ancestor, and what clears it depends on the strategy the write carried.** The write names a version history no longer retains.
+
+- **Under `.auto`, retrying is worth doing.** `retry(id:)` replays into a fresh conflict loop, which rebases onto whatever the server holds now and can succeed — the row parked because several consecutive rebases were refused, not because rebasing cannot work. It arrives here only once that budget is spent.
+- **Under `.manual` and `.callback` it arrives on the first refusal**, because rebasing would apply an edit onto a base the caller never saw, which is the decision those strategies exist to keep. For these, `retry(id:)` re-sends the same stale version and is refused identically however often anyone tries. Settling it means writing against the version the server does hold.
+
+**The typed error does not reach the row.** `AncestorUnavailableError` carries `current` and `requestedVersion`, but a blocked mutation surfaces as `PendingMutationStatus.blocked(reason:attemptCount:lastError:)` and `lastError` is a formatted string — `code=ancestor_unavailable status=409 message=…`. Recognize the row by that code, and re-read the item to learn the version, because the object with it on is gone by the time the queue is what you are looking at.
 
 `idempotency_key_reused` means the key has already answered a different body, so repeating it is refused identically however often anyone tries. **`retry(id:)` does not clear it** — the key is spent, not the write.
 
@@ -956,7 +961,9 @@ The four `.blobUpload*` cases are the raw signal that `BlobUploadProgressQuery` 
 
 **With one exception, and it is the one worth knowing.** The cycle that parks the queue reports `.queueParked` and neither `.synced` nor `.failed`: the clean-drain stamp is withheld because a parked row is not a settled one, and a green tick over a queue that cannot move until somebody signs in is louder than the failure it would be replacing.
 
-**Every cycle after it reports nothing at all.** With every row blocked there is nothing replayable, so the drain returns before it reaches either emit. That is the same silence a relaunch meets, and it is why the state — not the event — is what a surface should read.
+**A cycle with nothing replayable reports nothing at all.** With every row blocked the drain returns before it reaches either emit, which is the silence a relaunch meets — and it is why the state, not the event, is what a surface should read.
+
+A later write to an item that has no parked row is still replayable, so that cycle runs, meets the same refused credential, and re-emits `queueParked` from the tail. The emit is gated on the standing count rather than on whether this cycle did the parking, so it repeats for as long as anything is attempted.
 
 Multi-subscriber — each access to `events` returns a fresh stream; past events are not replayed to late subscribers.
 
@@ -974,13 +981,19 @@ final class SyncActivity {
   private(set) var lastSyncedAt: Date?
   private(set) var lastError: Error?
   private(set) var pendingConflictedCopies: [String] = []
-  /// A *prompt to re-read the queue*, not the list itself.
+  /// Blocked writes, read from the queue rather than folded from events.
   ///
-  /// The list has to come from `store.queryPendingMutations()`, because a
-  /// parked queue emits `.mutationBlocked` for the one row that met the `401`
-  /// and for none of the rest — so folding this event gives one entry while ten
-  /// are stuck.
-  private(set) var blockedWritesNeedRefresh = false
+  /// **Do not build this list from `.mutationBlocked`.** A parked queue emits
+  /// it for the one row that met the `401` and for none of the rest, so a
+  /// folded list shows one entry while ten are stuck. The query is `@Observable`
+  /// and updates itself, so there is nothing to keep in step.
+  private let pending: PendingMutationsQuery
+  var blockedWrites: [PendingMutationSummary] {
+    pending.mutations.filter {
+      if case .blocked = $0.status { return true }
+      return false
+    }
+  }
 
   private var client: MarfaClient?
   private var task: Task<Void, Never>?
@@ -1019,10 +1032,10 @@ final class SyncActivity {
         pendingConflictedCopies.append(sibling)
       }
     case .mutationBlocked:
-      // Needs a person, not a retry — surface it rather than letting it sit
-      // behind a spinner that will never stop. The event says *something*
-      // stopped; the queue says what, and it is the queue a list must read.
-      blockedWritesNeedRefresh = true
+      // Logged only. `blockedWrites` above reads the queue, which is right for
+      // a park as well as for a single blocked row; acting on this event would
+      // be a second answer to the same question, and the narrower one.
+      log("a write stopped and needs a person")
     case .queueParked(_, let count):
       // The credential is spent. Every queued write has stopped and only a
       // person can start them again — `syncEngine.retryAll(reason:)` once a
