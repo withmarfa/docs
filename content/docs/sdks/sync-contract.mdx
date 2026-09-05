@@ -169,7 +169,7 @@ The server cannot check these, and an engine that skips one fails in a way that 
 | 1 | **Ids are minted by the client**, UUIDv7, for items and edges, and sent with the create.                                                                                                                                                                                                                                                                        | The row exists on screen before the server has seen it, so it needs a name.                                                                     |
 | 3 | **An update carries only the fields that changed, and the version the row was read at.**                                                                                                                                                                                                                                                                        | An update with no version is not compared against an ancestor, so every key it carries lands on the row and an echoed stale value reverts a server edit.  |
 | 4 | **The queue is persisted and ordered.** A change waits behind that row's unsent create, an edge behind either endpoint's, a write referencing a blob behind that blob's upload.                                                                                                                                                                                 | A queue that drains out of order sends writes against rows the server does not have yet.                                                        |
-| 5 | **Failures are classified, and the classification is closed.** Permanent for `400`, `403`, `404` and a schema mismatch, except that a schema refusal first triggers one registry refresh and a revalidation. Auth refreshes once, then parks the whole queue. Everything else retries to a ceiling, counting only attempts made while the server was reachable. | An unclassified failure either retries forever or drops the write, and both are silent.                                                         |
+| 5 | **Failures are classified, and the classification is closed.** Permanent for `400`, `403`, `404` and a schema mismatch, except that a schema refusal first triggers one registry refresh and a revalidation. Auth refreshes once, then blocks the whole queue. Everything else retries to a ceiling; what counts as an attempt against that ceiling is the engine's own rule. The reasons a blocked or dead-lettered write carries are [a closed set](#the-reasons-a-mutation-stops-are-named). | An unclassified failure either retries forever or drops the write, and both are silent.                                                         |
 | 6 | **A refused write is kept, not dropped.** It moves to a dead-letter log the app can show. A refused create removes its local ghost and cascades to its dependants; a refused update rolls the local row back to the server's state.                                                                                                                             | The person typed it. A write the engine discards is work nobody can recover.                                                                    |
 | 7 | **Visible state is server state with this client's pending mutations replayed on top.**                                                                                                                                                                                                                                                                         | Three layers, not one: another device's change arriving must not hide what this device has typed and not yet sent.                              |
 | 8 | **Events apply in log order, and an item payload applies only if its version is not older than the row held.** Metadata events carry no version and apply in order. An item event never touches tags or extensions. The cursor is saved after the event is applied, never before.                                                                               | A late event that overwrites a newer row is a silent regression, and a cursor saved early skips the event it names.                             |
@@ -185,32 +185,35 @@ The server cannot check these, and an engine that skips one fails in a way that 
 
 ### The reasons a mutation stops are named
 
-Rule 5 closes the classification. These close the vocabulary underneath it, in two sets, because the two states differ in what an app can do about them: a **parked** mutation is still going to be sent, and a **dead-lettered** one is not.
+Rule 5 closes the classification. These close the vocabulary underneath it, in two sets, because the two states differ in what becomes of the write: a **blocked** mutation is still in the queue, and a **dead-lettered** one has left it. Whether a blocked one will ever be sent depends on which reason it carries.
 
-A parked mutation waits under one of these reasons.
+**Nothing here clears on its own.** A blocked mutation is skipped by every drain until the app asks for it again, so each reason below names a change in the world *and* the app acting on it. One reason is the exception, and it is marked.
 
 | Reason | What it means | What clears it |
 |---|---|---|
-| `auth` | Credentials were rejected and the one refresh the rule allows did not help. This parks the whole queue rather than one write. | Signing in again. |
-| `space_suspended` | The space is suspended, so no write in it will be accepted. | The space being restored. |
-| `quota_exceeded` | The space is over its quota. | Usage falling, or the quota being raised. |
-| `retry_ceiling` | A retryable failure failed as often as the engine is willing to try, counting only attempts made while the server was reachable. | An explicit retry from the app. |
-| `needs_review` | The server keeps refusing and no amount of waiting changes that: the write names a version the row has moved past, or its idempotency key has already been answered for a different body. | The app re-applying the edit over what the server now holds, or dropping it. Either way it is a fresh mutation under a fresh key. |
-| `resolver_missing` | A queued write asked for callback conflict resolution and no resolver was registered to call. | Registering one. This is the only reason that clears itself: the next drain replays the mutation with no further call. |
+| `auth` | Credentials were rejected and the one refresh the rule allows did not help. This blocks the whole queue rather than one write. | Signing in again, then retrying the queue. |
+| `space_suspended` | The space is suspended, so no write in it will be accepted. | The space being restored, then a retry. |
+| `quota_exceeded` | The space is over its quota. | Usage falling or the quota being raised, then a retry. |
+| `retry_ceiling` | A retryable failure failed as often as this engine is willing to try. What counts as an attempt is the engine's own rule, stated on its page. | A retry, once whatever was failing has stopped. |
+| `needs_review` | The server keeps refusing and only the app can settle what should win. The base version is unmergeable, or the declared type is stale, or the key has been answered for a different body, or another row already holds the source id. | The app settling it: re-applying the edit over what the server now holds as a fresh write, or abandoning it. **Either way the blocked row is dropped**, because a queue holds later writes to that row behind it. |
+| `resolver_missing` | A queued write asked for callback conflict resolution and no resolver was registered to call. | Registering one. **The exception to the rule above:** the next drain replays the mutation with no further call. |
 
 A dead-lettered mutation carries one of these.
 
 | Reason | What it means |
 |---|---|
-| `refused` | The server refused this write on its own merits, permanently. |
-| `cascaded` | It depends on a create the server refused. The row it names will never exist, so it is kept beside that refusal rather than retried against nothing. |
+| `refused` | The server refused this write on its own merits, and repeating it cannot change that. |
+| `cascaded` | It depends on something the server refused permanently — a create it will not accept, or a blob upload the write references. What it names will never exist, so it is kept beside that refusal rather than retried against nothing. |
 
-**An engine need not reach every member.** `resolver_missing` needs an engine that lets a queued write name its own conflict strategy, and an engine that sends every queued write under `conflict=auto` — leaning on rule 10 rather than resolving anything itself — has no resolver to look for and never emits it. That is conformant, not a gap.
+**A reason names a class, not a cause.** `refused` covers a validation refusal, a permission refusal, a row that is gone and a body over the size ceiling, and those are four different things to tell a person. A dead-letter entry therefore carries the server's own code, status and message alongside the reason, and that is what an app renders. The reason decides the shape of the affordance; the code decides its words.
 
-**What an engine must not do is invent a name outside these sets**, which is the whole point of closing them. An app switching over the set has no arm for a reason it has never seen, and the reason it cannot handle is the one telling a person their work is stuck.
+Two of the blocked reasons are the mirror image, and rule 5 reads as though it forbids them. A suspension and a quota refusal arrive as a `403` and a `429`, which rule 5 classes as permanent and rate-limited respectively. **They are decided by the code rather than by the status**, because both name a cause that ends, so they block rather than dead-letter.
 
-The two first-party engines reached this vocabulary from names of their own and adopt these at their next major version, so a kit may still report an older name for the same state until then.
+**An engine need not reach every member.** `resolver_missing` is the one that turns on how a kit is built rather than on what happens: an engine whose *queued* writes can each name a conflict strategy, with a resolver the app registers separately, can block on it; an engine whose queue has no such field cannot, and never emits it. That is conformant, not a gap. A resolver missing on a direct, online call is an error at the call site rather than a blocked row, so the question is only ever about the queue.
 
+**So switch over your kit's type rather than over this table.** A kit publishes the members it reaches, so a member it never emits is not in its type and writing an arm for it will not compile. Keep a default arm regardless: an engine that begins emitting a member it did not before widens that type, which lands in a major version. **What an engine must not do is invent a name outside these sets.** An app has no arm for a reason it has never seen, and that is the arm telling a person their work is stuck.
+
+The names above are the contract's, and the two first-party engines are not yet both on them. The [TypeScript engine](/sdks/local-engine) reports every one it reaches, under these spellings. The [Swift kit](/sdks/swift) reaches three, spelled its own way, and carries no reason at all on a dropped write. Each kit's page lists what it reports today; both take these names at their next major version.
 
 ## Proving an engine
 
@@ -231,8 +234,8 @@ Two first-party engines are held to this list. The [Swift SDK](/sdks/swift) keep
 | The process killed mid-hydration, restart | Counts match and the cursor is the last event applied | Yes |
 | The cursor aged out | Drain, re-import; a row removed meanwhile is absent, a row with a queued create is present | Yes |
 | A refused write | Dead-lettered, visible, dismissible, and the local row rolled back | Yes |
-| A transient failure past the retry ceiling | Parked with its reason, and the app told | Yes |
-| A token expired mid-drain | The queue parked on auth, the app told, nothing dropped | Yes |
+| A transient failure past the retry ceiling | Blocked under a reason from the contract's set, and the app told | Yes |
+| A token expired mid-drain | The whole queue blocked on `auth`, the app told, nothing dropped | Yes |
 | A photo attached offline, then reconnect | The blob uploaded before the write that references it | No |
 | A property the type forbids | Refused before it is queued | No |
 | A term found by server search over a display-hint field | The same rows found offline | No |
