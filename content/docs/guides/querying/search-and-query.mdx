@@ -64,16 +64,28 @@ The parameter carries two kinds of token, and the difference matters more than t
 <Callout type="warn">
   **`system` is the one that can lose you data, and it does not read like it.** A client that lists everything it can see and prunes whatever the listing did not carry will prune every `system.*` row it holds — because the listing never offered them. Two independently written client kits did exactly that.
 
-  If you are reconciling a local copy rather than rendering a view, you want `?include=system` for the same reason you want `state=any`: the default hides rows you hold.
+  If you are reconciling a local copy rather than rendering a view, you want
+  `?include=system` for the same reason you want `state=any`: each default
+  hides rows you hold. They are not symmetrical, though — `state=any` reveals
+  trashed rows so you *can* prune, while `include=system` reveals system rows
+  so you *stop*.
+
+  `GET /export` is the exception and needs neither: it does not apply the
+  system exclusion at all, and it refuses `include` as an unknown parameter.
+
+  And a misspelled token is silently ignored — `?include=sytem` leaves the
+  rows hidden and answers `200`. The unrecognized-parameter refusal above
+  cannot catch it, because `include` is a parameter it recognizes; only the
+  value is wrong.
 </Callout>
 
-Combinations work across both kinds. `?include=edges,extensions` is the typical "rendering a rich list view" shape: one request, everything the UI needs, no per-item follow-ups. `?include=metadata,system` is the reconciliation shape.
+Combinations work across both kinds. `?include=edges,extensions` is the typical "rendering a rich list view" shape: one request, everything the UI needs, no per-item follow-ups. The reconciliation shape is `?include=metadata,system&state=any` — all three, because each hides a different set of rows a reconciling client holds.
 
 The TypeScript SDK exposes typed helpers — `client.items.listWithMetadata`, `client.items.listWithExtensions` — that call these under the hood. Prefer them over assembling raw query strings.
 
 ### Reading one item with its neighborhood
 
-`GET /items/:id` always returns the item's `metadata` layer and its **outbound** edges hydrated inline. For a detail view that also needs the rest of the item's 1-hop neighborhood — inbound edges, the items on the far end of those edges, version history — `?include=` widens the single read instead of forcing a per-section fan-out:
+`GET /items/:id` always returns the item's `metadata` layer and its **outbound** edges hydrated inline. For a detail view that also needs the rest of the item's 1-hop neighborhood — inbound edges, the items on the far end of those edges, version history — `?include=` widens the single read's shape instead of forcing a per-section fan-out:
 
 - `?include=backrefs` — **inbound** edges (where this item is the target), grouped by edge type, the same block shape as the outbound `edges` (per-type cap with `has_more` + `next_cursor` to paginate via `GET /items/:id/backrefs?edge_type=X&cursor=...`).
 - `?include=neighbors` — the **far-end items** of the item's edges: outbound targets, plus inbound sources when `backrefs` is also requested. Each neighbor arrives as `{ item, metadata }` and is **permission-filtered** — a neighbor the caller cannot read (other space, type not permitted) is silently omitted, never leaked, exactly like [bulk-get](/guides/querying/bulk-operations). The combined neighbor set is **bounded per read**, and the response carries a `neighbors_truncated` boolean alongside `neighbors`: when `true`, the bound was hit and more neighbors exist than were hydrated. This is the **only** completeness signal for that case — the per-type edge-block `has_more` does *not* cover it, because several edge types can each sit below their own cap while their combined set overflows. Treat every neighbor-derived view as incomplete when `neighbors_truncated` is set, and page the per-type edge/backref endpoints for the full set.
