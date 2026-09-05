@@ -30,13 +30,19 @@ The full parameter list and response shape are in the API reference. A few seman
 - **`sort`** — a system column (`created_at`, `updated_at`, `timestamp`) or a property field via `properties.<field>`, paired with `direction` (`asc` / `desc`). A property sort orders on the extracted value: numeric fields compare numerically (so `2` precedes `10`), datetimes and strings lexically, and items missing the field sort last in either direction. Enum fields such as `status` or `priority` are not sortable this way; their order is meaning-bearing rather than lexical, so sort those client-side.
 
 <Callout type="warn">
-  `since` and `until` were the previous names for `timestamp_after` and `timestamp_before`. A request still carrying one is refused with a `400` naming the replacement, on `GET /items`, `GET /export` and `POST /items/bulk-actions` alike.
+  **An unrecognized query parameter is refused with a `400`, not ignored.** A misspelled filter cannot silently return an unfiltered page, which is what it did before: the parameter was dropped, the request answered `200`, and the caller received every item where a narrow set was asked for. The refusal names the parameter it did not recognize and lists the ones the door accepts.
 
-  The refusal is deliberate rather than strict. Unknown query parameters are ignored, so a request carrying the old name would otherwise succeed with the filter quietly dropped — a `200` and a full listing where a narrow one was asked for. On a bulk action that is worse than a bad read: the filter is the match set, so a dropped bound turns an action on a dated slice into an action on everything.
+  It applies to `GET /items`, `GET /edges`, `GET /items/{id}/edges`, `GET /items/{id}/backrefs`, `GET /search` and `GET /export`. `POST /items/bulk-actions` takes its filter in the body and refuses an unrecognized field inside `filter` on the same reasoning, with more force: the filter *is* the match set, so a dropped field turns an action on a dated slice into an action on everything.
+
+  **A parameter of your own must start with `_`.** That prefix is reserved and always ignored — no door declares a parameter beginning with it, and none ever will. Use it for cache-busters, correlation ids and analytics tags. "Whatever the server happens not to validate" was never a guarantee, and this is the spelling that is.
+
+  `since` and `until` were the previous names for `timestamp_after` and `timestamp_before`. Both are still refused specifically, with the replacement named in the error, rather than falling through to the general refusal above.
 </Callout>
 
 <Callout type="info">
   Cursors are stable within the cursor's lifetime (24h typical) — concurrent writes don't shift pages already returned. Paginate by passing `cursor` back as a query parameter.
+
+  **A cursor is bound to the ordering that issued it.** It carries the resolved sort column and direction, so handing a cursor from one ordering to a request asking for another is refused with a `400` rather than serving a page that is quietly wrong. Change `sort` or `direction` and re-read from the first page. The direction is part of the binding as well as the column, because two requests agreeing on the column and disagreeing on the direction produce exactly the same wrong page as two disagreeing on both.
 </Callout>
 
 ## Including extras
@@ -71,7 +77,7 @@ The TypeScript SDK exposes this as `client.items.getDetail(id, { include: ["back
 
 ## Full-text search
 
-`GET /search` accepts `q` plus the same filter parameters as `/items`:
+`GET /search` accepts `q` plus the same filter parameters as `/items`, including `timestamp_after` and `timestamp_before` — which resolve through the same `timestamp`-falling-back-to-`created_at` rule the listing uses, so a bound means the same thing at both doors:
 
 ```
 GET /search?q=orwell
