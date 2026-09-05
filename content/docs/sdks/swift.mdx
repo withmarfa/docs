@@ -704,7 +704,7 @@ Each entry is a `PendingMutationSummary` with `id`, `kind` (e.g. `.createItem`, 
 | Reason | What happened | How it clears |
 | --- | --- | --- |
 | `.resolverMissing` | A `.callback` update reached replay with no resolver registered on the client. Blocks on the first attempt, because a second cannot differ. | Call `registerConflictResolver(_:)`. No retry call — the next drain finds the resolver and replays the write. |
-| `.conflictUnresolved` | A `409` on an update outlived the conflict loop. **Most often an `.auto` write the server declined** — that is the ordinary outcome for one it could not resolve, not an edge case. Also `.manual`, a `.callback` resolver that kept declining, a `sourceId` the server already holds against another row, or a thinned ancestor, which reaches this state under every strategy — on the first refusal for `.manual` and `.callback`, and once the rebase budget is spent for `.auto`. | Resolve the conflict, then `syncEngine.retry(id:)`. **A thinned ancestor is not cleared by retrying under any strategy** — the row's idempotency key is spent, so the server answers the repeat from its record. Re-read the item and write against the version it holds. See below. |
+| `.conflictUnresolved` | A `409` on an update outlived the conflict loop. **Most often an `.auto` write the server declined** — that is the ordinary outcome for one it could not resolve, not an edge case. Also `.manual`, a `.callback` resolver that kept declining, a `sourceId` the server already holds against another row, or a thinned ancestor, which reaches this state under every strategy — on the first refusal for `.manual` and `.callback`, and once the rebase budget is spent for `.auto`. | **Resolve the conflict, then re-apply it as a new write.** `retry(id:)` clears the block, but the row's idempotency key is spent and its body re-encodes identically, so the server answers the repeat from its record and the same refusal comes back — under `.auto` and `.manual` alike. `.callback` is the exception: the replayed `409` feeds the resolver, whose answer is a different body under a fresh key, so that one does execute. **A thinned ancestor is not cleared by retrying** — the row's idempotency key is spent, so the server answers the repeat from its record. Re-read the item and write against the version it holds. See below. |
 | `.retriesExhausted` | A refusal that is neither permanent nor any of the others failed `maxReplayAttempts` times (default 5). | Fix the cause, then `syncEngine.retry(id:)`. |
 | `.credentialRefused` | A `401` the transport's one refresh could not clear. **This one parks every queued write together**, because they all carry the credential that was refused. | A working credential, then `syncEngine.retryAll(reason: .credentialRefused)`. See [When the credential is refused](#when-the-credential-is-refused). |
 | `.idempotencyKeyReused` | The key on this write has already answered a different body, so the server refuses it identically however often it is sent. Blocks on the first refusal rather than spending the ceiling. | **Nothing yet.** `retry(id:)` re-sends the same spent key; re-applying the edit queues behind the blocked row rather than around it. See below. |
@@ -832,13 +832,15 @@ Every queued write carries the credential that was refused, so sending the rest 
 
 **A spent idempotency key blocks that one write, not the queue.** It shares the *timing* — it blocks on the first refusal rather than spending the ceiling — and nothing else: it produces a `mutationBlocked`, never a `queueParked`, and `fullSyncState` does not go to `.parked` for it. A refused credential is the only reason that stops everything, because it is the only one that is about the client rather than about a write.
 
-**A `.conflictUnresolved` row can be a thinned ancestor, and what clears it depends on the strategy the write carried.** The write names a version history no longer retains.
+**A `.conflictUnresolved` row can be a thinned ancestor, and what happens next does not depend on the strategy the write carried.** The write names a version history no longer retains.
 
 **`retry(id:)` cannot clear it under any strategy, and the reason is the key rather than the version.** A retry does start a fresh conflict loop — the block is cleared, the attempt counter resets, and under `.auto` the rebase runs again. But the row's idempotency key is minted once and never rewritten, and the payload it re-sends is byte-identical, so attempt zero carries the same key as before. The server retains a `409` against a key rather than releasing it, and answers a repeat from the record. The rebased attempt derives its key from that same row key and the version the record reports, so it too is answered from the record, and the loop walks the same refusals to the same throw.
 
 The strategies differ only in **when** the row parks: `.manual` and `.callback` on the first refusal, because rebasing would apply an edit onto a base the caller never saw, and `.auto` once its rebase budget is spent.
 
 **Settling it means re-reading the item and writing against the version the server holds**, which makes a fresh row with a fresh key.
+
+Two exceptions, both narrow. A row queued by a build older than the idempotency-key column carries none, so its retry is not answered from any record and does execute. And the record is swept on the server's retention window — 168 hours by default — after which a retry reaches the server like any other write.
 
 **The typed error does not reach the row.** `AncestorUnavailableError` carries `current` and `requestedVersion`, but a blocked mutation surfaces as `PendingMutationStatus.blocked(reason:attemptCount:lastError:)` and `lastError` is a formatted string — `code=ancestor_unavailable status=409 message=…`. Recognize the row by that code, and re-read the item to learn the version, because the object with it on is gone by the time the queue is what you are looking at.
 
@@ -1067,6 +1069,10 @@ final class SyncActivity {
     task?.cancel()
     task = nil
     await client?.syncEngine?.stop()
+    // The query goes with the client. Left standing it is a live view of the
+    // previous account's queue.
+    pending?.stop()
+    pending = nil
     client = nil
   }
 }
