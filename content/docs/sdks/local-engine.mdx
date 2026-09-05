@@ -284,6 +284,41 @@ A store this build cannot open, whether it was written by a newer engine or its 
 
 `onRecovery` is worth wiring. Everything in a `StoreRecovery` is work a person did: writes that never left, refusals nobody has read. The sidecar is the only copy of it. An app that is told can offer it back; an app that is not gets a store that quietly starts empty.
 
+## Types, blobs and search
+
+Three things the store carries so that being offline is not a smaller product.
+
+### A write is refused before it is queued
+
+The type graph is local. Platform types ship with the kit; custom types are read from `GET /types` whenever the server is reachable and cached in the store, so a later open validates against them with no network at all.
+
+`validateProperties` runs **before** the mutation is enqueued, by the same rules the server applies, so a write the type forbids never enters the queue. An update is validated as the merged row rather than as the patch, which is the shape the server's own door checks.
+
+```ts
+await store.mutations.createItem({ type: 'core.note', properties: {} });
+// LocalSchemaRefusal: core.note requires body
+```
+
+**A schema refusal from the server buys exactly one refresh.** The local graph may simply be stale — a type changed on the server since it was cached — so a `400` on schema grounds triggers one registry refresh and one revalidation before the write is treated as permanent. The allowance is per mutation rather than per drain pass, so a write cannot spend it repeatedly and a stale graph cannot become a loop against `GET /types`.
+
+### Blobs queue with their bytes
+
+Bytes are hashed locally and written beside the store, so an attachment made with no network is an ordinary offline write. The upload is queued **before** the write that references it and completes first, because an item naming a blob the server does not hold is a reference to nothing.
+
+On a replay a probe distinguishes "already there" from "lost", so a re-sent upload is not a second copy. **An upload that fails permanently dead-letters the write that referenced it and keeps the bytes** — the write can be dismissed, and the person's file is still on disk.
+
+Downloaded blobs are cached read-through, bounded by total bytes and evicted least-recently-read first. Staged bytes are never evicted: they are owed to the server.
+
+### Search is answered from the store
+
+An FTS5 index over the fields the type's display hints name, with subtype resolution, maintained as the store changes rather than rebuilt.
+
+```ts
+const hits = await store.search.find('bassoon', { type: 'core.note' });
+```
+
+**It matches the same fields as server search and may rank differently.** The fields are the contract; the ranking is not, because relevance is relative to the documents in the index and this one holds one client's corpus rather than the space's.
+
 ## What this version does not do
 
 The [sync contract](/sdks/sync-contract) names more than this engine keeps. Each boundary below is stated rather than left for a reader to discover, because an app built as though one of them were closed fails quietly.
@@ -291,9 +326,6 @@ The [sync contract](/sdks/sync-contract) names more than this engine keeps. Each
 - **An edge conflict parks without the server's current edge in the store.** The refusal carries it, and there is no route that reads one edge by its id, so an app resolving an edge conflict has only what it can reach through the error.
 - **There is no browser store.** The engine needs a filesystem for its lock, its fail-safe and its migrations. A renderer in a desktop application does not get one either: it reaches an engine held by the [Electron main process](/sdks/electron) over IPC.
 - **Nothing queues a metadata write.** Tags and extensions are held as server state, so an item event cannot clobber them, but the outbox carries item and edge writes only.
-- **Blobs do not queue with their bytes.** An attachment made offline is not covered.
-- **The type graph is not held locally, so a write is not validated before it is queued.** A schema refusal is treated as an ordinary `400`, without the contract's one registry refresh and revalidation.
-- **Search is not answered from the store.** `store.visible.listItems({ type })` filters by type and nothing else.
 
 ## Surface
 
