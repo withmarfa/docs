@@ -99,7 +99,7 @@ await engine.drain();
 One pass, and nothing here loops or waits. When a mutation is retried is the app's decision: a queue that retried on a timer of its own would be a second scheduler beside the app's.
 
 - **Order is the order the writes were made in**, and a mutation is held behind any earlier unsent work naming the same row or, for an edge, either of its endpoints.
-- **A mutation carries the idempotency key it was written with**, minted once and stored, so a retry names the attempt it is repeating rather than opening a new one. It goes out on `POST /items`, `DELETE /items/{id}`, `POST /edges` and `DELETE /edges/{id}`. The two update doors do not carry one in this version.
+- **A mutation carries the idempotency key it was written with**, minted once and stored, so a retry names the attempt it is repeating rather than opening a new one. It goes out on every door the queue uses: `POST /items`, `PATCH /items/{id}`, `DELETE /items/{id}`, `POST /edges` and `DELETE /edges/{id}`.
 - **The server's answer and the queue removal are one transaction.** Settling in two steps would either lose the write or send it twice across a crash.
 - **A successful delete removes the row from server state** rather than leaving it behind. It comes back as trashed through the stream's own event or a re-import.
 
@@ -128,7 +128,9 @@ The server resolves inside the write's own transaction, by the type's policy: fi
 
 What still reaches the app as a conflict is the case the server could not merge at all: `ancestor_unavailable`, where the base version's snapshot has been thinned so far that there is nothing left to merge against. That parks as `needs_review` with the server's current state, and is never auto-merged.
 
-One property worth knowing before relying on it. **A replayed update is not a no-op.** An update carries no idempotency key today, where a create repeats safely on the client-minted id and a delete on the key it carries. So an update whose response was lost re-sends the version it was computed against, meets the merge, and settles correctly — but the row is written twice, and the version moves twice for one edit. The outcome is right; the write is not yet idempotent.
+**A replayed update lands in the same sibling.** This is what the key buys here, and it is worth stating because the alternative is silent. The server derives a `keep_both_copies` sibling's id from the key the write carried, so an update whose response was lost replays into the *same* sibling rather than spawning a second copy of the text that lost. Without it a person is left holding two copies of one edit, with nothing saying they are the same edit.
+
+The key rides the first attempt only. A `callback` strategy re-sends a body its resolver produced, and a second body under one key would be answered with the first body's result; `auto` and `manual` make one request, so for them it covers everything.
 
 `classifyFailure(error, kind)` is exported, and the mutation's kind is a parameter because one status means two things: a `409` on a create says the id is held by a row this client did not make, while a `409` on an update says the row moved on under an edit that is still wanted.
 
