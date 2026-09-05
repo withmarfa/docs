@@ -237,7 +237,7 @@ for try await item in client.items.all(filters: ListFilters(type: "core.note")) 
 }
 ```
 
-**An unfiltered list leaves out trashed rows, on a local store as well as against the server.** Until 17.0.0 the offline path returned every state while the online one did not, so the same call gave two different answers depending on whether a store was there — and a bin view built on the offline behaviour emptied itself the moment the client synced. `state: .trashed` is the bin. `includeTrashed: true` is every state at once, which is what a resuming client needs in order to see a row reach the bin rather than simply vanish — the local equivalent of the server's `state=any`, which a single `ItemState` cannot express. A named `state` wins over it, because that is the narrower request.
+**An unfiltered list leaves out trashed rows, on a local store as well as against the server.** Until 17.0.0 the offline path returned every state while the online one did not, so the same call gave two different answers depending on whether a store was there — and a bin view built on the offline behavior emptied itself the moment the client synced. `state: .trashed` is the bin. `includeTrashed: true` is every state at once, which is what a resuming client needs in order to see a row reach the bin rather than simply vanish — the local equivalent of the server's `state=any`, which a single `ItemState` cannot express. A named `state` wins over it, because that is the narrower request.
 
 **`system.*` items are left out of a listing unless you name a system type.** These are operational records — devices, connections, activity — rather than anything a person filed, and they would otherwise dominate an untyped list: a synced device holds far more activity rows than everything else combined. Naming the type outright returns them, which is what `client.connections.list()` does. Search behaves the same way, as does the server. Counts from `client.items.stats()` deliberately do not: they include every row, matching the server.
 
@@ -707,7 +707,7 @@ Each entry is a `PendingMutationSummary` with `id`, `kind` (e.g. `.createItem`, 
 | `.conflictUnresolved` | A `409` on an update outlived the conflict loop: a `.manual` strategy, a `.callback` resolver that kept declining, or a `sourceId` the server already holds against another row. | Resolve the conflict, then `syncEngine.retry(id:)`. |
 | `.retriesExhausted` | A refusal that is neither permanent nor any of the others failed `maxReplayAttempts` times (default 5). | Fix the cause, then `syncEngine.retry(id:)`. |
 | `.credentialRefused` | A `401` the transport's one refresh could not clear. **This one parks every queued write together**, because they all carry the credential that was refused. | A working credential, then `syncEngine.retryAll(reason: .credentialRefused)`. See [When the credential is refused](#when-the-credential-is-refused). |
-| `.idempotencyKeyReused` | The key on this write has already answered a different body, so the server refuses it identically however often it is sent. Blocks on the first refusal rather than spending the ceiling. | **Not `retry(id:)`** — the key is spent, not the write. Re-apply the edit, which makes a fresh mutation with a fresh key. |
+| `.idempotencyKeyReused` | The key on this write has already answered a different body, so the server refuses it identically however often it is sent. Blocks on the first refusal rather than spending the ceiling. | **Nothing yet.** `retry(id:)` re-sends the same spent key; re-applying the edit queues behind the blocked row rather than around it. See below. |
 
 `SyncEngine.retry(id:)` clears the block, resets the attempt count and asks for a drain.
 
@@ -818,7 +818,11 @@ try await client.syncEngine?.retryAll(reason: .credentialRefused)
 Every queued write carries the credential that was refused, so sending the rest one at a time would spend a request per write to learn what the first already said. Nothing is dropped.
 
 - **Rows already blocked keep the reason they have.** A conflict awaiting review is not settled by a new credential, which is why `retryAll` takes a reason: releasing everything would tell an app those writes were moving again when nothing has changed for them.
-- **`queueParked` is not latched.** A write made while the credential is still dead is attempted, refused, and parks the queue again — so it fires once per new write rather than once per queued write. Read `status.queue.blocked[.credentialRefused]` to ask whether the state is still true rather than whether it just changed.
+- **`queueParked` is not latched, and on a fresh process it does not arrive at all.** This is the one to build against rather than around. A write made while the credential is still dead is attempted, refused, and parks the queue again, so it fires once per drain cycle that attempted anything — not once per queued write, and not once per parked row.
+
+  **On a relaunch over an already-parked queue it fires never.** Every row is blocked, so the drain finds nothing replayable and returns early; the clean-drain stamp is withheld because a parked row is not a settled one; and the cycle emits nothing. An app that renders this state from the event alone shows a healthy surface, indefinitely, over a queue that cannot move — and the person is told to sign in again only if they happen to make a write that gets refused.
+
+  So read the state, not the event: `fullSyncState`, `queryFullSyncState()`, or `status.queue.blocked[.credentialRefused]`. All three ask whether it is still true rather than whether it just changed, and all three answer on a cold start. Use the event to know when to re-read, if at all.
 - **A parked queue is not a synced one.** `FullSyncState` gains `parked(reason:count:)`, and both `fullSyncState` and `queryFullSyncState()` report it while any write is parked on a refused credential. It outranks `synced(at:)` and `failed(at:error:)`, which matters more than it sounds:
 
   - A store that synced cleanly an hour ago still holds that timestamp, and a refused credential does not erase it. Without the new state an app renders "last synced an hour ago" over a queue that has stopped — true, and not the answer to the question being asked.
@@ -828,7 +832,11 @@ Every queued write carries the credential that was refused, so sending the rest 
 
 **A spent idempotency key blocks that one write, not the queue.** It shares the *timing* — it blocks on the first refusal rather than spending the ceiling — and nothing else: it produces a `mutationBlocked`, never a `queueParked`, and `fullSyncState` does not go to `.parked` for it. A refused credential is the only reason that stops everything, because it is the only one that is about the client rather than about a write.
 
-`idempotency_key_reused` means the key has already answered a different body, so repeating it is refused identically however often anyone tries. **`retry(id:)` does not clear it** — the key is spent, not the write. Re-apply the edit, which makes a fresh mutation carrying a fresh key.
+`idempotency_key_reused` means the key has already answered a different body, so repeating it is refused identically however often anyone tries. **`retry(id:)` does not clear it** — the key is spent, not the write.
+
+**And neither does re-applying the edit, which is what this page used to recommend.** The key is minted once at enqueue and never rewritten, so a replay carries the spent one. A fresh edit is a new row under the same local id, queued *after* the blocked one — and the engine defers every later write to an item behind that item's blocked row, deliberately, because releasing them out of order is how an edit gets lost. So the new write waits behind the thing it was meant to route around.
+
+There is no public door to discard a blocked row: `SyncEngine`'s release surface is `retry(id:)` and `retryAll(reason:)`, and `retryAll(reason: .idempotencyKeyReused)` releases the row into the same refusal. **A row blocked this way strands that item until the store is rebuilt.** An app should say so rather than offer a control, and should not present re-applying the edit as a remedy.
 
 Everything that genuinely clears on its own is unchanged. A `5xx`, a rate limit, a dropped connection, a cancellation and a suspended space all ride it out without blocking, which is what keeps a valid write from being stranded behind an outage.
 
@@ -869,6 +877,8 @@ if let sync = store.queryFullSyncState() {
 ```
 
 A store that has never imported reads `.notYetSynced` until that first import lands, and `.synced(at:)` once it does — it cannot report itself synced before then, whatever its write queue is doing, because an empty queue on an empty store is a device that has not started rather than one in sync. It reads `.syncing` in between only while queued writes are replaying. An import that fails reads `.failed(at:error:)` — the stream still opens, so the device keeps receiving live events, and the next time it comes online it imports again.
+
+**Unless the credential was refused, which is the likeliest way an import fails.** The engine drains before it imports, so a `401` parks the queue first and the state reads `.parked(reason:count:)` — which outranks both `.synced` and `.failed`, so a later network failure cannot bury it.
 
 ### Re-importing on demand
 
@@ -914,7 +924,7 @@ for await event in client.syncEngine?.events ?? .init({ $0.finish() }) {
   case .mutationBlocked(let kind, let itemId,
                         let reason):             // stopped retrying; queue record kept
   case .queueParked(let reason, let count):      // every queued write stopped at once
-  case .syncing:                                 // a drain cycle started
+  case .syncing:                                 // a drain started, or a parked queue was released
   case .storeRecovered(let recovery):            // the store was rebuilt; the queue was rescued first
   case .hydrationProgress(let imported,
                           let total):            // a first fill, once per page
@@ -938,7 +948,13 @@ The four `.blobUpload*` cases are the raw signal that `BlobUploadProgressQuery` 
 
 `.mutationBlocked` fires once, when a mutation stops for a reason the app can still do something about. The write stays in the queue and can be replayed; see [pending mutations](#pending-mutations) for the reasons and how each clears. It is the one case with a ceiling — `.retriesExhausted` — and that ceiling counts only refusals outside the network class.
 
-`.failed` means the cycle could not drain. A blocked row does not produce it: the engine has stopped asking about that row, so a cycle whose only outstanding writes are blocked reports `.synced`. Multi-subscriber — each access to `events` returns a fresh stream; past events are not replayed to late subscribers.
+**It does not fire once per blocked row when the queue parks.** A refused credential emits `.mutationBlocked` for the single row that met the `401`, and the rest are parked together with no per-row event. So a list of blocked writes folded from this event shows one entry while ten are stuck. Build that list from `store.queryPendingMutations()` or `status.queue.blocked` instead, which read the queue rather than recalling it.
+
+`.failed` means the cycle could not drain. A blocked row does not produce it: the engine has stopped asking about that row, so a cycle whose only outstanding writes are blocked reports `.synced`.
+
+**With one exception, and it is the one worth knowing.** A queue parked on a refused credential reports neither. The drain finds no replayable rows, the clean-drain stamp is withheld because a parked row is not a settled one, and the cycle emits `.queueParked` and nothing else — no `.synced`, no `.failed`. That is deliberate: a green tick over a queue that cannot move until somebody signs in is louder than the failure it would be replacing.
+
+Multi-subscriber — each access to `events` returns a fresh stream; past events are not replayed to late subscribers.
 
 ### End-to-end subscription
 
@@ -973,6 +989,12 @@ final class SyncActivity {
       }
     }
   }
+
+  /// The first fill's fraction, or `nil` when no import is running.
+  ///
+  /// Absent for a single-page import and whenever the count request fails, so
+  /// a bar built on this has to tolerate never appearing.
+  private(set) var firstFill: Double?
 
   // 3. Handle — side-effect into observable state.
   private func handle(_ event: SyncEvent) {
@@ -1056,29 +1078,35 @@ try await client.items.update(
 )
 ```
 
-`.auto` (default), `.manual` (throws `ConflictError` with `current`, `ancestor`, `conflictingFields`, `clientPatch`, `mergePolicy`), and `.callback` are the three modes.
+`.auto` (default), `.manual` (throws `ConflictError` with `current`, `ancestor`, `conflictingFields` and `clientPatch`), and `.callback` are the three modes. The type's merge policy is not on that error — it reaches a resolver on `ConflictData.mergePolicy`, because it is what a resolver decides with and what a thrown error has already stopped needing.
 
-`.auto` is policy-aware and, in this kit, still resolves on the client. The SDK reads the type's `merge_policy` directly from the 409 response and resolves each conflicting field per its strategy. `last_writer_wins` fields take the server's value; `keep_both_copies` fields spawn a sibling item of the same type, tagged `conflicted-copy`, populated from the client's in-flight values for the keep-both fields and the server's `current` values for the rest. The original item retains the server's winning state for the conflicted keep-both fields; non-keep-both client changes apply normally.
+**`.auto` resolves on the server, as of 17.0.0.** The kit sends `conflict=auto` and the server merges inside the write's own transaction by the type's policy, answering `200` with a `conflict_resolution` report. `.manual` and `.callback` send nothing, because the server's default for an omitted parameter is `manual` and silence says exactly what they mean.
 
 <Callout type="warn">
-  **This kit has not yet moved to server-side resolution, and until it does the two kits answer one conflict differently.** The server now resolves a conflict itself when the update carries `conflict=auto`, and the TypeScript kit sends it. This kit does not, so it still receives the `409` envelope and merges locally — where `last_writer_wins` keeps the server's value rather than taking the later writer, which is the opposite of what the server does. Two consequences worth knowing while that is true: a keep-both resolution here is two writes rather than one and so is not atomic, and its sibling is created without a derived id, so a retry can leave a duplicate. Prefer `.manual` or `.callback` where either matters.
-
-  A write whose base version has been thinned away now returns [`ancestor_unavailable`](/guides/schema/conflicts#when-the-ancestor-is-gone) rather than a `version_conflict` naming every field. That is the safer answer — the old shape led this kit to spawn siblings holding text nobody typed — but it arrives as an unmodelled `409`, so handle it as an error rather than a conflict until the kit models it.
+  **This release requires a server that implements the `conflict` parameter, and degrades silently against one that does not.** A server ignores a query parameter it does not know, so an older deployment drops `conflict=auto`, returns the `409` envelope, and every conflicted `.auto` write becomes a blocked mutation instead of a merged one. There is no client-side fallback — the on-device merge was removed in the same release. Check the server before upgrading a self-hosted deployment.
 </Callout>
 
-The `SyncEngine.events` stream emits `.conflictAutoMerged(payload:)` whenever a replay auto-merge fires:
+The on-device three-way merge is gone, and it is worth knowing what it did, because a `409` under `.auto` now means something different from what it used to. Two implementations of one rule did not agree: the kit's `last_writer_wins` kept the *earlier* write where the server keeps the later one, so two devices editing one field reached different answers depending only on which kit resolved it. The kit also spawned its own `keep_both_copies` sibling through an unkeyed create, so a lost response made two siblings.
+
+So under `.auto` a `409` is now a conflict the **server could not** resolve. It surfaces as `ConflictError` and is not retried — there is nothing left on the device to resolve it with.
+
+`conflicted-copy` still exists as a tag, and an app filtering for siblings still wants it. What changed is who applies it: the server does, and the device no longer creates one.
+
+**A write whose base version has been thinned away** returns [`ancestor_unavailable`](/guides/schema/conflicts#when-the-ancestor-is-gone) rather than a `version_conflict` naming every field — the safer answer, because the old shape led the kit to spawn siblings holding text nobody typed. **17.0.0 models it.** `AncestorUnavailableError` carries `current` and `requestedVersion`. Under `.auto` the kit rebases onto the version the server says it holds and retries within the call; under `.manual` and `.callback` it is thrown, because rebasing would apply an edit onto a base the caller never saw, which is the decision those strategies exist to keep.
+
+The `SyncEngine.events` stream emits `.conflictAutoMerged(payload:)` whenever a replay is resolved:
 
 ```swift
 public struct ConflictAutoMergedPayload: Sendable {
-  public let itemId: String           // the original item
-  public let mergedItemId: String     // the original item id (post-retry)
-  public let conflictedCopyId: String?  // the new sibling, when keep-both spawned one
-  public let fields: [String]         // the conflicting fields
-  public let strategy: ConflictResolutionOutcome  // .lastWriterWins, .keepBothCopies, .mixed
+  public let itemId: String                          // the original item
+  public let mergedItemId: String                    // the original item id (post-retry)
+  public let conflictedCopyId: String?               // the sibling, when keep-both spawned one
+  public let fields: [String]                        // the conflicting fields
+  public let strategy: [String: MergePolicyStrategy] // per field: .lastWriterWins or .keepBothCopies
 }
 ```
 
-Apps typically toast when `conflictedCopyId != nil` — the user's in-flight edit was preserved as a sibling rather than discarded.
+`strategy` is per field rather than one verdict for the write, because a type's policy is declared per field and one update can cross both. Apps typically toast when `conflictedCopyId != nil` — the user's in-flight edit was preserved as a sibling rather than discarded.
 
 ### Resolvers on the replay path
 
@@ -1109,8 +1137,15 @@ do {
   // missing item
 } catch let error as ConflictError {
   // error.current, error.ancestor, error.conflictingFields
+} catch let error as AncestorUnavailableError {
+  // new in 17.0.0. The base version was thinned away; error.current and
+  // error.requestedVersion are enough to rebase on. `.auto` already did.
+} catch let error as StoreIdentityMismatchError {
+  // new in 17.0.0. This store was claimed by a different origin.
 } catch let error as LocalModeUnsupportedError {
-  // server-only call (types, keys, webhooks, or blobs.exists) on a local client
+  // a call only a server can answer, on a local client: types, keys, webhooks,
+  // blobs.exists, blobs.presignedURL, a blobs.download the store cannot serve,
+  // or items.createWithAttachments on any client with a store
 } catch let error as MarfaError {
   // everything else — error.code (String), error.message, error.status, error.details
 }
