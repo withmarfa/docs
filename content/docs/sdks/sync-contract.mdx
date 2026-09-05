@@ -36,7 +36,7 @@ contract.
 | 2 | Every write carries an idempotency key | [A write can be retried safely](#a-write-can-be-retried-safely) |
 | 3 | An update carries only the fields that changed, and the version it read | [A write names the version it read](#a-write-names-the-version-it-read), and the client table |
 | 4 | The queue is persisted and ordered | The client table |
-| 5 | Failures are classified, and the classification is closed | The client table |
+| 5 | Failures are classified, and the classification is closed | The client table, and [the reasons a mutation stops](#the-reasons-a-mutation-stops-are-named) for the vocabulary underneath it |
 | 6 | A refused write is kept, not dropped | The client table |
 | 7 | Visible state is server state with this client's pending mutations replayed on top | The client table |
 | 8 | Events apply in log order, and an **item** payload older than the row held does not apply — metadata events carry no version | [A replay is what a live subscriber would have seen](#a-replay-is-what-a-live-subscriber-would-have-seen), and the client table |
@@ -182,6 +182,35 @@ The server cannot check these, and an engine that skips one fails in a way that 
 | 17 | **One writer per store.** A second process opening it gets a read-only client.                                                                                                                                                                                                                                                                                  | Two engines sharing one cursor each believe they applied what the other did.                                                                    |
 | 18 | **A store knows whose it is.** It records origin, space and account, and refuses to open against a mismatch.                                                                                                                                                                                                                                                    | Two accounts on one device otherwise merge into one store, silently.                                                                            |
 | 19 | **The engine reports itself.** Connection state, pending and blocked and dead-lettered counts, last clean drain, and hydration progress as monotonic counts against a known total.                                                                                                                                                                              | An app cannot tell a person their work is unsent if it cannot ask.                                                                              |
+
+### The reasons a mutation stops are named
+
+Rule 5 closes the classification. These close the vocabulary underneath it, in two sets, because the two states differ in what an app can do about them: a **parked** mutation is still going to be sent, and a **dead-lettered** one is not.
+
+A parked mutation waits under one of these reasons.
+
+| Reason | What it means | What clears it |
+|---|---|---|
+| `auth` | Credentials were rejected and the one refresh the rule allows did not help. This parks the whole queue rather than one write. | Signing in again. |
+| `space_suspended` | The space is suspended, so no write in it will be accepted. | The space being restored. |
+| `quota_exceeded` | The space is over its quota. | Usage falling, or the quota being raised. |
+| `retry_ceiling` | A retryable failure failed as often as the engine is willing to try, counting only attempts made while the server was reachable. | An explicit retry from the app. |
+| `needs_review` | The server keeps refusing and no amount of waiting changes that: the write names a version the row has moved past, or its idempotency key has already been answered for a different body. | The app re-applying the edit over what the server now holds, or dropping it. Either way it is a fresh mutation under a fresh key. |
+| `resolver_missing` | A queued write asked for callback conflict resolution and no resolver was registered to call. | Registering one. This is the only reason that clears itself: the next drain replays the mutation with no further call. |
+
+A dead-lettered mutation carries one of these.
+
+| Reason | What it means |
+|---|---|
+| `refused` | The server refused this write on its own merits, permanently. |
+| `cascaded` | It depends on a create the server refused. The row it names will never exist, so it is kept beside that refusal rather than retried against nothing. |
+
+**An engine need not reach every member.** `resolver_missing` needs an engine that lets a queued write name its own conflict strategy, and an engine that sends every queued write under `conflict=auto` — leaning on rule 10 rather than resolving anything itself — has no resolver to look for and never emits it. That is conformant, not a gap.
+
+**What an engine must not do is invent a name outside these sets**, which is the whole point of closing them. An app switching over the set has no arm for a reason it has never seen, and the reason it cannot handle is the one telling a person their work is stuck.
+
+The two first-party engines reached this vocabulary from names of their own and adopt these at their next major version, so a kit may still report an older name for the same state until then.
+
 
 ## Proving an engine
 
