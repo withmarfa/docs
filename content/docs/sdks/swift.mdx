@@ -61,7 +61,7 @@ Remote is one factory. Local is two, because a local store either has a server t
     Best for: offline-first apps, privacy-first apps, prototyping before adding a server.
 
     <Callout type="info">
-      Server-only namespaces — `blobs`, `types`, `keys`, `webhooks` — throw `LocalModeUnsupportedError` on a local client with no server. `client.blobs.url(hash:)` is the lone exception; it returns a constructed URL without touching the network.
+      `types`, `keys` and `webhooks` throw `LocalModeUnsupportedError` on a local client with no server. **`blobs` is not server-only**: `upload` writes into that client's own store and `download` answers from it, while `exists` and `presignedURL` still throw, and so does `download` for a hash the store does not hold. `client.blobs.url(hash:)` never touches the network at all.
     </Callout>
 
     <Callout type="info">
@@ -236,6 +236,8 @@ for try await item in client.items.all(filters: ListFilters(type: "core.note")) 
   // processed page-by-page; no manual cursor handling
 }
 ```
+
+**An unfiltered list leaves out trashed rows, on a local store as well as against the server.** Until 17.0.0 the offline path returned every state while the online one did not, so the same call gave two different answers depending on whether a store was there — and a bin view built on the offline behaviour emptied itself the moment the client synced. `state: .trashed` is the bin. `includeTrashed: true` is every state at once, which is what a resuming client needs in order to see a row reach the bin rather than simply vanish — the local equivalent of the server's `state=any`, which a single `ItemState` cannot express. A named `state` wins over it, because that is the narrower request.
 
 **`system.*` items are left out of a listing unless you name a system type.** These are operational records — devices, connections, activity — rather than anything a person filed, and they would otherwise dominate an untyped list: a synced device holds far more activity rows than everything else combined. Naming the type outright returns them, which is what `client.connections.list()` does. Search behaves the same way, as does the server. Counts from `client.items.stats()` deliberately do not: they include every row, matching the server.
 
@@ -432,7 +434,7 @@ That is safe for a write made offline because the write is replayed, not discard
 
 ```swift
 let response = try await client.blobs.upload(data: imageBytes, mimeType: "image/png")
-// response.hash, response.url
+// response.hash, response.mimeType, response.size
 
 let (bytes, contentType) = try await client.blobs.download(hash: response.hash)
 let exists = try await client.blobs.exists(hash: response.hash)
@@ -457,7 +459,7 @@ let response = try await client.blobs.upload(
 Bytes written that way are **owned** rather than cached, and the difference is what keeps them: the read-through cache evicts least-recently-used and silently declines anything larger than its whole bound, and both of those are right for a copy of something the server holds and wrong for the only copy there is. Owned bytes are skipped by the eviction and accepted past the bound. They still count toward the total, so a store holding more of them than the bound stops caching rather than pretending it has room.
 
 <Callout type="warn">
-  Nothing uploads owned bytes to a server later. A local store has no outbox, so those blobs live on the device and nowhere else until something puts them there. `createWithAttachments` is refused on a local client for the same reason — it needs a bulk create as well as the bytes.
+  Nothing uploads owned bytes to a server later. A local store has no outbox, so those blobs live on the device and nowhere else until something puts them there. `createWithAttachments` is refused on **any** client with a local store, synced ones included, not just a local-only one — it needs a bulk create as well as the bytes, and that is separate work.
 </Callout>
 
 <Callout type="warn">
@@ -697,17 +699,21 @@ Each entry is a `PendingMutationSummary` with `id`, `kind` (e.g. `.createItem`, 
 - `.retrying(attemptCount: Int, lastError: String)` — a transient failure, will retry on the next drain cycle.
 - `.blocked(reason: PendingMutationBlockReason, attemptCount: Int, lastError: String)` — the engine has stopped retrying. The write is still queued, but nothing will move it until something changes app-side.
 
-`.retrying` says wait; `.blocked` says the waiting will not end on its own, so it is the one to render differently. Three reasons:
+`.retrying` says wait; `.blocked` says the waiting will not end on its own, so it is the one to render differently. Five reasons:
 
 | Reason | What happened | How it clears |
 | --- | --- | --- |
 | `.resolverMissing` | A `.callback` update reached replay with no resolver registered on the client. Blocks on the first attempt, because a second cannot differ. | Call `registerConflictResolver(_:)`. No retry call — the next drain finds the resolver and replays the write. |
 | `.conflictUnresolved` | A `409` on an update outlived the conflict loop: a `.manual` strategy, a `.callback` resolver that kept declining, or a `sourceId` the server already holds against another row. | Resolve the conflict, then `syncEngine.retry(id:)`. |
-| `.retriesExhausted` | A refusal that is neither permanent nor either of the above failed `maxReplayAttempts` times (default 5). | Fix the cause, then `syncEngine.retry(id:)`. |
+| `.retriesExhausted` | A refusal that is neither permanent nor any of the others failed `maxReplayAttempts` times (default 5). | Fix the cause, then `syncEngine.retry(id:)`. |
+| `.credentialRefused` | A `401` the transport's one refresh could not clear. **This one parks every queued write together**, because they all carry the credential that was refused. | A working credential, then `syncEngine.retryAll(reason: .credentialRefused)`. See [When the credential is refused](#when-the-credential-is-refused). |
+| `.idempotencyKeyReused` | The key on this write has already answered a different body, so the server refuses it identically however often it is sent. Blocks on the first refusal rather than spending the ceiling. | **Not `retry(id:)`** — the key is spent, not the write. Re-apply the edit, which makes a fresh mutation with a fresh key. |
 
 `SyncEngine.retry(id:)` clears the block, resets the attempt count and asks for a drain.
 
-**Network failures never block.** A connectivity failure, a `5xx`, a `429` and a `401` are all statements about the environment rather than about the write, and they clear on their own, so they retry indefinitely and their attempt count keeps climbing past the ceiling. Stranding a valid write behind an outage — and then needing someone to release it by hand — would be worse than the problem the ceiling solves.
+**Environmental failures never block.** A connectivity failure, a `5xx`, a `429`, a cancellation and a suspended space are statements about the environment rather than about the write, and they clear on their own, so they retry indefinitely and their attempt count keeps climbing past the ceiling. Stranding a valid write behind an outage — and then needing someone to release it by hand — would be worse than the problem the ceiling solves.
+
+**A `401` was in that list until 17.0.0 and is not any more.** It looked environmental and is not: everything else in the class clears without anybody doing anything, and a credential the server has refused clears only when a person replaces it. It blocks as `.credentialRefused`, and it takes the rest of the queue with it.
 
 A blocked row holds back writes queued *after* it for the same item, so the queue's per-item ordering is kept; writes queued before it, and writes to other items, are unaffected.
 
@@ -798,7 +804,7 @@ Hydration progress is present only while a first fill is running or after one ha
 A `401` the transport's one refresh could not clear is not a statement about the network. It clears when a person signs in again and not before, so it **parks the whole queue** rather than retrying:
 
 ```swift
-for await event in client.syncEngine?.events ?? .init({ _ in }) {
+for await event in client.syncEngine?.events ?? .init({ $0.finish() }) {
   if case .queueParked(let reason, let count) = event {
     // reason == .credentialRefused, count == how many stopped
     showSignInAgain(unsent: count)
@@ -816,11 +822,13 @@ Every queued write carries the credential that was refused, so sending the rest 
 - **A parked queue is not a synced one.** `FullSyncState` gains `parked(reason:count:)`, and both `fullSyncState` and `queryFullSyncState()` report it while any write is parked on a refused credential. It outranks `synced(at:)` and `failed(at:error:)`, which matters more than it sounds:
 
   - A store that synced cleanly an hour ago still holds that timestamp, and a refused credential does not erase it. Without the new state an app renders "last synced an hour ago" over a queue that has stopped — true, and not the answer to the question being asked.
-  - A transient failure recorded *before* the parking would otherwise stand for ever. A clean drain is the only thing that clears one, and a parked queue cannot produce a clean drain, so the app would show "the Internet connection appears to be offline" indefinitely while the remedy was to sign in again.
+  - A transient failure recorded *before* the parking would otherwise stand forever. A clean drain is the only thing that clears one, and a parked queue cannot produce a clean drain, so the app would show "the Internet connection appears to be offline" indefinitely while the remedy was to sign in again.
 
-  It clears when `retryAll` releases the queue and a drain succeeds.
+  `fullSyncState` stops reporting `.parked` the moment `retryAll` releases the rows, because it reads the live counts. Getting back to `synced(at:)` rather than `failed(at:error:)` needs a drain to succeed after that.
 
-A spent idempotency key parks the same way and on the first refusal: `idempotency_key_reused` means the key has already answered a different body, so repeating it is refused identically however often anyone tries. **`retry(id:)` does not clear it** — the key is spent, not the write. Re-apply the edit, which makes a fresh mutation carrying a fresh key.
+**A spent idempotency key blocks that one write, not the queue.** It shares the *timing* — it blocks on the first refusal rather than spending the ceiling — and nothing else: it produces a `mutationBlocked`, never a `queueParked`, and `fullSyncState` does not go to `.parked` for it. A refused credential is the only reason that stops everything, because it is the only one that is about the client rather than about a write.
+
+`idempotency_key_reused` means the key has already answered a different body, so repeating it is refused identically however often anyone tries. **`retry(id:)` does not clear it** — the key is spent, not the write. Re-apply the edit, which makes a fresh mutation carrying a fresh key.
 
 Everything that genuinely clears on its own is unchanged. A `5xx`, a rate limit, a dropped connection, a cancellation and a suspended space all ride it out without blocking, which is what keeps a valid write from being stranded behind an outage.
 
@@ -855,6 +863,7 @@ if let sync = store.queryFullSyncState() {
   case .syncing:              ProgressView("Syncing…")
   case .synced(let at):       Text("Last synced \(at, format: .relative(presentation: .named))")
   case .failed(_, let error): Text("Couldn't sync: \(error.localizedDescription)")
+  case .parked(_, let count): Text("Sign in again — \(count) unsent")
   }
 }
 ```
@@ -888,7 +897,7 @@ Edges are not pruned.
 Subscribe to `client.syncEngine?.events` for typed sync activity:
 
 ```swift
-for await event in client.syncEngine?.events ?? .init({ _ in }) {
+for await event in client.syncEngine?.events ?? .init({ $0.finish() }) {
   switch event {
   case .synced(let at):                          // every successful drain
   case .failed(let error):                       // last error during a drain
@@ -904,6 +913,13 @@ for await event in client.syncEngine?.events ?? .init({ _ in }) {
                         let attempt, let error): // permanent failure; queue record removed
   case .mutationBlocked(let kind, let itemId,
                         let reason):             // stopped retrying; queue record kept
+  case .queueParked(let reason, let count):      // every queued write stopped at once
+  case .syncing:                                 // a drain cycle started
+  case .storeRecovered(let recovery):            // the store was rebuilt; the queue was rescued first
+  case .hydrationProgress(let imported,
+                          let total):            // a first fill, once per page
+  case .hydrationEnded(let imported,
+                       let completed):           // it stopped, finished or not
   case .blobUploadStarted(let hash, let total):
   case .blobUploadProgress(let hash, let sent, let total):
   case .blobUploadCompleted(let hash):
@@ -915,6 +931,8 @@ for await event in client.syncEngine?.events ?? .init({ _ in }) {
 `.itemPurged` is not the news `.itemDeleted` carries. A delete says the row was trashed and can come back; a purge says it is gone for good, and nothing later will correct a copy of it, so a view still holding one is showing something that no longer exists anywhere. It fires for both routes a removal reaches a device by — the server's `item.purged` announcement, and a re-import that finds the row absent. The reactive queries update on their own; subscribe only if you hold item ids outside the store.
 
 The four `.blobUpload*` cases are the raw signal that `BlobUploadProgressQuery` projects into its observable dict — most apps subscribe to the query, not the events directly.
+
+**`.hydrationEnded` is the one most easily left out and most worth handling.** `.hydrationProgress` fires once per page while a first fill runs, and nothing else says it stopped — so a progress bar built on the pair without this sits at whatever fraction the import died on. It fires whichever way the fill ended, and `completed: false` covers a `stop()` mid-import as well as a failure: for a bar those mean the same thing, so treat it as a reason to stop drawing rather than a reason to show an error.
 
 `.mutationDropped` fires when a queued mutation meets a failure no retry can clear — a `400`, `403` or `404`, or a `409` on a create — and is removed from the queue and written to the dead-letter log. A mutation is dropped because the server's answer is final, not because it has been attempted enough times.
 
@@ -972,8 +990,20 @@ final class SyncActivity {
       // Needs a person, not a retry — surface it rather than letting it sit
       // behind a spinner that will never stop.
       blockedWrites.append((itemId: itemId, reason: reason))
-    case .itemCreated, .itemUpdated, .itemDeleted,
+    case .queueParked(_, let count):
+      // The credential is spent. Every queued write has stopped and only a
+      // person can start them again — `syncEngine.retryAll(reason:)` once a
+      // working credential is in place.
+      signInAgain(unsent: count)
+    case .hydrationProgress(let imported, let total):
+      firstFill = Double(imported) / Double(max(total, 1))
+    case .hydrationEnded:
+      // Whether or not it finished. Without this a bar built on the progress
+      // events above sits at the fraction the import died on.
+      firstFill = nil
+    case .syncing, .itemCreated, .itemUpdated, .itemDeleted, .itemPurged,
          .edgeCreated, .edgeUpdated, .edgeDeleted, .mutationDropped,
+         .storeRecovered,
          .blobUploadStarted, .blobUploadProgress,
          .blobUploadCompleted, .blobUploadFailed:
       break   // SwiftData-backed MarfaStore queries pick these up automatically
@@ -1080,7 +1110,7 @@ do {
 } catch let error as ConflictError {
   // error.current, error.ancestor, error.conflictingFields
 } catch let error as LocalModeUnsupportedError {
-  // remote-only call (blobs, types, keys, webhooks) on a local client with no server
+  // server-only call (types, keys, webhooks, or blobs.exists) on a local client
 } catch let error as MarfaError {
   // everything else — error.code (String), error.message, error.status, error.details
 }
@@ -1105,6 +1135,12 @@ A `409` reaches you as `ConflictError` when the response carries version-conflic
 Add `MarfaSDKTestSupport` as a dependency on your test target only. The product is non-semver-stable across SDK minor versions and is not intended for production code.
 
 The `Transport` protocol is public. `MockTransport` exists primarily for mocking the network in unit tests; the production `MarfaClient` init always instantiates `URLSessionTransport`. The protocol includes `rawUpload(method:path:body:contentType:query:onBytesSent:)`, the progress-aware upload hook that forwards `URLSessionTaskDelegate.didSendBodyData`, so stubs exercising byte-progress code paths (such as those against `BlobUploadProgressQuery`) can drive those callbacks deterministically from a mock.
+
+<Callout type="warn">
+  **A conformer that encodes its own request bodies must sort the keys.** The server fingerprints an idempotency key against the method, the path, the credential and the **body**, and refuses a key replayed with different bytes. Swift's synthesized `Codable` fills a keyed container backed by a dictionary, so the same value can encode two ways between attempts — and a replay of an unchanged write then comes back `idempotency_key_reused`, which no amount of retrying can clear. `URLSessionTransport` sets `.sortedKeys` for exactly this. A custom transport that does not is worse off than one sending no key at all, because an unkeyed replay merely conflicts.
+
+  `requestWithConflict` also gained an `idempotencyKey` parameter in 17.0.0; a conformer has to forward it.
+</Callout>
 
 ## Concurrency model
 
