@@ -50,6 +50,23 @@ The response carries the new space's id. It has no credentials yet, so the secon
 
 In the TypeScript SDK the pair is `client.admin.spaces.create({ name })` then `client.admin.keys.create(spaceId, input)`.
 
+## Removing an OAuth client
+
+A dynamically registered client that should no longer exist is removed with its grants in one call. Registration is open, so clients accumulate: a verification run that registered one and never cleaned up, an app retired by its author, a client whose row was deleted by hand while its grants stayed behind.
+
+```bash
+curl -X POST "$MARFA_API_URL/admin/oauth-clients/$CLIENT_ID/delete" \
+  -H "Authorization: Bearer $PLATFORM_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"confirm\":\"$CLIENT_ID\"}"
+```
+
+For every user who ever authorized the client it runs the same cascade a Disconnect on the security page runs (access and refresh tokens, the stored consent, outstanding authorization and device codes), removes the grant's record from the space it belongs to, sweeps whatever those records did not name, and deletes the client row last. The response says how many grants and tokens went. A grant-holding client's tokens stop working immediately; the next authorization request for that `client_id` is refused as an unknown client.
+
+**It is idempotent, and that is the repair.** A client whose row is already gone still has its grants swept, so a client deleted directly in the database is put right by the same call, and calling it again answers `200` with nothing removed. `confirm` must be the client id, spelled exactly, and is refused otherwise.
+
+A client with no grants at all is also retired on its own, thirty days after registration, by the grantless-client reaper; this route is for a client that has, or had, grants.
+
 ## Deleting a space
 
 A space that no account owns can be removed outright. This is the counterpart to [account deletion](/self-hosting/operate/account-lifecycle) for the case that cascade cannot serve: a space created by `POST /admin/spaces` has no account behind it, so deleting an account will never reach it.
