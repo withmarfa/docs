@@ -21,9 +21,14 @@ Client kits cite these numbers in their source. They are listed here so a
 citation resolves against something published rather than against a document a
 reader of the package cannot see.
 
-Rules **2**, **10** and **12** are guarantees the server gives, so they sit in
-the section below rather than in the client's table. The rest are what an
-engine keeps, and the table further down carries the same numbers.
+**All nineteen are obligations an engine keeps.** Rules **2**, **10** and
+**12** are stated below rather than in the client's table because that is where
+this page describes their mechanism — what the server does with a key, how it
+resolves a conflict, how a deletion reaches a client that was away. The
+engine's own half of each is still the engine's: rule 2 is that every write
+carries a key, and the section it points at describes what the server does when
+one arrives. The split is this page's arrangement and not a division in the
+contract.
 
 | # | Rule | Where |
 |---|---|---|
@@ -34,14 +39,14 @@ engine keeps, and the table further down carries the same numbers.
 | 5 | Failures are classified, and the classification is closed | The client table |
 | 6 | A refused write is kept, not dropped | The client table |
 | 7 | Visible state is server state with this client's pending mutations replayed on top | The client table |
-| 8 | Events apply in log order, and a payload older than the row held does not apply | [A replay is what a live subscriber would have seen](#a-replay-is-what-a-live-subscriber-would-have-seen), and the client table |
+| 8 | Events apply in log order, and an **item** payload older than the row held does not apply — metadata events carry no version | [A replay is what a live subscriber would have seen](#a-replay-is-what-a-live-subscriber-would-have-seen), and the client table |
 | 9 | Hydration subscribes first, then reads | The client table |
 | 10 | Conflicts are resolved by the server | [Fields that do not collide merge on their own](#fields-that-do-not-collide-merge-on-their-own) |
 | 11 | A stale cursor means re-import, not reconnect | [An aged-out cursor says so](#an-aged-out-cursor-says-so), and the client table |
-| 12 | Deletions reach absent clients | [An aged-out cursor says so](#an-aged-out-cursor-says-so) and [Only the items read needs a state filter](#only-the-items-read-needs-a-state-filter) — within retention through the event stream, beyond it through rule 11's prune |
+| 12 | Deletions reach absent clients | Within retention through the event stream, which [the catch-up read](#the-catch-up-read-is-bounded-by-modification-time) says the two reads do not report; beyond it through [an aged-out cursor](#an-aged-out-cursor-says-so) and rule 11's prune |
 | 13 | The type graph is local | [The type graph travels](#the-type-graph-travels), and the client table |
 | 14 | Blobs queue with their bytes | The client table |
-| 15 | Search works offline | The client table |
+| 15 | Search works offline over the fields the type's display hints name, matching the same fields as server search | The client table |
 | 16 | The store has a version and a fail-safe | The client table |
 | 17 | One writer per store | The client table |
 | 18 | A store knows whose it is | The client table |
@@ -172,7 +177,7 @@ The server cannot check these, and an engine that skips one fails in a way that 
 | 11 | **A stale cursor means re-import, not reconnect.** Drain first, refuse to import over pending writes, read the space, prune what the server no longer has — never a row with a queued create.                                                                                                                                                                   | The gap cannot be replayed, so reconnecting resumes from a point that is already wrong.                                                         |
 | 13 | **The type graph is local.** Platform types ship with the SDK, custom types are cached whenever the server is reachable, and a write is validated before it is queued. A stale cache refreshes once before a schema refusal is treated as permanent.                                                                                                            | A write that only fails on reconnect fails hours after the person could have fixed it.                                                          |
 | 14 | **Blobs queue with their bytes**, uploaded before the write that references them. A permanently failed upload dead-letters the referencing write with the bytes retained.                                                                                                                                                                                       | An item referencing a blob the server does not hold is a broken attachment on every other device.                                               |
-| 15 | **Search works offline** over the fields the type's display hints name, with subtype resolution.                                                                                                                                                                                                                                                                | An app whose search stops working without a network is an app that stops working without a network.                                             |
+| 15 | **Search works offline** over the fields the type's display hints name, with subtype resolution. It matches the same fields as server search and may rank differently: an item server search finds by a display-hint field is an item offline search finds. Indexing *only* the hint fields would find fewer items than the server and is the one thing this rule forbids.                                                                                                                                                                                                                                                                | An app whose search stops working without a network is an app that stops working without a network.                                             |
 | 16 | **The store has a version and a fail-safe.** A store newer than the code, or a failed migration, is only rebuilt after the queue and the dead-letter log are written to a sidecar and the app is told.                                                                                                                                                          | A rebuild is data loss unless the unsent work survives it.                                                                                      |
 | 17 | **One writer per store.** A second process opening it gets a read-only client.                                                                                                                                                                                                                                                                                  | Two engines sharing one cursor each believe they applied what the other did.                                                                    |
 | 18 | **A store knows whose it is.** It records origin, space and account, and refuses to open against a mismatch.                                                                                                                                                                                                                                                    | Two accounts on one device otherwise merge into one store, silently.                                                                            |
