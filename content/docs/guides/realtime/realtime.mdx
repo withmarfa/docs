@@ -105,7 +105,17 @@ GET /events?type=core.note
 GET /events?type=core.note,core.media
 ```
 
-Each entry covers its own subtypes, so `core.media` delivers `core.media.song`. More than ten entries is refused with `400`. The rule is the same live and on a `Last-Event-ID` replay.
+Each entry covers its subtree, resolved exactly as the same parameter on `/items`, `/search` and `/export`. That is two things at once: everything under the name, so `core.media` delivers `core.media.song`, and everything that *declares* `core.media` as its parent, so a type your space registered under a name of its own answers too. The explicit `core.media.*` spelling means the same as the bare one. The rule is the same live and on a `Last-Event-ID` replay.
+
+An entry the parameter cannot honor is refused with `400` rather than accepted and then matched against nothing:
+
+```
+GET /events?type=*                 400 — to receive everything, omit the parameter
+GET /events?type=core              400 — not a type identifier
+GET /events?type=a,b,c,...         400 — more than ten entries
+```
+
+The global `*` is refused rather than read as "everything" for the reason it is refused on the listing surfaces: everything is the request with no `type` at all, and a filter matching every type would slip past the per-type levers keyed off this parameter. The refusals matter because the alternative is a `200` carrying an empty stream, which a client cannot tell apart from a space where nothing is happening.
 
 `edges` decides whether edge lifecycle events reach the stream. It is `all` by default, including under a `type` filter for the reason above, and `none` opts out:
 
@@ -162,6 +172,32 @@ Both parameters are load-bearing. `updated_after` reads `updated_at`, so the swe
 The sweep is inclusive at the bound, because `updated_at` is a millisecond timestamp and a bulk write ties many rows on one instant. Passing the last value you applied therefore re-delivers the rows sharing it; deduplicate by id. A strict bound would drop them instead, which is the failure this inclusivity exists to avoid.
 
 Deletes are surfaced this way as long as the row is still present as trashed. A row purged during the gap is gone from the sweep as well, and the `item.purged` that named it is out of reach too: this path is only reached once the cursor has aged past the event log, which is the same window that event lived in. So a client reconciling after an outage that long prunes anything it holds that the sweep did not return, rather than relying on an event it can no longer be served. Inside the replay window the event is the mechanism and no prune is needed.
+
+## When the stream stops delivering
+
+A stream that cannot deliver what it opened with says so and closes, rather than staying open in a state you cannot observe:
+
+```
+event: stream_incomplete
+data: {"type":"stream_incomplete","reason":"replay_failed","cursor":"4530"}
+```
+
+`reason` says what happened. `replay_failed` is a catch-up that could not finish, `backlog_overflow` a connection that took long enough to open that the events it would have received outgrew what the server holds for it meanwhile, and `live_delivery_failed` and `edge_delivery_failed` a subscription that failed on the server — the last of those being the one that used to leave a connection carrying items and no relationships, looking healthy the whole time.
+
+Only traffic this subscription would actually receive counts toward that buffer: a stream that passed `edges=none` is never charged for edge events, and a credential is never charged for a type it cannot read. So narrowing a subscription can only make `backlog_overflow` less likely, never more.
+
+The TypeScript SDK surfaces this as `onStreamIncomplete` and reconnects on its own; nothing is required of the caller, so the callback is optional and its absence is not escalated to `onError`.
+
+**Recover by reconnecting with the cursor you already hold.** Nothing after the gap is ever sent, so the last `id:` you received is still the last event you hold, and everything past it is still in the log: resuming from it replays exactly what you missed. The frame carries no `id:` of its own for that reason, and `cursor` repeats the position for a client that is not tracking one. A client that reconnects with backoff, which is what `client.events.subscribe` does, therefore recovers on its own.
+
+<Callout type="info">
+  This is the opposite of `catchup_too_old` above, which says the log can no
+  longer serve your cursor at all and you have to re-read state. Here the
+  cursor is good and reconnecting is the whole recovery, so do not re-import
+  on a `stream_incomplete`.
+</Callout>
+
+A repeating `stream_incomplete` is worth reporting rather than looping on: `replay_failed` can be a transient database failure, and `backlog_overflow` means the events this subscription wants were arriving faster than the connection could open, which more reconnects will not fix on their own — narrowing `type` or setting `edges=none` will, if there is a narrower view you can work from.
 
 ## Catch-up strategy
 
