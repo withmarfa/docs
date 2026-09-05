@@ -393,7 +393,12 @@ For most clients the userinfo endpoint at `/auth/oauth2/userinfo` is the simpler
 
 ### Token revocation
 
-`POST /auth/oauth2/revoke` implements RFC 7009. Pass the access or refresh token as `token` in a form-encoded body. The server invalidates the token (and, for refresh tokens, the entire grant) and returns `200` regardless of whether the token was valid — per the spec, to avoid leaking token-existence information.
+`POST /auth/oauth2/revoke` implements RFC 7009. Pass the access or refresh token as `token` in a form-encoded body, with the app's `client_id`. The server returns `200` regardless of whether the token was valid, per the spec, to avoid leaking token-existence information.
+
+What is revoked depends on which token you present:
+
+- **An access token** is invalidated on its own. The refresh token, the stored consent and the app's entry on the user's security page all stand: this is a sign-out, and the app can obtain a new access token without asking the user again.
+- **A refresh token** ends the grant it belongs to. Every access and refresh token issued under that grant is invalidated, the stored consent is removed, the app disappears from the user's security page, and an `auth.grant.revoked` audit row is written with `source: client`. The next authorization request renders the consent screen again. A refresh token presented with a `client_id` other than the one it was issued to revokes nothing.
 
 ```bash
 curl -X POST https://marfa.example.com/auth/oauth2/revoke \
@@ -401,7 +406,7 @@ curl -X POST https://marfa.example.com/auth/oauth2/revoke \
   -d 'token=marfa_at_...'
 ```
 
-Apps should call this on sign-out to ensure server-side state matches the user's intent. The endpoint is advertised in the OIDC discovery doc as `revocation_endpoint`.
+Revoke the access token on sign-out and the refresh token when the user disconnects the app, so server-side state matches the user's intent. The endpoint is advertised in the OIDC discovery doc as `revocation_endpoint`.
 
 ### Signing out invalidates the tokens issued under that session
 
@@ -425,9 +430,9 @@ The auth audit-row catalog carries three grant-lifecycle entries:
 
 - `auth.grant.created` — emitted on consent acceptance (both code-flow via `/auth/authorize/decision` and device-flow via `/auth/device/consent`). `details.source` distinguishes the surface; `details.created` distinguishes first-consent from re-consent.
 - `auth.grant.reused` — emitted on silent re-authorization (see [Consent persistence](#consent-persistence)): the prior grant already covered the request, so no consent screen rendered and the grant record was not modified.
-- `auth.grant.revoked` — emitted on `DELETE /auth/grants/:id` and the form-friendly `POST /auth/grants/:id/revoke`.
+- `auth.grant.revoked` — emitted on `DELETE /auth/grants/:id`, the form-friendly `POST /auth/grants/:id/revoke`, and when an app revokes its refresh token at `POST /auth/oauth2/revoke`; that last row carries `details.source: client`.
 
-All three rows are written by Marfa route handlers, not by the plugin, so they carry the verified `client_id`, `user_id`, and grant item id without trusting form fields.
+All three rows carry the verified `client_id`, `user_id`, and grant item id without trusting form fields: the route handlers read them from the signed request or the grant record, and the client-revoke row resolves them from the token's own record.
 
 ### Grants management
 
