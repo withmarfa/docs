@@ -704,7 +704,7 @@ Each entry is a `PendingMutationSummary` with `id`, `kind` (e.g. `.createItem`, 
 | Reason | What happened | How it clears |
 | --- | --- | --- |
 | `.resolverMissing` | A `.callback` update reached replay with no resolver registered on the client. Blocks on the first attempt, because a second cannot differ. | Call `registerConflictResolver(_:)`. No retry call — the next drain finds the resolver and replays the write. |
-| `.conflictUnresolved` | A `409` on an update outlived the conflict loop. **Most often an `.auto` write the server declined** — that is the ordinary outcome for one it could not resolve, not an edge case. Also `.manual`, a `.callback` resolver that kept declining, a `sourceId` the server already holds against another row, or a thinned ancestor, which reaches this state under every strategy — on the first refusal for `.manual` and `.callback`, and once the rebase budget is spent for `.auto`. | Resolve the conflict, then `syncEngine.retry(id:)`. **A thinned ancestor differs by strategy**: worth retrying under `.auto`, refused identically under the other two. See below. |
+| `.conflictUnresolved` | A `409` on an update outlived the conflict loop. **Most often an `.auto` write the server declined** — that is the ordinary outcome for one it could not resolve, not an edge case. Also `.manual`, a `.callback` resolver that kept declining, a `sourceId` the server already holds against another row, or a thinned ancestor, which reaches this state under every strategy — on the first refusal for `.manual` and `.callback`, and once the rebase budget is spent for `.auto`. | Resolve the conflict, then `syncEngine.retry(id:)`. **A thinned ancestor is not cleared by retrying under any strategy** — the row's idempotency key is spent, so the server answers the repeat from its record. Re-read the item and write against the version it holds. See below. |
 | `.retriesExhausted` | A refusal that is neither permanent nor any of the others failed `maxReplayAttempts` times (default 5). | Fix the cause, then `syncEngine.retry(id:)`. |
 | `.credentialRefused` | A `401` the transport's one refresh could not clear. **This one parks every queued write together**, because they all carry the credential that was refused. | A working credential, then `syncEngine.retryAll(reason: .credentialRefused)`. See [When the credential is refused](#when-the-credential-is-refused). |
 | `.idempotencyKeyReused` | The key on this write has already answered a different body, so the server refuses it identically however often it is sent. Blocks on the first refusal rather than spending the ceiling. | **Nothing yet.** `retry(id:)` re-sends the same spent key; re-applying the edit queues behind the blocked row rather than around it. See below. |
@@ -721,7 +721,7 @@ A blocked row holds back writes queued *after* it for the same item, so the queu
   A queue whose only remaining rows are blocked also holds off the catch-up import, so a store that has never imported stays empty until the block clears. The import replaces every row it receives with no merge, and a blocked row is still an unsent write, so importing over one would discard it — the gate deliberately counts the whole queue rather than only what the drain will attempt. This was already true of a write that retried forever; blocking makes it visible and gives the app something to show.
 </Callout>
 
-The query refreshes on every `ModelContext.didSave`. Returns `nil` on a client with no mutation queue, which is any remote client.
+The query refreshes on every `ModelContext.didSave`. Non-optional, unlike `queryBlobUploadProgress()` — the queue's table is in every store. `makeStore()` is the optional step, and a client with no store has nothing to vend it from.
 
 ### Blob upload progress
 
@@ -834,8 +834,11 @@ Every queued write carries the credential that was refused, so sending the rest 
 
 **A `.conflictUnresolved` row can be a thinned ancestor, and what clears it depends on the strategy the write carried.** The write names a version history no longer retains.
 
-- **Under `.auto`, retrying is worth doing.** `retry(id:)` replays into a fresh conflict loop, which rebases onto whatever the server holds now and can succeed — the row parked because several consecutive rebases were refused, not because rebasing cannot work. It arrives here only once that budget is spent.
-- **Under `.manual` and `.callback` it arrives on the first refusal**, because rebasing would apply an edit onto a base the caller never saw, which is the decision those strategies exist to keep. For these, `retry(id:)` re-sends the same stale version and is refused identically however often anyone tries. Settling it means writing against the version the server does hold.
+**`retry(id:)` cannot clear it under any strategy, and the reason is the key rather than the version.** A retry does start a fresh conflict loop — the block is cleared, the attempt counter resets, and under `.auto` the rebase runs again. But the row's idempotency key is minted once and never rewritten, and the payload it re-sends is byte-identical, so attempt zero carries the same key as before. The server retains a `409` against a key rather than releasing it, and answers a repeat from the record. The rebased attempt derives its key from that same row key and the version the record reports, so it too is answered from the record, and the loop walks the same refusals to the same throw.
+
+The strategies differ only in **when** the row parks: `.manual` and `.callback` on the first refusal, because rebasing would apply an edit onto a base the caller never saw, and `.auto` once its rebase budget is spent.
+
+**Settling it means re-reading the item and writing against the version the server holds**, which makes a fresh row with a fresh key.
 
 **The typed error does not reach the row.** `AncestorUnavailableError` carries `current` and `requestedVersion`, but a blocked mutation surfaces as `PendingMutationStatus.blocked(reason:attemptCount:lastError:)` and `lastError` is a formatted string — `code=ancestor_unavailable status=409 message=…`. Recognize the row by that code, and re-read the item to learn the version, because the object with it on is gone by the time the queue is what you are looking at.
 
@@ -987,12 +990,12 @@ final class SyncActivity {
   /// it for the one row that met the `401` and for none of the rest, so a
   /// folded list shows one entry while ten are stuck. The query is `@Observable`
   /// and updates itself, so there is nothing to keep in step.
-  private let pending: PendingMutationsQuery
+  private var pending: PendingMutationsQuery?
   var blockedWrites: [PendingMutationSummary] {
-    pending.mutations.filter {
+    pending?.mutations.filter {
       if case .blocked = $0.status { return true }
       return false
-    }
+    } ?? []
   }
 
   private var client: MarfaClient?
@@ -1001,6 +1004,9 @@ final class SyncActivity {
   // 1. Create — on app launch / sign-in.
   func start(client: MarfaClient) async {
     self.client = client
+    // The queue's table is in every store, so this is optional only because
+    // `makeStore()` is — a client with no store has nothing to vend it from.
+    pending = client.makeStore()?.queryPendingMutations()
     await client.syncEngine?.start()
 
     // 2. Subscribe — each access to `events` is a fresh stream.
@@ -1032,10 +1038,10 @@ final class SyncActivity {
         pendingConflictedCopies.append(sibling)
       }
     case .mutationBlocked:
-      // Logged only. `blockedWrites` above reads the queue, which is right for
-      // a park as well as for a single blocked row; acting on this event would
-      // be a second answer to the same question, and the narrower one.
-      log("a write stopped and needs a person")
+      // Nothing to do. `blockedWrites` above reads the queue, which is right
+      // for a park as well as for a single blocked row; acting on this event
+      // would be a second answer to the same question, and the narrower one.
+      break
     case .queueParked(_, let count):
       // The credential is spent. Every queued write has stopped and only a
       // person can start them again — `syncEngine.retryAll(reason:)` once a
