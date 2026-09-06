@@ -24,9 +24,15 @@ function describe(day: DayCell): string {
  * yet — painting those green would be a claim about days nobody watched, which
  * is why the store records when observation began.
  */
-export function UptimeBar({ days, uptime }: { days: DayCell[]; uptime: number }) {
-  const observed = days.some((day) => day.status !== 'unknown');
-
+export function UptimeBar({
+  days,
+  uptime,
+  observedDays,
+}: {
+  days: DayCell[];
+  uptime: number | null;
+  observedDays: number;
+}) {
   return (
     <div className="mt-4">
       <div className="flex h-9 items-stretch gap-px" role="img" aria-label="Daily availability over the last 90 days">
@@ -40,8 +46,15 @@ export function UptimeBar({ days, uptime }: { days: DayCell[]; uptime: number })
       </div>
       <div className="mt-2 flex items-baseline justify-between gap-2 text-xs text-fd-muted-foreground">
         <span>90 days ago</span>
+        {/*
+          The window is named because it is not always the width of the bar.
+          A bare percentage beside a mostly grey bar invites the reader to
+          divide the outage by ninety days, which is not what it measures.
+        */}
         <span className="text-fd-foreground">
-          {observed ? `${formatUptime(uptime)} uptime` : 'no history yet'}
+          {uptime === null
+            ? 'no history yet'
+            : `${formatUptime(uptime)} over ${observedDays} day${observedDays === 1 ? '' : 's'}`}
         </span>
         <span>Today</span>
       </div>

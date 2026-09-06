@@ -254,8 +254,10 @@ export type MonitorView = {
   error: string | null;
   latencyMs: number | null;
   location: string | null;
-  /** Fraction in [0, 1] over the retention window. */
-  uptime: number;
+  /** Fraction in [0, 1] over the observed window, or null if nothing was. */
+  uptime: number | null;
+  /** Whole days observed, capped at the retention window. */
+  observedDays: number;
   /**
    * Response times only, not the full samples. The whole series is serialized
    * into the page for hydration, and the timestamps and colo codes triple that
@@ -294,22 +296,33 @@ function realIncidents(state: CompactedState, id: string): IncidentRecord[] {
 }
 
 /**
- * Uptime over the retention window.
+ * Uptime over the window that was actually watched.
  *
- * The denominator is the window rather than the time this page has been
- * observing, because the checker discards anything older and there is nothing
- * left to derive a shorter honest window from. It reads high for the first
- * ninety days of a new monitor. Labelled with the window for that reason.
+ * The denominator is the observed window, not the retention window. Dividing a
+ * few minutes of downtime by ninety days when only a week was watched produces
+ * a number that disagrees with the bar printed beside it, and the bar is the
+ * honest one.
+ *
+ * Returns null when nothing has been observed, because there is no figure to
+ * give and a confident 100% would be the worst possible answer.
  */
-function uptimeFraction(incidents: IncidentRecord[], now: number): number {
-  const windowStart = now - HISTORY_WINDOW_SECONDS;
+function uptimeFraction(
+  incidents: IncidentRecord[],
+  since: number | undefined,
+  now: number,
+): number | null {
+  if (since === undefined) return null;
+  const windowStart = Math.max(since, now - HISTORY_WINDOW_SECONDS);
+  const observed = now - windowStart;
+  if (observed <= 0) return null;
+
   let down = 0;
   for (const incident of incidents) {
     const start = Math.max(incident.start[0], windowStart);
     const end = incident.end ?? now;
     if (end > start) down += end - start;
   }
-  return Math.max(0, Math.min(1, 1 - down / HISTORY_WINDOW_SECONDS));
+  return Math.max(0, Math.min(1, 1 - down / observed));
 }
 
 /**
@@ -348,7 +361,14 @@ export function buildView(
       error: open ? open.error[open.error.length - 1] : null,
       latencyMs: latency?.ping ?? null,
       location: latency?.loc ?? null,
-      uptime: uptimeFraction(incidents, now),
+      uptime: uptimeFraction(incidents, since, now),
+      observedDays:
+        since === undefined
+          ? 0
+          : Math.min(
+              UPTIME_BAR_DAYS,
+              Math.max(1, Math.round((now - since) / DAY)),
+            ),
       series: samples.map((sample) => sample.ping),
       seriesSeconds:
         samples.length > 1 ? samples[samples.length - 1].time - samples[0].time : 0,

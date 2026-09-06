@@ -18,8 +18,12 @@ const CAPTURED = JSON.stringify(capturedState);
 /** The moment the fixture was taken, so nothing here depends on the clock. */
 const CAPTURED_AT = 1788651670;
 
+/** Observed for the whole retention window, so uptime spans all of it. */
+const FULLY_OBSERVED = CAPTURED_AT - 90 * 24 * 60 * 60;
+
 const META: PageMeta = {
   title: 'Marfa Status',
+  since: FULLY_OBSERVED,
   monitors: [
     { id: 'api', name: 'API', statusPageLink: 'https://api.marfa.so/health' },
     { id: 'api-files', name: 'File storage' },
@@ -158,6 +162,13 @@ describe('what counts as down', () => {
     expect(view.monitors[0].uptime).toBe(1);
   });
 
+  // A confident 100% is the worst possible answer when nothing was watched.
+  it('gives no uptime figure at all when the store cannot say when it started', () => {
+    const view = buildView(syntheticState(), { ...META, since: undefined }, ['api'], CAPTURED_AT);
+    expect(view.monitors[0].uptime).toBeNull();
+    expect(view.monitors[0].observedDays).toBe(0);
+  });
+
   // `start` grows when the error text changes inside one open incident, which
   // reads like a second outage and is not.
   it('dates a multi-start incident from its first start and reports its last error', () => {
@@ -197,7 +208,7 @@ describe('what counts as down', () => {
   });
 });
 
-describe('uptime over the retention window', () => {
+describe('uptime over the window that was watched', () => {
   it('subtracts a closed outage from the window', () => {
     const oneHour = 60 * 60;
     const state = syntheticState({
@@ -239,6 +250,35 @@ describe('uptime over the retention window', () => {
     });
     const view = buildView(state, META, ['api'], CAPTURED_AT);
     expect(view.monitors[0].uptime).toBeCloseTo(1 - 3600 / HISTORY_WINDOW_SECONDS, 10);
+  });
+
+  // The denominator is what was watched, not what is retained. Dividing by
+  // ninety days when a week was watched produces a figure that disagrees with
+  // the bar printed beside it.
+  it('divides by the observed window, not the retention window', () => {
+    const week = 7 * 24 * 60 * 60;
+    const state = syntheticState({
+      incident: {
+        api: {
+          start: [[CAPTURED_AT - 3600]],
+          end: [CAPTURED_AT],
+          error: [['down']],
+        },
+      },
+    });
+    const view = buildView(state, { ...META, since: CAPTURED_AT - week }, ['api'], CAPTURED_AT);
+    expect(view.monitors[0].uptime).toBeCloseTo(1 - 3600 / week, 10);
+    expect(view.monitors[0].observedDays).toBe(7);
+  });
+
+  it('never claims more observed days than the bar can show', () => {
+    const view = buildView(
+      syntheticState(),
+      { ...META, since: CAPTURED_AT - 400 * 24 * 60 * 60 },
+      ['api'],
+      CAPTURED_AT,
+    );
+    expect(view.monitors[0].observedDays).toBe(UPTIME_BAR_DAYS);
   });
 });
 

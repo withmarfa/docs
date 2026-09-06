@@ -58,7 +58,11 @@ export function MonitorRow({ monitor, now }: { monitor: MonitorView; now: number
         </p>
       )}
 
-      <UptimeBar days={monitor.days} uptime={monitor.uptime} />
+      <UptimeBar
+        days={monitor.days}
+        uptime={monitor.uptime}
+        observedDays={monitor.observedDays}
+      />
 
       <LatencyChart series={monitor.series} seconds={monitor.seriesSeconds} />
 
