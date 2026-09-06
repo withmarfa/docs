@@ -16,7 +16,15 @@ export const Route = createRootRoute({
         content: 'Current availability of the Marfa API, file storage and documentation.',
       },
     ],
-    links: [{ rel: 'stylesheet', href: appCss }],
+    links: [
+      // The same three files the documentation site serves: one `public/`
+      // directory feeds both build targets, so the two sites cannot end up
+      // wearing different marks.
+      { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
+      { rel: 'icon', href: '/favicon.png', type: 'image/png', sizes: '96x96' },
+      { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
+      { rel: 'stylesheet', href: appCss },
+    ],
   }),
   component: RootComponent,
 });

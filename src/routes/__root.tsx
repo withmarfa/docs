@@ -22,7 +22,16 @@ export const Route = createRootRoute({
           'Marfa is a typed data layer for structured personal data. Build apps on a shared type system, multi-space by design.',
       },
     ],
-    links: [{ rel: 'stylesheet', href: appCss }],
+    links: [
+      // The mark, in three forms. SVG for anything modern; the PNG is the
+      // fallback for a reader or unfurler that will not take one; and
+      // apple-touch-icon is flattened, because iOS composites transparency
+      // against black before applying its own rounded mask.
+      { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
+      { rel: 'icon', href: '/favicon.png', type: 'image/png', sizes: '96x96' },
+      { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
+      { rel: 'stylesheet', href: appCss },
+    ],
   }),
   component: RootComponent,
 });
