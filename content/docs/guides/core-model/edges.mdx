@@ -19,6 +19,12 @@ Edge ids and item ids are independent. They are drawn from the same format and l
 
 Edges sit in the same space as their source and target items. Cross-space edges don't exist.
 
+## Updating an edge
+
+**A `PATCH` merges shallowly over the properties the edge already holds**, the same way an item's does, so a call naming one property leaves the others standing. Send what changed rather than the whole bag.
+
+There is no replace mode and no way to clear a single property: `properties_mode` and null-clearing belong to items, whose types declare which fields are optional. Removing a property from an edge means deleting the edge and creating it again.
+
 ## Updating an edge safely
 
 `version` starts at 1 and moves on with every write that changes the row, so comparing two reads tells you whether anything happened in between.
@@ -41,14 +47,14 @@ If the edge has moved on since you read it, the write is refused with `409` and 
 }
 ```
 
-**Edges have no merge policy**, so resolving a conflict means re-applying your change over the edge in that body and sending again. There is no field-level merge and no keep-both sibling; those belong to items, whose types declare how their fields combine. The 409 body is deliberately not an item's conflict envelope for that reason — an ancestor snapshot, a list of conflicting fields and a merge policy would all be invented here.
+**Edges have no merge policy**, which is a different thing from the shallow merge above: a `PATCH` combines your properties with the stored ones key by key, and nothing combines two conflicting *values* for one key. So resolving a conflict means re-applying your change over the edge in that body and sending again. There is no field-level merge and no keep-both sibling; those belong to items, whose types declare how their fields combine. The 409 body is deliberately not an item's conflict envelope for that reason — an ancestor snapshot, a list of conflicting fields and a merge policy would all be invented here.
 
 Because the refusal carries the current edge, it is also the way back to a usable version: a client that has been refused does not need a separate read before retrying.
 
-**Omitting `version` keeps the previous behavior.** The write lands unconditionally, last writer wins, and the version still moves on. That is what every client written before this got, and nothing needs changing to keep working — but two clients editing one edge will still overwrite each other in silence, which is the reason to start sending it.
+**Omitting `version` keeps the previous behavior.** The write lands unconditionally, last writer wins on the keys it names, and the version still moves on. That is what every client written before this got, and nothing needs changing to keep working — but two clients editing one edge will still overwrite each other in silence, which is the reason to start sending it.
 
 <Callout type="info">
-  The bulk door takes no precondition. `POST /edges/bulk` upserts without one and still moves each edge's version on, because the bump belongs to the write itself rather than to the route that reached it. If you need optimistic concurrency on an edge, use the single-edge route.
+  The bulk door takes no precondition. `POST /edges/bulk` upserts without one and still moves each edge's version on, because the bump belongs to the write itself rather than to the route that reached it. An entry matching an existing row merges over it, as the single door does. If you need optimistic concurrency on an edge, use the single-edge route.
 </Callout>
 
 Replacing an edge through an item's inline `edges` payload is a delete followed by a create, so the replacement is a new row starting at version 1 rather than a continuation of the old one.
