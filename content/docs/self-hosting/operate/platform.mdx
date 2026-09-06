@@ -50,6 +50,23 @@ The response carries the new space's id. It has no credentials yet, so the secon
 
 In the TypeScript SDK the pair is `client.admin.spaces.create({ name })` then `client.admin.keys.create(spaceId, input)`.
 
+## Removing an OAuth client
+
+A dynamically registered client that should no longer exist is removed with its grants in one call. Registration is open, so clients accumulate: a verification run that registered one and never cleaned up, an app retired by its author, a client whose row was deleted by hand while its grants stayed behind.
+
+```bash
+curl -X POST "$MARFA_API_URL/admin/oauth-clients/$CLIENT_ID/delete" \
+  -H "Authorization: Bearer $PLATFORM_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"confirm\":\"$CLIENT_ID\"}"
+```
+
+For every user who ever authorized the client it runs the same cascade a Disconnect on the security page runs (access and refresh tokens, the stored consent, outstanding authorization and device codes), removes the grant's record from the space it belongs to along with the record's edges, sweeps the client's remaining tokens, consents, authorization codes and device codes that no record named, and deletes the client row last. Two removals of the same client run one after the other, on either database. The response says how many grant records went, and how many stray records no record named (none for a client removed while its grants were live; all of them for a client deleted by hand). Each grant's removal is written to its space's audit trail as `auth.grant.revoked` with `source: "admin"`, and one platform-level `auth.client.deleted` row carries the counts and the operator's key. A grant-holding client's tokens stop working immediately; the next authorization request for that `client_id` is refused as an unknown client.
+
+**It is idempotent, and that is the repair.** A client whose row is already gone still has its grants swept, so a client deleted directly in the database is put right by the same call. Once nothing carries the id at all, the call answers `404` and writes no audit row, so a repeat, or a mistyped id, is never recorded as a removal. `confirm` must be the client id, spelled exactly, and is refused with `400` otherwise; the id is the only handle a client deleted by hand still has, which is why it is the confirmation rather than a name. A deployment with no OAuth provider configured answers `400` too. A second removal started while one is running waits for it and then, finding nothing, answers `404`.
+
+A client with no grants at all is also retired on its own by the grantless-client reaper, thirty days after registration by default (`MARFA_DCR_CLIENT_RETENTION_DAYS`; `0` disables); this route is for a client that has, or had, grants.
+
 ## Deleting a space
 
 A space that no account owns can be removed outright. This is the counterpart to [account deletion](/self-hosting/operate/account-lifecycle) for the case that cascade cannot serve: a space created by `POST /admin/spaces` has no account behind it, so deleting an account will never reach it.
