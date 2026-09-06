@@ -1,6 +1,7 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import { appName, gitConfig } from './shared';
 import { SectionNav } from '@/components/section-nav';
+import { StatusIndicator } from '@/components/status-indicator';
 
 // npm wordmark (simple-icons), monochrome via currentColor so it sits beside the
 // GitHub icon. The navbar's icon button handles sizing.
@@ -22,6 +23,10 @@ export function baseOptions(): BaseLayoutProps {
     // CSS but still scopes the sidebar by URL.
     links: [
       { type: 'custom', children: <SectionNav /> },
+      // Whether Marfa is up, linking to the status page. It renders nothing at
+      // all when it cannot get an answer, so this site never depends on that
+      // one being reachable.
+      { type: 'custom', secondary: true, children: <StatusIndicator /> },
       // npm org link, paired with the GitHub icon on the navbar's right edge.
       // The GitHub org and npm scope share the same slug.
       {
