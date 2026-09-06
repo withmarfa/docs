@@ -135,28 +135,15 @@ jobs:
           # This commit is main's tip. Whether this target needs republishing is
           # a second question, and the trigger cannot answer it: a
           # workflow_run event supports no path filters and carries no
-          # changed-file list. So diff against what the site is actually
-          # serving, which this workflow already knows how to read.
-          #
-          # Every uncertain case publishes. A wasted deploy costs a minute; a
-          # skipped one leaves a stale site behind a green run, which is the
-          # exact failure this workflow exists to close.
+          # changed-file list. So the decision is made against what the site is
+          # actually serving, and it lives in the shell helper where it can be
+          # exercised by a test.
           LIVE="$(read_live_commit)"
-          case "$LIVE" in
-            *[!0-9a-f]*|"")
-              echo "The live site reports '${LIVE}', which is not a commit, so there is nothing to diff against. Publishing."
-              echo "publish=yes" >> "$GITHUB_OUTPUT"; exit 0 ;;
-          esac
-          if ! git cat-file -e "${LIVE}^{commit}" 2>/dev/null; then
-            echo "The live site reports ${LIVE}, which is not in this history. Publishing."
-            echo "publish=yes" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-
-          if git diff --name-only "$LIVE" "$DEPLOY_COMMIT" | paths_touch_target "$PUBLISH_TARGET"; then
-            echo "Publishing: something the ${PUBLISH_TARGET} target builds from changed since ${LIVE}."
+          if target_needs_publish "$PUBLISH_TARGET" "$LIVE" "$DEPLOY_COMMIT"; then
+            echo "Publishing ${PUBLISH_TARGET}: the live site reports ${LIVE}, and this target builds from something that changed since."
             echo "publish=yes" >> "$GITHUB_OUTPUT"
           else
-            echo "Not publishing: nothing the ${PUBLISH_TARGET} target builds from changed between ${LIVE} and ${DEPLOY_COMMIT}."
+            echo "Not publishing ${PUBLISH_TARGET}: nothing it builds from changed between ${LIVE} and ${DEPLOY_COMMIT}."
             echo "publish=no" >> "$GITHUB_OUTPUT"
           fi
 
@@ -357,27 +344,18 @@ jobs:
             *) exit 1 ;;
           esac
 
-          # Which target a merge concerns, decided against what this site is
-          # actually serving. Uncertainty publishes: this page shares the docs
-          # site's stylesheet, its shared constants and its lockfile, so the
-          # cost of guessing wrong in the other direction is a status page
-          # quietly reporting from a bundle nobody shipped.
+          # This commit is main's tip. Whether this target needs republishing is
+          # a second question, and the trigger cannot answer it: a
+          # workflow_run event supports no path filters and carries no
+          # changed-file list. So the decision is made against what the site is
+          # actually serving, and it lives in the shell helper where it can be
+          # exercised by a test.
           LIVE="$(read_live_commit)"
-          case "$LIVE" in
-            *[!0-9a-f]*|"")
-              echo "The status page reports '${LIVE}', which is not a commit, so there is nothing to diff against. Publishing."
-              echo "publish=yes" >> "$GITHUB_OUTPUT"; exit 0 ;;
-          esac
-          if ! git cat-file -e "${LIVE}^{commit}" 2>/dev/null; then
-            echo "The status page reports ${LIVE}, which is not in this history. Publishing."
-            echo "publish=yes" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-
-          if git diff --name-only "$LIVE" "$DEPLOY_COMMIT" | paths_touch_target "$PUBLISH_TARGET"; then
-            echo "Publishing: something the ${PUBLISH_TARGET} target builds from changed since ${LIVE}."
+          if target_needs_publish "$PUBLISH_TARGET" "$LIVE" "$DEPLOY_COMMIT"; then
+            echo "Publishing ${PUBLISH_TARGET}: the live site reports ${LIVE}, and this target builds from something that changed since."
             echo "publish=yes" >> "$GITHUB_OUTPUT"
           else
-            echo "Not publishing: nothing the ${PUBLISH_TARGET} target builds from changed between ${LIVE} and ${DEPLOY_COMMIT}."
+            echo "Not publishing ${PUBLISH_TARGET}: nothing it builds from changed between ${LIVE} and ${DEPLOY_COMMIT}."
             echo "publish=no" >> "$GITHUB_OUTPUT"
           fi
 

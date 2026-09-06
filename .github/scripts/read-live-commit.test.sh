@@ -354,13 +354,13 @@ else
     const fs = require('fs');
     const doc = parse(fs.readFileSync('$workflow', 'utf8'));
     if (!doc || !doc.jobs) throw new Error('no jobs block');
-    for (const j of ['publish','check','notify']) {
+    for (const j of ['publish','publish-status','check','check-status','notify','notify-status']) {
       if (!doc.jobs[j]) throw new Error('missing job: ' + j);
     }
   " 2>/dev/null; then
-    pass=$((pass+1)); printf '  ok    the workflow parses and has its three jobs\n'
+    pass=$((pass+1)); printf '  ok    the workflow parses and has a publish, check and notifier per target\n'
   else
-    fail=$((fail+1)); printf '  FAIL  the workflow does not parse, or has lost a job\n'
+    fail=$((fail+1)); printf '  FAIL  the workflow does not parse, or has lost one of its six jobs\n'
   fi
 
   # Comments are stripped before matching, both whole-line and trailing.
@@ -380,7 +380,7 @@ else
   # laptop and failed in CI, reporting that a publish guard had stopped being
   # called when it had not.
   workflow_body="$(sed 's/#.*//' "$workflow")"
-  for fn in report_live_state check_deploy_target resolve_main_ref read_live_commit paths_touch_target effective_verdict; do
+  for fn in report_live_state check_deploy_target resolve_main_ref read_live_commit target_needs_publish effective_verdict; do
     if [[ $workflow_body == *"$fn"* ]]; then
       pass=$((pass+1)); printf '  ok    the workflow calls %s\n' "$fn"
     else
@@ -495,6 +495,52 @@ check "status: an empty diff skips" skip "$(verdict status '')"
 # A target name the workflow never passes is a mistake in the workflow. It must
 # not resolve to "publish nothing" and report success.
 check "an unknown target publishes rather than silently skipping" publish "$(verdict typo content/docs/x.mdx)"
+
+# ------------------------------------------- the publish job's whole decision
+#
+# Exercised against a real history, because the ancestry arm is the one that is
+# easy to leave out and leaving it out wedges a target permanently.
+echo
+echo "target_needs_publish"
+
+cd "$paths_repo"
+
+# A branch whose tree is identical to the tip, which is what a squash merge
+# leaves behind after somebody hand-deployed from the branch.
+git checkout -q -b handbuilt "$p_status"
+p_branch="$(file_commit src/styles/app.css "the shared stylesheet, from a branch")"
+git checkout -q main
+
+decision() { # decision <target> <live> <deploy> -> publish|skip
+  if target_needs_publish "$1" "$2" "$3"; then printf 'publish'; else printf 'skip'; fi
+}
+
+check "publishes when its own paths changed" \
+  publish "$(decision status "$p_docs" "$p_status")"
+check "skips when only the other target changed" \
+  skip "$(decision status "$p0" "$p_docs")"
+check "skips when nothing it builds from changed" \
+  skip "$(decision docs "$p_status" "$p_status")"
+
+# Every unusable answer publishes rather than guessing.
+check "publishes when the site is unreachable" \
+  publish "$(decision docs unreachable "$p_shared")"
+check "publishes when the route is missing"    \
+  publish "$(decision docs missing "$p_shared")"
+check "publishes when the build was dirty"     \
+  publish "$(decision docs "${p_docs}-dirty" "$p_shared")"
+check "publishes when the commit is unknown here" \
+  publish "$(decision docs "$(printf '0%.0s' $(seq 40))" "$p_shared")"
+
+# The wedge. Identical trees, so the diff is empty and a path-only gate skips
+# forever, leaving the site on a commit the freshness check calls off-main with
+# nothing able to correct it.
+check "publishes when the live commit is not in the history being deployed" \
+  publish "$(decision docs "$p_branch" "$p_shared")"
+check "and does so for either target" \
+  publish "$(decision status "$p_branch" "$p_shared")"
+
+cd "$prev_dir"
 
 printf '\nread-live-commit: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
