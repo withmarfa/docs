@@ -380,7 +380,7 @@ else
   # laptop and failed in CI, reporting that a publish guard had stopped being
   # called when it had not.
   workflow_body="$(sed 's/#.*//' "$workflow")"
-  for fn in report_live_state check_deploy_target resolve_main_ref read_live_commit; do
+  for fn in report_live_state check_deploy_target resolve_main_ref read_live_commit paths_touch_target; do
     if [[ $workflow_body == *"$fn"* ]]; then
       pass=$((pass+1)); printf '  ok    the workflow calls %s\n' "$fn"
     else
@@ -388,6 +388,48 @@ else
     fi
   done
 fi
+
+# ------------------------------------------------------- which target to publish
+#
+# Two Workers ship from this repository, and the gate that decides which one a
+# merge concerns is the one place a mistake is silent: skipping a target
+# publishes nothing, succeeds, and leaves a stale site behind a green run.
+echo
+echo "paths_touch_target"
+
+touches() { printf '%s\n' "$@" | paths_touch_target "$1" >/dev/null; }
+verdict() { # verdict <target> <path>...
+  local target="$1"; shift
+  if printf '%s\n' "$@" | paths_touch_target "$target"; then printf 'publish'; else printf 'skip'; fi
+}
+
+check "docs: a content page publishes the docs site" publish "$(verdict docs content/docs/guides/x.mdx)"
+check "docs: the status source does not" skip "$(verdict docs src/status/lib/state.ts)"
+check "docs: the status configs do not" skip "$(verdict docs vite.status.config.ts wrangler.status.jsonc tsconfig.status.json)"
+check "docs: a mixed change publishes it" publish "$(verdict docs src/status/lib/state.ts content/docs/x.mdx)"
+
+check "status: its own source publishes it" publish "$(verdict status src/status/lib/state.ts)"
+check "status: a content page does not" skip "$(verdict status content/docs/guides/x.mdx)"
+check "status: a docs route does not" skip "$(verdict status src/routes/mcp.ts)"
+check "status: a workflow change does not" skip "$(verdict status .github/workflows/publish.yml)"
+check "status: the spec does not" skip "$(verdict status openapi.json)"
+
+# The shared surface. Each of these reaches the status bundle, and a path list
+# written as "what belongs to status" would have missed every one of them,
+# leaving the page stale with nothing reporting it.
+check "status: the shared stylesheet publishes it" publish "$(verdict status src/styles/app.css)"
+check "status: the shared constants publish it"    publish "$(verdict status src/lib/shared.ts)"
+check "status: the lockfile publishes it"          publish "$(verdict status pnpm-lock.yaml)"
+check "status: the base tsconfig publishes it"     publish "$(verdict status tsconfig.json)"
+check "status: the build stamp publishes it"       publish "$(verdict status build-commit.ts)"
+
+# Nothing changed at all: neither target republishes, and neither is an error.
+check "docs: an empty diff skips"   skip "$(verdict docs '')"
+check "status: an empty diff skips" skip "$(verdict status '')"
+
+# A target name the workflow never passes is a mistake in the workflow. It must
+# not resolve to "publish nothing" and report success.
+check "an unknown target publishes rather than silently skipping" publish "$(verdict typo content/docs/x.mdx)"
 
 printf '\nread-live-commit: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

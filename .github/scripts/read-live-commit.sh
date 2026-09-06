@@ -219,6 +219,57 @@ report_live_state() {
   esac
 }
 
+# paths_touch_target <target>   (changed paths, one per line, on stdin)
+#
+# Whether a build target needs republishing for a set of changed files.
+#
+#   0  something it builds from changed, publish it
+#   1  nothing it builds from changed, skip
+#
+# Two Workers ship from this repository and a merge usually concerns one of
+# them. The trigger is a workflow-completion event, which supports no path
+# filters and carries no changed-file list, so the decision is made here
+# against a diff the job computes itself.
+#
+# Both lists name what is *irrelevant* to a target rather than what belongs to
+# it, so the default for an unrecognised path is to publish. That direction is
+# deliberate. The status page shares this repository's stylesheet, its shared
+# constants and its lockfile, so a list of "status paths" would miss a shared
+# change and leave the page silently stale — and stale is the one failure a
+# status page may not have. A redundant publish costs a minute.
+paths_touch_target() {
+  local target="$1" path found=1
+
+  while IFS= read -r path; do
+    [ -z "$path" ] && continue
+
+    case "$target" in
+      docs)
+        # Only the status target's own files cannot reach the docs bundle.
+        case "$path" in
+          src/status/*|vite.status.config.ts|wrangler.status.jsonc|tsconfig.status.json)
+            continue ;;
+        esac ;;
+      status)
+        # Documentation content and docs-only source. Everything else may
+        # reach it: the shared stylesheet, the shared constants, the base
+        # tsconfig, the lockfile, either Vite config.
+        case "$path" in
+          content/*|openapi.json|*.md|.github/*|scripts/*|src/routes/*|src/components/*)
+            continue ;;
+        esac ;;
+      *)
+        # An unrecognised target is a mistake in the workflow, not a reason to
+        # publish nothing and report success.
+        return 0 ;;
+    esac
+
+    found=0
+  done
+
+  return $found
+}
+
 # check_deploy_target <event-name> <ref> <deploy-commit> <tip>
 #
 # Whether the publish job should go ahead. Writes its reasoning to stdout.
