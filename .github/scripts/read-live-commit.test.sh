@@ -380,7 +380,7 @@ else
   # laptop and failed in CI, reporting that a publish guard had stopped being
   # called when it had not.
   workflow_body="$(sed 's/#.*//' "$workflow")"
-  for fn in report_live_state check_deploy_target resolve_main_ref read_live_commit paths_touch_target; do
+  for fn in report_live_state check_deploy_target resolve_main_ref read_live_commit paths_touch_target effective_verdict; do
     if [[ $workflow_body == *"$fn"* ]]; then
       pass=$((pass+1)); printf '  ok    the workflow calls %s\n' "$fn"
     else
@@ -388,6 +388,71 @@ else
     fi
   done
 fi
+
+# ------------------------------------- behind main, and correctly so
+#
+# Two Workers publish from this repository and each publishes only when
+# something it builds from changed, so a merge touching one leaves the other
+# legitimately behind main. Without this refinement the daily check reports
+# that site as behind until somebody happens to change a file it cares about:
+# an alert that is open, permanent, and about nothing.
+echo
+echo "report_live_state, target-aware"
+
+paths_repo="$work/paths"
+mkdir -p "$paths_repo"
+prev_dir="$PWD"
+cd "$paths_repo"
+git init -q -b main .
+git config user.email t@test.invalid; git config user.name t
+mkdir -p content/docs src/status/lib src/styles
+
+file_commit() { # file_commit <path> <message>
+  mkdir -p "$(dirname "$1")"; echo "$2" > "$1"
+  git add -A; git commit -q -m "$2"; git rev-parse HEAD
+}
+
+p0="$(file_commit content/docs/intro.mdx base)"
+p_docs="$(file_commit content/docs/intro.mdx "a docs page")"
+p_status="$(file_commit src/status/lib/state.ts "the status source")"
+p_shared="$(file_commit src/styles/app.css "the shared stylesheet")"
+git update-ref refs/remotes/origin/main "$p_shared"
+
+target_verdict() { # target_verdict <expected> <live> <target> -> "<exit> <verdict word>"
+  local out rc
+  out="$(report_live_state "$1" "$2" "$3" 2>&1)"; rc=$?
+  printf '%s %s' "$rc" "$(printf '%s' "$out" | sed -n 's/.*Verdict: \([a-z-]*\)\..*/\1/p' | head -1)"
+}
+
+# Behind by one commit that only the status target builds from.
+check "docs behind a status-only commit is not a finding" \
+  "0 unaffected" "$(target_verdict "$p_status" "$p_docs" docs)"
+check "status behind that same commit is a finding" \
+  "1 behind" "$(target_verdict "$p_status" "$p_docs" status)"
+
+# Behind by one commit that only the docs target builds from.
+check "status behind a docs-only commit is not a finding" \
+  "0 unaffected" "$(target_verdict "$p_docs" "$p0" status)"
+check "docs behind that same commit is a finding" \
+  "1 behind" "$(target_verdict "$p_docs" "$p0" docs)"
+
+# A shared file reaches both, so neither gets the benefit of the doubt.
+check "docs behind a shared change is a finding" \
+  "1 behind" "$(target_verdict "$p_shared" "$p_status" docs)"
+check "status behind a shared change is a finding" \
+  "1 behind" "$(target_verdict "$p_shared" "$p_status" status)"
+
+# Named without a target, the refinement cannot apply and must not be assumed.
+check "no target named still reports behind" \
+  "1 behind" "$(target_verdict "$p_status" "$p_docs" "")"
+
+# The refinement only ever softens `behind`. Everything else is untouched.
+check "current is unaffected by the refinement" \
+  "0 current" "$(target_verdict "$p_shared" "$p_shared" docs)"
+check "a commit this repository does not know is still unknown" \
+  "1 unknown-commit" "$(target_verdict "$p_shared" "$(printf '0%.0s' $(seq 40))" docs)"
+
+cd "$prev_dir"
 
 # ------------------------------------------------------- which target to publish
 #

@@ -159,7 +159,47 @@ describe_live_state() {
   printf 'behind'
 }
 
-# report_live_state <expected> <live>
+# behind_but_unaffected <expected> <live> <target>
+#
+# Whether a target being behind main is a finding or a fact.
+#
+# Two Workers publish from this repository and each publishes only when
+# something it builds from has changed, so a run that touches one leaves the
+# other legitimately behind main and correctly so. Without this, the daily
+# check reports that site as behind for as long as it takes somebody to change
+# a file it cares about — an alert that is open, permanent, and about nothing.
+#
+# Returns 0 when nothing the target builds from changed between the two.
+behind_but_unaffected() {
+  local expected="$1" live="$2" target="$3"
+  [ -n "$target" ] || return 1
+  git cat-file -e "${live}^{commit}" 2>/dev/null || return 1
+  git cat-file -e "${expected}^{commit}" 2>/dev/null || return 1
+  git diff --name-only "$live" "$expected" 2>/dev/null | paths_touch_target "$target" && return 1
+  return 0
+}
+
+# effective_verdict <expected> <live> [target]
+#
+# The verdict as it should be acted on: `describe_live_state`, with `behind`
+# softened to `unaffected` when the commits in between are none of this
+# target's business.
+#
+# One function for it, because the caller needs the same answer twice — once
+# for the annotation and the exit code, once for the field the notifier
+# reports. Computed separately, they drifted: the job succeeded while telling
+# the alert destination the site was behind.
+effective_verdict() {
+  local verdict
+  verdict="$(describe_live_state "$1" "$2")"
+  if [ "$verdict" = behind ] && behind_but_unaffected "$1" "$2" "${3:-}"; then
+    printf 'unaffected'
+    return 0
+  fi
+  printf '%s' "$verdict"
+}
+
+# report_live_state <expected> <live> [target]
 #
 # The daily check's whole decision: verdict to wording to exit code. It lives
 # here rather than in the workflow because a `run:` block cannot be executed by
@@ -171,8 +211,8 @@ describe_live_state() {
 # Writes annotations to stdout. Returns 0 when the site is current or benignly
 # ahead, 1 otherwise.
 report_live_state() {
-  local expected="$1" live="$2" verdict
-  verdict="$(describe_live_state "$expected" "$live")"
+  local expected="$1" live="$2" target="${3:-}" verdict
+  verdict="$(effective_verdict "$expected" "$live" "$target")"
   echo "Live: ${live}. Expected: ${expected}. Verdict: ${verdict}."
 
   case "$verdict" in
@@ -183,6 +223,13 @@ report_live_state() {
       # Benign and expected: a merge landing while this run is in flight
       # publishes a commit newer than the one the run was created at.
       echo "Live site is ahead of ${expected} and still on main. A merge landed while this run was in flight."
+      return 0 ;;
+    unaffected)
+      # Behind main, and correctly so. Nothing this target builds from has
+      # changed since it published, so republishing would produce the same
+      # bundle. Reporting it as behind would open an alert that nobody can
+      # close except by changing an unrelated file.
+      echo "Live site is behind ${expected}, and nothing it builds from changed in between. It is serving the right bundle."
       return 0 ;;
     behind)
       echo "::error title=Published site is behind::The live site reports ${live}; main is ${expected}."
