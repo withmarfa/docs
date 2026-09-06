@@ -7,6 +7,14 @@ import { IncidentList, MonitorRow, StatusDot } from '../components/status-rows';
 
 export const Route = createFileRoute('/')({
   loader: async () => await loadStatus(),
+  /*
+    The same thirty seconds the JSON endpoint already carries, and for the same
+    reason: the store behind both is rewritten every few minutes, so a shorter
+    window buys nothing and a longer one would hold a resolved outage on screen.
+    Without this the page was the one response here served with no cache header
+    at all, which leaves the answer to whatever the edge decides.
+  */
+  headers: () => ({ 'cache-control': 'public, max-age=30' }),
   component: StatusPage,
 });
 

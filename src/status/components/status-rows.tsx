@@ -58,13 +58,19 @@ export function MonitorRow({ monitor, now }: { monitor: MonitorView; now: number
         </p>
       )}
 
+      {/*
+        Chart first, then the bar. Both are a horizontal time axis and the bar
+        is the wider window, so putting it last lets a reader zoom out as they
+        move down the row instead of jumping from ninety days to twelve hours
+        and back.
+      */}
+      <LatencyChart series={monitor.series} seconds={monitor.seriesSeconds} />
+
       <UptimeBar
         days={monitor.days}
         uptime={monitor.uptime}
         observedDays={monitor.observedDays}
       />
-
-      <LatencyChart series={monitor.series} seconds={monitor.seriesSeconds} />
 
       {monitor.latencyMs === null ? null : (
         <p className="mt-3 border-t border-fd-border pt-3 text-xs text-fd-muted-foreground">

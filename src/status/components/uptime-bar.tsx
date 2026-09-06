@@ -19,7 +19,7 @@ function describe(day: DayCell): string {
 /**
  * Ninety days, one cell each, oldest on the left.
  *
- * The line chart below says how fast; this says whether, and over a window long
+ * The line chart above says how fast; this says whether, and over a window long
  * enough to be worth looking at. A grey cell means the checker was not running
  * yet — painting those green would be a claim about days nobody watched, which
  * is why the store records when observation began.
