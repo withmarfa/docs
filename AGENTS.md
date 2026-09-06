@@ -30,6 +30,10 @@ Two Workers ship from this repository. The docs site is the default target; the
 status page at `src/status/` is the second, built by `vite.status.config.ts`
 into `dist-status/` and deployed from `wrangler.status.jsonc`.
 
+One `public/` directory feeds both, because neither Vite config overrides
+`publicDir`. The favicon set lives there and is served by each Worker from its
+own asset store, so the two sites cannot end up wearing different marks.
+
 **Never build both targets and then deploy in one tree.** The deploy pointer the
 Cloudflare plugin writes is one fixed path per project root and every build
 rewrites it, so a bare `wrangler deploy` deploys whichever target built last.
