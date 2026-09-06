@@ -21,7 +21,24 @@ pnpm types:check    # fumadocs-mdx codegen + tsc --noEmit (run after a build)
 pnpm test           # vitest run — MCP protocol conformance
 pnpm preview        # serve the production build locally
 pnpm run deploy     # pnpm build && wrangler deploy (pnpm deploy is a built-in)
+
+pnpm run build:status   # the status page, a second Vite target
+pnpm run deploy:status  # build it and deploy it through its own resolved config
 ```
+
+Two Workers ship from this repository. The docs site is the default target; the
+status page at `src/status/` is the second, built by `vite.status.config.ts`
+into `dist-status/` and deployed from `wrangler.status.jsonc`.
+
+**Never build both targets and then deploy in one tree.** The deploy pointer the
+Cloudflare plugin writes is one fixed path per project root and every build
+rewrites it, so a bare `wrangler deploy` deploys whichever target built last.
+`deploy:status` passes the config its own build emitted, which is why it is safe.
+
+`types:check` runs two TypeScript projects, one per target. The two generated
+route trees register their paths into one global interface, so compiled together
+they merge and the losing target's route types silently become `undefined`.
+Both targets have to be built before it.
 
 ## Publishing
 
@@ -36,9 +53,19 @@ against the repository. A build from a modified working tree reports
 `<sha>-dirty`, because a hand-deploy that stamped a clean sha would defeat every
 check downstream of it.
 
-A daily run compares the live commit against `main` and names the unpublished
-commits if it has fallen behind. Both paths report to the alerting service, and
-both can be run by hand from the Actions tab, the check path included.
+Both Workers publish this way, in separate jobs with separate checkouts, each
+proving its own deploy against its own hostname. A job publishes only when
+something its target builds from has changed since the commit that target is
+serving; the comparison lives in `.github/scripts/read-live-commit.sh` and every
+uncertain case publishes, because a wasted deploy costs a minute and a skipped
+one leaves a stale site behind a green run.
+
+A daily run compares each live commit against `main` and names the unpublished
+commits if either has fallen behind. Both report to the alerting service under
+their own key — one key across both would mean a green publish of either
+silently resolving an open alert about the other. All of it can be run by hand
+from the Actions tab, and a manual run can name a single target, so a status
+page fix can ship while the docs suite is red.
 
 **This exists because none of it did.** Publishing was `pnpm run deploy` from
 somebody's shell with nothing reporting that nobody had run it, and the site
