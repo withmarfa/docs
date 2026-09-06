@@ -15,10 +15,11 @@ import type { CompactedState, IncidentRecord, LatencyRecord, PageMeta } from './
  * nobody is served by staging. It stays in the JSON endpoint, which is the
  * machine-readable record rather than the public answer.
  *
- * One constant, exported, because the page, the feed and the navbar indicator
- * all filter by it and three copies would drift.
+ * Defined outside this target because the documentation site's navbar
+ * indicator filters by the same list, and two copies would drift the first
+ * time a monitor moved between them.
  */
-export const PUBLIC_MONITORS = ['api', 'api-files', 'docs'] as const;
+export { PUBLIC_MONITORS } from '../../lib/shared';
 
 /** Retention in the checker, and therefore the widest window we can report. */
 export const HISTORY_WINDOW_SECONDS = 90 * 24 * 60 * 60;
