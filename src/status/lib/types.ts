@@ -63,6 +63,16 @@ export type PageMeta = {
     name: string;
     tooltip?: string;
     statusPageLink?: string;
+    /**
+     * Epoch seconds this monitor started being watched. The document-level
+     * `since` is one number for the whole store, so a monitor added later
+     * inherits it and gets painted green for days it did not exist.
+     *
+     * Absent on a store written before the checker recorded it, and on a
+     * monitor the checker does not label, in which case the document-level
+     * value is the best answer available.
+     */
+    since?: number;
   }[];
   maintenances: unknown[];
 };

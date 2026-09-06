@@ -123,6 +123,74 @@ describe('parsing what the checker wrote', () => {
     expect(parseMeta('{}')).toBeNull();
     expect(parseMeta(JSON.stringify(META))?.monitors).toHaveLength(3);
   });
+
+  // Only `since` is normalized on a monitor, because only `since` is
+  // arithmetic: it propagates into every day cell and the uptime denominator,
+  // where `undefined` already means "cannot vouch for it".
+  it.each([
+    ['a string', '"2026-01-01"'],
+    ['zero', '0'],
+    ['null', 'null'],
+    ['missing', undefined],
+  ])('drops a monitor observation start that is %s', (_label, raw) => {
+    const monitor = raw === undefined ? '{"id":"api","name":"API"}' : `{"id":"api","name":"API","since":${raw}}`;
+    const meta = parseMeta(`{"monitors":[${monitor}],"since":1}`);
+    expect(meta?.monitors[0].since).toBeUndefined();
+  });
+
+  it('keeps a usable monitor observation start', () => {
+    const meta = parseMeta('{"monitors":[{"id":"api","name":"API","since":1788000000}],"since":1}');
+    expect(meta?.monitors[0].since).toBe(1788000000);
+  });
+});
+
+// The failure this exists to stop: the deployment-wide start is one number for
+// the whole store, so a monitor added later inherits it and gets ninety days of
+// green for days it did not exist.
+describe('when each monitor started being watched', () => {
+  const DAY = 24 * 60 * 60;
+
+  function viewFor(since: number | undefined) {
+    return buildView(
+      syntheticState(),
+      {
+        ...META,
+        monitors: META.monitors.map((monitor) =>
+          monitor.id === 'api' ? { ...monitor, since } : monitor,
+        ),
+      },
+      ['api'],
+      CAPTURED_AT,
+    );
+  }
+
+  it('uses the monitor\'s own start over the deployment\'s', () => {
+    const view = viewFor(CAPTURED_AT - 3 * DAY);
+    expect(view.monitors[0].observedDays).toBe(3);
+    expect(view.monitors[0].days.filter((day) => day.status === 'unknown')).toHaveLength(
+      UPTIME_BAR_DAYS - 4,
+    );
+  });
+
+  it('falls back to the deployment for a monitor that carries none', () => {
+    expect(viewFor(undefined).monitors[0].observedDays).toBe(UPTIME_BAR_DAYS);
+  });
+
+  // A monitor added an hour ago has nothing to show, and grey is the honest
+  // answer. A confident 100% over ninety days would be the worst one.
+  it('greys out a monitor added minutes ago rather than claiming uptime', () => {
+    const view = viewFor(CAPTURED_AT - 600);
+    expect(view.monitors[0].days.filter((day) => day.status === 'up')).toHaveLength(1);
+    expect(view.monitors[0].uptime).toBe(1);
+    expect(view.monitors[0].observedDays).toBe(1);
+  });
+
+  // The document-level value is a statement about the store, and the feed
+  // dates "nothing has ever gone wrong here" from it. One monitor's start must
+  // not move it.
+  it('leaves the view\'s own start as the deployment\'s', () => {
+    expect(viewFor(CAPTURED_AT - 3 * DAY).since).toBe(META.since);
+  });
 });
 
 describe('what counts as down', () => {

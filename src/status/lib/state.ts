@@ -92,7 +92,17 @@ export function parseMeta(raw: string | null): PageMeta | null {
       title: parsed.title,
       since: typeof parsed.since === 'number' && parsed.since > 0 ? parsed.since : undefined,
       group: parsed.group,
-      monitors: parsed.monitors,
+      // Only `since` is normalized, because only `since` is arithmetic. A bad
+      // name renders badly; a bad timestamp propagates into every day cell and
+      // the uptime denominator, and `undefined` there already means "cannot
+      // vouch for it" rather than being an error case.
+      monitors: parsed.monitors.map((monitor) => ({
+        ...monitor,
+        since:
+          typeof monitor?.since === 'number' && monitor.since > 0
+            ? monitor.since
+            : undefined,
+      })),
       maintenances: Array.isArray(parsed.maintenances) ? parsed.maintenances : [],
     };
   } catch {
@@ -338,10 +348,17 @@ export function buildView(
 ): StatusView {
   const labels = new Map((meta?.monitors ?? []).map((m) => [m.id, m]));
 
-  const since = meta?.since;
+  const deploymentSince = meta?.since;
 
   const monitors: MonitorView[] = ids.map((id) => {
     const label = labels.get(id);
+    // Per monitor, falling back to the whole deployment's start. The fallback
+    // is not a degraded path: it is the right answer for every monitor that
+    // has been there since the store was first written, and it is what an
+    // older checker's document can say. What it must not do is outrank a
+    // monitor's own value, which is the only thing that keeps a recently
+    // added target from being painted green for days it did not exist.
+    const since = label?.since ?? deploymentSince;
     const incidents = realIncidents(state, id);
     const samples = latencySeries(state, id);
     const last = getIncident(state, id, incidentCount(state, id) - 1);
@@ -397,7 +414,10 @@ export function buildView(
     lastUpdate: state.lastUpdate,
     monitors,
     incidents,
-    since,
+    // Deliberately the deployment's, not any one monitor's. This is what the
+    // feed dates "nothing has ever gone wrong here" from, and that is a
+    // statement about the store rather than about a row in it.
+    since: deploymentSince,
     allUp: downCount === 0,
     downCount,
     empty: state.lastUpdate === 0,
