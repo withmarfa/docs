@@ -90,6 +90,7 @@ export function parseMeta(raw: string | null): PageMeta | null {
     if (!Array.isArray(parsed.monitors)) return null;
     return {
       title: parsed.title,
+      since: typeof parsed.since === 'number' && parsed.since > 0 ? parsed.since : undefined,
       group: parsed.group,
       monitors: parsed.monitors,
       maintenances: Array.isArray(parsed.maintenances) ? parsed.maintenances : [],
@@ -181,6 +182,67 @@ export type Incident = {
   durationSeconds: number;
 };
 
+export const UPTIME_BAR_DAYS = 90;
+const DAY = 24 * 60 * 60;
+
+/**
+ * One cell of the uptime bar.
+ *
+ * `unknown` is not a degraded state, it is the absence of one: the checker was
+ * not watching yet. Distinguishing it from `up` is the whole reason the store
+ * records when observation began — a bar that paints unwatched days green is
+ * making a claim nobody can support.
+ */
+export type DayStatus = 'up' | 'partial' | 'down' | 'unknown';
+
+export type DayCell = {
+  /** UTC midnight opening the day. */
+  start: number;
+  status: DayStatus;
+  downSeconds: number;
+  observedSeconds: number;
+};
+
+/** Below this share of the day down, a day reads as degraded rather than out. */
+const DOWN_SHARE = 0.3;
+
+function dayCells(
+  incidents: IncidentRecord[],
+  since: number | undefined,
+  now: number,
+): DayCell[] {
+  const today = Math.floor(now / DAY) * DAY;
+  const cells: DayCell[] = [];
+
+  for (let i = UPTIME_BAR_DAYS - 1; i >= 0; i--) {
+    const start = today - i * DAY;
+    const end = Math.min(start + DAY, now);
+    // Nothing can be said about a day that ended before the checker existed,
+    // and nothing about one that has not started.
+    const from = since === undefined ? end : Math.max(start, since);
+    const observedSeconds = Math.max(0, end - from);
+
+    if (observedSeconds <= 0) {
+      cells.push({ start, status: 'unknown', downSeconds: 0, observedSeconds: 0 });
+      continue;
+    }
+
+    let downSeconds = 0;
+    for (const incident of incidents) {
+      const incidentEnd = incident.end ?? now;
+      const overlap = Math.min(end, incidentEnd) - Math.max(from, incident.start[0]);
+      if (overlap > 0) downSeconds += overlap;
+    }
+
+    const share = downSeconds / observedSeconds;
+    const status: DayStatus =
+      downSeconds === 0 ? 'up' : share < DOWN_SHARE ? 'partial' : 'down';
+    cells.push({ start, status, downSeconds, observedSeconds });
+  }
+
+  return cells;
+}
+
 export type MonitorView = {
   id: string;
   name: string;
@@ -192,14 +254,20 @@ export type MonitorView = {
   error: string | null;
   latencyMs: number | null;
   location: string | null;
-  /** Fraction in [0, 1] over the retention window. */
-  uptime: number;
+  /** Fraction in [0, 1] over the observed window, or null if nothing was. */
+  uptime: number | null;
+  /** Whole days observed, capped at the retention window. */
+  observedDays: number;
   /**
    * Response times only, not the full samples. The whole series is serialized
    * into the page for hydration, and the timestamps and colo codes triple that
    * payload to draw a line that uses neither.
    */
   series: number[];
+  /** The window the response times span, in seconds. */
+  seriesSeconds: number;
+  /** One per day, oldest first. */
+  days: DayCell[];
 };
 
 export type StatusView = {
@@ -208,6 +276,8 @@ export type StatusView = {
   incidents: Incident[];
   /** True only when every rendered monitor is up. */
   allUp: boolean;
+  /** Epoch seconds observation began, or undefined if the store cannot say. */
+  since?: number;
   downCount: number;
   /** No usable state in the store at all. */
   empty: boolean;
@@ -226,22 +296,33 @@ function realIncidents(state: CompactedState, id: string): IncidentRecord[] {
 }
 
 /**
- * Uptime over the retention window.
+ * Uptime over the window that was actually watched.
  *
- * The denominator is the window rather than the time this page has been
- * observing, because the checker discards anything older and there is nothing
- * left to derive a shorter honest window from. It reads high for the first
- * ninety days of a new monitor. Labelled with the window for that reason.
+ * The denominator is the observed window, not the retention window. Dividing a
+ * few minutes of downtime by ninety days when only a week was watched produces
+ * a number that disagrees with the bar printed beside it, and the bar is the
+ * honest one.
+ *
+ * Returns null when nothing has been observed, because there is no figure to
+ * give and a confident 100% would be the worst possible answer.
  */
-function uptimeFraction(incidents: IncidentRecord[], now: number): number {
-  const windowStart = now - HISTORY_WINDOW_SECONDS;
+function uptimeFraction(
+  incidents: IncidentRecord[],
+  since: number | undefined,
+  now: number,
+): number | null {
+  if (since === undefined) return null;
+  const windowStart = Math.max(since, now - HISTORY_WINDOW_SECONDS);
+  const observed = now - windowStart;
+  if (observed <= 0) return null;
+
   let down = 0;
   for (const incident of incidents) {
     const start = Math.max(incident.start[0], windowStart);
     const end = incident.end ?? now;
     if (end > start) down += end - start;
   }
-  return Math.max(0, Math.min(1, 1 - down / HISTORY_WINDOW_SECONDS));
+  return Math.max(0, Math.min(1, 1 - down / observed));
 }
 
 /**
@@ -257,9 +338,12 @@ export function buildView(
 ): StatusView {
   const labels = new Map((meta?.monitors ?? []).map((m) => [m.id, m]));
 
+  const since = meta?.since;
+
   const monitors: MonitorView[] = ids.map((id) => {
     const label = labels.get(id);
     const incidents = realIncidents(state, id);
+    const samples = latencySeries(state, id);
     const last = getIncident(state, id, incidentCount(state, id) - 1);
     // An open incident is the only thing that means "down right now".
     const open = last && !isSentinel(last) && last.end === null ? last : null;
@@ -277,8 +361,18 @@ export function buildView(
       error: open ? open.error[open.error.length - 1] : null,
       latencyMs: latency?.ping ?? null,
       location: latency?.loc ?? null,
-      uptime: uptimeFraction(incidents, now),
-      series: latencySeries(state, id).map((sample) => sample.ping),
+      uptime: uptimeFraction(incidents, since, now),
+      observedDays:
+        since === undefined
+          ? 0
+          : Math.min(
+              UPTIME_BAR_DAYS,
+              Math.max(1, Math.round((now - since) / DAY)),
+            ),
+      series: samples.map((sample) => sample.ping),
+      seriesSeconds:
+        samples.length > 1 ? samples[samples.length - 1].time - samples[0].time : 0,
+      days: dayCells(incidents, since, now),
     };
   });
 
@@ -303,6 +397,7 @@ export function buildView(
     lastUpdate: state.lastUpdate,
     monitors,
     incidents,
+    since,
     allUp: downCount === 0,
     downCount,
     empty: state.lastUpdate === 0,

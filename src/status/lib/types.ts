@@ -51,6 +51,12 @@ export type CompactedState = {
 /** The `meta` key: everything needed to turn monitor ids into a page. */
 export type PageMeta = {
   title?: string;
+  /**
+   * Epoch seconds of the earliest moment the checker can show evidence of
+   * having watched anything. Absent on a store written before the checker
+   * recorded it, which the reader treats as "cannot vouch for any of it".
+   */
+  since?: number;
   group?: Record<string, string[]>;
   monitors: {
     id: string;

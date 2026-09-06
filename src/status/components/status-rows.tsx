@@ -1,6 +1,7 @@
 import type { Incident, MonitorView } from '../lib/state';
-import { formatAbsolute, formatDuration, formatUptime } from '../lib/format';
+import { formatAbsolute, formatDuration } from '../lib/format';
 import { LatencyChart } from './latency-chart';
+import { UptimeBar } from './uptime-bar';
 
 export function StatusDot({ up }: { up: boolean }) {
   return (
@@ -57,26 +58,20 @@ export function MonitorRow({ monitor, now }: { monitor: MonitorView; now: number
         </p>
       )}
 
-      <LatencyChart series={monitor.series} />
+      <UptimeBar
+        days={monitor.days}
+        uptime={monitor.uptime}
+        observedDays={monitor.observedDays}
+      />
 
-      <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-fd-muted-foreground">
-        <div className="flex gap-1.5">
-          <dt>Uptime, 90 days</dt>
-          <dd className="font-medium text-fd-foreground">{formatUptime(monitor.uptime)}</dd>
-        </div>
-        {monitor.latencyMs === null ? null : (
-          <div className="flex gap-1.5">
-            <dt>Response</dt>
-            <dd className="font-medium text-fd-foreground">{monitor.latencyMs} ms</dd>
-          </div>
-        )}
-        {monitor.location ? (
-          <div className="flex gap-1.5">
-            <dt>Checked from</dt>
-            <dd className="font-medium text-fd-foreground">{monitor.location}</dd>
-          </div>
-        ) : null}
-      </dl>
+      <LatencyChart series={monitor.series} seconds={monitor.seriesSeconds} />
+
+      {monitor.latencyMs === null ? null : (
+        <p className="mt-3 border-t border-fd-border pt-3 text-xs text-fd-muted-foreground">
+          Last check <span className="text-fd-foreground">{monitor.latencyMs} ms</span>
+          {monitor.location ? ` from ${monitor.location}` : null}
+        </p>
+      )}
     </li>
   );
 }

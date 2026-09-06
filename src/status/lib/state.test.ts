@@ -3,6 +3,7 @@ import capturedState from './fixtures/captured-state.json';
 import {
   HISTORY_WINDOW_SECONDS,
   PUBLIC_MONITORS,
+  UPTIME_BAR_DAYS,
   buildView,
   incidentDuration,
   lastLatency,
@@ -17,8 +18,12 @@ const CAPTURED = JSON.stringify(capturedState);
 /** The moment the fixture was taken, so nothing here depends on the clock. */
 const CAPTURED_AT = 1788651670;
 
+/** Observed for the whole retention window, so uptime spans all of it. */
+const FULLY_OBSERVED = CAPTURED_AT - 90 * 24 * 60 * 60;
+
 const META: PageMeta = {
   title: 'Marfa Status',
+  since: FULLY_OBSERVED,
   monitors: [
     { id: 'api', name: 'API', statusPageLink: 'https://api.marfa.so/health' },
     { id: 'api-files', name: 'File storage' },
@@ -157,6 +162,13 @@ describe('what counts as down', () => {
     expect(view.monitors[0].uptime).toBe(1);
   });
 
+  // A confident 100% is the worst possible answer when nothing was watched.
+  it('gives no uptime figure at all when the store cannot say when it started', () => {
+    const view = buildView(syntheticState(), { ...META, since: undefined }, ['api'], CAPTURED_AT);
+    expect(view.monitors[0].uptime).toBeNull();
+    expect(view.monitors[0].observedDays).toBe(0);
+  });
+
   // `start` grows when the error text changes inside one open incident, which
   // reads like a second outage and is not.
   it('dates a multi-start incident from its first start and reports its last error', () => {
@@ -196,7 +208,7 @@ describe('what counts as down', () => {
   });
 });
 
-describe('uptime over the retention window', () => {
+describe('uptime over the window that was watched', () => {
   it('subtracts a closed outage from the window', () => {
     const oneHour = 60 * 60;
     const state = syntheticState({
@@ -238,6 +250,124 @@ describe('uptime over the retention window', () => {
     });
     const view = buildView(state, META, ['api'], CAPTURED_AT);
     expect(view.monitors[0].uptime).toBeCloseTo(1 - 3600 / HISTORY_WINDOW_SECONDS, 10);
+  });
+
+  // The denominator is what was watched, not what is retained. Dividing by
+  // ninety days when a week was watched produces a figure that disagrees with
+  // the bar printed beside it.
+  it('divides by the observed window, not the retention window', () => {
+    const week = 7 * 24 * 60 * 60;
+    const state = syntheticState({
+      incident: {
+        api: {
+          start: [[CAPTURED_AT - 3600]],
+          end: [CAPTURED_AT],
+          error: [['down']],
+        },
+      },
+    });
+    const view = buildView(state, { ...META, since: CAPTURED_AT - week }, ['api'], CAPTURED_AT);
+    expect(view.monitors[0].uptime).toBeCloseTo(1 - 3600 / week, 10);
+    expect(view.monitors[0].observedDays).toBe(7);
+  });
+
+  it('never claims more observed days than the bar can show', () => {
+    const view = buildView(
+      syntheticState(),
+      { ...META, since: CAPTURED_AT - 400 * 24 * 60 * 60 },
+      ['api'],
+      CAPTURED_AT,
+    );
+    expect(view.monitors[0].observedDays).toBe(UPTIME_BAR_DAYS);
+  });
+});
+
+describe('the uptime bar', () => {
+  const DAY = 24 * 60 * 60;
+  // Midday, so a day boundary is never the same instant as `now`.
+  const NOON = Math.floor(CAPTURED_AT / DAY) * DAY + 12 * 3600;
+
+  function withIncident(over: Partial<{ start: number; end: number | null }> = {}) {
+    const start = over.start ?? NOON - 3600;
+    const end = over.end === undefined ? NOON - 1800 : over.end;
+    return syntheticState({
+      incident: {
+        api: { start: [[start]], end: [end], error: [['down']] },
+      },
+    });
+  }
+
+  function cells(state: CompactedState, since: number | undefined) {
+    return buildView(state, { ...META, since }, ['api'], NOON).monitors[0].days;
+  }
+
+  it('draws one cell per retained day, oldest first', () => {
+    const days = cells(syntheticState(), NOON - 400 * DAY);
+    expect(days).toHaveLength(UPTIME_BAR_DAYS);
+    expect(days[days.length - 1].start).toBeGreaterThan(days[0].start);
+    expect(days[days.length - 1].start).toBe(Math.floor(NOON / DAY) * DAY);
+  });
+
+  // The whole reason the checker records when it started. A bar that paints
+  // unwatched days green is a claim about days nobody watched.
+  it('greys out every day before the checker was watching', () => {
+    const since = NOON - 3 * DAY;
+    const days = cells(syntheticState(), since);
+    const unknown = days.filter((d) => d.status === 'unknown');
+    // Today plus the three full days the checker can account for.
+    expect(days.length - unknown.length).toBe(4);
+    expect(days.slice(0, unknown.length).every((d) => d.status === 'unknown')).toBe(true);
+  });
+
+  it('greys out everything when the store cannot say when it started', () => {
+    expect(cells(syntheticState(), undefined).every((d) => d.status === 'unknown')).toBe(true);
+  });
+
+  it('marks a day with no incident as up', () => {
+    const days = cells(syntheticState(), NOON - 10 * DAY);
+    expect(days[days.length - 1].status).toBe('up');
+    expect(days[days.length - 1].downSeconds).toBe(0);
+  });
+
+  it('marks a brief outage as degraded rather than out', () => {
+    const days = cells(withIncident(), NOON - 10 * DAY);
+    const today = days[days.length - 1];
+    expect(today.status).toBe('partial');
+    expect(today.downSeconds).toBe(1800);
+  });
+
+  it('marks a day mostly spent down as down', () => {
+    const days = cells(
+      withIncident({ start: NOON - 11 * 3600, end: NOON - 3600 }),
+      NOON - 10 * DAY,
+    );
+    expect(days[days.length - 1].status).toBe('down');
+  });
+
+  it('measures an open incident up to now, not to the end of the day', () => {
+    const days = cells(withIncident({ start: NOON - 1800, end: null }), NOON - 10 * DAY);
+    const today = days[days.length - 1];
+    expect(today.downSeconds).toBe(1800);
+    // Today is half over, so its observed window is midnight to noon.
+    expect(today.observedSeconds).toBe(12 * 3600);
+  });
+
+  // The first observed day is partial, so its denominator has to start at
+  // `since` rather than at midnight, or a short outage reads as a long one.
+  it('counts the first observed day only from the moment watching began', () => {
+    const since = NOON - 6 * 3600;
+    const days = cells(syntheticState(), since);
+    expect(days[days.length - 1].observedSeconds).toBe(6 * 3600);
+  });
+
+  it('confines an outage to the days it actually spans', () => {
+    const days = cells(
+      withIncident({ start: NOON - 30 * DAY, end: NOON - 30 * DAY + 600 }),
+      NOON - 60 * DAY,
+    );
+    const affected = days.filter((d) => d.downSeconds > 0);
+    expect(affected).toHaveLength(1);
+    expect(affected[0].status).toBe('partial');
   });
 });
 

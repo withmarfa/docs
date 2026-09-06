@@ -69,20 +69,13 @@ function StatusPage() {
           </div>
         </section>
 
-        <footer className="mt-12 border-t border-fd-border pt-6 text-xs text-fd-muted-foreground">
-          <p>
-            Checked every minute from Cloudflare&rsquo;s network, which sits
-            outside the systems it reports on.{' '}
-            Machine-readable:{' '}
-            <a href="/api/data" className="underline underline-offset-4">
-              JSON
-            </a>{' '}
-            and{' '}
-            <a href="/feed.xml" className="underline underline-offset-4">
-              Atom feed
-            </a>
-            .
-          </p>
+        <footer className="mt-12 flex gap-4 border-t border-fd-border pt-6 text-xs text-fd-muted-foreground">
+          <a href="/api/data" className="underline underline-offset-4 hover:text-fd-foreground">
+            JSON
+          </a>
+          <a href="/feed.xml" className="underline underline-offset-4 hover:text-fd-foreground">
+            Atom
+          </a>
         </footer>
       </main>
     </HomeLayout>
