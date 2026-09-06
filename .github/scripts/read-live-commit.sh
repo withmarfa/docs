@@ -159,6 +159,43 @@ describe_live_state() {
   printf 'behind'
 }
 
+# target_needs_publish <target> <live-value> <deploy-commit>
+#
+# The publish job's whole path decision, in one place so it can be tested.
+#
+#   0  publish
+#   1  nothing this target builds from changed since it last published
+#
+# Every uncertain case publishes. A wasted deploy costs a minute; a skipped one
+# leaves a stale site behind a green run, which is the failure this workflow
+# exists to close.
+#
+# The ancestry check is the one that is easy to leave out, and leaving it out
+# wedges the target permanently. A hand-deploy from a branch — the documented
+# fallback when the credential is missing — leaves the site serving a commit
+# whose tree is identical to main's after the squash merge. The diff is then
+# empty, the job skips, and it keeps skipping: the site never receives a commit
+# the freshness check recognizes, so it reports published-from-somewhere-else
+# every day with nothing able to correct it.
+target_needs_publish() {
+  local target="$1" live="$2" deploy="$3"
+
+  # Not a commit at all: unreachable, unreadable, missing, or built dirty.
+  case "$live" in
+    *[!0-9a-f]*|"") return 0 ;;
+  esac
+
+  # A commit this checkout has never heard of.
+  git cat-file -e "${live}^{commit}" 2>/dev/null || return 0
+
+  # A real commit that is not in the history being deployed. Whatever it is —
+  # a branch build, a rollback, a rewritten main — a diff against it does not
+  # answer the question being asked.
+  git merge-base --is-ancestor "$live" "$deploy" 2>/dev/null || return 0
+
+  git diff --name-only "$live" "$deploy" 2>/dev/null | paths_touch_target "$target"
+}
+
 # behind_but_unaffected <expected> <live> <target>
 #
 # Whether a target being behind main is a finding or a fact.
