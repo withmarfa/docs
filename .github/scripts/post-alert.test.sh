@@ -21,9 +21,12 @@ check() { # check <label> <expected> <actual>
 SUBJECT="Docs site"
 CHECK_SUBJECT="Docs publish check"
 
-# decide <results> <live> <expected> <verdict> -> "state|title"
+# decide <results> <live> <expected> <verdict> [store] -> "state|title"
+#
+# `store` is reset on every call rather than defaulted, because these are plain
+# assignments and a value left set would leak into every case after it.
 decide() {
-  RESULTS="$1" LIVE="$2" EXPECTED="$3" VERDICT="$4"
+  RESULTS="$1" LIVE="$2" EXPECTED="$3" VERDICT="$4" STORE="${5:-}"
   local out; out="$(alert_title_and_state)"
   printf '%s|%s' "${out%%$'\t'*}" "${out#*$'\t'}"
 }
@@ -57,6 +60,32 @@ check "failing before reading the site names the commit that should be live" \
 
 check "failing with nothing at all is inconclusive" \
   "open|Docs publish check: inconclusive" "$(decide 'failure,skipped' '' '' '')"
+
+# The status target reports a second, independent fact: whether the checker is
+# still writing. It outranks the publish verdict, because a page serving the
+# right bundle full of frozen data is worse than one serving an old bundle —
+# everything on it still reads as reassuring and none of it is true.
+check "a stale store outranks a matching pair of commits" \
+  "open|Docs site: store stale" \
+  "$(decide 'failure,skipped' "$SHA_A" "$SHA_A" current stale)"
+
+check "an empty store is named as such" \
+  "open|Docs site: store empty" \
+  "$(decide 'failure,skipped' "$SHA_A" "$SHA_A" current empty)"
+
+check "a stale store still outranks a broken checkout" \
+  "open|Docs site: store unreachable" \
+  "$(decide 'failure,skipped' "$SHA_A" origin/main unknown-ref unreachable)"
+
+# The docs notifier never sets it, and a fresh store must not change any
+# existing wording.
+check "a fresh store says nothing on its own" \
+  "open|Docs site: serving 1111111, main is 2222222" \
+  "$(decide 'failure,skipped' "$SHA_A" "$SHA_B" behind fresh)"
+
+check "an unset store leaves the docs notifier untouched" \
+  "open|Docs site: serving 1111111, main is 2222222" \
+  "$(decide 'failure,skipped' "$SHA_A" "$SHA_B" behind)"
 
 # Hosted runners, so a cancel is GitHub dropping a queued run when several
 # merges land together, not a signal about the site.

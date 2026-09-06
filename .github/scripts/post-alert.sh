@@ -17,6 +17,7 @@
 #   ALERT_TOKEN    optional bearer credential
 #   RESULTS        comma-joined job results
 #   LIVE EXPECTED VERDICT SITE_URL
+#   STORE          freshness of the checker's store, status target only
 #   REPO REPO_URL WORKFLOW RUN_URL RUN_NUMBER
 set -euo pipefail
 
@@ -38,7 +39,14 @@ alert_title_and_state() { # -> "<state>\t<title>"
   case ",${RESULTS}," in
     *,failure,*)
       state=open
-      if [ "${VERDICT}" = unknown-ref ]; then
+      if [ -n "${STORE:-}" ] && [ "${STORE}" != fresh ]; then
+        # First, because it outranks everything below it. The other arms are
+        # about which bundle is being served; this one says the page is serving
+        # data that stopped moving, which makes every reassuring thing on it
+        # untrue. A title naming two matching commits would be accurate and
+        # would bury it.
+        title="${SUBJECT}: store ${STORE}"
+      elif [ "${VERDICT}" = unknown-ref ]; then
         # A statement about the checkout rather than about the site, so it
         # changes subject to the check in the same way the did-not-run case
         # does. Naming a verdict here would be the confidently-wrong diagnostic
@@ -104,13 +112,15 @@ main() {
           --arg ru "${REPO_URL}" --arg rn "${RUN_NUMBER}" --arg site "${SITE_URL}" \
           --arg sl "${SITE_LABEL}" \
           --arg live "${LIVE}" --arg main "${EXPECTED}" --arg verdict "${VERDICT}" \
+          --arg store "${STORE:-}" \
       '{source:"github",severity:"warning",title:$t,state:$s,key:$k,link:$u,
         fields:(
           {Repository:"[\($r)](\($ru))",Workflow:$w,Run:"[#\($rn)](\($u))",Jobs:$j}
           + (if $site == "" then {} else {Site:"[\($sl)](\($site))"} end)
           + (if $live == "" then {} else {Live:$live} end)
           + (if $main == "" then {} else {Main:$main} end)
-          + (if $verdict == "" then {} else {Verdict:$verdict} end))}'
+          + (if $verdict == "" then {} else {Verdict:$verdict} end)
+          + (if $store == "" then {} else {Store:$store} end))}'
   )" || {
     echo "::error::The alert body could not be built. Nothing was sent."
     return 1

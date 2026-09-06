@@ -71,6 +71,16 @@ silently resolving an open alert about the other. All of it can be run by hand
 from the Actions tab, and a manual run can name a single target, so a status
 page fix can ship while the docs suite is red.
 
+The status half of that daily run asks a second question the docs half cannot:
+whether the checker is still writing. The status page renders whatever the
+store last held, so a checker that stops leaves every monitor reading
+operational and the uptime bar full — the failure is invisible precisely
+because nothing is failing. `.github/scripts/check-store-freshness.sh` fetches
+`/api/data` and fails when its `updatedAt` is older than three of the checker's
+write intervals. It runs on a GitHub-hosted runner deliberately: the checker,
+the store and the page are all on Cloudflare, and a check that shares their
+fate reports nothing at the moment it matters.
+
 **This exists because none of it did.** Publishing was `pnpm run deploy` from
 somebody's shell with nothing reporting that nobody had run it, and the site
 reached fifteen merged commits behind while every run on `main` was green.
