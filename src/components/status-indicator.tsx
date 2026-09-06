@@ -11,6 +11,11 @@ type ApiResponse = {
  * The status page is only useful if it can be found while something is wrong,
  * and the navbar is where a reader already is.
  *
+ * **A dot and nothing else.** The state has two values and one of them is the
+ * boring one, so a sentence of chrome sat in the navbar all day saying nothing
+ * had happened. The wording moves to the tooltip, which is where a reader goes
+ * once the dot has told them there is something to ask about.
+ *
  * **It fails closed.** Nothing renders on an error, a timeout, or a response it
  * cannot read. A widget that reported an outage because its own fetch timed out
  * would be reporting on the status site rather than on Marfa, which is worse
@@ -56,17 +61,30 @@ export function StatusIndicator() {
   // Also the server render, so there is nothing for hydration to disagree with.
   if (allUp === null) return null;
 
+  const label = allUp ? 'All systems operational' : 'Service disruption';
+
   return (
     <a
       href={statusUrl}
       rel="noreferrer"
-      className="hidden items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-fd-muted-foreground transition-colors hover:bg-fd-accent/60 hover:text-fd-accent-foreground lg:inline-flex"
+      // `title` rather than a tooltip component: this is the last item before
+      // the icon row and it has to match those visually, and they are plain
+      // anchors too.
+      title={label}
+      aria-label={label}
+      // The notebook navbar's own icon buttons, written out. They are styled by
+      // the layout rather than by anything importable, so matching them means
+      // repeating them: ghost button, `icon-sm` padding, muted until hover.
+      className="inline-flex items-center justify-center rounded-md p-1.5 text-fd-muted-foreground transition-colors duration-100 hover:bg-fd-accent hover:text-fd-accent-foreground max-lg:hidden"
     >
-      <span
-        className={`size-2 shrink-0 rounded-full ${allUp ? 'bg-emerald-500' : 'bg-red-500'}`}
-        aria-hidden
-      />
-      {allUp ? 'All systems operational' : 'Service disruption'}
+      {/* Sized to the icons beside it so the row keeps one baseline, with the
+          dot centred inside rather than filling it. */}
+      <span className="flex size-4.5 items-center justify-center">
+        <span
+          className={`size-2 rounded-full ${allUp ? 'bg-emerald-500' : 'bg-red-500'}`}
+          aria-hidden
+        />
+      </span>
     </a>
   );
 }
