@@ -1,15 +1,16 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { readStore } from '../lib/store';
 import { PUBLIC_MONITORS, buildView, parseMeta, parseState } from '../lib/state';
-import { buildAtomFeed, incidentsToEntries } from '../lib/feed';
+import { buildAtomFeed, feedEntries } from '../lib/feed';
 
 /**
- * Incidents worth being told about.
+ * What is true now, and what went wrong before it.
  *
- * Public monitors only, and only those that outlived the checker's grace
- * period — so this and the page deliberately disagree. The page is the full
- * record and it is short; an entry here means something happened that the
- * checker itself would have raised.
+ * Public monitors only. The state entry is always present; incidents join it
+ * only when they outlived the checker's grace period, so this and the page
+ * deliberately disagree. The page is the full record and it is short; an
+ * incident here means something happened that the checker itself would have
+ * raised.
  */
 export const Route = createFileRoute('/feed.xml')({
   server: {
@@ -24,7 +25,7 @@ export const Route = createFileRoute('/feed.xml')({
           now,
         );
 
-        return new Response(buildAtomFeed(incidentsToEntries(view.incidents, now), now), {
+        return new Response(buildAtomFeed(feedEntries(view, now), now), {
           headers: {
             'content-type': 'application/atom+xml; charset=utf-8',
             'cache-control': 'public, max-age=300',
