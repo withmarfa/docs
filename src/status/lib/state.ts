@@ -90,6 +90,7 @@ export function parseMeta(raw: string | null): PageMeta | null {
     if (!Array.isArray(parsed.monitors)) return null;
     return {
       title: parsed.title,
+      since: typeof parsed.since === 'number' && parsed.since > 0 ? parsed.since : undefined,
       group: parsed.group,
       monitors: parsed.monitors,
       maintenances: Array.isArray(parsed.maintenances) ? parsed.maintenances : [],
@@ -181,6 +182,67 @@ export type Incident = {
   durationSeconds: number;
 };
 
+export const UPTIME_BAR_DAYS = 90;
+const DAY = 24 * 60 * 60;
+
+/**
+ * One cell of the uptime bar.
+ *
+ * `unknown` is not a degraded state, it is the absence of one: the checker was
+ * not watching yet. Distinguishing it from `up` is the whole reason the store
+ * records when observation began — a bar that paints unwatched days green is
+ * making a claim nobody can support.
+ */
+export type DayStatus = 'up' | 'partial' | 'down' | 'unknown';
+
+export type DayCell = {
+  /** UTC midnight opening the day. */
+  start: number;
+  status: DayStatus;
+  downSeconds: number;
+  observedSeconds: number;
+};
+
+/** Below this share of the day down, a day reads as degraded rather than out. */
+const DOWN_SHARE = 0.3;
+
+function dayCells(
+  incidents: IncidentRecord[],
+  since: number | undefined,
+  now: number,
+): DayCell[] {
+  const today = Math.floor(now / DAY) * DAY;
+  const cells: DayCell[] = [];
+
+  for (let i = UPTIME_BAR_DAYS - 1; i >= 0; i--) {
+    const start = today - i * DAY;
+    const end = Math.min(start + DAY, now);
+    // Nothing can be said about a day that ended before the checker existed,
+    // and nothing about one that has not started.
+    const from = since === undefined ? end : Math.max(start, since);
+    const observedSeconds = Math.max(0, end - from);
+
+    if (observedSeconds <= 0) {
+      cells.push({ start, status: 'unknown', downSeconds: 0, observedSeconds: 0 });
+      continue;
+    }
+
+    let downSeconds = 0;
+    for (const incident of incidents) {
+      const incidentEnd = incident.end ?? now;
+      const overlap = Math.min(end, incidentEnd) - Math.max(from, incident.start[0]);
+      if (overlap > 0) downSeconds += overlap;
+    }
+
+    const share = downSeconds / observedSeconds;
+    const status: DayStatus =
+      downSeconds === 0 ? 'up' : share < DOWN_SHARE ? 'partial' : 'down';
+    cells.push({ start, status, downSeconds, observedSeconds });
+  }
+
+  return cells;
+}
+
 export type MonitorView = {
   id: string;
   name: string;
@@ -200,6 +262,10 @@ export type MonitorView = {
    * payload to draw a line that uses neither.
    */
   series: number[];
+  /** The window the response times span, in seconds. */
+  seriesSeconds: number;
+  /** One per day, oldest first. */
+  days: DayCell[];
 };
 
 export type StatusView = {
@@ -208,6 +274,8 @@ export type StatusView = {
   incidents: Incident[];
   /** True only when every rendered monitor is up. */
   allUp: boolean;
+  /** Epoch seconds observation began, or undefined if the store cannot say. */
+  since?: number;
   downCount: number;
   /** No usable state in the store at all. */
   empty: boolean;
@@ -257,9 +325,12 @@ export function buildView(
 ): StatusView {
   const labels = new Map((meta?.monitors ?? []).map((m) => [m.id, m]));
 
+  const since = meta?.since;
+
   const monitors: MonitorView[] = ids.map((id) => {
     const label = labels.get(id);
     const incidents = realIncidents(state, id);
+    const samples = latencySeries(state, id);
     const last = getIncident(state, id, incidentCount(state, id) - 1);
     // An open incident is the only thing that means "down right now".
     const open = last && !isSentinel(last) && last.end === null ? last : null;
@@ -278,7 +349,10 @@ export function buildView(
       latencyMs: latency?.ping ?? null,
       location: latency?.loc ?? null,
       uptime: uptimeFraction(incidents, now),
-      series: latencySeries(state, id).map((sample) => sample.ping),
+      series: samples.map((sample) => sample.ping),
+      seriesSeconds:
+        samples.length > 1 ? samples[samples.length - 1].time - samples[0].time : 0,
+      days: dayCells(incidents, since, now),
     };
   });
 
@@ -303,6 +377,7 @@ export function buildView(
     lastUpdate: state.lastUpdate,
     monitors,
     incidents,
+    since,
     allUp: downCount === 0,
     downCount,
     empty: state.lastUpdate === 0,
