@@ -58,9 +58,11 @@ contract.
 
 `POST /items` and `POST /edges` both accept an `id` in the body. A client that renders a row before the write leaves the device names that row itself, and the row the server stores carries the same id, so the event that arrives afterwards updates the row already on screen instead of adding a second one beside it.
 
-**A repeat of a create the caller already made is acknowledged, not duplicated.** Send the same client-minted `id` again and nothing is written, no event is published, and the stored row comes back with `acknowledged: true` and status `200`. That holds for a row the user has since trashed, which comes back in whatever state it holds. So a queue that loses a response to a create can resend it: the id is what makes the retry safe.
+**What makes a resend safe is the key, not the id.** A queue that loses the response to a create resends it under the same `Idempotency-Key`, and the server answers from the record of the first attempt without performing a second write — see [A write can be retried safely](#a-write-can-be-retried-safely) below. Do not rely on the id for this: the server used to recognize a resent create by its id alone, and that no longer happens.
 
-The repeat has to name the row the first attempt named. An item repeat whose body declares a different `type` is refused with `409 type_mismatch` rather than reinterpreted, and an edge id naming a different source, target or edge type is refused with `409 conflict` rather than acknowledged. Both are what a queue replaying a write that has drifted from what was stored actually hits, and the server declines to absorb the drift rather than re-typing the row or re-pointing the edge.
+**Two arrivals racing on one id are still answered, because a key cannot serialize them.** A key collapses two attempts carrying that key; it says nothing about two callers arriving on one id. Where two creates race on `POST /items` and one loses the insert, the loser is answered `200` with `acknowledged: true` and the stored row, nothing is written and no event is published, and the row comes back in whatever state it holds including trashed. A resent create that carries no key reaches the same answer on that door, since it collides in the same place. On `POST /edges` it does not: an exact duplicate triple is refused with `400 edge_constraint_violation` and `constraint: "duplicate"` before any insert, which is the one refusal an idempotent writer may read as success.
+
+An acknowledgement has to name the row the first attempt named. An item create whose body declares a different `type` from the row it lands on is refused with `409 type_mismatch` rather than reinterpreted, and an edge id naming a different source, target or edge type is refused with `409 conflict` rather than acknowledged. Both are what a queue replaying a write that has drifted from what was stored actually hits, and the server declines to absorb the drift rather than re-typing the row or re-pointing the edge.
 
 ### A write can be retried safely
 
@@ -90,7 +92,7 @@ Records age out on the same sweep as the event log, which makes the window a rep
 
 **The header on a bulk door is a different mechanism.** `POST /items/bulk-actions` reads `Idempotency-Key` to return the original job rather than starting a second one. `POST /items/bulk` and `POST /edges/bulk` do not read it at all — both resolve an existing row by id or natural key and update it, so a retry converges without needing a record.
 
-**Independent of the id acknowledgement above.** Neither mechanism is built on the other and neither consults the other, so a client may use the id, the key, or both.
+**This is the only mechanism for a lost response.** The server used to recognize a resent create by the caller-minted `id` it carried, ahead of the write. That comparison is gone; what remains on the create doors is the race backstop described above, which is a different question and consults nothing here.
 
 ### A write names the version it read
 
@@ -224,7 +226,7 @@ Two first-party engines are held to this list. The [Swift SDK](/sdks/swift) keep
 | Scenario | Observable | TypeScript engine |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | --- |
 | Create offline, reconnect | Exactly one row, under the id the client minted | Yes |
-| A create resent after a lost response | The same row acknowledged, no sibling | Yes, proven on a delete |
+| A create resent after a lost response, under its key | The first attempt's answer replayed, no sibling | Yes, proven on a delete |
 | The same field edited on two clients | One outcome, by the type's policy | No |
 | Different fields edited on two clients | Both fields present on both | No |
 | A mutation queued after a create | The create is sent first; an edge after its endpoints; a write after its blob | Items and edges, not blobs |
