@@ -40,14 +40,13 @@ function AllStatusPage() {
     <HomeLayout {...baseOptions()}>
       <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:py-16">
         {view.empty ? (
-          <EmptyStore title="Marfa Status" />
+          <EmptyStore />
         ) : (
           <>
             <StatusHeader
-              title="Marfa Status"
               view={view}
               now={now}
-              subtitle="Every environment, including pre-production. The public page at / covers production only."
+              note="Every environment, including pre-production. The public page at / covers production only."
             />
 
             {/*

@@ -25,10 +25,10 @@ function StatusPage() {
     <HomeLayout {...baseOptions()}>
       <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:py-16">
         {view.empty ? (
-          <EmptyStore title="Marfa Status" />
+          <EmptyStore />
         ) : (
           <>
-            <StatusHeader title="Marfa Status" view={view} now={now} />
+            <StatusHeader view={view} now={now} />
 
             <ul className="mt-8 space-y-3">
               {view.monitors.map((monitor) => (
