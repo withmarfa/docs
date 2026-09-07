@@ -4,6 +4,7 @@ import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
 import { buildCommit } from './build-commit';
+import { posthogKey } from './build-analytics';
 
 // The status page. A second Worker built from this repository so it wears the
 // docs site's stylesheet and theme, deployed separately so it does not share
@@ -24,6 +25,7 @@ export default defineConfig({
   define: {
     __BUILD_COMMIT__: JSON.stringify(buildCommit()),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __POSTHOG_KEY__: JSON.stringify(posthogKey()),
   },
   server: {
     // Not 3000. Both dev servers get run in the same tree.

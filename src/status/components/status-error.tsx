@@ -1,6 +1,7 @@
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { baseOptions, DOCS_URL } from '../layout';
 import { ErrorPage } from '../../components/error-page';
+import { reportError } from '../../lib/analytics';
 import type { ErrorComponentProps } from '@tanstack/react-router';
 
 /**
@@ -14,6 +15,8 @@ import type { ErrorComponentProps } from '@tanstack/react-router';
  */
 export function StatusError({ error }: ErrorComponentProps) {
   if (typeof console !== 'undefined') console.error(error);
+  // And to error tracking, which is the half nobody is watching.
+  reportError(error);
 
   return (
     <HomeLayout {...baseOptions()}>

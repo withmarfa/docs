@@ -4,6 +4,7 @@ import { RootProvider } from 'fumadocs-ui/provider/tanstack';
 // page is built from this repository: the two sites read as one product
 // without either one owning a copy of the other's theme.
 import appCss from '../../styles/app.css?url';
+import { Analytics } from '../../components/analytics';
 
 export const Route = createRootRoute({
   head: () => ({
@@ -44,6 +45,7 @@ function RootComponent() {
           <Outlet />
         </RootProvider>
         <Scripts />
+        <Analytics site="status" />
       </body>
     </html>
   );

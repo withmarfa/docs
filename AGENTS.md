@@ -87,6 +87,42 @@ reached fifteen merged commits behind while every run on `main` was green.
 `pnpm run deploy` still works and is the fallback if the credential is ever
 missing, but it should not be the normal path.
 
+## Analytics
+
+Both Workers report to one PostHog project. Page views and unhandled errors,
+and nothing else.
+
+`src/lib/analytics.ts` holds every option, each one written out rather than
+left to a default, so the set reads as a list of decisions. Autocapture,
+session replay, surveys, heatmaps, dead clicks, web experiments and feature
+flags are all off. Storage is off too: no cookie and no local storage, which is
+why neither public site carries a consent banner.
+
+**The SDK is loaded by a dynamic import after hydration, and that is the
+design.** A static import would put it in the entry chunk, on the critical
+path. The status page carries this integration as well, and its whole job is to
+render when other things are failing, so the SDK has to arrive in its own chunk
+once the page is already up. If it cannot be fetched the import rejects, the
+rejection is caught, and nothing about either page changes.
+
+Two rules follow, and breaking either defeats the arrangement silently:
+
+- **Nothing may import `posthog-js` as a value outside `src/components/analytics.tsx`.** A
+  type-only import is fine and erases at build time. Anything else pulls the
+  SDK into the importing chunk. The error components report through
+  `reportError` in `src/lib/analytics.ts` for exactly this reason.
+- **Verify the split after changing any of it.** No SDK internals should appear
+  in either client entry chunk, and a separate chunk carrying the SDK should
+  exist beside it.
+
+The project key arrives at build time as `MARFA_POSTHOG_KEY`, from a repository
+variable rather than a secret: the key is write-only and ships inside the
+browser bundle of every site that uses one, so hiding it would be theater. What
+matters is that it is not committed. **An absent key is a working state.** The
+build emits an empty string, the component returns before it loads anything,
+and the bundle does not even contain the SDK. A clone of this repository
+reports nowhere and says nothing about it, which is what a fork should get.
+
 ## Content shape
 
 Each `.mdx` page starts with YAML frontmatter:
