@@ -75,9 +75,14 @@ export function posthogOptions(): Partial<PostHogConfig> {
       capture_console_errors: false,
     },
 
-    // Nobody signs in to either site, so no person profile is ever created and
-    // every event stays on the cheaper anonymous tier.
-    person_profiles: 'identified_only',
+    // `never`, not the `identified_only` default, and the difference is not
+    // theoretical: under cookieless mode the SDK sends an initial `$set`,
+    // which promotes the derived id to a person profile. Measured — three
+    // appeared in the project before this was changed. `never` sends
+    // `$process_person_profile: False` on everything instead, so nothing here
+    // creates a profile and every event stays on the cheaper anonymous tier.
+    // Nobody signs in to either site, so there is nothing to give up.
+    person_profiles: 'never',
 
     // No cookie, no local storage, no consent banner on a public documentation
     // site. PostHog derives a privacy-preserving hash server-side instead. The

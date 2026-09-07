@@ -56,7 +56,9 @@ describe('what the sites capture', () => {
   it('stores nothing in the browser, so neither site needs a consent banner', () => {
     expect(options.cookieless_mode).toBe('always');
     expect(options.persistence).toBe('memory');
-    expect(options.person_profiles).toBe('identified_only');
+    // `never` rather than the `identified_only` default: under cookieless
+    // mode that default still creates person profiles, via an initial `$set`.
+    expect(options.person_profiles).toBe('never');
   });
 });
 
