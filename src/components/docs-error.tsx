@@ -1,12 +1,15 @@
 import { baseOptions } from '@/lib/layout.shared';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { ErrorPage } from './error-page';
+import { reportError } from '@/lib/analytics';
 import type { ErrorComponentProps } from '@tanstack/react-router';
 
 export function DocsError({ error }: ErrorComponentProps) {
   // The message is for whoever is debugging, and the console is where they
   // will look. It does not belong in the response body.
   if (typeof console !== 'undefined') console.error(error);
+  // And to error tracking, which is the half nobody is watching.
+  reportError(error);
 
   return (
     <HomeLayout {...baseOptions()}>

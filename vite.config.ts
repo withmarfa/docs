@@ -5,11 +5,13 @@ import tailwindcss from '@tailwindcss/vite';
 import mdx from 'fumadocs-mdx/vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
 import { buildCommit } from './build-commit';
+import { posthogKey } from './build-analytics';
 
 export default defineConfig({
   define: {
     __BUILD_COMMIT__: JSON.stringify(buildCommit()),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __POSTHOG_KEY__: JSON.stringify(posthogKey()),
   },
   server: {
     port: 3000,
