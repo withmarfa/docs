@@ -338,8 +338,16 @@ paths_touch_target() {
         # Documentation content and docs-only source. Everything else may
         # reach it: the shared stylesheet, the shared constants, the base
         # tsconfig, the lockfile, either Vite config.
+        #
+        # `src/components/` is not on this list, though it looks like it should
+        # be. Two of its files are imported by the status page, so excluding
+        # the directory would leave the page serving a stale bundle after a
+        # change to either — silently, behind a green run, which is the one
+        # failure this whole comparison exists to prevent. The cost is that the
+        # status page republishes for docs-only components it never renders,
+        # and a wasted deploy costs a minute.
         case "$path" in
-          content/*|openapi.json|*.md|.github/*|scripts/*|src/routes/*|src/components/*)
+          content/*|openapi.json|*.md|.github/*|scripts/*|src/routes/*)
             continue ;;
         esac ;;
       *)

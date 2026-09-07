@@ -476,6 +476,7 @@ check "docs: a mixed change publishes it" publish "$(verdict docs src/status/lib
 check "status: its own source publishes it" publish "$(verdict status src/status/lib/state.ts)"
 check "status: a content page does not" skip "$(verdict status content/docs/guides/x.mdx)"
 check "status: a docs route does not" skip "$(verdict status src/routes/mcp.ts)"
+check "status: a shared component publishes it" publish "$(verdict status src/components/error-page.tsx)"
 check "status: a workflow change does not" skip "$(verdict status .github/workflows/publish.yml)"
 check "status: the spec does not" skip "$(verdict status openapi.json)"
 
