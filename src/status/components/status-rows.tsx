@@ -1,5 +1,6 @@
 import type { Incident, MonitorView } from '../lib/state';
 import { formatAbsolute, formatDuration } from '../lib/format';
+import { describeCause, groupIncidents } from '../lib/events';
 import { LatencyChart } from './latency-chart';
 import { UptimeBar } from './uptime-bar';
 
@@ -72,47 +73,87 @@ export function MonitorRow({ monitor, now }: { monitor: MonitorView; now: number
         observedDays={monitor.observedDays}
       />
 
+      {/*
+        "measured from" rather than "from". The location is where the check ran,
+        not where Marfa is, and the bare preposition reads as the latter — which
+        then invites a reader to treat the figure as their own latency.
+      */}
       {monitor.latencyMs === null ? null : (
         <p className="mt-3 border-t border-fd-border pt-3 text-xs text-fd-muted-foreground">
           Last check <span className="text-fd-foreground">{monitor.latencyMs} ms</span>
-          {monitor.location ? ` from ${monitor.location}` : null}
+          {monitor.location ? `, measured from ${monitor.location}` : null}
         </p>
       )}
     </li>
   );
 }
 
-export function IncidentList({ incidents }: { incidents: Incident[] }) {
-  if (incidents.length === 0) {
+/**
+ * The history, one row per event rather than one per monitor.
+ *
+ * A table because four facts about each event are the same four every time,
+ * and a column is what lets a reader compare them without reading. The
+ * grouping is the substantive part: see `events.ts` for why one outage
+ * previously produced two entries.
+ */
+export function IncidentTable({ incidents }: { incidents: Incident[] }) {
+  const events = groupIncidents(incidents);
+
+  if (events.length === 0) {
     return (
-      <p className="text-sm text-fd-muted-foreground">
+      <p className="mt-4 text-sm text-fd-muted-foreground">
         No incidents recorded in the last 90 days.
       </p>
     );
   }
 
   return (
-    <ol className="space-y-4">
-      {incidents.map((incident) => (
-        <li
-          key={`${incident.monitorId}-${incident.start}`}
-          className="border-l-2 border-fd-border pl-4"
-        >
-          <p className="text-sm font-medium text-fd-foreground">
-            {incident.monitorName}
-            {incident.end === null ? (
-              <span className="ml-2 font-normal text-red-700 dark:text-red-400">
-                ongoing
-              </span>
-            ) : null}
-          </p>
-          <p className="mt-0.5 text-xs text-fd-muted-foreground">
-            {formatAbsolute(incident.start)}, lasting{' '}
-            {formatDuration(incident.durationSeconds)}
-          </p>
-          <p className="mt-1 text-xs text-fd-muted-foreground">{incident.error}</p>
-        </li>
-      ))}
-    </ol>
+    <div className="mt-4 overflow-x-auto">
+      <table className="w-full min-w-lg text-left text-sm">
+        <thead>
+          <tr className="border-b border-fd-border text-xs font-medium text-fd-muted-foreground">
+            <th scope="col" className="py-2 pr-4 font-medium">
+              Started
+            </th>
+            <th scope="col" className="py-2 pr-4 font-medium">
+              Affected
+            </th>
+            <th scope="col" className="py-2 pr-4 font-medium">
+              Duration
+            </th>
+            <th scope="col" className="py-2 font-medium">
+              Cause
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-fd-border">
+          {events.map((event) => (
+            <tr key={`${event.monitorIds.join('-')}-${event.start}`}>
+              <td className="py-2.5 pr-4 whitespace-nowrap text-fd-muted-foreground">
+                {formatAbsolute(event.start)}
+              </td>
+              <td className="py-2.5 pr-4 text-fd-foreground">
+                {event.monitorNames.join(', ')}
+              </td>
+              {/*
+                An open event has no duration worth printing. Rendering one
+                would grow on every reload and read as a measurement rather
+                than as the clock it is.
+              */}
+              <td className="py-2.5 pr-4 whitespace-nowrap text-fd-muted-foreground">
+                {event.end === null ? (
+                  <span className="text-red-700 dark:text-red-400">Ongoing</span>
+                ) : (
+                  formatDuration(event.durationSeconds)
+                )}
+              </td>
+              <td className="py-2.5 text-fd-muted-foreground">
+                {describeCause(event.error)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

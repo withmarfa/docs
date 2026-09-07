@@ -1,10 +1,10 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import { ThemeSwitch } from 'fumadocs-ui/layouts/shared/slots/theme-switch';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Rss } from 'lucide-react';
 import { gitConfig } from '../lib/shared';
 
 // Wordmarks from simple-icons, monochrome via currentColor so they sit
-// together with the one lucide glyph below. Duplicated from the docs layout
+// together with the two lucide glyphs below. Duplicated from the docs layout
 // rather than imported: that module pulls the docs section pills, which
 // navigate into a site this one is reporting on and would be dead links at the
 // exact moment someone is here.
@@ -20,18 +20,12 @@ const GitHubIcon = (
   </svg>
 );
 
-const RssIcon = (
-  <svg role="img" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M19.199 24C19.199 13.467 10.533 4.8 0 4.8V0c13.165 0 24 10.835 24 24h-4.801zM3.291 17.415c1.814 0 3.293 1.479 3.293 3.295 0 1.813-1.485 3.29-3.301 3.29C1.47 24 0 22.526 0 20.71s1.475-3.294 3.291-3.295zM15.909 24h-4.665c0-6.169-5.075-11.245-11.244-11.245V8.09c8.727 0 15.909 7.184 15.909 15.91z" />
-  </svg>
-);
-
 export const DOCS_URL = 'https://docs.marfa.so';
 
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
-      title: 'Marfa status',
+      title: 'Marfa Status',
       url: '/',
     },
     // Every item is secondary so the whole set sits on the right, leaving the
@@ -54,7 +48,7 @@ export function baseOptions(): BaseLayoutProps {
         label: 'Subscribe to the status feed',
         text: 'Feed',
         url: '/feed.xml',
-        icon: RssIcon,
+        icon: <Rss />,
         secondary: true,
       },
       {

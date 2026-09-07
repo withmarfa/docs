@@ -1,4 +1,5 @@
 import type { CompactedState, IncidentRecord, LatencyRecord, PageMeta } from './types';
+import { resolveLocation } from './colo';
 
 /**
  * Reading the checker's store, and turning it into a page.
@@ -264,7 +265,10 @@ export type MonitorView = {
   error: string | null;
   latencyMs: number | null;
   location: string | null;
-  /** Fraction in [0, 1] over the observed window, or null if nothing was. */
+  /**
+   * Where the check ran from, as a place name — see `resolveLocation`. Not
+   * where Marfa is hosted, and not the reader's own distance from it.
+   */
   uptime: number | null;
   /** Whole days observed, capped at the retention window. */
   observedDays: number;
@@ -280,9 +284,21 @@ export type MonitorView = {
   days: DayCell[];
 };
 
+/** A labeled run of monitors, in the order the checker's `meta` lists them. */
+export type MonitorGroup = {
+  label: string;
+  monitors: MonitorView[];
+};
+
 export type StatusView = {
   lastUpdate: number;
   monitors: MonitorView[];
+  /**
+   * The same monitors, split by the checker's own group map. Empty when the
+   * store carries no groups, which is the signal to render one flat list
+   * rather than to invent headings here.
+   */
+  groups: MonitorGroup[];
   incidents: Incident[];
   /** True only when every rendered monitor is up. */
   allUp: boolean;
@@ -340,6 +356,16 @@ function uptimeFraction(
  *
  * `now` is injected so the tests are not a clock.
  */
+/**
+ * Every monitor the store knows about, in the order the checker lists them.
+ *
+ * Read from `meta` rather than from a second list here, so a monitor added to
+ * the checker appears without this repository being touched.
+ */
+export function allMonitorIds(meta: PageMeta | null): string[] {
+  return (meta?.monitors ?? []).map((monitor) => monitor.id);
+}
+
 export function buildView(
   state: CompactedState,
   meta: PageMeta | null,
@@ -369,7 +395,7 @@ export function buildView(
     return {
       id,
       // Falling back to the id rather than to a blank keeps a monitor that was
-      // renamed in the checker visible here instead of silently unlabelled.
+      // renamed in the checker visible here instead of silently unlabeled.
       name: label?.name ?? id,
       tooltip: label?.tooltip,
       link: label?.statusPageLink,
@@ -377,7 +403,7 @@ export function buildView(
       downSince: open ? open.start[0] : null,
       error: open ? open.error[open.error.length - 1] : null,
       latencyMs: latency?.ping ?? null,
-      location: latency?.loc ?? null,
+      location: resolveLocation(latency?.loc ?? null),
       uptime: uptimeFraction(incidents, since, now),
       observedDays:
         since === undefined
@@ -410,9 +436,21 @@ export function buildView(
 
   const downCount = monitors.filter((m) => !m.up).length;
 
+  // Only groups that still hold something after `ids` has filtered the set. A
+  // heading over nothing is worse than no heading, and it is exactly what the
+  // default page would render if it took the checker's groups unfiltered.
+  const byId = new Map(monitors.map((monitor) => [monitor.id, monitor]));
+  const groups: MonitorGroup[] = Object.entries(meta?.group ?? {})
+    .map(([label, groupIds]) => ({
+      label,
+      monitors: groupIds.map((id) => byId.get(id)).filter((m): m is MonitorView => !!m),
+    }))
+    .filter((group) => group.monitors.length > 0);
+
   return {
     lastUpdate: state.lastUpdate,
     monitors,
+    groups,
     incidents,
     // Deliberately the deployment's, not any one monitor's. This is what the
     // feed dates "nothing has ever gone wrong here" from, and that is a
