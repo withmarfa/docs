@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { readStore } from './store';
-import { PUBLIC_MONITORS, buildView, parseMeta, parseState } from './state';
+import { PUBLIC_MONITORS, allMonitorIds, buildView, parseMeta, parseState } from './state';
 import type { StatusView } from './state';
 
 export type StatusPayload = {
@@ -21,6 +21,25 @@ export const loadStatus = createServerFn().handler(async (): Promise<StatusPaylo
   const now = Math.floor(Date.now() / 1000);
   return {
     view: buildView(parseState(raw.state), parseMeta(raw.meta), PUBLIC_MONITORS, now),
+    now,
+  };
+});
+
+/**
+ * The same page, over every monitor the checker watches.
+ *
+ * Staging is checked and alerted on but deliberately absent from the public
+ * page, because the only question that page answers is whether a user can be
+ * served and nobody is served by staging. This is the view for looking at it
+ * anyway, and it takes its monitor list from the store rather than from a
+ * second constant that would drift the first time one moved.
+ */
+export const loadAllStatus = createServerFn().handler(async (): Promise<StatusPayload> => {
+  const raw = await readStore();
+  const meta = parseMeta(raw.meta);
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    view: buildView(parseState(raw.state), meta, allMonitorIds(meta), now),
     now,
   };
 });
