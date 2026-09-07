@@ -1,6 +1,7 @@
 import type { Incident, StatusView } from './state';
 import { SITE_URL } from './api';
 import { formatAbsolute, formatDuration } from './format';
+import { describeCause, groupIncidents, joinNames } from './events';
 
 /**
  * The grace period, in seconds, as the checker actually applies it.
@@ -57,29 +58,36 @@ function iso(epochSeconds: number): string {
  * is short, and this only speaks when it matters. Against the real ninety-day
  * history it returns nothing, which is the correct answer rather than a bug —
  * `currentStatusEntry` is what keeps the document itself from being empty.
+ *
+ * **Grouped, for the same reason the page groups.** Two monitors watch one
+ * URL, so an unfiltered feed announced every outage twice, seconds apart, with
+ * two subject lines naming halves of one event. A subscriber cannot tell those
+ * apart from two things going wrong.
  */
 export function incidentsToEntries(incidents: Incident[], now: number): FeedEntry[] {
-  return incidents
-    .filter((incident) => {
-      const end = incident.end ?? now;
-      return end - incident.start >= FEED_THRESHOLD_SECONDS;
-    })
-    .map((incident) => {
-      const resolved = incident.end !== null;
+  return groupIncidents(incidents)
+    .filter((event) => (event.end ?? now) - event.start >= FEED_THRESHOLD_SECONDS)
+    .map((event) => {
+      const resolved = event.end !== null;
+      const names = joinNames(event.monitorNames);
+      const plural = event.monitorNames.length > 1;
       return {
-        id: `tag:marfa.so,2026:status/${incident.monitorId}/${incident.start}`,
+        // The ids are sorted so that the order the checker happened to walk its
+        // monitors in cannot change an entry's identity between two polls, which
+        // a reader would see as the same outage arriving twice.
+        id: `tag:marfa.so,2026:status/${[...event.monitorIds].sort().join('+')}/${event.start}`,
         title: resolved
-          ? `${incident.monitorName} recovered`
-          : `${incident.monitorName} is unavailable`,
-        published: incident.start,
-        updated: incident.end ?? now,
+          ? `${names} recovered`
+          : `${names} ${plural ? 'are' : 'is'} unavailable`,
+        published: event.start,
+        updated: event.end ?? now,
         summary: resolved
-          ? `${incident.monitorName} was unavailable for ${formatDuration(
-              incident.durationSeconds,
-            )}. ${incident.error}`
-          : `${incident.monitorName} has been unavailable for ${formatDuration(
-              incident.durationSeconds,
-            )}. ${incident.error}`,
+          ? `${names} ${plural ? 'were' : 'was'} unavailable for ${formatDuration(
+              event.durationSeconds,
+            )}. ${describeCause(event.error)}.`
+          : `${names} ${plural ? 'have' : 'has'} been unavailable for ${formatDuration(
+              event.durationSeconds,
+            )}. ${describeCause(event.error)}.`,
       };
     });
 }
@@ -118,7 +126,7 @@ function stateChangedAt(view: StatusView): number | null {
  * stamping the current time would announce "all systems operational" on every
  * poll, forever. Keyed this way the entry is silent while the state holds and
  * arrives exactly once when it flips, in either direction — which is the only
- * behaviour that makes an always-present entry worth carrying.
+ * behavior that makes an always-present entry worth carrying.
  */
 export function currentStatusEntry(view: StatusView): FeedEntry | null {
   const changedAt = stateChangedAt(view);
@@ -182,7 +190,7 @@ export function buildAtomFeed(entries: FeedEntry[], now: number): string {
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
-  <title>Marfa status</title>
+  <title>Marfa Status</title>
   <subtitle>Current status and incidents for the Marfa API, file storage and documentation.</subtitle>
   <id>tag:marfa.so,2026:status</id>
   <link href="${SITE_URL}/"/>

@@ -10,7 +10,7 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Marfa status' },
+      { title: 'Marfa Status' },
       {
         name: 'description',
         content: 'Current availability of the Marfa API, file storage and documentation.',

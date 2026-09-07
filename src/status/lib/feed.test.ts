@@ -46,6 +46,7 @@ function view(over: Partial<StatusView> = {}): StatusView {
   return {
     lastUpdate: NOW,
     monitors,
+    groups: [],
     incidents: [],
     allUp: downCount === 0,
     since: NOW - 5 * 86_400,

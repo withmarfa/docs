@@ -1,82 +1,112 @@
-# Marfa docs
+# Marfa Docs
 
-Source for the public documentation site at <https://docs.marfa.so>. Built with
+Source for the public documentation site at <https://docs.marfa.so>, and for
+the status page at <https://status.marfa.so>. Built with
 [Fumadocs](https://fumadocs.dev) on [TanStack Start](https://tanstack.com/start),
 deployed to [Cloudflare Workers](https://workers.cloudflare.com) via
 `@cloudflare/vite-plugin`.
 
-This README is for contributors to the site. End users should read the published
+This README is for contributors to the sites. Readers should read the published
 docs.
+
+## Two Workers, one repository
+
+The documentation site is the default build target. The status page is the
+second, and it lives in `src/status/` with its own Vite config, its own
+`wrangler.status.jsonc` and its own output directory.
+
+They share a stylesheet and a `public/` directory, so the two sites read as one
+product and cannot end up wearing different marks. They deploy separately on
+purpose: the status page reports on the documentation site, and a page that goes
+down alongside the thing it watches reports nothing at the only moment anyone
+needs it.
+
+**Never build both targets and then run a bare `wrangler deploy`.** The
+Cloudflare plugin writes one deploy pointer per project root and every build
+rewrites it, so that deploys whichever target built last. The `deploy:status`
+script passes the config its own build emitted, which is why it is the safe one.
 
 ## Structure
 
-- **`content/docs/`** — MDX content tree. Layout maps 1:1 to URL structure.
-  See `meta.json` files for per-section navigation order and titles.
-- **`source.config.ts`** — Fumadocs MDX config; defines collections.
-- **`src/routes/`** — TanStack Start routes (`__root.tsx`, `docs/$.tsx`, the
-  `.md`-twin handler, `llms.txt`, `llms-full.txt`, `docs-map.md`,
-  `api/search.ts`).
-- **`src/lib/source.ts`** — Fumadocs source loader; `getLLMText` helper.
-- **`vite.config.ts`** — Vite config with Fumadocs MDX plugin, TanStack Start,
-  Tailwind, and the Cloudflare Workers plugin.
-- **`wrangler.jsonc`** — Cloudflare Workers config (custom domain
-  `docs.marfa.so`).
+- **`content/docs/`** — the MDX content tree, mapping one to one onto URLs. Each
+  folder's `meta.json` sets its navigation order and titles.
+- **`source.config.ts`** — Fumadocs MDX collections.
+- **`src/routes/`** — documentation routes: `$.tsx` renders a page, `{$}[.]md.ts`
+  serves its Markdown twin, and the rest are the machine-readable surfaces below.
+- **`src/start.ts`** — request middleware, including the `Accept: text/markdown`
+  redirect onto the Markdown twin.
+- **`src/lib/mcp/`** — the docs MCP server, mounted at `/mcp` by
+  `src/routes/mcp.ts` and over stdio by `pnpm mcp:stdio`.
+- **`src/status/`** — the status page: its own routes, components and store
+  reader. It reads a D1 database written by a separate checker (see
+  [withmarfa/status](https://github.com/withmarfa/status)) and never writes to it.
+- **`openapi.json`** — drives the API reference; synced from the server rather
+  than edited here.
 
 ## Local development
 
-Requires Node 22 and pnpm.
+Node 22 and pnpm.
 
 ```bash
 pnpm install
-pnpm dev
+pnpm dev                            # the docs site, http://localhost:3000
+pnpm exec vite dev -c vite.status.config.ts   # the status page, port 3001
 ```
 
-Dev server runs at `http://localhost:3000`.
+The status page reads a Cloudflare D1 binding, so a local run without that
+database renders its empty state. That is the correct behavior rather than a
+broken one: the page reports what the checker last wrote, and nothing written
+means nothing to report.
 
-## Build and preview
+## Checks
 
 ```bash
-pnpm build      # Vite + Fumadocs MDX postprocess
-pnpm preview    # Cloudflare Workers preview locally
+pnpm test           # vitest, including the MCP protocol conformance suite
+pnpm build          # the docs site
+pnpm build:status   # the status page
+pnpm types:check    # both TypeScript projects
 ```
 
-## Deploying to Cloudflare Workers
+`types:check` runs after both builds, not instead of them. The two generated
+route trees register into one global interface, so compiled together without
+both built the losing target's route types silently become `undefined`.
 
-The site deploys to `docs.marfa.so` via the Cloudflare Workers `marfa-docs`
-project. The Worker is served from `@tanstack/react-start/server-entry` with
-`nodejs_compat`.
+## Publishing
 
-```bash
-# CI/CD uses the marfa Cloudflare account token; locally set the same env var
-# from your dev secrets.
-export CLOUDFLARE_API_TOKEN="<marfa account user token>"
-pnpm deploy
-```
+**Merging to `main` publishes.** The `Publish` workflow waits for CI to pass on
+`main`, builds that commit, deploys it, and then fetches `/version.json` from the
+live site to prove readers were actually served the new bundle — a deploy command
+returning zero is not that proof.
 
-The deploy script runs `pnpm build` then `wrangler deploy`.
+Each Worker publishes in its own job against its own hostname, and only when
+something its target builds from has changed. A daily run compares both live
+commits against `main` and reports anything left behind.
+
+`pnpm run deploy` and `pnpm run deploy:status` still work and are the fallback if
+the CI credential is ever missing. Use `run`: `pnpm deploy` is pnpm's own
+built-in and will not invoke the script.
 
 ## Machine-readable surfaces
 
-The site emits a small family of machine-readable artifacts for agent consumers:
+- **`<path>.md`** — the Markdown twin of any documentation page.
+- **`/llms.txt`** — a short hierarchical index.
+- **`/llms-full.txt`** — every page's Markdown, concatenated.
+- **`/docs-map.md`** — every page as a link map, grouped by section.
+- **`/mcp`** — the docs MCP server: search, fetch and list.
 
-- `<path>.md` — markdown-twin of any docs HTML page. Stripe-style convention,
-  large payload reduction for agent consumers.
-- `/llms.txt` — short index page (Vercel convention).
-- `/llms-full.txt` — long-form concatenation of every page's markdown.
-- `/docs-map.md` — hierarchical map of every page grouped by section
-  (Anthropic-style; see `claude_code_docs_map.md`).
-
-Content negotiation: a request to a docs HTML URL with `Accept: text/markdown`
-is redirected to the corresponding `.md` URL by the middleware in
-`src/start.ts`.
+The status page publishes its own two: `/api/data` for the current state and
+`/feed.xml` as Atom.
 
 ## OpenAPI sync
-
-The API reference section is driven by `openapi.json`, kept in sync with the
-monorepo server:
 
 ```bash
 ./scripts/sync-openapi.sh
 ```
 
-Expects the monorepo at `../marfa`. Override with `MARFA_ROOT=/path/to/marfa`.
+Expects the server monorepo at `../marfa`; override with `MARFA_ROOT`. The
+monorepo also opens a pull request here whenever the spec changes on its main
+branch, so this script is the manual path rather than the usual one.
+
+The spec is generated with the server in keys mode, which is why hosted-only
+routes are absent from it. Close that gap in the generator, never by editing
+`openapi.json` here.
