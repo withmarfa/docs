@@ -104,6 +104,22 @@ If all keys are later revoked, bootstrap mode does not re-enable automatically. 
 
 List, retrieve, update, and revoke via the Keys endpoints. Key management is restricted to admin and space_admin roles; a space_admin manages only keys within its own space. `member` keys cannot manage other keys.
 
+#### From a signed-in app
+
+An app holding `capability.keys` can manage keys too, and mint them. Four things bound what it can produce, and each answers a different way of asking for more than the app was given.
+
+**It cannot give a key reach it does not hold itself.** Every permission the request asks for is checked against the app's own granted scopes, and a request naming one they do not cover is refused `403` with the missing scope in `details.required_scope` — so a client can narrow toward something that will work. The same check runs on `PATCH`, because permission maps are editable after the mint.
+
+**A key minted this way is scope-enforced.** Its permission maps decide what it reaches and its role does not override them, which is what keeps the narrowing true after the key is first used. The flag is visible read-only on the key's list and detail responses, and it is never settable from a request.
+
+**Its role is always `member`.** A higher role carries authority no scope expresses — the administrative doors read rank directly — so a key holding one could not be bounded by the app's grant once minted. The app itself still reaches those doors while it is signed in; what it cannot do is leave behind a credential that still reaches them after the grant is revoked.
+
+**It cannot ask for `extension_permissions`.** No scope names an extension namespace, so there is nothing to check such a request against, and the family is refused rather than passed through unmeasured.
+
+Omitting the permission maps mints a key matching the app's own reach — "a key like this sign-in" — rather than an empty one, which on a scope-enforced key would read nothing at all.
+
+The `key.create` audit row records the app, the user and the grant, so an app that has been revoked leads to the keys it created.
+
 ### Revocation
 
 `DELETE /keys/{id}` revokes immediately. Revoked tokens return `401 unauthorized` on the next request.
@@ -177,7 +193,7 @@ Before the access token expires, the app calls `POST /auth/oauth2/token` with `g
 | `POST /auth/oauth2/userinfo` | OIDC userinfo. |
 | `POST /auth/oauth2/revoke` | RFC 7009 token revocation. |
 | `POST /auth/oauth2/introspect` | RFC 7662 token introspection. |
-| `POST /auth/oauth2/register` | RFC 7591 Dynamic Client Registration. Open to unauthenticated callers. A registration omitting `scope` defaults to the bundle expansion, not the full allowlist; wider scopes are requested explicitly. |
+| `POST /auth/oauth2/register` | RFC 7591 Dynamic Client Registration. Open to unauthenticated callers. A registration omitting `scope` defaults to the bundle expansion, not the full allowlist; wider scopes are requested explicitly. A capability scope is never in that default and must be named here — see [Capability scopes](#capability-scopes). |
 | `GET /auth/jwks` | JWKS for `id_token` signature verification. |
 | `GET /.well-known/oauth-authorization-server/auth` + `GET /.well-known/openid-configuration/auth` + `GET /auth/.well-known/openid-configuration` + `GET /auth/.well-known/oauth-authorization-server` | RFC 8414 / OIDC Discovery authorization-server metadata, served at the well-known URLs the two specs form for this server's path-aware issuer. All four return the identical document. |
 | `GET /.well-known/oauth-authorization-server` + `GET /.well-known/openid-configuration` | 404. RFC 8414 §3 reserves the bare-root well-known path for an issuer of `https://<host>` with no path component; this server's issuer has a path, so a document served there would declare an identifier that doesn't match what the client asked about. |
@@ -263,7 +279,7 @@ The type, edge, and metadata scopes all name a resource and a level of access to
 | `capability.space_settings` | The space's configuration and its schema-enforcement settings. |
 | `capability.audit_read` | Reading the space's audit log. |
 | `capability.item_purge` | Permanently deleting an item, past the trash. |
-| `capability.keys` | Creating, listing, and revoking the space's own API keys. |
+| `capability.keys` | Creating, listing, updating, and revoking the space's own API keys. |
 | `capability.credentials` | Registering and removing the upstream client secrets and API tokens that connections are installed against. |
 | `capability.app_grants` | Listing and revoking the other apps the space has authorized. |
 
@@ -287,10 +303,25 @@ Capability scopes reach none of the three permission maps. A granted capability 
 An app asks for a capability by naming it in its authorization request, the same way it asks for anything else. Every one of the eleven is in the scope allowlist.
 
 <Callout type="warn">
-No route consults a capability scope. The administrative surfaces above are gated on the caller's role, so a `space_admin` OAuth token reaches them without holding any capability, and holding one grants nothing a role does not already carry. Do not read a capability scope as a fence.
+**`capability.keys` is enforced. The other ten are not yet.** Every `/keys` door consults it, so a signed-in app that was not granted it is refused whatever its role. The remaining surfaces above are still gated on the caller's role alone, so a `space_admin` token reaches them without holding the matching capability, and holding one grants nothing a role does not already carry. Ask for the ones your app uses now — the grant is what will admit it when each door starts reading them — but do not yet read the other ten as a fence.
 </Callout>
 
 **A capability is granted by being ticked, never by silence.** Both consent screens render one unticked and leave it that way unless the person says otherwise, whatever else is on the screen and whatever a permission bundle says about it. The device-approval screen offers per-scope toggles for exactly this reason: it used to confirm a list it could not edit, which would have granted an administrative surface on a single click.
+
+**A client must claim a capability at registration, and nothing tells it if it did not.** This is the one that costs a day.
+
+A client's registered scope set is written once, when it registers, and never updated. A registration that names no `scope` receives the bundle expansion — and because no bundle may name a capability, that set can never contain one. So asking for `capability.keys` in an authorization request is not enough on its own: the client has to have registered for it.
+
+The two flows then fail differently, and the quiet one is worse.
+
+- **The device flow refuses.** Initiation returns `invalid_scope` naming the literal, and the sign-in stops. Loud, and obvious.
+- **The authorization-code flow narrows.** A scope outside the client's registered set is dropped from the request and the authorization completes. The consent screen never mentions it, the token comes back without it, and nothing errors at any step.
+
+So a client on the code flow finds out only by reading what it was granted. **Compare the `scope` in the token response against what you asked for**, on every sign-in — that comparison is the only signal, and it is the one the partial-grant section below asks you to make anyway.
+
+Repairing it means registering again, because a stored registration cannot be widened: a client's set is only ever written at registration, and the server will not move it for an unauthenticated request. Register once more, claiming the scopes you now need, and sign in with the new client identifier.
+
+**Only capabilities need this.** Every other scope the server's bundles publish is caught up in place on the next authorization, so a client whose grant is short of an ordinary type scope should not re-register — doing so abandons the old client for nothing.
 
 **No bundle names one, and a configured bundle cannot.** A capability literal in `MARFA_PERMISSION_BUNDLES` is dropped when the bundle's scopes are read and a warning is logged naming it, so a configuration cannot pre-tick administrative authority or write it into a client's stored scope ceiling. The bundle's other scopes are unaffected: the drop is per scope, not per bundle. It has nothing to do with whether the literal is requestable, which the platform decides for itself by publishing the family from the closed set, so an instance running no bundles at all still lets an app ask.
 
