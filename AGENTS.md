@@ -215,6 +215,7 @@ The docs are grounded in six rules. Any edit that violates one is a bug.
 - **Examples minimal.** One curl / one SDK snippet per endpoint unless more adds information.
 - **Direct, declarative voice.** State the rule; don't hedge. No filler intensifiers (genuinely, really, actually, fundamentally, very, quite, basically).
 - **No personal infrastructure** — never internal hostnames, private IPs, launchd labels, or vault paths.
+- **Permissions vocabulary.** A credential holds a permission set: content permissions and space permissions. Write "space permissions" in prose, and `space.<name>` only when quoting a wire literal. There are no roles, so never write "space admin", "instance admin", "member" or "admin key"; the instance-tier credential is the **operator key**.
 
 ## Formatting standards
 
