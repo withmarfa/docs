@@ -152,7 +152,7 @@ The OAuth-protocol surface is owned by the `@better-auth/oauth-provider` plugin 
 
 ### Client registration
 
-An app registers as an OAuth client through dynamic registration at `POST /auth/oauth2/register` (RFC 7591, open — `allowUnauthenticatedClientRegistration: true`); there is no separate administrative registration route. Public clients (native apps, SPAs) use PKCE without a client secret; confidential clients (server apps) receive a `client_secret`.
+An app registers as an OAuth client through dynamic registration at `POST /auth/oauth2/register` (RFC 7591, open — `allowUnauthenticatedClientRegistration: true`); there is no separate administrative registration route. Every client is public and uses PKCE rather than a client secret. A registration naming the `client_credentials` grant is refused with `invalid_client_metadata`, because that grant is not one this server has — see [Machine callers](#machine-callers).
 
 </Step>
 
@@ -203,11 +203,11 @@ Before the access token expires, the app calls `POST /auth/oauth2/token` with `g
 | Endpoint | Spec / purpose |
 | --- | --- |
 | `POST /auth/oauth2/authorize` + `POST /auth/oauth2/consent` | Authorization Code + PKCE S256. |
-| `POST /auth/oauth2/token` | `authorization_code`, `refresh_token`, `client_credentials`. Refresh rotation built in. A `client_credentials` request that names no scope, for a client registered without scopes, is granted nothing — the grant has no user to review it, so a machine client states what it needs explicitly. |
+| `POST /auth/oauth2/token` | `authorization_code` and `refresh_token`, with refresh rotation built in. A `client_credentials` request is answered with `unsupported_grant_type` — see [Machine callers](#machine-callers). |
 | `POST /auth/oauth2/userinfo` | OIDC userinfo. |
 | `POST /auth/oauth2/revoke` | RFC 7009 token revocation. |
 | `POST /auth/oauth2/introspect` | RFC 7662 token introspection. |
-| `POST /auth/oauth2/register` | RFC 7591 Dynamic Client Registration. Open to unauthenticated callers. A registration omitting `scope` defaults to the bundle expansion, not the full allowlist; wider scopes are requested explicitly. A space permission is never in that default and must be named here — see [Space permissions](#space-permissions). |
+| `POST /auth/oauth2/register` | RFC 7591 Dynamic Client Registration. Open to unauthenticated callers. A registration omitting `scope` defaults to the bundle expansion, not the full allowlist; wider scopes are requested explicitly. A space permission is never in that default and must be named here — see [Space permissions](#space-permissions). A registration naming `client_credentials` is refused. |
 | `GET /auth/jwks` | JWKS for `id_token` signature verification. |
 | `GET /.well-known/oauth-authorization-server/auth` + `GET /.well-known/openid-configuration/auth` + `GET /auth/.well-known/openid-configuration` + `GET /auth/.well-known/oauth-authorization-server` | RFC 8414 / OIDC Discovery authorization-server metadata, served at the well-known URLs the two specs form for this server's path-aware issuer. All four return the identical document. |
 | `GET /.well-known/oauth-authorization-server` + `GET /.well-known/openid-configuration` | 404. RFC 8414 §3 reserves the bare-root well-known path for an issuer of `https://<host>` with no path component; this server's issuer has a path, so a document served there would declare an identifier that doesn't match what the client asked about. |
@@ -216,6 +216,22 @@ Before the access token expires, the app calls `POST /auth/oauth2/token` with `g
 | `/auth/device*` | Marfa-owned device-flow state machine; tokens land in the plugin's tables on issuance. |
 | `/auth/grants*`, `/auth/sessions*`, `/auth/security` | Marfa-owned user-facing grants + session management. |
 | `/auth/oauth2/consent`, `get-consent`, `get-consents`, `update-consent`, `delete-consent`, `create-client`, `get-client`, `get-clients`, `update-client`, `delete-client`, `client/rotate-secret`, `public-client*`, and everything under `/auth/admin/oauth2/` | 404. The underlying plugin registers these consent- and client-management endpoints and Marfa does not serve them. A grant's record is written only by the consent and revoke surfaces above, so no route can create, widen or delete a consent without the person seeing a screen and the audit trail carrying a row; clients are registered through `POST /auth/oauth2/register`, and a client holding no grant is retired automatically. |
+
+### Machine callers
+
+**A machine acting on a space uses an API key, not an OAuth token.** The `client_credentials` grant is not supported: `POST /auth/oauth2/token` answers `unsupported_grant_type`, registration refuses the grant, and the discovery document does not advertise it.
+
+The reason is lifecycle rather than protocol. A key is created into a space by a person or by another key, and it is [listed, narrowed and revoked](#managing-keys) by whoever is accountable for it. A client-credentials token has none of that: no space of its own, no consent record, nothing on the person's security page, and no way to end it short of deleting a row. It would also carry space permissions that no consent screen ever showed anybody.
+
+So a server-side integration authenticates with `Authorization: Bearer marfa_k1_...` and holds exactly the permission set the person or key that created it chose. Nothing in the OAuth surface is needed for it.
+
+### The space a sign-in grants in
+
+**A token minted through a sign-in is bound to one space**, and every request it makes is scoped to that space. On the hosted service it is the account's own space. On a self-hosted server it is the single space the server holds, provisioned at bootstrap alongside the working key.
+
+A bearer token carrying no space is refused on every request, in both modes. There is no unscoped sign-in: a credential holding no space is the operator key, and the operator key is never issued to an app.
+
+So an authorization request that cannot be given a space is refused before a code exists, rather than producing a token that mints and then reaches nothing on its first call. Two situations get there: an account with no space of its own, and a self-hosted server holding more than one space, where nothing can say which of them a sign-in belongs to. Both answer with a page naming the cause, and the device flow refuses the same way.
 
 ### The resource parameter
 
