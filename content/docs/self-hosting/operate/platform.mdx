@@ -1,36 +1,38 @@
 ---
-title: Platform
-description: Platform-operator surface — list, inspect, suspend, set quotas, view metrics, list keys, force a pending-delete sweep — via the `marfa platform` CLI.
+title: Operator
+description: The operator surface — list, inspect, suspend, set quotas, view metrics, list keys, force a pending-delete sweep — via the `marfa operator` CLI.
 ---
 
-The `marfa platform` command tree exposes the platform-operator surface for managing spaces on a hosted Marfa instance: listing spaces, suspending them, adjusting per-space quotas, viewing usage metrics, listing API keys, and forcing a pending-delete sweep. Every command requires a **platform-admin key**: `role: "instance_admin"` with no space binding, which is what the bootstrap seed credential is. A key that is space-bound — including one carrying `role: "instance_admin"` issued for a single space — is rejected with HTTP 403, which the CLI surfaces as a clear "platform-admin key required" message. See [Platform admin and space-bound admin](/api-reference/authentication#platform-admin-and-space-bound-admin).
+The `marfa operator` command tree exposes the instance surface for managing spaces on a hosted Marfa instance: listing spaces, suspending them, adjusting per-space quotas, viewing usage metrics, listing API keys, and forcing a pending-delete sweep. Every command requires the **operator key** — the credential with `is_operator: true` and no space binding, which is what a fresh instance's first mint produces. Any space-bound credential is rejected with HTTP 403, which the CLI surfaces as a clear "operator key required" message. See [The operator key](/api-reference/authentication#the-operator-key).
 
-The verb name `platform` telegraphs the authority level the commands need. `marfa admin` is reserved for a future space-admin command set.
+**Running the instance is not a permission**, which is why these commands do not read one. No space permission reaches them, no consent screen offers them, and no app can be granted them.
+
+The verb name `platform` telegraphs the authority level the commands need. 
 
 The same routes are reachable directly via the SDK's `client.admin` namespace (TypeScript) and via raw HTTP under `/admin/*` (every other client). The SDK keeps the `admin` namespace internally; only the CLI surface uses `platform`.
 
 ## Commands
 
 ```
-marfa platform spaces list
-marfa platform spaces show <id>
-marfa platform spaces suspend <id> [--yes]
-marfa platform spaces unsuspend <id> [--yes]
-marfa platform spaces metrics <id>
-marfa platform spaces quotas <id> [--items N] [--webhooks N] [--blobs N] [--storage-gb N] [--rate-per-minute N] [--yes]
-marfa platform keys list <space-id>
-marfa platform account-deletion purge-now [--yes]
+marfa operator spaces list
+marfa operator spaces show <id>
+marfa operator spaces suspend <id> [--yes]
+marfa operator spaces unsuspend <id> [--yes]
+marfa operator spaces metrics <id>
+marfa operator spaces quotas <id> [--items N] [--webhooks N] [--blobs N] [--storage-gb N] [--rate-per-minute N] [--yes]
+marfa operator keys list <space-id>
+marfa operator account-deletion purge-now [--yes]
 ```
 
 | Command | Purpose |
 | --- | --- |
 | `spaces list` | List every space in the instance with current status (`active` / `suspended`). |
 | `spaces show <id>` | Full space row + current per-space quota overrides + the 10 most-recent `system.activity` rows for the space. |
-| `spaces suspend <id>` | Flip the space's `status` to `suspended`. Future non-GET requests from credentials in this space return HTTP 403 `space_suspended` at the auth-middleware layer. Reads pass through; platform-admin keys bypass. Idempotent — re-suspending a suspended space is a no-op. Emits a `space.suspend` audit row stamped with the **target** space id, so the suspended space's own `GET /audit` feed surfaces the event. |
+| `spaces suspend <id>` | Flip the space's `status` to `suspended`. Future non-GET requests from credentials in this space return HTTP 403 `space_suspended` at the auth-middleware layer. Reads pass through, and the operator key bypasses the gate. Idempotent — re-suspending a suspended space is a no-op. Emits a `space.suspend` audit row stamped with the **target** space id, so the suspended space's own `GET /audit` feed surfaces the event. |
 | `spaces unsuspend <id>` | Reverse of `suspend`. Idempotent. Emits a `space.unsuspend` audit row. |
 | `spaces metrics <id>` | Per-space usage snapshot — item count by lifecycle state, blob count + total bytes, recent activity. |
 | `spaces quotas <id>` | Flag-less invocation reads; passing any of `--items / --webhooks / --blobs / --storage-gb / --rate-per-minute` sets. `--storage-gb` is converted to bytes for the wire shape. `0` on any limit means "clear this override; revert to env default". |
-| `keys list <space-id>` | Active (non-revoked) API keys for the named space — id, label, source, role, platform flag, last-used timestamp. Pair with `marfa keys revoke <id>` for emergency revocation. |
+| `keys list <space-id>` | Active (non-revoked) API keys for the named space — id, label, source, operator flag, last-used timestamp. Pair with `marfa keys revoke <id>` for emergency revocation. |
 | `account-deletion purge-now` | Force a one-shot run of the pending-delete purger. Returns the count of accounts purged + the run timestamp. Useful when an account just passed its grace window and the operator doesn't want to wait for the next 1-hour cadence sweep. Idempotent — re-running with no eligible rows returns 0. Does not bypass the grace window. |
 
 ## Provisioning a space
@@ -39,14 +41,14 @@ A space normally comes into being when someone signs up. An operator provisionin
 
 ```bash
 curl -X POST "$MARFA_API_URL/admin/spaces" \
-  -H "Authorization: Bearer $PLATFORM_ADMIN_KEY" \
+  -H "Authorization: Bearer $OPERATOR_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"acme"}'
 ```
 
-The response carries the new space's id. It has no credentials yet, so the second step is issuing one scoped to it with `POST /admin/spaces/{id}/keys` — see [Authentication](/api-reference/authentication#platform-admin-and-space-bound-admin) for why a platform-admin key cannot mint a `space_admin` any other way.
+The response carries the new space's id. It has no credentials yet, so the second step is issuing one scoped to it with `POST /admin/spaces/{id}/keys` — see [Authentication](/api-reference/authentication#the-operator-key) for why the operator key cannot mint a space-bound credential any other way.
 
-`name` is optional and is a label only; the space is identified by its id. Both endpoints are platform-admin only, and platform-admin means authority not confined to a space: an `instance_admin` credential issued for one space is refused, because creating a space is a cross-space act.
+`name` is optional and is a label only; the space is identified by its id. Both endpoints take the operator key, and that means a credential with no space of its own: anything issued into a space is refused, because creating a space is a cross-space act.
 
 In the TypeScript SDK the pair is `client.admin.spaces.create({ name })` then `client.admin.keys.create(spaceId, input)`.
 
@@ -56,12 +58,12 @@ A space with a key is enough for anything speaking to the API directly, and not 
 
 ```bash
 curl -X POST "$MARFA_API_URL/admin/accounts" \
-  -H "Authorization: Bearer $PLATFORM_ADMIN_KEY" \
+  -H "Authorization: Bearer $OPERATOR_KEY" \
   -H "Content-Type: application/json" \
   -d '{"email":"ops@example.com","password":"'"$PASSWORD"'"}'
 ```
 
-The response carries the account id and the id of the space created for it. **The account arrives already verified**, so it signs in immediately with no email round-trip, and it owns its space as `space_admin` — the same provisioning a sign-up runs. The password is hashed by the same code the sign-in path verifies against and is never returned; generate it into a shell variable rather than typing it, and store it wherever the consumer reads it from.
+The response carries the account id and the id of the space created for it. **The account arrives already verified**, so it signs in immediately with no email round-trip, and it owns its space outright, holding every permission in it — the same provisioning a sign-up runs. The password is hashed by the same code the sign-in path verifies against and is never returned; generate it into a shell variable rather than typing it, and store it wherever the consumer reads it from.
 
 The address arriving proven rather than proving itself is what makes this an operator route. **Use it for an account something you run signs in as**, not for handing an account to the person who owns the mailbox: nothing has established that they control it, and a password set on their behalf keeps working after they take the account over.
 
@@ -75,7 +77,7 @@ A dynamically registered client that should no longer exist is removed with its 
 
 ```bash
 curl -X POST "$MARFA_API_URL/admin/oauth-clients/$CLIENT_ID/delete" \
-  -H "Authorization: Bearer $PLATFORM_ADMIN_KEY" \
+  -H "Authorization: Bearer $OPERATOR_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"confirm\":\"$CLIENT_ID\"}"
 ```
@@ -92,7 +94,7 @@ A space that no account owns can be removed outright. This is the counterpart to
 
 ```bash
 curl -X POST "$MARFA_API_URL/admin/spaces/$SPACE_ID/delete" \
-  -H "Authorization: Bearer $PLATFORM_ADMIN_KEY" \
+  -H "Authorization: Bearer $OPERATOR_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"confirm\":\"$SPACE_ID\"}"
 ```
@@ -107,7 +109,7 @@ It sweeps everything scoped to the space — items, edges, blobs, keys, inbound 
 
 ```bash
 curl -s "$MARFA_API_URL/admin/spaces/$SPACE_ID" \
-  -H "Authorization: Bearer $PLATFORM_ADMIN_KEY" \
+  -H "Authorization: Bearer $OPERATOR_KEY" \
   | jq -r '.space.owner_auth_user_id'
 ```
 
@@ -133,16 +135,18 @@ When a space is suspended:
 
 - Every non-GET request from a credential whose `space_id` matches the suspended space returns HTTP 403 `space_suspended`.
 - Reads (GET / HEAD / OPTIONS) pass through unchanged.
-- Platform-admin keys (`is_platform: true`) bypass the gate — operators can still write to quotas, unsuspend, etc.
+- The operator key bypasses the gate, so quotas can still be written and a space unsuspended while it is suspended.
 - Runtime-credential integration keys are **not** exempt. Suspending a space stops their integrations from writing upstream, which is the desired blast radius.
 
 The gate sits at the auth-middleware layer, so every present **and** future mutation route is covered without per-route opt-in. A per-instance 5-second cache keys the lookup on `space_id`, evicted immediately on suspend/unsuspend so operator changes feel instant on the local instance. Multi-instance deployments tolerate up to 5 seconds of cross-instance staleness.
 
-## Bootstrap admin key
+## The operator key
 
-Platform-admin keys (`is_platform: true`) are minted on instance bootstrap. The seed credential is created by your first `POST /keys` against a fresh deployment (the bootstrapped flag persists once stamped). Subsequent platform-admin keys can be minted by an existing platform admin via `marfa keys create --is-platform`.
+The operator key (`is_operator: true`, no space) is minted on instance bootstrap: your first `POST /keys` against a fresh deployment, presenting the one-time secret the server printed to its log. Only an existing operator key can mint another. See [Bootstrap](/api-reference/authentication#bootstrap).
 
-If you've lost access to your bootstrap admin key on a self-hosted instance, the recovery path is to delete the `bootstrapped: true` row from the `settings` table directly, which re-opens the bootstrap window. See the operator notes in your deployment's runbook.
+**It is not a working key.** It holds no space and no permissions, so it cannot read or write content anywhere — that is what fencing the instance tier outside the permission model means. Use it to provision a space and mint a credential into it, then put it away.
+
+If you have lost it on a self-hosted instance, the recovery path is to delete the `bootstrapped` row from the `settings` table directly, which re-opens the bootstrap window and makes the server print a fresh secret at its next boot. See the operator notes in your deployment's runbook.
 
 ## Quotas
 
@@ -154,7 +158,7 @@ A ceiling is exact, not approximate. Writes competing for the last of an allowan
 
 ## Forcing a pending-delete sweep
 
-`marfa platform account-deletion purge-now` forces a one-shot run of the server-side `PendingDeletePurger`. The purger normally runs on a 1-hour cadence; this verb is the operator's escape hatch when an account has just passed its grace window and the cleanup needs to happen now (stuck-deletion remediation, support-driven flows, end-to-end deletion verification).
+`marfa operator account-deletion purge-now` forces a one-shot run of the server-side `PendingDeletePurger`. The purger normally runs on a 1-hour cadence; this verb is the operator's escape hatch when an account has just passed its grace window and the cleanup needs to happen now (stuck-deletion remediation, support-driven flows, end-to-end deletion verification).
 
 The route only sweeps accounts already past their `pending_deletion_at + grace_days` threshold — it does **not** bypass the grace window. To force-purge an account ahead of schedule, the user has to wait out their own grace window or cancel and reinitiate. Idempotent: re-running with no eligible rows returns `purged_count: 0`.
 
@@ -171,7 +175,7 @@ gate refuses to delete it, correctly, because everything in the platform set is
 locked.
 
 `/health` publishes the count of rows in that state as `platform_types`, and
-two platform-admin routes act on it.
+two operator routes act on it.
 
 ```bash
 GET  /admin/platform-types/drift

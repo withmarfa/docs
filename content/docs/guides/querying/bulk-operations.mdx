@@ -8,7 +8,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 Three endpoints move data and mutate many items at once, each shaped around where the target set comes from.
 
 <Callout type="warn">
-  All `/items/bulk*` and `/edges/bulk` endpoints are admin-only. The server stamps `source` from the credential, so bulk writes cannot forge provenance and only platform admins can mass-mutate across sources. Third-party integrations writing many items should use `POST /items` with `source_id` per item: the server upserts on `(source, source_id)`, so re-posts merge in place without needing a bulk endpoint. See [Items — relationships, lists, and writes](/guides/core-model/items#relationships-lists-and-writes).
+  All `/items/bulk*` and `/edges/bulk` endpoints write against the caller's own content permissions, and the bulk purge action additionally takes `space.item_purge`. The server stamps `source` from the credential, so a bulk write cannot forge provenance or span sources. Third-party integrations writing many items should use `POST /items` with `source_id` per item: the server upserts on `(source, source_id)`, so re-posts merge in place without needing a bulk endpoint. See [Items — relationships, lists, and writes](/guides/core-model/items#relationships-lists-and-writes).
 </Callout>
 
 | Endpoint | Shape | Use when |
@@ -113,7 +113,7 @@ Every newly-created edge publishes `edge.created`, and every upsert that replace
 | `update_properties` | `patch: object` (shallow-merged into properties, and validated against each row's type) | write-access per matched type | — |
 | `update_timestamp` | `timestamp: ISO 8601` | write-access per matched type | — |
 
-Non-admin callers see their match set narrowed to types they hold `write` on, which is **narrower than `GET /items`**: a listing admits a type the credential can read. `purge` is the exception and returns 403 for non-admin regardless of filter.
+A caller sees its match set narrowed to the types it holds `write` on, which is **narrower than `GET /items`**: a listing admits a type the credential can read. `purge` is the exception and returns 403 without `space.item_purge`, whatever the filter.
 
 ### Filter grammar
 
@@ -137,9 +137,9 @@ There is deliberately no `include` token beside the type filter. Widening a read
 
 **Both ways of reaching a reserved row without asking are closed by the same rule**, because it narrows the type rather than the state. Omitting `state` applies the default mask, which drops only trashed rows and so would otherwise keep revoked ones; and the free-text `filter` string recognizes `state` with no value allowlist, so it compiles straight through to the query. Neither reaches a reserved row now, and `dry_run` therefore no longer enumerates one.
 
-**The match set is what the caller may write, not what it may read.** The filter this door derives admits the types the credential holds `write` on; a type it holds only `read` on is visible to `GET /items` and absent from the match set, the same answer `PATCH /items/{id}` gives on that row. A credential that bypasses the permission maps, such as a space admin, is unaffected by this axis.
+**The match set is what the caller may write, not what it may read.** The filter this door derives admits the types the credential holds `write` on; a type it holds only `read` on is visible to `GET /items` and absent from the match set, the same answer `PATCH /items/{id}` gives on that row. Nothing bypasses the maps, so every credential meets this axis.
 
-**A space's source filter narrows this door too**, resolved per row from the row's own type, exactly as on the four list reads. Unlike the type axis it narrows every space-bound credential, a space admin included; only a platform credential, which is bound to no space, escapes it. It is a narrowing lever, so a filter that names no type and one that reaches through the free-text grammar both meet it: a match set can no longer include a row a read hides.
+**A space's source filter narrows this door too**, resolved per row from the row's own type, exactly as on the four list reads. It narrows every space-bound credential; only the operator key, which is bound to no space, is outside it. It is a narrowing lever, so a filter that names no type and one that reaches through the free-text grammar both meet it: a match set can no longer include a row a read hides.
 
 ```json
 {
@@ -160,7 +160,7 @@ Every action publishes what it wrote, after its chunk commits: a `transition` an
 
 `enable_fanout` defaults to `false`, like every other bulk endpoint, and decides only whether each of those is also delivered as a webhook.
 
-Each of those reaches the space the row belonged to, which for a platform admin working across spaces is not the same as its own — see [Realtime](/guides/realtime/realtime#which-space-an-event-reaches).
+Each of those reaches the space the row belonged to, which for the operator key working across spaces is not the same as its own — see [Realtime](/guides/realtime/realtime#which-space-an-event-reaches).
 
 A purge announces its rows as well as its cascade, on this door and on `DELETE /items/{id}/purge`. The trash transition that has to precede a purge already announced the item, but `item.deleted` says recoverable, so a client that acted on it holds a trashed row nothing would ever correct: the row is absent afterwards rather than changed, and no later event can describe it. The cascade is announced per edge because an edge pointing *at* a purged item lives on an item that is not being purged, so nothing else tells its holder the relationship is gone. Edges first, then the rows they hung off.
 
