@@ -26,7 +26,7 @@ Bearer tokens, suitable for development, automation, server-to-server calls, and
 
 ### Creating keys
 
-Call `POST /keys` with the label, role, and the four permission maps (types, extensions, edges, metadata). The response contains the plaintext key **once** — the server never shows it again. Store it securely. Rotating means revoking the old key and creating a new one.
+Call `POST /keys` with the label, the space permissions, and the content maps (types, extensions, edges, metadata, profile). The response contains the plaintext key **once** — the server never shows it again. Store it securely. Rotating means revoking the old key and creating a new one.
 
 <Accordions type="single">
   <Accordion title="Example request and response">
@@ -34,9 +34,9 @@ Call `POST /keys` with the label, role, and the four permission maps (types, ext
     POST /keys
     {
       "label": "my-app",
-      "role": "member",
       "source": "My App",
       "default_tier": "library",
+      "space_permissions": [],
       "type_permissions": { "core.note": "write", "core.bookmark": "read" },
       "extension_permissions": { "my-app.*": "write" },
       "edge_permissions": { "parent-of": "write", "about": "write" },
@@ -49,9 +49,10 @@ Call `POST /keys` with the label, role, and the four permission maps (types, ext
       "id": "019d...",
       "key": "marfa_k1_abc...",
       "label": "my-app",
-      "role": "member",
       "source": "My App",
       "default_tier": "library",
+      "space_permissions": [],
+      "is_operator": false,
       ...
     }
     ```
@@ -62,61 +63,74 @@ Call `POST /keys` with the label, role, and the four permission maps (types, ext
 
 Full request and response shapes live in the API reference. A few fields carry rules worth calling out:
 
-- **`role`** — `instance_admin` bypasses every permission check. `space_admin` is admin-shaped within its own space: an API key with this role bypasses the data-plane permission maps for its space and manages that space's keys (reserved `system.*` / `marfa.*` writes still require a platform credential). `member` is scoped by the permission maps with no key-management rights. The role bypass applies to API keys only — OAuth access tokens are always held to their granted scopes regardless of role (see [Scopes](#scopes)). A caller may not mint a key above its own role; see [Role ceiling](#role-ceiling).
+- **`space_permissions`** — the space permissions this key holds, as a list of `space.<name>` literals. Every administrative door checks this list, for a key exactly as for a signed-in app. Omitting it at a mint takes the creator's whole set; naming it takes a subset. See [Space permissions](#space-permissions).
+- **`is_operator`** — whether this is the operator key, which runs the instance and holds no space. See [The operator key](#the-operator-key).
 - **`source`** — stamped onto every item written by this key. Unique per space; clients can't override.
 - **`default_tier`** — stamps onto items when the client omits the field. Clients can override per item. See [Tier](/guides/core-model/tier).
 - **`type_permissions`**, **`extension_permissions`**, **`edge_permissions`**, **`metadata_permissions`** — see [Permissions](/api-reference/permissions) for resolution rules and the dual-gate.
 
-### Role ceiling
+### The ceiling
 
-The roles are ordered: `instance_admin` > `space_admin` > `member`. Both of the admin-shaped roles name what they govern, which is the point of the top one's name: read beside `space_admin`, a bare `admin` looks like the smaller of the two when it is the larger. A caller may mint a key at its own role or below, never above. A `space_admin` asking for `role: "instance_admin"` gets `403 forbidden`; so does a request for any role the caller does not itself hold. The refusal is explicit rather than a silent downgrade, so a client never walks away holding a credential weaker than the one it asked for without knowing.
+**Nothing can hold more than whoever created it holds.** A key's reach is bounded by the reach of the credential that minted it, on every axis at once: the content maps, the space permissions, and the extension namespaces. Omitting a family takes the creator's whole set for it; naming one takes a subset. A request for anything the creator does not itself hold is refused with `403 forbidden`, naming the literal it was short of, so a client can narrow toward something rather than guess.
 
-This bounds what a credential can turn into. Minting is not an escalation path: the strongest key a request can produce is a copy of the one that authorized it.
+The refusal is explicit rather than a silent downgrade, so a caller never walks away holding a credential weaker than the one it asked for without knowing.
 
-Two further axes are constrained separately and are not covered by the ordering:
+**The ceiling runs on every mint and on every edit.** A clamp applied only at creation is not a clamp: the permission maps are writable through `PATCH /keys/{id}` a moment later, and that route reaches every key in the caller's space rather than only the ones the caller made. So minting a key and editing one are bounded the same way, and nothing can be widened by a second step.
 
-- **`is_platform`** — only a caller that is already a platform credential can set it. Requested by anyone else, it is coerced to `false`.
+Two further axes are constrained separately:
+
+- **`is_operator`** — only the operator key can mint another. Requested by anyone else, it is refused. See [The operator key](#the-operator-key).
 - **Space** — inherited from the caller, never chosen by the request body. See [Space binding](#space-binding).
 
-Bootstrap is the one exemption: on a fresh server there is no credential to compare against, so the seed key is minted as `instance_admin`.
+Bootstrap is the one exemption: on a fresh server there is no credential to compare against, so the seed key is the operator key.
 
-### Platform admin and space-bound admin
+### The operator key
 
-`instance_admin` describes the role, not automatically the reach. Platform authority — the `/admin/*` space surface, cross-space quota writes, instance metrics — requires a credential that is **not bound to a space**. A key can legitimately carry `role: "instance_admin"` and still be confined to one space: `POST /admin/spaces/{id}/keys` mints exactly that, and its authority stops at that space's boundary. Such a key is admin-shaped inside its own space and is refused, with `403 forbidden`, on the cross-space surfaces.
+**Running the instance is not a permission.** It is the operator key: the first credential on a fresh instance, minted once, holding no space and no permissions at all. It creates and deletes accounts and spaces, mints a key into a named space, removes an OAuth client, and reaches every space for the housekeeping that runs across all of them. On the hosted service it is ours; a self-hoster holds their own.
 
-Read `instance_admin` as "bypasses the permission maps" and space binding as "and here is how far that reaches".
+**It is not a working key.** It carries empty permission maps, so it cannot read or write content anywhere — that is what fencing the instance tier outside the permission model means in practice. It is never offered on a consent screen, never derivable from a sign-in, and never needed by an app. Use it to provision, then put it away.
+
+The shape is enforced at the database: a credential with no space **is** the operator key, and one with a space is not. No other combination can be written down.
 
 ### Space binding
 
 A key minted through `POST /keys` always lands in the caller's own space. A `space_id` in the request body is rejected with `400 validation_error` rather than ignored, so a request aiming a key at one space can never quietly produce a key scoped to another.
 
-One combination is therefore impossible. A platform-admin key has no space of its own, so it cannot mint `role: "space_admin"`: the new key would inherit no space either, and a space admin with no space is bounded by nothing. That request returns `400 validation_error`. To issue a credential for a specific space, use `POST /admin/spaces/{id}/keys`, which is platform-admin only, takes the space from the path, and never mints a platform credential. In the TypeScript SDK that is `client.admin.keys.create(spaceId, input)`.
-
-`member` is unaffected. Minted by a caller with no space it produces a platform-tier key, which is usually what a platform operator wants. Any mint that lands without a space carries `platform_tier: true` on its `key.create` audit row, so those credentials can be found later.
+The operator key has no space to hand down, so through `POST /keys` it mints another operator key and nothing else. To issue a credential for a specific space, use `POST /admin/spaces/{id}/keys`, which takes the operator key, names the space in its path, and never mints an operator key. In the TypeScript SDK that is `client.admin.keys.create(spaceId, input)`.
 
 ### Bootstrap
 
-On a fresh server with no keys, the first `POST /keys` succeeds without auth (bootstrap mode) and mints an admin key. Once any key exists, bootstrap mode disables — further key creation requires an admin or space_admin token.
+On a fresh server with no credential, the first `POST /keys` mints the operator key. **That call is bound to the host:** the server generates a one-time secret at startup and prints it to its own log, and the mint must present it as a bearer token. Reading the log is proof of running the instance, which is the only claim available before any credential exists.
 
-If all keys are later revoked, bootstrap mode does not re-enable automatically. To recover, delete the `bootstrapped: true` row from the `settings` table directly, which re-opens the bootstrap window.
+```bash
+docker compose logs marfa | grep "holds no credential yet"
+curl -X POST https://your-instance/keys \
+  -H "Authorization: Bearer <the secret from the log>" \
+  -H 'Content-Type: application/json' \
+  -d '{"label":"operator","source":"operator"}'
+```
+
+The secret is reprinted at every boot until it is used, so a restart does not strand you, and the mint consumes it. There is no environment variable and no fallback: a variable would end up in a compose file and be the same on every instance copied from it, and a fallback is the door standing open for everyone who has not read this paragraph.
+
+**In keys mode the same call also provisions the instance's one space and mints a working key into it**, returned as `space` and `space_key`. That second key is the one to configure a client with; the operator key cannot work inside a space.
+
+Once the mint succeeds, bootstrap closes and does not re-open if every key is later revoked. To recover, delete the `bootstrapped` row from the `settings` table directly.
 
 ### Managing keys
 
-List, retrieve, update, and revoke via the Keys endpoints. Key management is restricted to admin and space_admin roles; a space_admin manages only keys within its own space. `member` keys cannot manage other keys.
+List, retrieve, update, and revoke via the Keys endpoints. All four doors take `space.keys`, and a credential holding it manages only keys within its own space. The operator key reaches them by being the operator key rather than by holding the permission, because it holds none.
 
 #### From a signed-in app
 
-An app holding `capability.keys` can manage keys too, and mint them. Four things bound what it can produce, and each answers a different way of asking for more than the app was given.
+An app holding `space.keys` can manage keys too, and mint them — including with space permissions of its own, since a sign-in that holds one may hand it down. Three things bound what it can produce, and each answers a different way of asking for more than the app was given.
 
 **It cannot give a key reach it does not hold itself.** Every permission the request asks for is checked against the app's own granted scopes, and a request naming one they do not cover is refused `403` with the missing scope in `details.required_scope` — so a client can narrow toward something that will work. The same check runs on `PATCH`, because permission maps are editable after the mint.
 
-**A key minted this way is scope-enforced.** Its permission maps decide what it reaches and its role does not override them, which is what keeps the narrowing true after the key is first used. The flag is visible read-only on the key's list and detail responses, and it is never settable from a request.
-
-**Its role is always `member`.** A higher role carries authority no scope expresses — the administrative doors read rank directly — so a key holding one could not be bounded by the app's grant once minted. The app itself still reaches those doors while it is signed in; what it cannot do is leave behind a credential that still reaches them after the grant is revoked.
-
 **It cannot ask for `extension_permissions`.** No scope names an extension namespace, so there is nothing to check such a request against, and the family is refused rather than passed through unmeasured.
 
-Omitting the permission maps mints a key matching the app's own reach — "a key like this sign-in" — rather than an empty one, which on a scope-enforced key would read nothing at all.
+**A key an app made belongs to that app, and is never widened afterwards.** The key records which app minted it, shows under that app on the keys page, and disconnecting the app offers to revoke it. No credential can widen it later — not the person who signed in, and not the operator key — because the promise the consent screen makes about that key is only worth something if nothing can quietly lift it. Narrowing stays open.
+
+Omitting the permission maps mints a key matching the app's own reach — "a key like this sign-in" — rather than an empty one, which would read nothing at all.
 
 The `key.create` audit row records the app, the user and the grant, so an app that has been revoked leads to the keys it created.
 
@@ -193,7 +207,7 @@ Before the access token expires, the app calls `POST /auth/oauth2/token` with `g
 | `POST /auth/oauth2/userinfo` | OIDC userinfo. |
 | `POST /auth/oauth2/revoke` | RFC 7009 token revocation. |
 | `POST /auth/oauth2/introspect` | RFC 7662 token introspection. |
-| `POST /auth/oauth2/register` | RFC 7591 Dynamic Client Registration. Open to unauthenticated callers. A registration omitting `scope` defaults to the bundle expansion, not the full allowlist; wider scopes are requested explicitly. A capability scope is never in that default and must be named here — see [Capability scopes](#capability-scopes). |
+| `POST /auth/oauth2/register` | RFC 7591 Dynamic Client Registration. Open to unauthenticated callers. A registration omitting `scope` defaults to the bundle expansion, not the full allowlist; wider scopes are requested explicitly. A space permission is never in that default and must be named here — see [Space permissions](#space-permissions). |
 | `GET /auth/jwks` | JWKS for `id_token` signature verification. |
 | `GET /.well-known/oauth-authorization-server/auth` + `GET /.well-known/openid-configuration/auth` + `GET /auth/.well-known/openid-configuration` + `GET /auth/.well-known/oauth-authorization-server` | RFC 8414 / OIDC Discovery authorization-server metadata, served at the well-known URLs the two specs form for this server's path-aware issuer. All four return the identical document. |
 | `GET /.well-known/oauth-authorization-server` + `GET /.well-known/openid-configuration` | 404. RFC 8414 §3 reserves the bare-root well-known path for an issuer of `https://<host>` with no path component; this server's issuer has a path, so a document served there would declare an identifier that doesn't match what the client asked about. |
@@ -223,7 +237,7 @@ The grammar has six shapes. Four are verb-on-resource and mirror the permission 
 | `metadata.<sub>:write` | Write a specific metadata sub-resource: `metadata.types:write` gates `POST /types`; `metadata.edge_types:write` gates `POST /edge-types`. |
 | `content:read` | Read every type in the content category — everything whose family is not `system`, including types added later. |
 | `content:write` | Write the same set, except that `marfa.*` types stay read-only. See [The content category](#the-content-category). |
-| `capability.<surface>` | Authority over one administrative surface. No verb; see [Capability scopes](#capability-scopes). |
+| `space.<surface>` | Authority over one administrative surface. No verb; see [Space permissions](#space-permissions). |
 | `profile:read` | Read the whole of your profile, including rows added to it later. |
 | `profile:write` | Read and update the same. |
 | `profile.<row>:read` | Read one row: `name`, `email` or `avatar`. |
@@ -259,60 +273,58 @@ For the same reason a standing grant that lists every type today **does not** co
 
 **A named type still wins over the category.** A scope naming a row sits above or below the category's default for that row, so requesting `content:read` alongside `system.connection:read` grants the category plus that one system type. Naming something has always granted it, and the category does not take that away.
 
-OAuth access tokens are enforced against exactly the scopes granted at consent. The `space_admin` role bypass that applies to API keys does not apply to OAuth tokens — the signed-in user's role is the ceiling on what an app can be granted, not a pass-through of the user's own access. An app granted only `*:read` can read but not write, even when the user is a space admin.
+OAuth access tokens are enforced against exactly the scopes granted at consent, and so is every API key — one permission model, one check. What the person holds is the ceiling on what an app can be granted, never a pass-through of it: an app granted only `*:read` can read but not write, however much the person who signed in can do.
 
 Extension namespaces are not part of the OAuth scope grammar — extension reads and writes are governed by the credential's `extension_permissions` map (see [Permissions](/api-reference/permissions)). OAuth tokens carry no extension permissions: the map on an OAuth-derived credential is always empty, so the extension surface is reachable only with an API key.
 
 The consent screen groups the requested scopes into [permission bundles](/guides/identity/permission-bundles); expanding a group reveals a per-type toggle for each scope it covers.
 
-### Capability scopes
+### Space permissions
 
-The type, edge, and metadata scopes all name a resource and a level of access to it. A space's administrative surfaces are not resources in that sense: registering an outbound webhook, installing a connection, minting a key, emptying the trash for good. A capability scope names one of those surfaces.
+The type, edge, and metadata scopes all name a resource and a level of access to it. A space's administrative surfaces are not resources in that sense: registering an outbound webhook, installing a connection, minting a key, emptying the trash for good. A space permission names one of those surfaces.
+
+**They are carried the same way by every credential.** A sign-in holds them as granted scopes and an API key holds them in a list on its row, and every door consults whichever the caller has through one check. There is no rank behind them and nothing that bypasses them.
 
 | Scope | What it covers |
 |---|---|
-| `capability.webhooks` | Outbound webhook subscriptions: what fires, and where the events are delivered. |
-| `capability.connections` | Installing, configuring, and removing connections to upstream services, and deciding what each one can reach. Covers a connection's data mapping, its inbound receipt endpoints, and the leased tokens it issues. |
-| `capability.upstream_access` | Calling a connected service directly through the proxy, spending that connection's live credential. |
-| `capability.schema` | Changing and removing item and relation type definitions that already exist. Registering a new one is a different grant, below. |
-| `capability.space_usage` | Reading the space's quotas and how much of each is used. |
-| `capability.space_settings` | The space's configuration and its schema-enforcement settings. |
-| `capability.audit_read` | Reading the space's audit log. |
-| `capability.item_purge` | Permanently deleting an item, past the trash. |
-| `capability.keys` | Creating, listing, updating, and revoking the space's own API keys. |
-| `capability.credentials` | Registering and removing the upstream client secrets and API tokens that connections are installed against. |
-| `capability.app_grants` | Listing and revoking the other apps the space has authorized. |
+| `space.webhooks` | Outbound webhook subscriptions: what fires, and where the events are delivered. |
+| `space.connections` | Installing, configuring, and removing connections to upstream services, and deciding what each one can reach. Covers a connection's data mapping, its inbound receipt endpoints, and the leased tokens it issues. |
+| `space.upstream_access` | Calling a connected service directly through the proxy, spending that connection's live credential. |
+| `space.schema` | Changing and removing item and relation type definitions that already exist. Registering a new one is a different grant, below. |
+| `space.usage` | Reading the space's quotas and how much of each is used. |
+| `space.settings` | The space's configuration and its schema-enforcement settings. |
+| `space.audit_read` | Reading the space's audit log. |
+| `space.item_purge` | Permanently deleting an item, past the trash. |
+| `space.keys` | Creating, listing, updating, and revoking the space's own API keys. |
+| `space.credentials` | Registering and removing the upstream client secrets and API tokens that connections are installed against. |
+| `space.app_grants` | Listing and revoking the other apps the space has authorized. |
 
 Several of those boundaries are decisions rather than groupings, and each is where an obvious grouping would have handed a holder more than the name implies.
 
-- **Using a connected account is not managing connections.** The proxy spends a connection's live upstream token, so `capability.upstream_access` reaches the person's actual account at the third-party service. Installing and removing connections does not.
+- **Using a connected account is not managing connections.** The proxy spends a connection's live upstream token, so `space.upstream_access` reaches the person's actual account at the third-party service. Installing and removing connections does not.
 - **Grant administration is not key management.** The two sit beside each other, and folding them together would let an app trusted to rotate a key enumerate and revoke every other app the space has authorized.
 - **Credentials are not connections.** Registering the client secrets and tokens a connection is installed against is its own authority. Leased tokens are not here: one carries no reach beyond the connection that minted it.
-- **Schema change is not schema registration.** Registering a type is already governed by `metadata.types:write` and `metadata.edge_types:write`. `capability.schema` covers only what that grammar does not, so the two never describe the same act.
+- **Schema change is not schema registration.** Registering a type is already governed by `metadata.types:write` and `metadata.edge_types:write`. `space.schema` covers only what that grammar does not, so the two never describe the same act.
 - **Usage is not settings.** An app doing ordinary work may want to know how much room is left. That should not require the power to rewrite the space's enforcement policy, which is also what decides how long the audit trail survives.
-- **Outbound and inbound webhooks are different things.** `capability.webhooks` covers the subscriptions that send a space's events out. A connection's inbound receipt endpoints belong to that connection.
+- **Outbound and inbound webhooks are different things.** `space.webhooks` covers the subscriptions that send a space's events out. A connection's inbound receipt endpoints belong to that connection.
 
 Two rules govern the literal, and both are enforced rather than conventional.
 
-**The set is closed.** Those eleven are the whole of it. A literal under the `capability.` root that is not one of them is not a scope at all: it fails to parse, and it is refused wherever a scope is validated. The root is reserved alongside `core`, `system`, `app`, `user`, and `marfa` (see [Namespaces](/guides/schema/namespaces)), so no type can ever be registered under it and a capability literal can never collide with a type identifier.
+**The set is closed.** Those eleven are the whole of it. A literal under the `space.` root that is not one of them is not a scope at all: it fails to parse, and it is refused wherever a scope is validated. The root is reserved alongside `core`, `system`, `app`, `user`, and `marfa` (see [Namespaces](/guides/schema/namespaces)), so no type can ever be registered under it and a space permission can never collide with a type identifier.
 
-**A capability carries no verb.** `capability.webhooks:read` is not a narrower form of `capability.webhooks`; it is invalid. The read/write axis describes how far into a resource a grant reaches, and an administrative surface has no such axis: an app either holds the authority to manage a space's webhooks or it does not. Where a surface does divide, the division is in the name, which is why `capability.audit_read` is one capability and there is no writing counterpart.
+**A space permission carries no verb.** `space.webhooks:read` is not a narrower form of `space.webhooks`; it is invalid. The read/write axis describes how far into a resource a grant reaches, and an administrative surface has no such axis: an app either holds the authority to manage a space's webhooks or it does not. Where a surface does divide, the division is in the name, which is why `space.audit_read` is one permission and there is no writing counterpart.
 
-Capability scopes reach none of the three permission maps. A granted capability projects into `type_permissions`, `edge_permissions`, and `metadata_permissions` exactly as much as an OIDC literal does, which is not at all, so holding one widens nothing on the data plane.
+Space permissions reach none of the three permission maps. A granted one projects into `type_permissions`, `edge_permissions`, and `metadata_permissions` exactly as much as an OIDC literal does, which is not at all, so holding one widens nothing on the data plane.
 
-An app asks for a capability by naming it in its authorization request, the same way it asks for anything else. Every one of the eleven is in the scope allowlist.
+An app asks for a space permission by naming it in its authorization request, the same way it asks for anything else. Every one of the eleven is in the scope allowlist.
 
-**Role still caps what a capability can be spent on.** The two are separate axes and both are read: a capability admits the app, and the caller's role decides whether the act is allowed at all. A `member` holding `capability.webhooks` still cannot manage webhooks — the capability is the app's half of the question, and the role is the person's.
+**All eleven are enforced.** Every administrative door consults the permission its surface names, for an API key and a signed-in app alike, and there is no rank behind any of them: a credential that was not granted the permission is refused, whatever else it holds.
 
-<Callout type="warn">
-**Ten of the eleven are enforced. `capability.item_purge` is not yet.** Every space-admin door consults the capability its surface names, so a signed-in app that was not granted it is refused whatever its role. Permanently deleting an item is the exception, still gated on role alone while the apps that call it ship the scope — ask for it now, because the grant is what will admit your app when that door starts reading it too.
-</Callout>
+**A space permission is granted by being ticked, never by silence.** Both consent screens render one unticked and leave it that way unless the person says otherwise, whatever else is on the screen and whatever a permission bundle says about it. The device-approval screen offers per-scope toggles for exactly this reason: it used to confirm a list it could not edit, which would have granted an administrative surface on a single click.
 
-**A capability is granted by being ticked, never by silence.** Both consent screens render one unticked and leave it that way unless the person says otherwise, whatever else is on the screen and whatever a permission bundle says about it. The device-approval screen offers per-scope toggles for exactly this reason: it used to confirm a list it could not edit, which would have granted an administrative surface on a single click.
+**A client must claim a space permission at registration, and nothing tells it if it did not.** This is the one that costs a day.
 
-**A client must claim a capability at registration, and nothing tells it if it did not.** This is the one that costs a day.
-
-A client's registered scope set is written once, when it registers, and never updated. A registration that names no `scope` receives the bundle expansion — and because no bundle may name a capability, that set can never contain one. So asking for `capability.keys` in an authorization request is not enough on its own: the client has to have registered for it.
+A client's registered scope set is written once, when it registers, and never updated. A registration that names no `scope` receives the bundle expansion — and because no bundle may name a space permission, that set can never contain one. So asking for `space.keys` in an authorization request is not enough on its own: the client has to have registered for it.
 
 The two flows then fail differently, and the quiet one is worse.
 
@@ -325,7 +337,7 @@ Repairing it means registering again, because a stored registration cannot be wi
 
 **Only capabilities need this.** Every other scope the server's bundles publish is caught up in place on the next authorization, so a client whose grant is short of an ordinary type scope should not re-register — doing so abandons the old client for nothing.
 
-**No bundle names one, and a configured bundle cannot.** A capability literal in `MARFA_PERMISSION_BUNDLES` is dropped when the bundle's scopes are read and a warning is logged naming it, so a configuration cannot pre-tick administrative authority or write it into a client's stored scope ceiling. The bundle's other scopes are unaffected: the drop is per scope, not per bundle. It has nothing to do with whether the literal is requestable, which the platform decides for itself by publishing the family from the closed set, so an instance running no bundles at all still lets an app ask.
+**No bundle names one, and a configured bundle cannot.** A space-permission literal in `MARFA_PERMISSION_BUNDLES` is dropped when the bundle's scopes are read and a warning is logged naming it, so a configuration cannot pre-tick administrative authority or write it into a client's stored scope ceiling. The bundle's other scopes are unaffected: the drop is per scope, not per bundle. It has nothing to do with whether the literal is requestable, which the platform decides for itself by publishing the family from the closed set, so an instance running no bundles at all still lets an app ask.
 
 ### Partial grants
 
@@ -339,7 +351,7 @@ Consent is remembered per client. When a signed-in user reaches the authorizatio
 
 - **A broader grant covers a narrower request.** A standing grant of `core.*:read` covers a later request naming `core.note:read`, so an app that starts asking for one type by name does not send the user back through consent for access they already gave. Breadth is the wildcard and only the wildcard: a grant on `core.media` does not reach `core.media.book`, because `core.media` names one type. `core.media.*` names that type and everything under it.
 - **Asking for less is not automatically covered.** A grant can pair a broad scope with a narrower one at a lower level — `*:write` alongside `core.*:read` means "write anything, but only read what is under `core`". Dropping `core.*:read` from a later request leaves a strictly smaller scope list that asks for **more**: the narrower scope was what held the broader one down, and without it the token could write `core.note`. That renders the consent screen.
-- **A capability scope and an OIDC literal are reached by naming them exactly.** No wildcard covers either, and one never covers another.
+- **A space permission and an OIDC literal are reached by naming them exactly.** No wildcard covers either, and one never covers another.
 
 Re-consent happens when it should:
 

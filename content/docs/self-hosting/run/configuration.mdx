@@ -23,7 +23,7 @@ The Marfa server is configured entirely via environment variables. No config fil
 | `MARFA_REPLICA_COUNT` | `1` | How many server processes share this database. Purely declarative — it changes no behavior and exists so the startup check can warn you. **Only one process per database is supported**; more than one silently drops realtime events. Node cluster and PM2 workers are detected automatically, so set this only when a container orchestrator does the scaling. See [Run exactly one server process per database](/self-hosting/run/deployment#run-exactly-one-server-process-per-database). |
 | `TRUSTED_PROXY_CIDRS` | _(none)_ | Comma-separated CIDRs (e.g. `10.0.0.0/8,127.0.0.1/32`) for opt-in `x-forwarded-for` trust. When unset, the header is ignored and the connection peer address is used; spoofing is impossible. When set, the chain is walked right-to-left, skipping trusted hops. Malformed CIDRs throw at startup. |
 | `API_KEY_SALT` | _(required in production)_ | Salt for hashing API keys at rest. Must be a long random string. Changing it invalidates every existing key. |
-| `MARFA_RLS_ENFORCE` | `true` | Enabled by default. Each space-bounded request runs through a Drizzle transaction that sets `SET LOCAL ROLE marfa_app` + `set_config('marfa.space_id', $space, true)` so the per-table Postgres RLS policies filter queries (defense-in-depth beneath the application-layer space scoping). Set to `false` only to diagnose; SQLite is unaffected (the middleware skips it). Policies cover the space-scoped tables including `users`, `space_quotas`, and the outbound/inbound webhook child tables. Platform-admin keys (no `space_id`), anonymous routes, and streaming responses (`/events`, `/export`) bypass the per-request wrapper; streams apply session-level RLS instead. |
+| `MARFA_RLS_ENFORCE` | `true` | Enabled by default. Each space-bounded request runs through a Drizzle transaction that sets `SET LOCAL ROLE marfa_app` + `set_config('marfa.space_id', $space, true)` so the per-table Postgres RLS policies filter queries (defense-in-depth beneath the application-layer space scoping). Set to `false` only to diagnose; SQLite is unaffected (the middleware skips it). Policies cover the space-scoped tables including `users`, `space_quotas`, and the outbound/inbound webhook child tables. The operator key (which holds no `space_id`), anonymous routes, and streaming responses (`/events`, `/export`) bypass the per-request wrapper; streams apply session-level RLS instead. |
 
 ## Storage
 
@@ -327,15 +327,16 @@ export PORT=8600
 node dist/index.js
 ```
 
-Hits SQLite on disk, filesystem blobs in `./data/blobs`, rate-limited at 1000 req/min per credential. Bootstrap the first admin key:
+Hits SQLite on disk, filesystem blobs in `./data/blobs`, rate-limited at 1000 req/min per credential. Bootstrap it with the one-time secret the server printed to its log at startup:
 
 ```bash
 curl -X POST http://localhost:8600/keys \
+  -H "Authorization: Bearer <the secret from the log>" \
   -H "Content-Type: application/json" \
-  -d '{"label":"admin","role":"instance_admin","source":"bootstrap"}'
+  -d '{"label":"operator","source":"operator"}'
 ```
 
-Capture the `key` field from the response. That's your admin credential.
+Capture both: `key` is the operator key, which runs the instance and works in no space, and `space_key.key` is bound to the space the same call provisioned and is the credential to work through.
 
 ## Production-shape self-host
 

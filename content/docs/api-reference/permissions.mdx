@@ -5,15 +5,13 @@ description: Four permission maps — types, extensions, edges, metadata — and
 
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-Every credential (API key or OAuth grant) carries four permission maps. Reads and writes are enforced against them. An `instance_admin` or `space_admin` API key bypasses the four data-plane maps within its own space.
+Every credential — an API key or an OAuth grant — carries one permission set: five permission maps plus the eleven [space permissions](/api-reference/authentication#space-permissions). Reads and writes are enforced against the maps, and **nothing bypasses them**. There is no rank: a credential reaches exactly what its set says and no more.
 
-Two things the bypass is not.
+Two things follow that used not to.
 
-**It is not a bypass of the reserved namespaces.** Writing to `system.*` or `marfa.*` is gated on the credential's `is_platform` flag, not on its role, so an `instance_admin` key without that flag is refused like any other credential.
+**The reserved namespaces are the operator key's, and for `system.*` they are nobody's.** Writing to `system.*` or `marfa.*` is gated on the credential's `is_operator` flag. For `marfa.*` the operator key passes; for `system.*` nothing does, because the permission-map check runs beside the namespace gate and the operator key holds empty maps. Everything that writes a `system.*` row in the product does so through the storage layer rather than through a credential.
 
-**It is not extra reach.** A credential's space binding bounds what it can address, so an `instance_admin` key bound to a space bypasses the maps inside that space and gets `403 forbidden` on the cross-space platform surfaces. Platform authority means a credential with no space binding at all. See [Platform admin and space-bound admin](/api-reference/authentication#platform-admin-and-space-bound-admin).
-
-The role bypass applies to API keys only. OAuth access tokens are enforced against the maps projected from their granted scopes regardless of the signed-in user's role — an app gets exactly what the user granted it at consent, never the user's full access. The default consent grant projects to concrete map entries, one per granted core and integration type (`type_permissions: { "core.note": "write", … }`), plus a `user.*` wildcard entry from the custom-types bundle that matches runtime types at check time. See [Permission bundles](/guides/identity/permission-bundles) for how the wildcard narrows.
+**An API key and a signed-in app are measured the same way.** An app gets exactly what the person granted it at consent, never the person's full access, and a key gets exactly what its maps and permission list say. The default consent grant projects to concrete map entries, one per granted core and integration type (`type_permissions: { "core.note": "write" }` and so on) rather than to a wildcard.
 
 ## The four maps
 
@@ -22,7 +20,8 @@ The role bypass applies to API keys only. OAuth access tokens are enforced again
   "type_permissions":      { "<type_pattern>": "read" | "write" | "none" },
   "extension_permissions": { "<namespace_pattern>": "read" | "write" },
   "edge_permissions":      { "<edge_type_pattern>": "read" | "write" },
-  "metadata_permissions":  { "<sub_resource>": "read" | "write" }
+  "metadata_permissions":  { "<sub_resource>": "read" | "write" },
+  "profile_permissions":   { "<row>": "read" | "write" }
 }
 ```
 
@@ -47,7 +46,7 @@ A subtree pattern covers the parent type as well as its descendants. `core.bookm
 
 This differs from the `?type=` read filter, which does resolve declared parentage — see [Cross-discoverability](/guides/schema/authoring-types#cross-discoverability-and-the-inheritance-choice). The split is deliberate. A permission map is ranked by longest-prefix precedence, and there is no defensible way to rank a match on the name against a match through a declared parent. Resolving grants both ways made a map of `{"user.*": "none", "core.bookmark.*": "read"}` ambiguous for a type named under `user` that declares `core.bookmark` as its parent, and the two sides disagreed: a listing returned the row while fetching it by id returned `403`.
 
-A grant is written against names, so names are what it means. The consequence to expect: a credential scoped to a subtree sees fewer rows than an admin for the same `?type=` query, because the query resolves parentage and the credential's grant does not.
+A grant is written against names, so names are what it means. The consequence to expect: a credential scoped to a subtree sees fewer rows than one holding the whole namespace for the same `?type=` query, because the query resolves parentage and the credential's grant does not.
 
 It follows that a subtree pattern set to `none` also denies the parent. Given:
 
@@ -120,9 +119,9 @@ The `metadata_permissions` map controls registration of new schema — the mutat
 
 Keys are sub-resource names. Two are enforced: `types` gates `POST /types`, and `edge_types` gates `POST /edge-types`. New credentials default to `metadata_permissions: {}`.
 
-Note what this implies: registering a custom item type is a permission, not a role. A `member` credential holding `metadata_permissions: { types: "write" }` can register one, and the registration is scoped to its own space.
+Note what this implies: registering a custom item type is a permission and nothing else. Any credential holding `metadata_permissions: { types: "write" }` can register one, and the registration is scoped to its own space.
 
-OAuth tokens project the `metadata.<sub>:<verb>` scope into this map on the synthetic credential — a token granted `metadata.types:write` carries `metadata_permissions: { types: "write" }`. The bare `metadata:<verb>` scope projects a `*` wildcard across the sub-resources, so it covers both registration surfaces. It does not govern tags: tag reads and writes are gated on the parent item's own type. Admin and space-admin API keys bypass.
+OAuth tokens project the `metadata.<sub>:<verb>` scope into this map on the synthetic credential — a token granted `metadata.types:write` carries `metadata_permissions: { types: "write" }`. The bare `metadata:<verb>` scope projects a `*` wildcard across the sub-resources, so it covers both registration surfaces. It does not govern tags: tag reads and writes are gated on the parent item's own type. Nothing bypasses it — the map is the whole of what a credential reaches, and the operator key holds none.
 
 ## Your profile
 
@@ -138,7 +137,7 @@ Access in this category never follows from access in another. A grant over your 
 
 The default-on profile bundle carries `profile:read` beside the OIDC literals, so an app granted the defaults reads the category. `profile:write` is in no bundle: an app that wants to change a profile asks for it by name, and the consent screen shows it pre-ticked beside the app's other write access.
 
-Admin and space-admin API keys bypass the map, as they do elsewhere. OAuth tokens do not: the distinction the gate is built on is what a caller holds, not which endpoint it chose.
+Nothing bypasses the map. The gate is built on what a caller holds, not on which endpoint it chose or what rank it once carried.
 
 ### Where this overlaps the OIDC literals, and where it does not
 
@@ -148,7 +147,7 @@ The direct profile routes are wider than those three claims: they answer your us
 
 ## Scopes that project into no map
 
-Not every scope becomes a permission-map entry. The OIDC literals (`openid`, `profile`, `email`, `offline_access`) govern identity claims and refresh-token issuance, and the [capability scopes](/api-reference/authentication#capability-scopes) name administrative surfaces rather than resources. Neither reaches `type_permissions`, `edge_permissions`, `metadata_permissions` or `profile_permissions`, so a token holding one is exactly as wide on the data plane as a token holding none.
+Not every scope becomes a permission-map entry. The OIDC literals (`openid`, `profile`, `email`, `offline_access`) govern identity claims and refresh-token issuance, and the [space permissions](/api-reference/authentication#space-permissions) name administrative surfaces rather than resources. Neither reaches `type_permissions`, `edge_permissions`, `metadata_permissions` or `profile_permissions`, so a token holding one is exactly as wide on the data plane as a token holding none.
 
 That is a property of the projection rather than an omission from it: the parser classifies every scope by family, and only the three resource families are projected. A grant the parser does not recognize at all projects nothing either, which is why a scope literal retired by a grammar change stops granting rather than starting to mean something else.
 
@@ -163,7 +162,7 @@ Creating an `about` edge from a `core.note` to a `core.entity.person` needs:
 
 The two gates fail with different codes, so a client can tell them apart: a missing type write returns `403 type_not_permitted`, a missing edge write returns `403 edge_permission_denied`.
 
-Admin and space-admin API keys bypass both.
+Nothing bypasses either.
 
 The rationale: an edge is a mutation of the source item's graph view. Without type write, the app can't mutate the item; adding an edge would be a back-door around that. Without edge write on the type, the app can't create that kind of relationship — even if it owns the item.
 
