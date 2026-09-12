@@ -22,6 +22,7 @@ The Marfa server is configured entirely via environment variables. No config fil
 | `MAX_SUBSCRIPTION_LISTENERS` | `100` | Cap on concurrent SSE / pubsub subscribers per process. EventEmitter throws once exceeded. |
 | `MARFA_REPLICA_COUNT` | `1` | How many server processes share this database. Purely declarative — it changes no behavior and exists so the startup check can warn you. **Only one process per database is supported**; more than one silently drops realtime events. Node cluster and PM2 workers are detected automatically, so set this only when a container orchestrator does the scaling. See [Run exactly one server process per database](/self-hosting/run/deployment#run-exactly-one-server-process-per-database). |
 | `TRUSTED_PROXY_CIDRS` | _(none)_ | Comma-separated CIDRs (e.g. `10.0.0.0/8,127.0.0.1/32`) for opt-in `x-forwarded-for` trust. When unset, the header is ignored and the connection peer address is used; spoofing is impossible. When set, the chain is walked right-to-left, skipping trusted hops. Malformed CIDRs throw at startup. |
+| `TRUSTED_PROXY_HEADER` | _(none)_ | Name of a single header your platform's edge overwrites with the client address, e.g. `x-real-ip`. For platforms that terminate every connection at an edge whose addresses are undocumented and free to change, which `TRUSTED_PROXY_CIDRS` cannot express. Takes precedence over the CIDR list when both are set. **Only set this where clients cannot reach the process directly**, because it trusts the header unconditionally and is then spoofable. |
 | `API_KEY_SALT` | _(required in production)_ | Salt for hashing API keys at rest. Must be a long random string. Changing it invalidates every existing key. |
 | `MARFA_RLS_ENFORCE` | `true` | Enabled by default. Each space-bounded request runs through a Drizzle transaction that sets `SET LOCAL ROLE marfa_app` + `set_config('marfa.space_id', $space, true)` so the per-table Postgres RLS policies filter queries (defense-in-depth beneath the application-layer space scoping). Set to `false` only to diagnose; SQLite is unaffected (the middleware skips it). Policies cover the space-scoped tables including `users`, `space_quotas`, and the outbound/inbound webhook child tables. The operator key (which holds no `space_id`), anonymous routes, and streaming responses (`/events`, `/export`) bypass the per-request wrapper; streams apply session-level RLS instead. |
 
@@ -81,6 +82,7 @@ The trade is a reconnection on the first request after a quiet spell. Where the 
 | `S3_ACCESS_KEY_ID` | _(optional)_ | Credentials. If omitted, falls back to standard AWS credential chain (IAM role, instance metadata, `~/.aws/credentials`). |
 | `S3_SECRET_ACCESS_KEY` | _(optional)_ | Credentials. |
 | `S3_ENDPOINT` | _(none)_ | Custom S3-compatible endpoint (MinIO, R2, etc.). |
+| `S3_FORCE_PATH_STYLE` | `true` | Whether to address objects as `<endpoint>/<bucket>/<key>` (path style) rather than `<bucket>.<endpoint>/<key>` (virtual-hosted). Read only when `S3_ENDPOINT` is set; AWS itself is always virtual-hosted. Defaults to `true` because MinIO requires it. Set `false` for a store that presents virtual-hosted URLs. It applies to presigned URLs as much as to direct calls, because both are signed by the same client and the style is part of the signature, so a mismatch makes presigned links fail rather than merely look wrong. |
 | `CDN_BASE_URL` | _(none)_ | Public CDN prefix rewritten onto blob URLs in responses. |
 
 #### Cloudflare R2 example
@@ -369,6 +371,10 @@ If the server sits behind a reverse proxy, the proxy must pass through:
 SSE connections are long-lived. Set read timeouts to at least 120 seconds.
 
 Set `TRUSTED_PROXY_CIDRS` to the CIDR of your proxy so the rate limiter and any future per-IP logic see the real client IP rather than the proxy's address. Without it, `x-forwarded-for` is ignored as a precaution against spoofing.
+
+Some hosting platforms cannot be described by a CIDR list. They terminate every connection at an edge whose addresses are undocumented and free to change, and they overwrite one header with the client address instead of appending to `x-forwarded-for`. Use `TRUSTED_PROXY_HEADER` there, naming that header.
+
+Getting this wrong is quiet rather than loud: every request resolves to the edge address, so per-client rate limiting collapses into a single shared bucket and every audit row records the proxy instead of the caller. Nothing fails, so check it after any change of platform rather than assuming. The two settings express different trust, and `TRUSTED_PROXY_HEADER` wins when both are set: a CIDR list says which peers may speak for a client, while the header says the platform already did.
 
 ## Migration scripts
 
