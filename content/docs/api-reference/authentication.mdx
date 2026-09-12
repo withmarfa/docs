@@ -391,6 +391,19 @@ The expired page deliberately renders no detail from the request. On that path e
 
 A silent re-authorization leaves the grant untouched (the granted scope set and grant timestamps stay as the user approved them) and is recorded in the audit trail as `auth.grant.reused`, distinct from first consent, whichever surface performed the skip: the row is written whether the standing consent was recognized at the consent screen or before it was ever reached.
 
+### When the server no longer knows your client
+
+**A registered client exists only in the server's database, and nothing can recreate one it has lost.** A client id was the server's to mint, so a database that has been reset or restored from before the registration has no row for it and no way to reconstruct one. Every stored id an app is holding is dead.
+
+The refusal reaches an app in two different shapes, and only one of them is easy to notice:
+
+- **On the token and refresh endpoints, as `400 invalid_client`.** This is a plain OAuth error the app can read and branch on.
+- **On `GET /auth/authorize`, as a redirect to the server's own error page** rather than back to the registered `redirect_uri`. No code and no error ever reaches the app, so a client waiting on its callback simply waits. An app that re-presents the same dead id on every attempt never completes a sign-in again.
+
+**Treat `invalid_client` as an instruction to register again**, discarding the stored id first, rather than as a failed sign-in to retry. Register once per attempt: each registration mints a row, and there is no route an app can call to remove one it has abandoned.
+
+There is also a case no error reports at all — a stored id that is dead while the app holds no tokens, so nothing ever reaches a token endpoint to be refused. An app that cannot distinguish this should carry a version stamp beside the stored id and treat a stamp it does not recognize as a reason to register afresh, so a fleet can be told to re-register without every user reinstalling.
+
 ### Refresh token rotation
 
 Each refresh invalidates the prior refresh token and issues a new one. Reusing an invalidated refresh token returns `400 invalid_grant` and signals that the token pair has been compromised — every access and refresh token in the family is invalidated. The app must restart the authorization flow.
