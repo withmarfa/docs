@@ -481,8 +481,80 @@ import {
   type TokenProvider,
   InMemoryTokenStorage,
   LocalStorageTokenStorage,
+  resolveClient,
+  withClientRepair,
+  isDeadClientError,
+  InMemoryClientRegistrationStore,
 } from "@withmarfa/sdk/auth";
 ```
+
+### Registering a client
+
+`MarfaAuth` takes a `clientId` you already have. An app that registers itself through [dynamic registration](/api-reference/authentication#client-registration) gets that id from `resolveClient`, which reuses a stored registration and registers a new one when the stored one cannot carry the scopes being asked for.
+
+```typescript
+import {
+  resolveClient,
+  InMemoryClientRegistrationStore,
+} from "@withmarfa/sdk/auth";
+
+const store = new InMemoryClientRegistrationStore(); // persist this in real use
+
+const { clientId } = await resolveClient({
+  issuer: "https://marfa.example.com",
+  store,
+  manifest: {
+    clientName: "My App",
+    grantTypes: ["authorization_code", "refresh_token"],
+    redirectUris: ["https://myapp.example.com/oauth/callback"],
+  },
+  scopes: ["openid", "offline_access", "core.note:read"],
+  scopesAreAuthoritative: true,
+});
+```
+
+**Claim the scopes you need at registration.** The ceiling is frozen when the client is created and never published back, so a registration that omits `scope` is capped at the default bundle expansion for good — which never includes a space permission.
+
+Pass `scopesAreAuthoritative: false` when the scope list is your own fallback rather than the instance's advertised set. A list you invented is evidence about nothing, and deciding from it re-registers on every sign-in that a flapping discovery endpoint produces.
+
+### Recovering a forgotten client
+
+A server that has lost its client table refuses every stored id, and the refusal arrives differently depending on the endpoint — see [When the server no longer knows your client](/api-reference/authentication#when-the-server-no-longer-knows-your-client). `isDeadClientError` recognizes it from any of them.
+
+For a flow that is a single unattended request, `withClientRepair` discards the registration and retries once:
+
+```typescript
+import {
+  withClientRepair,
+  startDeviceFlow,
+  InMemoryClientRegistrationStore,
+} from "@withmarfa/sdk/auth";
+
+const issuer = "https://marfa.example.com";
+const scopes = ["openid", "offline_access", "core.note:read"];
+
+const handle = await withClientRepair(
+  {
+    issuer,
+    store: new InMemoryClientRegistrationStore(),
+    manifest: {
+      clientName: "My App",
+      grantTypes: [
+        "urn:ietf:params:oauth:grant-type:device_code",
+        "refresh_token",
+      ],
+    },
+    scopes,
+    scopesAreAuthoritative: true,
+    // The device endpoint refuses a request above the frozen ceiling, where
+    // the authorize endpoint would narrow it silently.
+    alsoRepairOn: ["invalid_scope"],
+  },
+  ({ clientId }) => startDeviceFlow({ issuer, clientId, scopes }),
+);
+```
+
+**Do not wrap a browser redirect in it.** The retry would open a second window, and on the authorize endpoint the refusal never reaches you anyway. Those flows should call `isDeadClientError` where the refusal does surface — the token or refresh response — clear the stored registration there, and let the next launch register.
 
 ### MarfaAuth
 
