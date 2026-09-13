@@ -84,6 +84,16 @@ The trade is a reconnection on the first request after a quiet spell. Where the 
 | `S3_ENDPOINT` | _(none)_ | Custom S3-compatible endpoint (MinIO, R2, etc.). |
 | `S3_FORCE_PATH_STYLE` | `true` | Whether to address objects as `<endpoint>/<bucket>/<key>` (path style) rather than `<bucket>.<endpoint>/<key>` (virtual-hosted). Read only when `S3_ENDPOINT` is set; AWS itself is always virtual-hosted. Defaults to `true` because MinIO requires it. Set `false` for a store that presents virtual-hosted URLs. It applies to presigned URLs as much as to direct calls, because both are signed by the same client and the style is part of the signature, so a mismatch makes presigned links fail rather than merely look wrong. |
 | `CDN_BASE_URL` | _(none)_ | Public CDN prefix rewritten onto blob URLs in responses. |
+| `MARFA_BLOB_CLEANUP_GRACE_MS` | `86400000` | How long a blob must have been registered before the unreferenced-blob sweep will consider it (ms). Default 24 hours. `0` disables the sweep. |
+| `MARFA_BLOB_CLEANUP_INTERVAL_MS` | `86400000` | How often that sweep runs (ms). Default daily. |
+
+#### Blobs nothing references
+
+Uploading a blob and creating the item that references it are two calls. If the second one never happens, because it was refused or the client went away, the bytes stay stored and stay counted against the space's `blobs` and `storage_bytes` quotas with nothing pointing at them.
+
+A scheduled sweep reclaims those. It only considers a blob once it has been registered for longer than `MARFA_BLOB_CLEANUP_GRACE_MS`, because being unreferenced is also the normal state of a blob in the gap between the two calls. Raise the grace window if your clients upload well ahead of writing the item that names the blob; set it to `0` to turn the sweep off entirely.
+
+Live items, trashed items, metadata extensions and version history all count as references, so a blob reachable only through the bin or only through an older version of an item is left alone. `POST /blobs/cleanup` runs the same pass on demand, and reports without deleting unless you pass `dry_run=false`.
 
 #### Cloudflare R2 example
 
