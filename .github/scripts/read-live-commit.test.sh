@@ -354,13 +354,13 @@ else
     const fs = require('fs');
     const doc = parse(fs.readFileSync('$workflow', 'utf8'));
     if (!doc || !doc.jobs) throw new Error('no jobs block');
-    for (const j of ['publish','publish-status','check','check-status','notify','notify-status']) {
+    for (const j of ['publish-status','check-status','notify-status']) {
       if (!doc.jobs[j]) throw new Error('missing job: ' + j);
     }
   " 2>/dev/null; then
-    pass=$((pass+1)); printf '  ok    the workflow parses and has a publish, check and notifier per target\n'
+    pass=$((pass+1)); printf '  ok    the workflow parses and has a publish, check and notifier for the status page\n'
   else
-    fail=$((fail+1)); printf '  FAIL  the workflow does not parse, or has lost one of its six jobs\n'
+    fail=$((fail+1)); printf '  FAIL  the workflow does not parse, or has lost one of its three jobs\n'
   fi
 
   # Comments are stripped before matching, both whole-line and trailing.
