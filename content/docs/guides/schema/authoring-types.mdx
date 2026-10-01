@@ -1,6 +1,6 @@
 ---
 title: Authoring types
-description: The inherit-vs-sibling rubric, version diff, SDK helper, reserved field names, error shapes.
+description: The inherit-vs-sibling rubric, version field, SDK helper, reserved field names, error shapes.
 ---
 
 Registering a type is a structured operation. The platform has correctness rails to keep registrations honest at scale — useful to any author, whether writing TypeScript directly, building visually in the console, or working through Claude Code or another AI assistant.
@@ -47,35 +47,20 @@ A worked counter-example: there is no `core.file.document`. PDFs, Word docs, pla
 
 Apply the same test to your own subtypes. If you can't fill in all three points, prefer a flat sibling.
 
-## The version field and the diff rail
+## The version field
 
-A type's `version` is a positive integer, not a semver string. It defaults to `1`, and `POST /types` rejects a non-integer (or a value below 1) with `400 invalid_schema` on the `version` field. The integer counts schema revisions; it isn't a `major.minor.patch` triple.
+A type's `version` is a non-negative integer, not a semver string. It defaults to `0`, and `POST /types` rejects a non-integer (or a negative value) with `400 invalid_schema` on the `version` field. The integer is a label you carry; the server never requires it to move.
 
-The diff rail is the load-bearing check on top of that integer. When you submit a new version of an existing type, the server computes the structural diff against the prior version and classifies it. The class decides whether the integer must increase:
+`PUT /types/{id}` replaces a type and keeps whatever `version` the replacement names, `0` where it names none. No change demands that the version go up: a field added, a field removed, a relabel and a resubmission with no change all land at the version the type already holds. Raise the number when you want consumers to be able to tell revisions apart. Nothing checks that you did.
 
-| Diff class | What changed | Version requirement |
-|---|---|---|
-| No-op | Structurally identical | Rejected — nothing to register |
-| Descriptive | Label, description, field descriptions, or display hints only | Same integer accepted, or higher |
-| Additive | A new optional field, a raised size cap, a search-flag change, or a new compatibility claim | Must increase |
-| Breaking | Field removed, shape changed, required flipped either way, a lowered size cap, a parent change, or a withdrawn compatibility claim | Must increase |
-
-The diff reads every attribute a field carries, not just its type. A `maxLength` quietly halved rejects writes that used to succeed, so it is breaking; a `maxLength` raised accepts strictly more, so it is additive. Adding or removing a cap altogether is breaking, because the value it falls back to is an instance default the schema can't see. Flipping `required` is breaking in both directions — tightening rejects existing rows, loosening breaks every reader compiled against the guarantee.
-
-A descriptive-only change may keep the same integer so a docs tweak doesn't force consumers to re-pin; everything else must bump.
-
-The integer collapses the additive and breaking cases into one rule — both require the number to go up — while the diff class still surfaces in the error so you know which fields drove it. A bump that doesn't satisfy the rule returns `422 version_bump_mismatch` with the offending fields listed.
-
-Without this rail, version bumps drift over time. Convention alone (style guides, CLAUDE.md notes) helps but is advisory; only the registration-time check enforces. The platform stays honest by construction because every author hits the same gate.
-
-A registration request carries the integer directly:
+A registration request carries the integer directly, or omits it to take `0`:
 
 ```json
 POST /types
 {
   "id": "carla.meal_plan",
   "description": "A weekly meal plan.",
-  "version": 1,
+  "version": 0,
   "fields": {
     "week_of": { "type": "string", "required": true },
     "title": { "type": "string", "required": true }
@@ -83,7 +68,7 @@ POST /types
 }
 ```
 
-All of the above governs types: an integer, a diff, and a check at registration. Integrations carry a version of their own, a semver string rather than an integer, and the [marketplace](/guides/connections/marketplace) page describes it.
+All of the above governs types: a non-negative integer the server stores and does not police. Integrations carry a version of their own, a semver string rather than an integer, and the [marketplace](/guides/connections/marketplace) page describes it.
 
 ## Field attributes
 
@@ -160,7 +145,6 @@ Quality of error responses is part of the authoring surface. Specific over gener
 | `400 inheritance_violation` | Child changes an inherited field's shape, or loosens one the ancestor requires. | Names the attribute that conflicts and the ancestor that declared it. |
 | `400 property_shadows_field` | A property name shadows a first-class Item field. | Lists every colliding `fields.<name>`. |
 | `422 compatible_with_violation` | A `compatible_with` claim doesn't hold. | Names each missing or mismatched field, and the target that requires it. |
-| `422 version_bump_mismatch` | Diff class doesn't match the submitted version bump. | Lists the fields that drove the actual diff class. |
 | `403 forbidden` | Any credential tries to register a reserved-root type (`core.*`, `system.*`, `marfa.*`) — the platform's own vocabulary is seeded, not registered. Also a publisher-tier registration under a handle the caller's account does not hold. | Names the reserved namespace, or the handle the registration would need. |
 | `400 validation_error` | The declared `parent` resolves to no registered type, the chain is circular, or the chain is deeper than the registration cap. | Names the parent, or the ancestor further up when that is what failed, and the cap when depth is what failed. |
 
@@ -180,7 +164,3 @@ The parent chain is checked the same way at every door that registers a type: `P
 **`?force=true` covers the second and not the first.** Forcing past existing items orphans those rows: they stay readable, and new writes against the type are rejected. There is no equivalent for a subtype, because a subtype is not data left behind. It is a live registration whose fields are partly this type's. Delete it, or give it a different parent through `PUT /types/{id}`, which is an ordinary update.
 
 The refusal exists because the alternative is silent. A child whose parent stops resolving keeps working and simply stops carrying what it inherited: its items resolve fewer fields, writes that should have been rejected start being accepted, and a query for the parent type no longer returns it. Nothing announces any of that, so the only visible event would be a successful delete.
-
-## Why server-side enforcement matters
-
-Convention helps; enforcement holds the line. Across enough authors over enough time, the rubric drifts and version bumps slip — unless the server is the gate. Documenting the rules here is the human-readable half; the server-side checks are the load-bearing half.
