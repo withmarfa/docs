@@ -335,7 +335,8 @@ paths_touch_target() {
             continue ;;
         esac ;;
       status)
-        # Documentation content and docs-only source. Everything else may
+        # Documentation content, docs-only source and agent instructions.
+        # Everything else may
         # reach it: the shared stylesheet, the shared constants, the base
         # tsconfig, the lockfile, either Vite config.
         #
@@ -347,7 +348,7 @@ paths_touch_target() {
         # status page republishes for docs-only components it never renders,
         # and a wasted deploy costs a minute.
         case "$path" in
-          content/*|openapi.json|*.md|.github/*|scripts/*|src/routes/*)
+          content/*|openapi.json|*.md|LICENSE|.github/*|scripts/*|src/routes/*|.agents/*|.claude/*|.codex/*|.githooks/*)
             continue ;;
         esac ;;
       *)
