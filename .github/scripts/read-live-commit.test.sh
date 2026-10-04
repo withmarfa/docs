@@ -479,6 +479,8 @@ check "status: a docs route does not" skip "$(verdict status src/routes/mcp.ts)"
 check "status: a shared component publishes it" publish "$(verdict status src/components/error-page.tsx)"
 check "status: a workflow change does not" skip "$(verdict status .github/workflows/publish.yml)"
 check "status: the spec does not" skip "$(verdict status openapi.json)"
+check "status: agent instructions do not" skip "$(verdict status AGENTS.md .agents/skills/x/SKILL.md .claude/settings.json .codex/config.toml .githooks/pre-push)"
+check "status: an agent directory beside its source publishes it" publish "$(verdict status .claude/settings.json src/status/lib/state.ts)"
 
 # The shared surface. Each of these reaches the status bundle, and a path list
 # written as "what belongs to status" would have missed every one of them,
