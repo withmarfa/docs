@@ -46,6 +46,12 @@ route trees register their paths into one global interface, so compiled together
 they merge and the losing target's route types silently become `undefined`.
 Both targets have to be built before it.
 
+## CI
+
+`CI` builds, type-checks and tests every pull request and every push to `main`, except a change that touches only agent instructions: `AGENTS.md`, `CLAUDE.md`, `README.md` and `LICENSE` at the root, `.agents/`, `.claude/`, `.codex/`, `.githooks/`, and the issue and pull request templates. `.github/scripts/ci-changes.sh` decides, and a path it does not name builds. Everything under `content/` builds, because the site is built from it. A push to `main` skips the build only when the commit before it has a green `CI` run.
+
+Do not add `paths` filters to `ci.yml`. `Build and type-check` is a required check, and a filtered-out workflow leaves it pending. The `OpenAPI spec` workflow is not required, so it runs only when `openapi.json` changes.
+
 ## Publishing
 
 **Merging to `main` publishes the site.** The `Publish` workflow runs once CI has
