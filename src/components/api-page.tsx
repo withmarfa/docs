@@ -1,7 +1,7 @@
-import { createClientAPIPage } from 'fumadocs-openapi/ui/create-client';
+import { createOpenAPIPage } from 'fumadocs-openapi/ui';
 
 // Non-RSC (TanStack Start) client renderer for an OpenAPI operation. Fed the
-// serializable payload from `page.data.getClientAPIPageProps()` in the loader.
+// serializable payload from `page.data.getOpenAPIPageProps()` in the loader.
 //
 // We override the operation layout via the supported `content.renderOperationLayout`
 // option. fumadocs-openapi's default makes the detail column `flex-1`, so it grows
@@ -14,7 +14,7 @@ import { createClientAPIPage } from 'fumadocs-openapi/ui/create-client';
 // context like every other page, not straight into the POST block. Otherwise the
 // order mirrors fumadocs-openapi's default; keep it in sync when bumping the
 // package (a new slot won't appear automatically).
-export const APIPage = createClientAPIPage({
+export const APIPage = createOpenAPIPage({
   content: {
     renderOperationLayout: (slots) => (
       // A three-column grid — [1fr | 680px | 1fr] — centres the 680px detail
