@@ -4,6 +4,8 @@ Public documentation site at `docs.marfa.so`. Built with [Fumadocs](https://fuma
 
 Docs MCP convention: when working on documented surfaces (types, edges, runtime substrates, connections, auth flows), query the docs MCP at `https://docs.marfa.so/mcp` (or use `marfa docs search "<query>"` from CLI) before re-deriving from source. This repo is the canonical home for all published Marfa docs — code repos never author docs pages; they open companion PRs here when they change a public surface.
 
+Once the work is merged, bring the local `main` up to date (`git pull --ff-only` on `main`) so the next piece of work starts from it.
+
 ## Framework
 
 - **Fumadocs UI** on **TanStack Start** — TypeScript ESM, Vite-driven, no Next.js dependency.
