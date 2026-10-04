@@ -136,7 +136,7 @@ const serverLoader = createServerFn({
         title: page.data.title ?? '',
         description: page.data.description ?? '',
         markdownUrl: slugsToMarkdownPath(page.slugs).url,
-        apiProps: await page.data.getClientAPIPageProps(),
+        apiProps: await page.data.getOpenAPIPageProps(),
         pageTree,
       };
     }
