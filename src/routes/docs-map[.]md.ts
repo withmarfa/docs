@@ -43,15 +43,15 @@ export const Route = createFileRoute('/docs-map.md')({
         lines.push('');
         if (root) {
           lines.push(
-            `Hierarchical index of every page on docs.marfa.so. Each link resolves to the human-readable HTML page; append \`.md\` for the markdown twin (e.g. \`/guides/core-model/items.md\`).`,
+            `Hierarchical index of every page on docs.marfa.so. Each link resolves to the human-readable HTML page; append \`.md\` for the markdown twin (e.g. \`/get-started/items-and-types.md\`).`,
           );
           lines.push('');
           lines.push(`- [${root.data.title}](${root.url})`);
           lines.push('');
         }
 
-        // Stable section order — mirrors content/docs/meta.json.
-        const sectionOrder = ['introduction', 'guides', 'api-reference', 'sdks', 'self-hosting'];
+        // Stable section order, the same as content/docs/meta.json.
+        const sectionOrder = ['get-started', 'guides', 'tools', 'api-reference'];
         const sortedSections = [
           ...sectionOrder.filter((s) => s in grouped),
           ...Object.keys(grouped).filter((s) => !sectionOrder.includes(s)),

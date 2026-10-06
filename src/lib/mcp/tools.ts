@@ -124,7 +124,7 @@ export function createDocsServer(): McpServer {
     'docs_fetch',
     {
       description:
-        'Fetch the markdown body of a single docs page by its URL path (e.g. "/guides/core-model/items"). Returns the same markdown the `<path>.md` content-negotiation surface returns — title, description, full prose with code blocks preserved.',
+        'Fetch the markdown body of a single docs page by its URL path (e.g. "/get-started/properties-metadata-and-edges"). Returns the same markdown the `<path>.md` content-negotiation surface returns — title, description, full prose with code blocks preserved.',
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.object({
         path: z

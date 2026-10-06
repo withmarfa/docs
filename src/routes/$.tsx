@@ -14,6 +14,7 @@ import {
 import { baseOptions } from '@/lib/layout.shared';
 import { gitConfig } from '@/lib/shared';
 import { PageActions } from '@/components/page-actions';
+import { SidebarFooter } from '@/components/release-label';
 import {
   useFumadocsLoader,
   deserializePageTree,
@@ -26,6 +27,15 @@ import {
   PageTableOfContents,
   PageTableOfContentsPopover,
 } from '@/components/page-table-of-contents';
+
+// Folders collapse to their headers by default and the active trail opens. The
+// footer holds the release label at the bottom of the sidebar, on desktop and
+// in the phone menu.
+const sidebarOptions = {
+  defaultOpenLevel: 0,
+  collapsible: false,
+  footer: SidebarFooter,
+};
 
 export const Route = createFileRoute('/$')({
   component: Page,
@@ -150,7 +160,7 @@ function OpenAPIView({
       nav={{ ...baseOptions().nav, mode: 'top' }}
       tree={pageTree}
       tabMode="navbar"
-      sidebar={{ defaultOpenLevel: 0, collapsible: false }}
+      sidebar={sidebarOptions}
     >
       <DocsPage
         full
@@ -196,16 +206,13 @@ function DocsView({
 }) {
   const { path, pageTree, markdownUrl } = useFumadocsLoader(data);
 
-  // Folders collapse to their headers by default; the active trail auto-opens.
-  // In the API reference this means the five section headers show with their
-  // resource folders collapsed until you open one (or land on an endpoint).
   return (
     <DocsLayout
       {...baseOptions()}
       nav={{ ...baseOptions().nav, mode: 'top' }}
       tree={pageTree}
       tabMode="navbar"
-      sidebar={{ defaultOpenLevel: 0, collapsible: false }}
+      sidebar={sidebarOptions}
     >
       <Suspense>{clientLoader.useContent(path, { markdownUrl, path })}</Suspense>
     </DocsLayout>

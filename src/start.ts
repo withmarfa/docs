@@ -9,8 +9,8 @@ import { slugsToMarkdownPath } from './lib/source';
 const NON_DOC_PREFIXES = ['/api/', '/mcp', '/llms.txt', '/llms-full.txt', '/docs-map.md'];
 
 function isDocPath(pathname: string): boolean {
-  // The bare site root is a redirect to `/introduction`, not a page — there's
-  // no `/index.md` twin to rewrite to, so leave `/` for the index route.
+  // The bare site root is a redirect to `/get-started`, not a page, so there is
+  // no `/index.md` twin to rewrite to. Leave `/` for the index route.
   if (pathname === '/') return false;
   // Static assets and already-served files carry a file extension on the final
   // path segment (`.css`, `.js`, `.png`, `.md`, `.txt`, …). Doc page URLs are
@@ -27,13 +27,12 @@ const llmMiddleware = createMiddleware().server(({ next, request }) => {
   const url = new URL(request.url);
 
   if (isMarkdownPreferred(request)) {
-    // The bare site root has no page of its own (it redirects to Introduction).
-    // A markdown client can't render the HTML index redirect, so send it
-    // straight to the Introduction landing — the follow-up request picks up the
-    // `.md` twin below.
+    // The bare site root has no page of its own. A markdown client can't
+    // follow the HTML index redirect, so send it straight to the landing page,
+    // and the follow-up request picks up the `.md` twin below.
     if (url.pathname === '/') {
-      url.pathname = '/introduction';
-      throw redirect(url);
+      url.pathname = '/get-started';
+      throw redirect({ href: url.pathname + url.search });
     }
 
     // Docs live at the root now, so there's no `/docs` prefix to gate on.
@@ -43,7 +42,7 @@ const llmMiddleware = createMiddleware().server(({ next, request }) => {
       const slugs = url.pathname.split('/').filter((v) => v.length > 0);
       url.pathname = slugsToMarkdownPath(slugs).url;
 
-      throw redirect(url);
+      throw redirect({ href: url.pathname + url.search });
     }
   }
 
