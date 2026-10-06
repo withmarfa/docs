@@ -5,6 +5,7 @@ import {
   Eye,
   ListChecks,
   Repeat2,
+  Webhook,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -17,6 +18,7 @@ export const API_METHODS = [
   'DELETE',
   'HEAD',
   'OPTIONS',
+  'WEBHOOK',
 ] as const;
 
 export type ApiMethod = (typeof API_METHODS)[number];
@@ -29,6 +31,7 @@ const methodIcons: Record<ApiMethod, LucideIcon> = {
   DELETE: X,
   HEAD: Eye,
   OPTIONS: ListChecks,
+  WEBHOOK: Webhook,
 };
 
 export function parseApiMethod(value: unknown): ApiMethod | undefined {
@@ -44,7 +47,7 @@ export function ApiMethod({ method }: { method: ApiMethod }) {
   return (
     <span
       className={`marfa-api-method marfa-api-method--${method.toLowerCase()}`}
-      title={`${method} method`}
+      title={method === 'WEBHOOK' ? 'Webhook' : `${method} method`}
     >
       <span className="marfa-api-method-icon" aria-hidden="true">
         <Icon />

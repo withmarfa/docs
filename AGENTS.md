@@ -154,13 +154,12 @@ import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
 ## Navigation hierarchy
 
-Hierarchy lives in `meta.json` files per folder; each defines `title`, `pages` (an ordered list of slugs), and `root: true` on the five top-level folders that become navbar tabs. The tabs render across a top navbar (Fumadocs notebook layout, `nav.mode: 'top'` plus `tabMode: 'navbar'`); each swaps the sidebar to its own tree. The five tabs:
+Hierarchy lives in `meta.json` files per folder; each defines `title`, `pages` (an ordered list of slugs), and `root: true` on the top-level folders that become tabs. `src/components/section-nav.tsx` renders the tabs as pills in the navbar; each swaps the sidebar to its own tree. The four tabs, organized by what a reader comes to do:
 
-- **Introduction** — overview, two quickstarts (hosted and self-hosted), and the docs MCP page.
-- **Guides** — sub-grouped: Core model, Schema & types, Identity & spaces, Querying & data, Realtime & events, Connections & integrations, Operations.
-- **API reference** — OpenAPI-driven, with a hand-written General section (Overview, Authentication, Permissions, Errors, Rate limits) above the generated resource sections; see `src/lib/api-reference-tree.ts`.
-- **SDKs**.
-- **Self-hosting** — a section overview landing, then sub-grouped: Run, Operate.
+- **Learn** (`content/docs/learn/`): what Marfa is and the ideas behind it, one concept per page.
+- **Get started** (`content/docs/get-started/`): one path each, start to finish: run an instance, first items, a Swift app, a connector.
+- **Guides** (`content/docs/guides/`): how to do one thing, grouped into building apps, building connectors and running Marfa.
+- **Reference** (`content/docs/api-reference/`): the API reference generated from `openapi.json`, then the other reference pages under "More reference". `src/lib/api-reference-tree.ts` orders the generated groups as the API description lists its tags.
 
 Adding a page: drop the `.mdx` file in the right folder, register it in the folder's `meta.json`. No central manifest.
 

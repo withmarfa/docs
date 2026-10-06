@@ -14,11 +14,11 @@ const NpmIcon = (
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
-      // The wordmark is the home affordance, linking to the Introduction landing.
+      // The wordmark is the home affordance, linking to what Marfa is.
       title: appName,
-      url: '/introduction',
+      url: '/learn',
     },
-    // The five section tabs render as pills in the navbar (OpenAI-style), in
+    // The section tabs render as pills in the navbar (OpenAI-style), in
     // place of the central search. The native notebook tab row is hidden via
     // CSS but still scopes the sidebar by URL.
     links: [

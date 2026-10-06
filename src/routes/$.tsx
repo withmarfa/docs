@@ -1,4 +1,4 @@
-import { createFileRoute, notFound, redirect } from '@tanstack/react-router';
+import { createFileRoute, notFound } from '@tanstack/react-router';
 import { DocsLayout } from 'fumadocs-ui/layouts/notebook';
 import { createServerFn } from '@tanstack/react-start';
 import { slugsToMarkdownPath, source } from '@/lib/source';
@@ -27,88 +27,10 @@ import {
   PageTableOfContentsPopover,
 } from '@/components/page-table-of-contents';
 
-// Legacy URL redirects — old URLs that drifted during the Fumadocs port and the
-// later restructures. Keep the entries here so a stale link out in the wild
-// still lands on the right canonical page instead of 404ing.
-//   - The docs once lived under a `/docs` URL prefix (now the site root). Any
-//     bookmarked `/docs/...` URL is de-prefixed before further mapping.
-//   - The pre-restructure docs lived under concepts/*, api/*, and
-//     sdks-and-clients/*; `get-started/*` was later renamed to `introduction/*`
-//     (with the old Overview folded into the Introduction landing).
-const LEGACY_EXACT: Record<string, string> = {
-  // `library` leaked an internal namespace name; the page is canonically Tier.
-  'concepts/library': 'guides/core-model/tier',
-  'concepts/lifecycle/lifecycle': 'guides/core-model/lifecycle',
-  'concepts/lifecycle/marketplace': 'guides/connections/marketplace',
-  'concepts/lifecycle/provenance': 'guides/core-model/provenance',
-  'concepts/lifecycle/tier': 'guides/core-model/tier',
-  'api/authentication': 'api-reference/authentication',
-  'api/bulk-operations': 'guides/querying/bulk-operations',
-  'api/errors': 'api-reference/errors',
-  'api/inbound-webhooks': 'guides/realtime/inbound-webhooks',
-  'api/permissions': 'api-reference/permissions',
-  'api/rate-limiting': 'api-reference/rate-limits',
-  'api/realtime': 'guides/realtime/realtime',
-  'api/search-and-query': 'guides/querying/search-and-query',
-  'api/webhooks': 'guides/realtime/webhooks',
-  // The auth contract and the cross-cutting error / rate-limit reference moved
-  // out of Guides into the API reference's General section, so the endpoints
-  // that need them sit alongside them. Old Guides URLs 301 to the new homes.
-  'guides/auth/authentication': 'api-reference/authentication',
-  'guides/auth/permissions': 'api-reference/permissions',
-  'guides/operations/errors': 'api-reference/errors',
-  'guides/operations/rate-limiting': 'api-reference/rate-limits',
-  'self-hosting/run/deployment-modes': 'guides/identity/deployment-modes',
-  // The self-host quickstart moved into Introduction as Quickstart (self-hosted);
-  // the Self-hosting tab now lands on the section overview at `/self-hosting`.
-  'self-hosting/self-host-quickstart': 'self-hosting',
-  // The Introduction landing absorbed the old Overview page.
-  'get-started/overview': 'introduction',
-  'introduction/overview': 'introduction',
-};
-
-const LEGACY_PREFIXES: [string, string][] = [
-  ['concepts/data-primitives/', 'guides/core-model/'],
-  ['concepts/connections/', 'guides/connections/'],
-  ['concepts/identity/', 'guides/identity/'],
-  ['concepts/schema/', 'guides/schema/'],
-  ['sdks-and-clients/', 'sdks/'],
-  ['get-started/', 'introduction/'],
-];
-
-function legacyTarget(splat: string): string | null {
-  // Strip the retired `/docs` URL prefix first, so old bookmarks like
-  // `/docs/guides/...` (and `/docs/get-started/...`) flow through the same
-  // mapping as their de-prefixed forms and 301 once to the canonical URL.
-  let path = splat;
-  let prefixStripped = false;
-  if (path === 'docs') {
-    return '/introduction';
-  }
-  if (path.startsWith('docs/')) {
-    path = path.slice('docs/'.length);
-    prefixStripped = true;
-  }
-
-  const exact = LEGACY_EXACT[path];
-  if (exact) return `/${exact}`;
-  for (const [from, to] of LEGACY_PREFIXES) {
-    if (path.startsWith(from)) return `/${to}${path.slice(from.length)}`;
-  }
-
-  // Only the `/docs` prefix was legacy — redirect to the de-prefixed path.
-  if (prefixStripped) return `/${path}`;
-  return null;
-}
-
 export const Route = createFileRoute('/$')({
   component: Page,
   loader: async ({ params }) => {
     const splat = params._splat ?? '';
-    const legacy = legacyTarget(splat);
-    if (legacy) {
-      throw redirect({ href: legacy, statusCode: 301 });
-    }
     const slugs = splat.split('/');
     const data = await serverLoader({ data: slugs });
     if (data.kind === 'docs') {
