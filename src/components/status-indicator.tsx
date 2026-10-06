@@ -40,9 +40,8 @@ export function StatusIndicator() {
       .then((data: ApiResponse | null) => {
         const monitors = data?.monitors;
         if (!monitors) return;
-        // The public set only. The endpoint carries every monitor that is
-        // checked, and a pre-production environment blipping must not turn
-        // this red for every reader.
+        // The public set only, which the endpoint reports and this list
+        // names. A monitor missing from the response fails closed.
         const rendered = PUBLIC_MONITORS.map((id) => monitors[id]).filter(Boolean);
         if (rendered.length !== PUBLIC_MONITORS.length) return;
         setAllUp(rendered.every((monitor) => monitor?.up === true));

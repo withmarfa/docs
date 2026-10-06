@@ -3,11 +3,10 @@ import type { Incident } from './state';
 /**
  * Turning incidents into events.
  *
- * `API` and `File storage` are two monitors against one URL — the same
- * `/health` document, matched on different components — so a single 502 fails
- * both and the checker writes two identical incidents. Listed per monitor,
- * every outage this deployment can have appears twice, and a reader counting
- * rows counts twice the number of things that went wrong.
+ * Two monitors can watch one URL, matched on different parts of the response,
+ * so a single 502 fails both and the checker writes two identical incidents.
+ * Listed per monitor, that outage appears twice, and a reader counting rows
+ * counts twice the number of things that went wrong.
  *
  * Grouping is presentation only. The store keeps one record per monitor,
  * because that is what the uptime bar and the per-monitor history are computed
@@ -97,7 +96,7 @@ export function describeCause(error: string): string {
   return error;
 }
 
-/** "API", "API and File storage", "API, File storage and Documentation". */
+/** "One", "One and Two", "One, Two and Three". */
 export function joinNames(names: string[]): string {
   if (names.length === 0) return '';
   if (names.length === 1) return names[0];

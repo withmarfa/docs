@@ -14,10 +14,9 @@ export const gitConfig = {
 
 // The status page's public address, and the monitors it speaks for.
 //
-// Shared rather than duplicated because two things filter by this list: the
-// status page itself, and the indicator in this site's navbar. The JSON
-// endpoint carries every monitor that is checked, staging included, so a
-// consumer that derived a color from the whole payload would turn this navbar
-// red for every reader because a pre-production environment blipped.
+// Shared rather than duplicated because three things read this list: the status
+// page, its JSON endpoint, and the indicator in this site's navbar. The store
+// behind the page can hold state for monitors that are no longer configured, so
+// each of them reports only the monitors named here.
 export const statusUrl = 'https://status.marfa.so';
-export const PUBLIC_MONITORS = ['api', 'api-files', 'docs'] as const;
+export const PUBLIC_MONITORS = ['docs'] as const;

@@ -191,7 +191,7 @@ export function buildAtomFeed(entries: FeedEntry[], now: number): string {
   return `<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <title>Marfa Status</title>
-  <subtitle>Current status and incidents for the Marfa API, file storage and documentation.</subtitle>
+  <subtitle>Current status and incidents for Marfa.</subtitle>
   <id>tag:marfa.so,2026:status</id>
   <link href="${SITE_URL}/"/>
   <link rel="self" href="${SITE_URL}/feed.xml"/>

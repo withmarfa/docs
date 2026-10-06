@@ -9,16 +9,15 @@ import { resolveLocation } from './colo';
  */
 
 /**
- * The monitors this page renders.
+ * The monitors this page renders, and the only ones its JSON endpoint reports.
  *
- * Staging is still checked and still alerted on. It is not rendered, because
- * the only question this page answers is whether a user can be served, and
- * nobody is served by staging. It stays in the JSON endpoint, which is the
- * machine-readable record rather than the public answer.
+ * The store can hold state and labels for monitors that are no longer
+ * configured, because the checker keeps whatever it last wrote. A monitor
+ * leaves the page by leaving this list, not by anything changing in the store.
  *
  * Defined outside this target because the documentation site's navbar
- * indicator filters by the same list, and two copies would drift the first
- * time a monitor moved between them.
+ * indicator reads the same list, and two copies would drift the first time a
+ * monitor moved between them.
  */
 export { PUBLIC_MONITORS } from '../../lib/shared';
 
@@ -356,16 +355,6 @@ function uptimeFraction(
  *
  * `now` is injected so the tests are not a clock.
  */
-/**
- * Every monitor the store knows about, in the order the checker lists them.
- *
- * Read from `meta` rather than from a second list here, so a monitor added to
- * the checker appears without this repository being touched.
- */
-export function allMonitorIds(meta: PageMeta | null): string[] {
-  return (meta?.monitors ?? []).map((monitor) => monitor.id);
-}
-
 export function buildView(
   state: CompactedState,
   meta: PageMeta | null,

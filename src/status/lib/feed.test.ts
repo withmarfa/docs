@@ -12,8 +12,8 @@ const NOW = 1_788_652_000;
 
 function incident(over: Partial<Incident> = {}): Incident {
   return {
-    monitorId: 'api',
-    monitorName: 'API',
+    monitorId: 'alpha',
+    monitorName: 'Alpha service',
     start: NOW - 600,
     end: NOW - 300,
     error: 'Expected codes: 2xx, Got: 502',
@@ -24,8 +24,8 @@ function incident(over: Partial<Incident> = {}): Incident {
 
 function monitor(over: Partial<MonitorView> = {}): MonitorView {
   return {
-    id: 'api',
-    name: 'API',
+    id: 'alpha',
+    name: 'Alpha service',
     up: true,
     downSince: null,
     error: null,
@@ -67,7 +67,7 @@ describe('what reaches the feed', () => {
   it('publishes an incident that outlived the grace period, once resolved', () => {
     const entries = incidentsToEntries([incident()], NOW);
     expect(entries).toHaveLength(1);
-    expect(entries[0].title).toBe('API recovered');
+    expect(entries[0].title).toBe('Alpha service recovered');
     expect(entries[0].summary).toContain('5 minutes');
     expect(entries[0].published).toBe(NOW - 600);
     expect(entries[0].updated).toBe(NOW - 300);
@@ -79,7 +79,7 @@ describe('what reaches the feed', () => {
       NOW,
     );
     expect(entries).toHaveLength(1);
-    expect(entries[0].title).toBe('API is unavailable');
+    expect(entries[0].title).toBe('Alpha service is unavailable');
     expect(entries[0].updated).toBe(NOW);
   });
 
@@ -135,7 +135,7 @@ describe('the Atom document', () => {
   it('carries one entry per published incident', () => {
     const xml = buildAtomFeed(incidentsToEntries([incident()], NOW), NOW);
     expect(xml.match(/<entry>/g)).toHaveLength(1);
-    expect(xml).toContain('<title>API recovered</title>');
+    expect(xml).toContain('<title>Alpha service recovered</title>');
   });
 
   // Error text comes from an upstream response and lands inside an element.
@@ -169,7 +169,7 @@ describe('the state of things, as an entry', () => {
       }),
     );
     expect(entry?.title).toBe('1 of 2 systems down');
-    expect(entry?.summary).toContain('API is not responding');
+    expect(entry?.summary).toContain('Alpha service is not responding');
     expect(entry?.published).toBe(NOW - 400);
   });
 
@@ -220,7 +220,7 @@ describe('the document a subscriber actually receives', () => {
     );
     expect(entries).toHaveLength(2);
     expect(entries[0].title).toBe('1 of 2 systems down');
-    expect(entries[1].title).toBe('API is unavailable');
+    expect(entries[1].title).toBe('Alpha service is unavailable');
   });
 
   it('still drops a blip too short for the checker to have raised it', () => {
