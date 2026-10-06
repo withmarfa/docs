@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import type * as PageTree from 'fumadocs-core/page-tree';
 import { source } from '@/lib/source';
 
 /**
@@ -43,22 +44,24 @@ export const Route = createFileRoute('/docs-map.md')({
         lines.push('');
         if (root) {
           lines.push(
-            `Hierarchical index of every page on docs.marfa.so. Each link resolves to the human-readable HTML page; append \`.md\` for the markdown twin (e.g. \`/guides/core-model/items.md\`).`,
+            `Hierarchical index of every page on docs.marfa.so. Each link resolves to the human-readable HTML page; append \`.md\` for the markdown twin (e.g. \`/get-started/items-and-types.md\`).`,
           );
           lines.push('');
           lines.push(`- [${root.data.title}](${root.url})`);
           lines.push('');
         }
 
-        // Stable section order — mirrors content/docs/meta.json.
-        const sectionOrder = ['introduction', 'guides', 'api-reference', 'sdks', 'self-hosting'];
+        const titles = sectionTitles(source.getPageTree());
+
+        // Stable section order, the same as content/docs/meta.json.
+        const sectionOrder = ['get-started', 'guides', 'tools', 'api-reference'];
         const sortedSections = [
           ...sectionOrder.filter((s) => s in grouped),
           ...Object.keys(grouped).filter((s) => !sectionOrder.includes(s)),
         ];
 
         for (const section of sortedSections) {
-          const sectionTitle = humanize(section);
+          const sectionTitle = titles.get(section) ?? humanize(section);
           lines.push(`## ${sectionTitle}`);
           lines.push('');
 
@@ -95,4 +98,27 @@ function humanize(slug: string): string {
     .split('-')
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
     .join(' ');
+}
+
+function firstUrl(node: PageTree.Node): string | undefined {
+  if (node.type === 'page') return node.url;
+  if (node.type !== 'folder') return undefined;
+  if (node.index) return node.index.url;
+  for (const child of node.children) {
+    const url = firstUrl(child);
+    if (url) return url;
+  }
+  return undefined;
+}
+
+// Each tab's title, as its meta.json gives it, keyed by the first URL segment
+// its pages share. A folder slug does not say "Get started" or "API reference".
+function sectionTitles(tree: PageTree.Root): Map<string, string> {
+  const titles = new Map<string, string>();
+  for (const node of tree.children) {
+    if (node.type !== 'folder' || typeof node.name !== 'string') continue;
+    const segment = firstUrl(node)?.split('/')[1];
+    if (segment) titles.set(segment, node.name);
+  }
+  return titles;
 }

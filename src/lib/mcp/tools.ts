@@ -8,7 +8,7 @@
  *   - docs_list_topics()         — every page as a flat list
  *
  * Backed by Fumadocs's Orama BM25 search and the same `source` instance that
- * powers `/llms.txt` and the `<path>.md` content negotiation. Dense embeddings
+ * powers `/llms.txt` and the `<path>.md` copy of each page. Dense embeddings
  * are deferred: BM25 alone avoids requiring an API key from self-hosters, and
  * the recall floor is good enough here.
  *
@@ -124,7 +124,7 @@ export function createDocsServer(): McpServer {
     'docs_fetch',
     {
       description:
-        'Fetch the markdown body of a single docs page by its URL path (e.g. "/guides/core-model/items"). Returns the same markdown the `<path>.md` content-negotiation surface returns — title, description, full prose with code blocks preserved.',
+        'Fetch the markdown body of a single docs page by its URL path (e.g. "/get-started/properties-metadata-and-edges"). Returns the same markdown the `<path>.md` copy returns: title, description, full prose with code blocks preserved.',
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.object({
         path: z

@@ -9,6 +9,9 @@ import {
 import { ApiMethod, parseApiMethod } from '@/components/api-method';
 import spec from '../../openapi.json';
 
+// The title of the API reference folder, from its meta.json, lowercased.
+const API_REFERENCE_TITLE = 'api reference';
+
 // The groups in the order the API description lists them, not alphabetically.
 const TAG_ORDER = new Map(spec.tags.map((tag, index) => [tag.name, index]));
 
@@ -39,8 +42,8 @@ function isWebhookPage(node: PageTree.Node): boolean {
   );
 }
 
-// Orders the tag folders and leaves every other entry, such as the pages under
-// "More reference", where the folder's meta.json put it.
+// Orders the tag folders and leaves every other entry, such as the index and
+// errors pages, where the folder's meta.json put it.
 function sortFoldersInPlace(
   nodes: PageTree.Node[],
   rank: (node: PageTree.Node) => number,
@@ -103,7 +106,7 @@ export function regroupApiReference(tree: PageTree.Root): PageTree.Root {
     ...tree,
     children: tree.children.map((node) =>
       node.type === 'folder' &&
-      nodeName(node.name).trim().toLowerCase() === 'reference'
+      nodeName(node.name).trim().toLowerCase() === API_REFERENCE_TITLE
         ? {
             ...node,
             children: sortFoldersInPlace(node.children, tagRank).map((child) =>

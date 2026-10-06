@@ -1,11 +1,129 @@
 ---
 title: Housekeeping
-description: The jobs Marfa runs on itself.
+description: List the housekeeping jobs, read what each one last did, and run one now.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+Housekeeping is the work the server does on itself on a schedule: purging the trash, thinning old versions, clearing old log entries, delivering webhooks, and looking after blobs. Each piece of that work is a housekeeping job. One scheduler runs them all from one table, so with the operator key you can see every one of them in one place and run any of them now.
 
-It will cover:
+## The housekeeping jobs
 
-- What each job does.
-- Running one by hand.
+`GET /housekeeping` lists each one the instance runs. An interval not marked fixed is a default you can change.
+
+| Housekeeping job | What it does | Runs every |
+| --- | --- | --- |
+| `audit-cleanup` | Deletes audit log entries, and the record of outbound webhook deliveries, older than the audit retention. | 1 day |
+| `auth-session-cleanup` | Deletes expired sign-in sessions. | 1 hour |
+| `blob-integrity` | Checks that each store still holds its copies of blobs intact. A missing or altered copy is struck, and `blob-replicate` puts it back. | 1 hour |
+| `blob-orphans` | Finds blobs that nothing refers to, and deletes each one on a later run, after `MARFA_BLOB_CLEANUP_GRACE_MS` (default 1 day). | 1 day |
+| `blob-replicate` | Copies blobs to each store that its policy says should hold them. | 1 minute, and after each upload |
+| `bulk-action-gc` | Deletes finished bulk actions older than `MARFA_BULK_ACTION_JOB_RETENTION_MS` (default 7 days). | 1 hour |
+| `dcr-client-cleanup` | Deletes apps that registered themselves for sign-in more than `MARFA_DCR_CLIENT_RETENTION_DAYS` ago (default 30) and hold no access. | 1 day |
+| `enrichment-sweep` | Reads the bytes of file items, and writes an image's `width` and `height` and a file's `extracted_text` onto the item. | 30 seconds |
+| `event-log-cleanup` | Deletes events, and the stored answers to requests sent with an `Idempotency-Key`, older than the event log retention. | 1 hour |
+| `grant-inactivity-retirement` | Disconnects an app you signed in to once it goes unused for `MARFA_GRANT_INACTIVITY_DAYS` (default 365). | 1 day (fixed) |
+| `heartbeat` | Sends a `GET` request to `MARFA_HEARTBEAT_URL`, so a monitor somewhere else can tell the instance is up. | 1 minute |
+| `inbound-delivery-cleanup` | Deletes inbound webhook deliveries past their retention: handled ones after 7 days and unhandled ones after 30, by default. | 1 minute |
+| `rate-limit-cleanup` | Deletes expired rate-limit windows. | 1 hour |
+| `revoked-grant-purge` | Deletes the record of a disconnected app after `MARFA_REVOKED_GRANT_RETENTION_DAYS` (default 90). | 1 hour (fixed) |
+| `revoked-key-reap` | Deletes a revoked key 30 days after it was revoked. | 1 hour (fixed) |
+| `trash-purge` | Purges items that have been in the trash longer than the trash retention. | 1 day |
+| `version-thinning` | Removes old version snapshots that each type's version policy no longer keeps. | 1 hour |
+| `webhook-poll` | Sends outbound webhook deliveries that are due, and retries the ones that failed. | 30 seconds (fixed), and when deliveries are queued |
+| `webhook-schedule` | Reads new events from the event log, and queues a delivery for each webhook that subscribes to them. | 1 second (fixed) |
+
+### Change how often a housekeeping job runs
+
+Each interval that isn't fixed has its own environment variable, in milliseconds, which the server reads when it starts.
+
+| Housekeeping job | Interval setting |
+| --- | --- |
+| `audit-cleanup` | `AUDIT_CLEANUP_INTERVAL_MS` |
+| `auth-session-cleanup` | `AUTH_SESSION_CLEANUP_INTERVAL_MS` |
+| `blob-integrity` | `MARFA_BLOB_INTEGRITY_INTERVAL_MS` |
+| `blob-orphans` | `MARFA_BLOB_CLEANUP_INTERVAL_MS` |
+| `blob-replicate` | `MARFA_BLOB_REPLICATE_INTERVAL_MS` |
+| `bulk-action-gc` | `MARFA_BULK_ACTION_JOB_GC_INTERVAL_MS` |
+| `dcr-client-cleanup` | `MARFA_DCR_CLIENT_CLEANUP_INTERVAL_MS` |
+| `enrichment-sweep` | `MARFA_ENRICHMENT_INTERVAL_MS` |
+| `event-log-cleanup` | `MARFA_EVENT_LOG_CLEANUP_INTERVAL_MS` |
+| `heartbeat` | `MARFA_HEARTBEAT_INTERVAL_MS` |
+| `inbound-delivery-cleanup` | `MARFA_INBOUND_CLEANUP_INTERVAL_MS` |
+| `rate-limit-cleanup` | `MARFA_RATE_LIMIT_CLEANUP_INTERVAL_MS` |
+| `trash-purge` | `TRASH_PURGE_INTERVAL_MS` |
+| `version-thinning` | `VERSION_THINNING_INTERVAL_MS` |
+
+### Housekeeping jobs a setting switches off
+
+A switched-off housekeeping job isn't listed, and a request to run it answers `404 housekeeping_job_not_found`, as a name the server has never heard of does.
+
+| Housekeeping job | Switched off when |
+| --- | --- |
+| `heartbeat` | `MARFA_HEARTBEAT_URL` isn't set. It's off by default. |
+| `enrichment-sweep` | `MARFA_ENRICHMENT_ENABLED` is `false`. It's on by default. |
+| `blob-orphans` | `MARFA_BLOB_CLEANUP_INTERVAL_MS` is `0`. |
+| `bulk-action-gc` | `MARFA_BULK_ACTION_JOB_RETENTION_MS` is `0`. |
+| `dcr-client-cleanup` | `MARFA_DCR_CLIENT_RETENTION_DAYS` is `0`. |
+| `grant-inactivity-retirement` | `MARFA_GRANT_INACTIVITY_DAYS` is `0`. |
+| `revoked-grant-purge` | `MARFA_REVOKED_GRANT_RETENTION_DAYS` is `0`. |
+
+### Retention you can change while the server runs
+
+`PUT /config` changes the retention that `audit-cleanup`, `trash-purge`, `event-log-cleanup`, and `inbound-delivery-cleanup` read, through `audit_retention_days`, `trash_retention_days`, `event_log_retention_hours`, `inbound_handled_retention_days`, and `inbound_pending_retention_days`. These four are always listed. At a retention of `0`, they keep every record of that kind.
+
+## List the housekeeping jobs
+
+```http
+GET /housekeeping
+Authorization: Bearer <operator key>
+```
+
+The answer holds every housekeeping job in `data`, in one page, and `next_cursor` is always `null`. Each entry tells you three things:
+
+- **Its schedule:** `interval_ms` and `next_run_at`.
+- **Whether it's running:** `running_since` holds the time the current run started, and is `null` when no run is in progress.
+- **What its last run did:** `last_started_at`, `last_finished_at`, `last_outcome`, `last_error`, and `last_result`. `last_outcome` is `null` until a run finishes, and then `ok` or `error`. `last_result` holds what the run reported, under names of its own, such as `deleted` or `copied`.
+
+The full shape is in [List housekeeping jobs](/api-reference/instance/listHousekeeping).
+
+## Run a housekeeping job now
+
+Send its name, as the listing shows it:
+
+```http
+POST /housekeeping/trash-purge/run
+Authorization: Bearer <operator key>
+```
+
+The server runs it before it answers, so the request waits until the run finishes. The answer is the run: `name`, `started_at`, `finished_at`, `outcome`, `result`, and `error`. A run that fails still answers `200`, with `outcome` set to `error` and the reason in `error`.
+
+The listing then shows this run as the last run. A run on demand never makes the next scheduled run later.
+
+The server refuses a run in these cases:
+
+| Answer | When |
+| --- | --- |
+| `400 validation_error` | The name isn't lowercase letters, digits, and hyphens, starting with a letter. |
+| `403 forbidden` | The credential isn't the operator key. |
+| `404 housekeeping_job_not_found` | The instance runs no housekeeping job by that name, including one a setting switches off. |
+| `409 housekeeping_job_running` | A run of it is already in progress. Try again when that run finishes. |
+
+Every run has a deadline: six hours for `version-thinning`, `blob-replicate`, and `blob-integrity`, and at most one hour for the others. A run that outlives its deadline is recorded with `last_outcome` set to `error`, and the housekeeping job is free to run again. So while a run is stuck, a request to run it answers `409` only until that run's deadline passes.
+
+The full shape is in [Run a housekeeping job](/api-reference/instance/runHousekeeping), and the error body is in [Errors](/api-reference/errors).
+
+## Who can list and run housekeeping jobs
+
+Only the operator key. Running the instance isn't one of the permissions a working key carries, so no working key can be given it. A working key, or the access token of an app you signed in to, is refused `403 forbidden`. [Keys and permissions](/get-started/keys-and-permissions) explains the difference.
+
+## Use the marfa command
+
+The `marfa` command sends the same two operations:
+
+```bash
+marfa housekeeping list
+marfa housekeeping run trash-purge
+```
+
+It uses the credential from `--key`, then `MARFA_API_KEY`, then the keychain, and that credential has to be the operator key. Add `--json` to print the answer as JSON.
+
+The rules behind this page are in the [housekeeping chapter of the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md).
