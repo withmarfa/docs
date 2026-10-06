@@ -105,10 +105,9 @@ check "and when it is fine" \
 
 # ------------------------------------------------------------------ the keys
 #
-# The key pairs an open alert with the resolve that clears it. A publish path
-# sharing a key with another posts `resolved` against a key the other's open
-# failure is holding, silently clearing it. One path, so one key; the assertion
-# is that every path has its own, not that there is a particular number.
+# The key pairs an open alert with the resolve that clears it. One key across
+# two publish paths means a green docs publish posts `resolved` against the
+# same key an open status-publish failure is holding, silently clearing it.
 echo
 echo "alert keys"
 
@@ -117,11 +116,9 @@ if [ ! -f "$workflow" ]; then
   echo "  (workflow not found, skipping)"
 else
   body="$(sed 's/#.*//' "$workflow")"
-  all_keys="$(printf '%s\n' "$body" | grep -o 'ALERT_KEY:[^\n]*' | sed 's/ALERT_KEY: *//')"
-  paths="$(printf '%s\n' "$all_keys" | grep -c . || true)"
-  count="$(printf '%s\n' "$all_keys" | sort -u | grep -c . || true)"
-  check "each publish path carries its own alert key" "$paths" "$count"
-  check "at least one publish path posts an alert" yes "$([ "$paths" -ge 1 ] && echo yes || echo no)"
+  keys="$(printf '%s\n' "$body" | grep -o 'ALERT_KEY:[^\n]*' | sed 's/ALERT_KEY: *//' | sort -u)"
+  count="$(printf '%s\n' "$keys" | grep -c . || true)"
+  check "each publish path carries its own alert key" 2 "$count"
 
   for fn in post-alert.sh; do
     if [[ $body == *"$fn"* ]]; then
