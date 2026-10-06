@@ -1,254 +1,92 @@
-# Marfa Docs
+# Marfa docs
 
-Public documentation site at `docs.marfa.so`. Built with [Fumadocs](https://fumadocs.dev) on [TanStack Start](https://tanstack.com/start), deployed to Cloudflare Workers via `@cloudflare/vite-plugin`.
+The source of the public documentation site at `docs.marfa.so` and of the status page at `status.marfa.so`. Fumadocs on TanStack Start, deployed to Cloudflare Workers with `@cloudflare/vite-plugin`.
 
-Docs MCP convention: when working on documented surfaces (types, edges, runtime substrates, connections, auth flows), query the docs MCP at `https://docs.marfa.so/mcp` (or use `marfa docs search "<query>"` from CLI) before re-deriving from source. This repo is the canonical home for all published Marfa docs — code repos never author docs pages; they open companion PRs here when they change a public surface.
+The docs follow the API description and the contract in `withmarfa/marfa`, and those are the source of truth. This repository is where published docs live: code repositories open a pull request here when they change a public surface. Check any Marfa name, field, error code or rule on a page against them before it ships.
 
-Once the work is merged, bring the local `main` up to date (`git pull --ff-only` on `main`) so the next piece of work starts from it.
+Writing follows `STYLE.md`.
 
-## Framework
+## Layout
 
-- **Fumadocs UI** on **TanStack Start** — TypeScript ESM, Vite-driven, no Next.js dependency.
-- **`source.config.ts`** — Fumadocs MDX configuration; content lives under `content/docs/`.
-- **`meta.json`** files per folder configure sidebar grouping + ordering.
-- **OpenAPI** — `openapi.json` at repo root drives the API reference. Sync from the monorepo via `scripts/sync-openapi.sh`.
+- **Content** is under `content/docs/`, one folder per tab: `get-started/`, `guides/`, `tools/` and `api-reference/`. `changelog.mdx` sits at the root and is served at `/changelog`, outside every tab.
+- **Pages** are `.mdx` files that start with YAML frontmatter holding a `title` and a `description`. Quote a description that begins with `@`, `:`, `>`, `|`, `*`, `&`, `?` or `%`. `Card`, `Cards` and `Callout` are available in every page; import anything else from `fumadocs-ui/components/`.
+- **Tabs and groups** are declared in `meta.json` files. A folder with `"root": true` is a tab, `"pages"` orders its entries, `"---Group---"` starts a labeled sidebar group and `"..."` stands for every page not listed. `content/docs/meta.json` orders the tabs. Adding a page means adding the file and listing it in its folder's `meta.json`.
+- **`api-reference/`** holds only the hand-written index and Errors pages. Every operation page is generated from `openapi.json` by `src/lib/source.ts` and `src/lib/openapi.ts`, grouped by tag.
+- **`src/components/section-nav.tsx`** draws the tabs as pills in the header. Its `SECTIONS` list is separate from the `meta.json` files, so a new tab or a renamed landing page needs both.
+- **`src/lib/api-reference-tree.ts`** finds the API reference folder by its title in `meta.json` (`API reference`), then orders its tag groups as the API description lists them. Rename the folder's title and you must change `API_REFERENCE_TITLE` there.
+- **`src/lib/layout.shared.tsx`** holds the header links, including Changelog and Contract. **`src/routes/$.tsx`** renders every page, and **`src/components/release-label.tsx`** is the release label in the sidebar footer.
+- **`src/generated/`** is committed and written only by the sync script. Do not edit it by hand.
 
-## Build and preview
+## Commands
 
 ```bash
-pnpm install        # Node 22+
-pnpm dev            # http://localhost:3000
-pnpm build          # vite build (full prerender)
-pnpm types:check    # fumadocs-mdx codegen + tsc --noEmit (run after a build)
-pnpm test           # vitest run — MCP protocol conformance
-pnpm preview        # serve the production build locally
-pnpm run deploy     # pnpm build && wrangler deploy (pnpm deploy is a built-in)
-
-pnpm run build:status   # the status page, a second Vite target
-pnpm run deploy:status  # build it and deploy it through its own resolved config
+pnpm install          # Node 22+; also generates .source/
+pnpm dev              # http://localhost:3000
+pnpm build            # the docs site, with a full prerender
+pnpm build:status     # the status page, a second Vite target
+pnpm types:check      # fumadocs-mdx, then tsc for each target
+pnpm test             # vitest run
+pnpm preview          # serve the production build
+pnpm run deploy       # build and wrangler deploy (pnpm deploy is a built-in)
+pnpm run deploy:status
+pnpm mcp:stdio        # the docs MCP stdio bridge
 ```
 
-Two Workers ship from this repository. The docs site is the default target; the
-status page at `src/status/` is the second, built by `vite.status.config.ts`
-into `dist-status/` and deployed from `wrangler.status.jsonc`.
+Run `pnpm build` and `pnpm build:status` before `pnpm types:check`. Each build generates a route tree, and the two trees register their paths in one global interface, so type-checking without both builds leaves the other target's route types `undefined`. CI runs them in that order.
 
-One `public/` directory feeds both, because neither Vite config overrides
-`publicDir`. The favicon set lives there and is served by each Worker from its
-own asset store, so the two sites cannot end up wearing different marks.
+`pnpm test` includes the content lint, `src/lib/content-lint.test.ts`. It checks every page for em dashes, the glossary's banned terms, a short docs-only list of avoided terms ("door"), cited contract statement numbers, a title and description, "coming soon" outside the two pages that may use it, and internal links that reach no page. Each rule has a test that proves it fires on a bad sample.
 
-**Never build both targets and then deploy in one tree.** The deploy pointer the
-Cloudflare plugin writes is one fixed path per project root and every build
-rewrites it, so a bare `wrangler deploy` deploys whichever target built last.
-`deploy:status` passes the config its own build emitted, which is why it is safe.
+## Syncing from marfa
 
-`types:check` runs two TypeScript projects, one per target. The two generated
-route trees register their paths into one global interface, so compiled together
-they merge and the losing target's route types silently become `undefined`.
-Both targets have to be built before it.
+```bash
+MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh
+```
 
-## CI
+`MARFA_ROOT` defaults to `../marfa`, which needs its dependencies installed and its tags fetched. The script stops before it changes anything if the monorepo has no glossary or release tag, or if the generated spec is not valid JSON. It copies three things:
 
-`CI` builds, type-checks and tests every pull request and every push to `main`, except a change that touches only agent instructions: `AGENTS.md`, `CLAUDE.md`, `README.md` and `LICENSE` at the root, `.agents/`, `.claude/`, `.codex/`, `.githooks/`, and the issue and pull request templates. `.github/scripts/ci-changes.sh` decides, and a path it does not name builds. Everything under `content/` builds, because the site is built from it. A push to `main` skips the build only when the commit before it has a green `CI` run.
+- `openapi.json`, generated by the monorepo's server. Fix a gap in the monorepo's generator, never in this file.
+- `src/generated/GLOSSARY.md`, which the content lint reads its banned terms from.
+- `src/generated/marfa-release.json`, the latest release tag, shown as "Marfa vX.Y.Z" in the sidebar.
 
-Do not add `paths` filters to `ci.yml`. `Build and type-check` is a required check, and a filtered-out workflow leaves it pending. The `OpenAPI spec` workflow is not required, so it runs only when `openapi.json` changes.
+Run it after an API, glossary or release change lands in the monorepo. The `OpenAPI spec` workflow checks that the committed `openapi.json` parses and declares paths.
 
-## Publishing
+## Two Workers
 
-**Merging to `main` publishes the site.** The `Publish` workflow runs once CI has
-passed on `main`, builds the commit CI passed on, deploys it, and then fetches
-`/version.json` from the live site to confirm the deploy actually took. A deploy
-that returns zero is not proof that readers were served the new bundle.
+The docs site is the default target. The status page in `src/status/` is the second, built by `vite.status.config.ts` into `dist-status/` and deployed from `wrangler.status.jsonc`. One `public/` directory feeds both, so the favicon set cannot differ.
 
-`/version.json` reports the commit the running bundle was built from, which
-makes "is my change live?" a fetch rather than a comparison of published prose
-against the repository. A build from a modified working tree reports
-`<sha>-dirty`, because a hand-deploy that stamped a clean sha would defeat every
-check downstream of it.
+**Never build both targets and then deploy in one tree.** The Cloudflare plugin writes one deploy pointer per project root and every build rewrites it, so a bare `wrangler deploy` deploys whichever target built last. `deploy:status` passes the config its own build emitted.
 
-Both Workers publish this way, in separate jobs with separate checkouts, each
-proving its own deploy against its own hostname. A job publishes only when
-something its target builds from has changed since the commit that target is
-serving; the comparison lives in `.github/scripts/read-live-commit.sh` and every
-uncertain case publishes, because a wasted deploy costs a minute and a skipped
-one leaves a stale site behind a green run.
+## CI and publishing
 
-A daily run compares each live commit against `main` and names the unpublished
-commits if either has fallen behind. Both report to the alerting service under
-their own key — one key across both would mean a green publish of either
-silently resolving an open alert about the other. All of it can be run by hand
-from the Actions tab, and a manual run can name a single target, so a status
-page fix can ship while the docs suite is red.
+`CI` runs on every pull request and every push to `main`. A `Classify changes` job skips the build only for a change that touches agent instructions, the root README or LICENSE, `.agents/`, `.claude/`, `.codex/`, `.githooks/` or the issue and pull request templates (`.github/scripts/ci-changes.sh`). The `Build and type-check` job runs `pnpm build`, `pnpm build:status`, `pnpm types:check`, the shell tests in `.github/scripts/` and `pnpm test`. It is a required check, so never add `paths` filters to `ci.yml`: a filtered-out workflow leaves the check pending. `OpenAPI spec` is not required and runs only when `openapi.json` changes.
 
-The status half of that daily run asks a second question the docs half cannot:
-whether the checker is still writing. The status page renders whatever the
-store last held, so a checker that stops leaves every monitor reading
-operational and the uptime bar full — the failure is invisible precisely
-because nothing is failing. `.github/scripts/check-store-freshness.sh` fetches
-`/api/data` and fails when its `updatedAt` is older than three of the checker's
-write intervals. It runs on a GitHub-hosted runner deliberately: the checker,
-the store and the page are all on Cloudflare, and a check that shares their
-fate reports nothing at the moment it matters.
+**Merging to `main` publishes.** `Publish` runs when `CI` completes successfully on `main`. Separate jobs build and deploy the docs site and the status page, each only if something its target builds from has changed since the commit it serves (`.github/scripts/read-live-commit.sh`; any uncertain case publishes). Each job then fetches `/version.json` from its live site and fails unless it reports the deployed commit. A build from a modified tree reports `<sha>-dirty`. Deploying needs the `CLOUDFLARE_API_TOKEN` secret and the `CLOUDFLARE_ACCOUNT_ID` variable.
 
-**This exists because none of it did.** Publishing was `pnpm run deploy` from
-somebody's shell with nothing reporting that nobody had run it, and the site
-reached fifteen merged commits behind while every run on `main` was green.
-`pnpm run deploy` still works and is the fallback if the credential is ever
-missing, but it should not be the normal path.
+`Publish` has no schedule. Run it by hand from the Actions tab with `mode` set to `check` to compare each live commit against `main`, or to `publish` to deploy; `target` limits it to `docs` or `status`. The status check also fails if the checker's store has not been written for three of its write intervals (`.github/scripts/check-store-freshness.sh`). When `ALERT_WEBHOOK_URL` is set, each target reports to the alerting service under its own key, so one target's green run cannot resolve the other's open alert. `pnpm run deploy` from an authenticated shell is the fallback.
+
+## Agent access
+
+- **Markdown copy of each page.** Append `.md` to a page URL (`src/routes/{$}[.]md.ts`), or send `Accept: text/markdown` and `src/start.ts` redirects to it. `/` redirects to `/get-started`.
+- **`/llms.txt`, `/llms-full.txt` and `/docs-map.md`.** An index, the whole corpus, and a map grouped by tab, from `src/routes/llms[.]txt.ts`, `llms-full[.]txt.ts` and `docs-map[.]md.ts`. The map orders the tabs in its `sectionOrder`.
+- **The docs MCP server at `/mcp`.** `src/routes/mcp.ts` passes requests to `server.ts` in `src/lib/mcp/`, and `tools.ts` defines the tools once: `docs_search`, `docs_fetch` and `docs_list_topics`. `stdio.ts` is a bridge that forwards a stdio client to the HTTP endpoint (`MARFA_DOCS_URL`), so it cannot differ from it. `server.test.ts` checks the server against the MCP specification; add a case there before changing protocol-visible behavior.
+
+When a page's path or title changes, check what these surfaces say about it, including the example paths in the `docs_fetch` description.
 
 ## Analytics
 
-Both Workers report to one PostHog project. Page views and unhandled errors,
-and nothing else.
+Both Workers report page views and unhandled errors to one PostHog project, and nothing else. `src/lib/analytics.ts` writes out every option. Autocapture, session replay, surveys, heatmaps, dead clicks, web experiments, feature flags and all storage are off, so neither site needs a consent banner.
 
-`src/lib/analytics.ts` holds every option, each one written out rather than
-left to a default, so the set reads as a list of decisions. Autocapture,
-session replay, surveys, heatmaps, dead clicks, web experiments and feature
-flags are all off. Storage is off too: no cookie and no local storage, which is
-why neither public site carries a consent banner.
+The SDK loads by dynamic import after hydration, so it never sits on the critical path and the status page can still render when other things fail. Two rules keep that true:
 
-**The SDK is loaded by a dynamic import after hydration, and that is the
-design.** A static import would put it in the entry chunk, on the critical
-path. The status page carries this integration as well, and its whole job is to
-render when other things are failing, so the SDK has to arrive in its own chunk
-once the page is already up. If it cannot be fetched the import rejects, the
-rejection is caught, and nothing about either page changes.
+- Nothing outside `src/components/analytics.tsx` may import `posthog-js` as a value. A type-only import is fine. Error components report through `reportError` in `src/lib/analytics.ts`.
+- After changing any of this, check that no SDK code appears in either client entry chunk and that a separate chunk carries it.
 
-Two rules follow, and breaking either defeats the arrangement silently:
-
-- **Nothing may import `posthog-js` as a value outside `src/components/analytics.tsx`.** A
-  type-only import is fine and erases at build time. Anything else pulls the
-  SDK into the importing chunk. The error components report through
-  `reportError` in `src/lib/analytics.ts` for exactly this reason.
-- **Verify the split after changing any of it.** No SDK internals should appear
-  in either client entry chunk, and a separate chunk carrying the SDK should
-  exist beside it.
-
-The project key arrives at build time as `MARFA_POSTHOG_KEY`, from a repository
-variable rather than a secret: the key is write-only and ships inside the
-browser bundle of every site that uses one, so hiding it would be theater. What
-matters is that it is not committed. **An absent key is a working state.** The
-build emits an empty string, the component returns before it loads anything,
-and the bundle does not even contain the SDK. A clone of this repository
-reports nowhere and says nothing about it, which is what a fork should get.
-
-## Content shape
-
-Each `.mdx` page starts with YAML frontmatter:
-
-```mdx
----
-title: Page Title
-description: One-line summary shown in nav, search, meta tags.
----
-```
-
-YAML caveat: descriptions starting with `@`, `:`, `>`, `|`, `*`, `&`, `?`, `%` need quoting (`description: "@withmarfa/sdk ..."`) — bare leading sigils confuse the YAML parser.
-
-Body is MDX. Default components (`Card`, `Cards`, `Callout`) auto-import via `getMDXComponents`. For others, import explicitly:
-
-```mdx
-import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
-import { Step, Steps } from 'fumadocs-ui/components/steps';
-import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
-```
-
-## Navigation hierarchy
-
-Hierarchy lives in `meta.json` files per folder; each defines `title`, `pages` (an ordered list of slugs), and `root: true` on the top-level folders that become tabs. `src/components/section-nav.tsx` renders the tabs as pills in the navbar; each swaps the sidebar to its own tree. The four tabs, organized by what a reader comes to do:
-
-- **Learn** (`content/docs/learn/`): what Marfa is and the ideas behind it, one concept per page.
-- **Get started** (`content/docs/get-started/`): one path each, start to finish: run an instance, first items, a Swift app, a connector.
-- **Guides** (`content/docs/guides/`): how to do one thing, grouped into building apps, building connectors and running Marfa.
-- **Reference** (`content/docs/api-reference/`): the API reference generated from `openapi.json`, then the other reference pages under "More reference". `src/lib/api-reference-tree.ts` orders the generated groups as the API description lists its tags.
-
-Adding a page: drop the `.mdx` file in the right folder, register it in the folder's `meta.json`. No central manifest.
-
-## OpenAPI sync
-
-```bash
-./scripts/sync-openapi.sh
-```
-
-Expects the monorepo at `../marfa`. Override with `MARFA_ROOT=/path/to/marfa scripts/sync-openapi.sh`. Run after any API change merges in the monorepo. The monorepo also pushes the spec here automatically, as a PR, whenever it changes on its main branch; the script is the manual path for when you need the update in hand.
-
-Two checks guard the committed copy, in two places.
-
-The `OpenAPI spec` workflow here validates that `openapi.json` parses and declares paths, which catches a sync that truncated the file or contaminated it with shell output before the broken spec reaches the published reference.
-
-Whether the file is the *current* spec is answered in the monorepo, by its own `OpenAPI drift` workflow. The comparison has to read both repositories, a workflow's built-in token reaches only its own, and the monorepo already holds a credential that reaches this one for the sync. It runs daily rather than on push, because the sync arrives as a pull request and the two copies legitimately differ until that PR merges.
-
-The spec is generated with the server in keys mode, so hosted-only routes are absent from it by construction. That gap is closed in the monorepo's generator, never by hand-editing the file here.
-
-## Machine-readable surfaces
-
-Four shapes shipped natively, no separate build:
-
-- **`.md`-twin per page** — `Accept: text/markdown` or append `.md` to any docs URL returns the raw Markdown
-- **`/llms.txt`** — short hierarchical index (Fumadocs `llms(source).index()`)
-- **`/llms-full.txt`** — concatenated full corpus
-- **`/docs-map.md`** — Anthropic-style hierarchical link map
-
-Source code: `src/routes/docs/$.tsx`, `src/routes/llms[.]txt.ts`, `src/routes/llms-full[.]txt.ts`, `src/routes/docs-map[.]md.ts`.
-
-## Docs MCP
-
-In-tree at `src/lib/mcp/` + HTTP route at `src/routes/mcp.ts`. Three tools:
-
-- `docs_search(query, limit?)` — BM25 over the Orama index
-- `docs_fetch(path)` — markdown for a path (matches the `.md`-twin)
-- `docs_list_topics()` — every page as a flat list
-
-BM25-only at launch (Worker bundle-size constraint on dense embeddings; upgrade path is Workers AI bge-small or an external vector index). No auth — public docs are public.
-
-The protocol comes from `@modelcontextprotocol/server`, not from hand-written JSON-RPC. `src/lib/mcp/tools.ts` defines the tools once; the HTTP route and the stdio bridge both mount that definition, so the two transports cannot advertise different surfaces. Serving covers the current 2026-07-28 revision and the earlier handshake revisions, statelessly in both cases.
-
-`src/lib/mcp/server.test.ts` is a conformance suite asserting against the specification rather than against whatever the current clients tolerate. Add a case there before changing protocol-visible behavior; the previous hand-rolled handler drifted precisely because nothing tested it.
-
-CLI bridge: `marfa docs search/get/list` in `@withmarfa/cli` wraps the MCP endpoint; `--docs-url` flag for self-hosters.
-
-## Principles
-
-The docs are grounded in six rules. Any edit that violates one is a bug.
-
-1. **One concept per page.** No overview pages duplicating downstream content. The nav is the map.
-2. **Present tense only.** Describe what exists. No "planned" / "coming soon" / "will". Version-gated material lives in release notes.
-3. **Defer to OpenAPI.** Request and response shapes live in the auto-generated reference. Narrative pages explain semantics the spec can't encode — flows, decision rules, state machines.
-4. **Catalogues in tables, accordions, or tabs.** Not bullet walls. More than four items of the same kind: pick a scannable layout.
-5. **Components for their purpose.** `<Steps>` for ordered procedures. `<Accordions>` for reference detail that isn't read linearly. `<Tabs>` for language or mode comparisons. `<Callout>` for callouts that interrupt flow meaningfully.
-6. **Stability test.** Every claim that could plausibly change in three months either links a source of truth (spec, SDK, release note) or gets removed. Prose restating an endpoint shape, param name, or field ordering fails this test.
-
-## Style
-
-- **Examples minimal.** One curl / one SDK snippet per endpoint unless more adds information.
-- **Direct, declarative voice.** State the rule; don't hedge. No filler intensifiers (genuinely, really, actually, fundamentally, very, quite, basically).
-- **No personal infrastructure** — never internal hostnames, private IPs, launchd labels, or vault paths.
-- **Permissions vocabulary.** A credential holds a permission set: content permissions and space permissions. Write "space permissions" in prose, and `space.<name>` only when quoting a wire literal. There are no roles, so never write "space admin", "instance admin", "member" or "admin key"; the instance-tier credential is the **operator key**.
-
-## Formatting standards
-
-The anti-junk guardrail: the markup discipline every page holds to, and the rubric reviews enforce. The Principles govern content shape; the Style governs voice; these govern markup. A page can be on-voice and well-structured and still read as junk if it ignores them. They also govern the OpenAPI operation-description trim, since a spec description is a docs sentence and follows the same rules.
-
-- **Headings are plain text.** No inline code, backticks, links, or other markup in a heading, not even a literal identifier. If a code token wants to live in the heading, rephrase so it sits in the body instead.
-- **Inline code is for literal code only.** The test is location, not importance: backtick a token the reader would copy verbatim, including type ids, field names, env vars, paths, route fragments, header names, CLI flags, literal values, code symbols, and the like. A package or product name keeps its backticks inside a code block, command, or import (`pnpm add @withmarfa/sdk`); the same name in prose is plain text (the TypeScript SDK, Marfa, the API reference), never `@withmarfa/sdk` or `marfa`.
-- **One page-opening pattern.** Frontmatter `title` and a one-line `description`, then straight into the first `##` section. The theme renders the description as the lead, so the body never repeats it as a paragraph and never opens with preamble or "in this guide".
-- **Code blocks are for code.** A fenced block means runnable or copyable code. To make a note or a single value stand out, use a `<Callout>` or inline code, never a fence. (Choosing a scannable layout for a catalogue is Principle 4; this rule is only about not abusing a fence.)
-- **Links carry their meaning.** Link text states where it goes, never "click here" or a bare pasted URL. Internal links are relative paths so the `.md`-twin and self-hosted instances resolve them, never absolute `docs.marfa.so` URLs.
-- **Em-dash restraint.** At most one em-dash per sentence, and never two in one sentence doing different jobs. Use it for a parenthetical aside; use a colon to introduce, a comma to separate, a full stop to end. If a dash swaps for one of those with no loss, swap it.
-- **No needless nesting.** Flat unless the hierarchy is load-bearing; more than two levels of in-page nesting needs a reason. Don't bury a list under a heading under an accordion under a tab when one flat section says it once.
-
-## Deployment
-
-`docs.marfa.so` is a Cloudflare Worker. `pnpm run deploy` runs `pnpm build && wrangler deploy` (use `run` — `pnpm deploy` is pnpm's own built-in and won't invoke the script). Custom domain wired in `wrangler.jsonc`. Account: `marfa` (set `CLOUDFLARE_API_TOKEN` to a marfa-account token before deploying).
+The key arrives at build time as `MARFA_POSTHOG_KEY`, from a repository variable. It is write-only and ships in the bundle, so what matters is that it is not committed. A missing key is a working state: the component loads nothing and the bundle omits the SDK.
 
 ## Conventions
 
-This repo is open-source and cloned independently, so these are restated here.
-
-- **American English** in code, comments, commits, and docs prose: color, organization, favorite.
-- **Conventional Commits** with scope: `docs:`, `feat(mcp):`, `fix(api-ref):`. One logical change per PR. No references to AI tooling.
-- **TypeScript ESM**, Prettier with single quotes.
-- **No personal infrastructure** in committed files: no internal hostnames, private IPs, launchd labels, or vault paths.
-
-## Comments
-
-Comments are self-contained and make sense to anyone reading this repository cold. Explain *why* — the decision, constraint, or non-obvious trade-off — not the *what*, which the code already states. Never reference internal trackers, ticket numbers, or project phases; a comment that only points at external context is noise. If a comment doesn't earn its place by capturing intent, delete it — the code and its history carry the rest.
+- American English in code, comments, commits and docs.
+- Conventional Commits with a scope, such as `docs(guides):` or `fix(mcp):`. One logical change per pull request, and work reaches `main` only through a pull request.
+- TypeScript, ESM.
+- No personal infrastructure in committed files: no internal hostnames, private IP addresses or personal paths.
+- A comment says only what the code cannot: the reason, the constraint or the trade-off. Never refer to a tracker, ticket number or project phase.

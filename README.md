@@ -97,15 +97,17 @@ built-in and will not invoke the script.
 The status page publishes its own two: `/api/data` for the current state and
 `/feed.xml` as Atom.
 
-## OpenAPI sync
+## Sync from Marfa
 
 ```bash
-./scripts/sync-openapi.sh
+./scripts/sync-from-marfa.sh
 ```
 
 Expects the server monorepo at `../marfa`; override with `MARFA_ROOT`. The
 monorepo also opens a pull request here whenever the spec changes on its main
-branch, so this script is the manual path rather than the usual one.
+branch, so this script is the manual path rather than the usual one. Besides
+`openapi.json`, it copies the monorepo's `GLOSSARY.md` and its latest release
+tag into `src/generated/`.
 
 The spec is generated with the server in keys mode, which is why hosted-only
 routes are absent from it. Close that gap in the generator, never by editing

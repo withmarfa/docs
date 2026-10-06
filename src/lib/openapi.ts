@@ -59,7 +59,7 @@ function withUsedTagsDeclared<T>(spec: T): T {
 
 // The spec is bundled (imported, not read from disk) so the reference renders
 // in dev, in the prerendered build, and on the Worker without filesystem access.
-// Sync the spec from the monorepo with `scripts/sync-openapi.sh`.
+// Sync the spec from the monorepo with `scripts/sync-from-marfa.sh`.
 const spec = withUsedTagsDeclared(rawSpec);
 
 export const openapi = createOpenAPI({
