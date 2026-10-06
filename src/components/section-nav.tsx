@@ -1,20 +1,15 @@
 import Link from 'fumadocs-core/link';
 import { useRouterState } from '@tanstack/react-router';
 
-// The five top-level sections, rendered as OpenAI-style pills in the navbar.
+// The top-level sections, rendered as OpenAI-style pills in the navbar.
 // `prefix` drives the active highlight (any page under the section); `href` is
 // the section's landing page. The native notebook tab row is hidden (CSS) — it
 // still scopes the sidebar by URL — and these pills are the visible switcher.
 const SECTIONS = [
-  { label: 'Introduction', href: '/introduction', prefix: '/introduction' },
-  { label: 'Guides', href: '/guides', prefix: '/guides' },
-  { label: 'API reference', href: '/api-reference', prefix: '/api-reference' },
-  { label: 'SDKs', href: '/sdks/overview', prefix: '/sdks' },
-  {
-    label: 'Self-hosting',
-    href: '/self-hosting',
-    prefix: '/self-hosting',
-  },
+  { label: 'Learn', href: '/learn', prefix: '/learn' },
+  { label: 'Get started', href: '/get-started', prefix: '/get-started' },
+  { label: 'Guides', href: '/guides/authenticate', prefix: '/guides' },
+  { label: 'Reference', href: '/api-reference', prefix: '/api-reference' },
 ];
 
 export function SectionNav() {

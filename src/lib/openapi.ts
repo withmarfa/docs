@@ -65,3 +65,4 @@ const spec = withUsedTagsDeclared(rawSpec);
 export const openapi = createOpenAPI({
   input: { 'marfa.json': spec as never },
 });
+
