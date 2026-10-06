@@ -4,7 +4,7 @@ import release from '@/generated/marfa-release.json';
 
 // The Marfa release these docs describe. The version comes from the
 // monorepo's latest tag (scripts/sync-from-marfa.sh), because the API
-// description's own version is a placeholder.
+// description's version is the contract version, not the product version.
 export function ReleaseLabel() {
   return (
     <Link

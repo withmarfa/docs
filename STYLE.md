@@ -47,7 +47,7 @@ Don't restate what the API reference already says. A page explains what the refe
 - Sentence case for titles and headings.
 - Headings are plain text: no code, links or other markup.
 - Inline code is for text a reader would type or copy: type IDs, field names, paths, header names, flags, values. A product name in prose is plain text (the TypeScript client, not `@withmarfa/client`).
-- Internal links are relative paths, such as `/get-started/files`, so the Markdown copy of each page resolves them. Link text says where the link goes.
+- Internal links are paths from the site root, such as `/get-started/files`, so the Markdown copy of each page resolves them. Link text says where the link goes.
 - No filler: "simply", "just", "easy", "basically", "really", "actually", "very".
 - No personal infrastructure: no internal hostnames, private IP addresses, or personal paths.
 

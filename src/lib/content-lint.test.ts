@@ -73,7 +73,11 @@ export function stripCode(text: string): string {
     }
     return blank(line);
   });
-  return withoutFences.join('\n').replace(/(`+)[\s\S]*?\1/g, blank);
+  // Inline code stays within one line, so a stray backtick cannot blank the
+  // text that follows it.
+  return withoutFences
+    .map((line) => line.replace(/(`+)(?!`)(.*?)(?<!`)\1(?!`)/g, blank))
+    .join('\n');
 }
 
 // ── Banned terms ─────────────────────────────────────────────────────────
@@ -162,9 +166,12 @@ function findTerms(
 
 // ── The other rules ──────────────────────────────────────────────────────
 
+// The character, and the same dash written as an HTML entity.
+const EM_DASH = /\u2014|&mdash;|&#0*8212;|&#x0*2014;/gi;
+
 export function checkEmDashes(file: string, text: string): Violation[] {
   const out: Violation[] = [];
-  for (const match of text.matchAll(/—/g)) {
+  for (const match of text.matchAll(EM_DASH)) {
     out.push({
       file,
       line: lineOf(text, match.index),
@@ -238,28 +245,42 @@ function normalizeLink(target: string): string {
   return bare === '' ? '/' : bare;
 }
 
+const LINK_PATTERNS = [
+  // A Markdown link, not an image: the destination up to the first space or `)`.
+  /(?<!!)\[[^\]\n]*\]\(\s*([^)\s]+)/g,
+  /\bhref=["']([^"']*)["']/g,
+];
+
 /**
- * Every link that starts with a slash must reach a page. A `.md` copy of a page
- * counts as that page. API reference pages are generated from the API
- * description, and they are part of the same source, so their URLs are in the
- * set like any other.
+ * Every internal link is a path from the site root and reaches a page. A `.md`
+ * copy of a page counts as that page. API reference pages are generated from
+ * the API description, and they are part of the same source, so their URLs are
+ * in the set like any other. A relative link, or an absolute link to this
+ * site's own host, fails: neither resolves in the Markdown copy or on a
+ * self-hosted instance. Links to other sites and in-page anchors are left alone.
  */
 export function checkLinks(file: string, text: string, pageUrls: Set<string>): Violation[] {
   const prose = stripCode(text);
   const out: Violation[] = [];
-  const patterns = [/\]\((\/[^)\s]*)/g, /\bhref=["'](\/[^"']*)["']/g];
-  for (const pattern of patterns) {
+  for (const pattern of LINK_PATTERNS) {
     for (const match of prose.matchAll(pattern)) {
-      if (match[1].startsWith('//')) continue;
-      const target = normalizeLink(match[1]);
-      const page = target.replace(/\.md$/, '');
-      if (NON_PAGE_ROUTES.has(target) || pageUrls.has(target) || pageUrls.has(page)) continue;
-      out.push({
-        file,
-        line: lineOf(text, match.index),
-        rule: 'link',
-        detail: `${match[1]} does not reach a page`,
-      });
+      const dest = match[1];
+      const fail = (detail: string) =>
+        out.push({ file, line: lineOf(text, match.index), rule: 'link', detail });
+
+      if (/^https?:\/\/docs\.marfa\.so(?:[/?#]|$)/i.test(dest)) {
+        fail(`${dest} is an absolute link to this site; use a path from the site root`);
+      } else if (dest.startsWith('//') || dest.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(dest)) {
+        continue;
+      } else if (!dest.startsWith('/')) {
+        fail(`${dest} is a relative link; use a path from the site root, such as /get-started/files`);
+      } else {
+        const target = normalizeLink(dest);
+        const page = target.replace(/\.md$/, '');
+        if (!NON_PAGE_ROUTES.has(target) && !pageUrls.has(target) && !pageUrls.has(page)) {
+          fail(`${dest} does not reach a page`);
+        }
+      }
     }
   }
   return out;
@@ -339,6 +360,12 @@ describe('content lint: each rule fires on a bad sample', () => {
     const found = checkEmDashes('x.mdx', 'One line.\nTwo — three.\n');
     expect(rules(found)).toEqual(['em-dash']);
     expect(found[0].line).toBe(2);
+  });
+
+  it('em-dash fires on the HTML entities too', () => {
+    for (const entity of ['&mdash;', '&MDASH;', '&#8212;', '&#x2014;']) {
+      expect(rules(checkEmDashes('x.mdx', `a ${entity} b`))).toEqual(['em-dash']);
+    }
   });
 
   it('em-dash also fires inside code', () => {
@@ -444,9 +471,44 @@ describe('content lint: each rule fires on a bad sample', () => {
       expect(checkLinks('x.mdx', text, urls)).toEqual([]);
     });
 
+    it('fires on a relative link', () => {
+      for (const dest of ['files', './files', '../guides/deploy', 'files.md']) {
+        const found = checkLinks('x.mdx', `Ok.\nSee [it](${dest}).`, urls);
+        expect(rules(found)).toEqual(['link']);
+        expect(found[0].line).toBe(2);
+      }
+      expect(rules(checkLinks('x.mdx', '<Card href="./files" />', urls))).toEqual(['link']);
+    });
+
+    it('fires on an absolute link to this site', () => {
+      for (const dest of ['https://docs.marfa.so/get-started', 'http://docs.marfa.so', 'https://docs.marfa.so/x#y']) {
+        expect(rules(checkLinks('x.mdx', `[a](${dest})`, urls))).toEqual(['link']);
+      }
+    });
+
+    it('leaves other sites, anchors, mail and images alone', () => {
+      const text = [
+        '[a](https://example.com/files)',
+        '[b](#heading)',
+        '[c](mailto:a@example.com)',
+        '![d](./diagram.png)',
+        '[e](https://docs.marfa.so.example.com/x)',
+      ].join('\n');
+      expect(checkLinks('x.mdx', text, urls)).toEqual([]);
+    });
+
     it('ignores links inside code', () => {
       expect(checkLinks('x.mdx', '`[a](/nowhere)`\n\n```\n[b](/nowhere)\n```\n', urls)).toEqual([]);
     });
+  });
+
+  it('inline code stays within one line', () => {
+    const text = 'It`s a stray tick.\nA banned integration here.\nThen `code` and more.\n';
+    const found = checkBannedTerms('x.mdx', text, ['integration']);
+    expect(rules(found)).toEqual(['banned-term']);
+    expect(found[0].line).toBe(2);
+    expect(stripCode('a `b` c ``d`e`` f')).toBe(`a ${' '.repeat(3)} c ${' '.repeat(7)} f`);
+    expect(stripCode('x `y\nz` w')).toBe('x `y\nz` w');
   });
 
   it('failure messages name the file, the line and the rule', () => {

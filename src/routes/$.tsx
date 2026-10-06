@@ -12,7 +12,7 @@ import {
   PageFooter,
 } from 'fumadocs-ui/layouts/notebook/page';
 import { baseOptions } from '@/lib/layout.shared';
-import { gitConfig } from '@/lib/shared';
+import { appName, gitConfig } from '@/lib/shared';
 import { PageActions } from '@/components/page-actions';
 import { SidebarFooter } from '@/components/release-label';
 import {
@@ -48,6 +48,19 @@ export const Route = createFileRoute('/$')({
     }
     return data;
   },
+  // Without this every page reads as the site name in search results and link
+  // previews, because the root route's title is the only one. Operation
+  // descriptions are Markdown, so their backticks are dropped from the meta text.
+  head: ({ loaderData }) => ({
+    meta: loaderData
+      ? [
+          { title: `${loaderData.title} | ${appName}` },
+          ...(loaderData.description
+            ? [{ name: 'description', content: loaderData.description.replace(/`/g, '') }]
+            : []),
+        ]
+      : [],
+  }),
 });
 
 const serverLoader = createServerFn({
@@ -75,6 +88,8 @@ const serverLoader = createServerFn({
 
     return {
       kind: 'docs' as const,
+      title: page.data.title ?? '',
+      description: page.data.description ?? '',
       path: page.path,
       markdownUrl: slugsToMarkdownPath(page.slugs).url,
       pageTree,
@@ -202,7 +217,12 @@ function OpenAPIView({
 function DocsView({
   data,
 }: {
-  data: { kind: 'docs'; path: string; markdownUrl: string; pageTree: SerializedPageTree };
+  data: {
+    kind: 'docs';
+    path: string;
+    markdownUrl: string;
+    pageTree: SerializedPageTree;
+  };
 }) {
   const { path, pageTree, markdownUrl } = useFumadocsLoader(data);
 
