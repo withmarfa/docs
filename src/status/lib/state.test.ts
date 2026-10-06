@@ -21,6 +21,10 @@ const CAPTURED_AT = 1788651670;
 /** Observed for the whole retention window, so uptime spans all of it. */
 const FULLY_OBSERVED = CAPTURED_AT - 90 * 24 * 60 * 60;
 
+// The labels as the checker last wrote them. The captured store still holds
+// state and labels for monitors that are no longer configured, which is what
+// the public-set tests below rely on: the page has to leave them out because
+// of its own list, not because the store stopped carrying them.
 const META: PageMeta = {
   title: 'Marfa Status',
   since: FULLY_OBSERVED,
@@ -440,32 +444,39 @@ describe('the uptime bar', () => {
 });
 
 describe('the public set', () => {
-  it('renders production and documentation, and not staging', () => {
-    expect([...PUBLIC_MONITORS]).toEqual(['api', 'api-files', 'docs']);
+  it('renders the documentation monitor alone', () => {
+    expect([...PUBLIC_MONITORS]).toEqual(['docs']);
   });
 
-  it('reports on the rendered monitors rather than on every monitor checked', () => {
-    // Staging down, production up. The banner must not say anything is wrong:
-    // the overall counts in the store span all five, which is why they are not
-    // what the banner is built from.
+  it('reports on the rendered monitors rather than on everything the store holds', () => {
+    // A stored monitor that is no longer configured, still down. The banner
+    // must not say anything is wrong: the overall counts in the store span
+    // every monitor it holds, which is why they are not what the banner is
+    // built from.
     const state = parseState(CAPTURED);
-    state.incident.staging.end[state.incident.staging.end.length - 1] = null;
+    state.incident.api.end[state.incident.api.end.length - 1] = null;
     state.overallDown = 1;
     state.overallUp = 4;
 
     const view = buildView(state, META, PUBLIC_MONITORS, CAPTURED_AT);
-    expect(view.monitors.map((m) => m.id)).toEqual(['api', 'api-files', 'docs']);
+    expect(view.monitors.map((m) => m.id)).toEqual(['docs']);
+    expect(view.incidents.every((incident) => incident.monitorId === 'docs')).toBe(true);
     expect(view.allUp).toBe(true);
     expect(view.downCount).toBe(0);
   });
 
-  it('builds the fixture into three named, healthy rows', () => {
+  it('draws no group heading for a group whose monitors are not rendered', () => {
+    const meta: PageMeta = {
+      ...META,
+      group: { Retired: ['api', 'api-files'], Documentation: ['docs'] },
+    };
+    const view = buildView(parseState(CAPTURED), meta, PUBLIC_MONITORS, CAPTURED_AT);
+    expect(view.groups.map((group) => group.label)).toEqual(['Documentation']);
+  });
+
+  it('builds the fixture into one named, healthy row', () => {
     const view = buildView(parseState(CAPTURED), META, PUBLIC_MONITORS, CAPTURED_AT);
-    expect(view.monitors.map((m) => m.name)).toEqual([
-      'API',
-      'File storage',
-      'Documentation',
-    ]);
+    expect(view.monitors.map((m) => m.name)).toEqual(['Documentation']);
     expect(view.allUp).toBe(true);
     expect(view.lastUpdate).toBe(CAPTURED_AT);
     expect(view.empty).toBe(false);

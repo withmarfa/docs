@@ -4,8 +4,8 @@ import type { Incident } from './state';
 
 function incident(over: Partial<Incident> = {}): Incident {
   return {
-    monitorId: 'api',
-    monitorName: 'API',
+    monitorId: 'alpha',
+    monitorName: 'Alpha service',
     start: 1_000_000,
     end: 1_000_060,
     error: 'Expected codes: 2xx, Got: 502',
@@ -18,11 +18,11 @@ describe('groupIncidents', () => {
   it('collapses two monitors failing on the same tick into one event', () => {
     const events = groupIncidents([
       incident(),
-      incident({ monitorId: 'api-files', monitorName: 'File storage', start: 1_000_003 }),
+      incident({ monitorId: 'beta', monitorName: 'Beta service', start: 1_000_003 }),
     ]);
 
     expect(events).toHaveLength(1);
-    expect(events[0].monitorNames).toEqual(['API', 'File storage']);
+    expect(events[0].monitorNames).toEqual(['Alpha service', 'Beta service']);
   });
 
   it('keeps separate events separate when they are far enough apart', () => {
@@ -51,7 +51,7 @@ describe('groupIncidents', () => {
   it('holds the event open while any monitor in it is still down', () => {
     const events = groupIncidents([
       incident(),
-      incident({ monitorId: 'api-files', monitorName: 'File storage', start: 1_000_010, end: null }),
+      incident({ monitorId: 'beta', monitorName: 'Beta service', start: 1_000_010, end: null }),
     ]);
 
     expect(events).toHaveLength(1);
@@ -61,7 +61,7 @@ describe('groupIncidents', () => {
   it('starts the event at the earliest of its incidents', () => {
     const events = groupIncidents([
       incident({ start: 1_000_030 }),
-      incident({ monitorId: 'api-files', monitorName: 'File storage', start: 1_000_000 }),
+      incident({ monitorId: 'beta', monitorName: 'Beta service', start: 1_000_000 }),
     ]);
 
     expect(events[0].start).toBe(1_000_000);
@@ -91,10 +91,10 @@ describe('describeCause', () => {
 
 describe('joinNames', () => {
   it('reads as a sentence at every length', () => {
-    expect(joinNames(['API'])).toBe('API');
-    expect(joinNames(['API', 'File storage'])).toBe('API and File storage');
-    expect(joinNames(['API', 'File storage', 'Documentation'])).toBe(
-      'API, File storage and Documentation',
+    expect(joinNames(['Alpha service'])).toBe('Alpha service');
+    expect(joinNames(['Alpha service', 'Beta service'])).toBe('Alpha service and Beta service');
+    expect(joinNames(['Alpha service', 'Beta service', 'Documentation'])).toBe(
+      'Alpha service, Beta service and Documentation',
     );
   });
 });

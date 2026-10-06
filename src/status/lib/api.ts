@@ -1,5 +1,5 @@
 import type { CompactedState, PageMeta } from './types';
-import { getIncident, incidentCount, isSentinel, lastLatency } from './state';
+import { PUBLIC_MONITORS, getIncident, incidentCount, isSentinel, lastLatency } from './state';
 
 /** The canonical public address, used for absolute links in the feed. */
 export const SITE_URL = 'https://status.marfa.so';
@@ -22,11 +22,14 @@ export type ApiResponse = {
 /**
  * The machine-readable record, at the shape it already had.
  *
- * Every monitor, staging included: this is the record rather than the public
- * answer, and a consumer that wants only the rendered set filters by the
- * public list. The one place that matters today is the navbar indicator, which
- * does exactly that — the alternative, filtering here, would decide for every
- * future consumer that pre-production is none of its business.
+ * Only the monitors in `PUBLIC_MONITORS`, the same set the page renders. The
+ * store keeps state and labels for monitors that are no longer configured, and
+ * reporting them would show a monitor nobody watches as down for good. The
+ * navbar indicator on the documentation site reads this response, so a stale
+ * entry here would reach every reader.
+ *
+ * The counts are taken from the monitors reported, not from the checker's
+ * totals, which span everything it ever wrote.
  *
  * The shape is reproduced rather than improved on. It is the only published
  * contract this page has, and changing it during a hosting move would make two
@@ -36,6 +39,8 @@ export function buildApiResponse(state: CompactedState, meta: PageMeta | null): 
   const monitors: Record<string, ApiMonitor> = {};
 
   for (const monitor of meta?.monitors ?? []) {
+    if (!isPublicMonitor(monitor.id)) continue;
+
     const last = getIncident(state, monitor.id, incidentCount(state, monitor.id) - 1);
     const open = last !== null && !isSentinel(last) && last.end === null;
     const latency = lastLatency(state, monitor.id);
@@ -51,13 +56,19 @@ export function buildApiResponse(state: CompactedState, meta: PageMeta | null): 
     };
   }
 
+  const reported = Object.values(monitors);
+
   return {
-    up: state.overallUp,
-    down: state.overallDown,
+    up: reported.filter((monitor) => monitor.up).length,
+    down: reported.filter((monitor) => !monitor.up).length,
     updatedAt: state.lastUpdate,
     monitors,
     maintenances: meta?.maintenances ?? [],
   };
+}
+
+function isPublicMonitor(id: string): boolean {
+  return (PUBLIC_MONITORS as readonly string[]).includes(id);
 }
 
 export const API_HEADERS = {

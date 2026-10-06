@@ -14,16 +14,7 @@ import { StatusDot } from './status-rows';
  * rather than decoration — at a glance across a room the panel turning red is
  * legible when a ten-pixel dot is not.
  */
-export function StatusHeader({
-  view,
-  now,
-  note,
-}: {
-  view: StatusView;
-  now: number;
-  /** A line beneath the card, for a page that is not the default one. */
-  note?: string;
-}) {
+export function StatusHeader({ view, now }: { view: StatusView; now: number }) {
   const up = view.allUp;
 
   return (
@@ -50,8 +41,6 @@ export function StatusHeader({
           Checked {formatAge(view.lastUpdate, now)}
         </p>
       </div>
-
-      {note ? <p className="mt-3 text-sm text-fd-muted-foreground">{note}</p> : null}
     </header>
   );
 }
