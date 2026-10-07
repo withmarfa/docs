@@ -10,26 +10,40 @@ import {
 } from './docs-tools';
 
 describe('searchDocs', () => {
-  it('finds a page and groups its fragments into one hit', async () => {
+  it('folds a page and its matching fragments into one hit', async () => {
     const { hits } = await searchDocs('housekeeping');
     expect(hits.length).toBeGreaterThan(0);
 
     const urls = hits.map((h) => h.url);
     expect(new Set(urls).size).toBe(urls.length);
-    expect(urls).toContain('/guides/housekeeping');
+    expect(urls.filter((u) => u === '/guides/housekeeping')).toHaveLength(1);
     for (const hit of hits) {
-      expect(hit.title).not.toBe('');
+      expect(hit.url).not.toContain('#');
       expect(hit.snippets.length).toBeLessThanOrEqual(MAX_SNIPPETS_PER_PAGE);
+    }
+
+    const page = hits.find((h) => h.url === '/guides/housekeeping')!;
+    expect(page.title).toBe('Housekeeping');
+    expect(page.snippets.length).toBeGreaterThan(0);
+  });
+
+  it('returns plain text, with no highlight markup in titles or snippets', async () => {
+    for (const query of ['housekeeping', 'the', 'item version']) {
+      const { hits } = await searchDocs(query, 20);
+      for (const text of hits.flatMap((h) => [h.title, ...h.snippets])) {
+        expect(text, query).not.toMatch(/<\/?mark>/);
+      }
     }
   });
 
-  it('keeps at most the requested number of hits', async () => {
-    const { hits } = await searchDocs('the', 2);
-    expect(hits.length).toBeLessThanOrEqual(2);
-    expect(hits.length).toBeGreaterThan(0);
+  it('counts pages, not rows, against the limit', async () => {
+    for (const limit of [1, 2, 10]) {
+      const { hits } = await searchDocs('the', limit);
+      expect(hits.length, `limit ${limit}`).toBe(limit);
+    }
   });
 
-  it('defaults to ten hits and never exceeds the ceiling', async () => {
+  it('defaults to ten pages and never exceeds the ceiling', async () => {
     expect((await searchDocs('the')).hits.length).toBeLessThanOrEqual(DEFAULT_SEARCH_LIMIT);
     expect((await searchDocs('the', 1000)).hits.length).toBeLessThanOrEqual(MAX_SEARCH_LIMIT);
   });

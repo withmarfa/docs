@@ -54,7 +54,30 @@ export function pathToSlugs(input: string): string[] {
   return p.split('/');
 }
 
-/** Full-text search, one hit per page, ranked by BM25 relevance. */
+/** Rows requested from Orama per page asked for, since one page returns several rows. */
+const ROWS_PER_PAGE = 5;
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+
+/** Orama rows carry the `<mark>` highlight and may carry HTML entities; callers get plain text. */
+function toPlainText(text: string): string {
+  return text
+    .replace(/<\/?mark>/g, '')
+    .replace(/&(?:#(\d+)|#x([\da-f]+)|([a-z]+));/gi, (whole, dec, hex, name) => {
+      if (name) return NAMED_ENTITIES[name.toLowerCase()] ?? whole;
+      const code = dec ? Number(dec) : parseInt(hex, 16);
+      return code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+    });
+}
+
+/** Full-text search, one hit per page, ranked by the page's best row. */
 export async function searchDocs(
   query: string,
   limit: number = DEFAULT_SEARCH_LIMIT,
@@ -62,28 +85,32 @@ export async function searchDocs(
   if (!query.trim()) return { hits: [] };
   const cap = Math.min(Math.max(Math.trunc(limit), 1), MAX_SEARCH_LIMIT);
 
-  const results = await searchServer.search(query, { limit: cap });
+  const results = await searchServer.search(query, { limit: cap * ROWS_PER_PAGE });
 
-  // Orama returns one row per heading or text fragment. Group by page so the
-  // caller gets one entry per document rather than several near-duplicates.
-  const byUrl = new Map<string, SearchHit>();
+  // Orama returns one row per heading or text fragment. Fold the rows of a page
+  // into one hit, keeping each fragment's text as a snippet.
+  const byPage = new Map<string, SearchHit>();
   for (const r of results) {
-    if (!byUrl.has(r.url)) {
+    const url = r.url.split('#')[0];
+    let entry = byPage.get(url);
+    if (!entry) {
+      const page = source.getPage(pathToSlugs(url));
       const title =
-        r.type === 'page'
-          ? r.content
-          : Array.isArray(r.breadcrumbs) && r.breadcrumbs.length > 0
-            ? r.breadcrumbs[0]
-            : r.content;
-      byUrl.set(r.url, { title, url: r.url, snippets: [] });
+        page?.data.title ??
+        toPlainText(
+          r.type === 'page' || !Array.isArray(r.breadcrumbs) || r.breadcrumbs.length === 0
+            ? r.content
+            : r.breadcrumbs[0],
+        );
+      entry = { title, url, snippets: [] };
+      byPage.set(url, entry);
     }
-    const entry = byUrl.get(r.url)!;
     if (r.type !== 'page' && r.content && entry.snippets.length < MAX_SNIPPETS_PER_PAGE) {
-      entry.snippets.push(r.content);
+      entry.snippets.push(toPlainText(r.content));
     }
   }
 
-  return { hits: Array.from(byUrl.values()).slice(0, cap) };
+  return { hits: Array.from(byPage.values()).slice(0, cap) };
 }
 
 /** The page's Markdown, the same text its `<path>.md` copy serves, or `null` when there is no such page. */
