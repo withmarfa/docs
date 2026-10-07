@@ -24,7 +24,7 @@ export type DiagramNode = {
   summary: ReactNode;
   /** One sentence shown under the canvas while the node is selected. */
   caption: ReactNode;
-  /** Drawn dotted and tagged, for something that doesn't exist yet. */
+  /** The tag for something that doesn't exist yet, such as "Coming soon". */
   planned?: { tag: string };
 };
 
@@ -118,7 +118,6 @@ export function DiagramBox({
     <div
       className={cn('marfa-diagram-box', className)}
       data-state={state}
-      data-planned={node.planned ? true : undefined}
       onClick={onSelect}
     >
       <div className="marfa-diagram-box-title">
@@ -126,27 +125,13 @@ export function DiagramBox({
         <span>{node.label}</span>
       </div>
       <div className="marfa-diagram-box-summary">{node.summary}</div>
-      {node.planned ? <span className="marfa-diagram-tag">{node.planned.tag}</span> : null}
     </div>
   );
 }
 
 /** A line between two boxes, lit with the node it belongs to. */
-export function DiagramWire({
-  state,
-  planned,
-  className,
-}: {
-  state: DiagramState;
-  planned?: boolean;
-  className?: string;
-}) {
+export function DiagramWire({ state, className }: { state: DiagramState; className?: string }) {
   return (
-    <span
-      className={cn('marfa-diagram-wire', className)}
-      data-state={state}
-      data-planned={planned ? true : undefined}
-      aria-hidden="true"
-    />
+    <span className={cn('marfa-diagram-wire', className)} data-state={state} aria-hidden="true" />
   );
 }
