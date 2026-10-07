@@ -373,8 +373,8 @@ check_deploy_target() {
   # ref does not resolve. Without this, that string is compared against a sha,
   # they differ, and a broken checkout takes the "main has moved on" arm —
   # publishing nothing and succeeding, so the commit is never published and
-  # nothing says so. It also emitted the sentence "main
-  # has moved to origin/main", which is the confidently-wrong diagnostic the
+  # nothing says so. It also emitted the sentence "main has moved to
+  # origin/main", which is the confidently-wrong diagnostic the
   # `unknown-ref` verdict exists to avoid, in the one place that had no
   # equivalent.
   case "$tip" in

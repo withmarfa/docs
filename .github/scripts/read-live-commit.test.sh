@@ -341,12 +341,9 @@ else
   # Stated rather than papered over: the workflow's own gating is not tested
   # here and cannot be. The step-level `if:` conditions are GitHub
   # expressions, not shell, and nothing in this repository evaluates them
-  # outside a run. The linter in CI catches a malformed file,
-  # which is the worst of those failure modes, because a parse error takes the
-  # daily guard down with no signal anywhere.
-  # A malformed workflow is the worst failure mode the untestable gating leaves
-  # open: the publish job and the daily check live in one file, so a parse error
-  # takes both down at once. Vite ships a YAML parser, so this costs no new
+  # outside a run. A malformed workflow is the worst failure mode that leaves
+  # open: the publish jobs and the checks live in one file, so a parse error
+  # takes them all down at once. Vite ships a YAML parser, so this costs no new
   # dependency and no container, which matters because the pool this runs on is
   # macOS and cannot run container actions.
   if node -e "
