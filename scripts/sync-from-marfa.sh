@@ -2,6 +2,10 @@
 # Sync what the docs take from the Marfa monorepo:
 #   openapi.json                      the API description
 #   src/generated/GLOSSARY.md         the glossary, which the content lint reads
+#                                     and the Glossary page includes
+#   src/generated/api-overview.md     the spec's info.description, the rules every
+#                                     operation follows, included by the API
+#                                     reference overview
 #   src/generated/marfa-release.json  the latest release tag, shown in the sidebar
 #
 # Reads committed files from a checkout of the monorepo, by default the sibling
@@ -58,15 +62,43 @@ if ! RELEASE="$(git -C "$MARFA_ROOT" describe --tags --abbrev=0 --match 'v[0-9]*
 fi
 
 CANDIDATE="$(mktemp "${TMPDIR:-/tmp}/marfa-openapi.XXXXXX")"
-cleanup() { rm -f "$CANDIDATE"; }
+OVERVIEW="$(mktemp "${TMPDIR:-/tmp}/marfa-overview.XXXXXX")"
+cleanup() { rm -f "$CANDIDATE" "$OVERVIEW"; }
 trap cleanup EXIT
+
+# The overview page includes this file under its own level-2 heading, so every
+# heading moves down one level to keep the page's outline unbroken.
+if ! python3 - "$MARFA_ROOT/openapi.json" "$OVERVIEW" <<'PY'
+import json, re, sys
+
+description = json.load(open(sys.argv[1])).get("info", {}).get("description")
+if not isinstance(description, str) or not description.strip():
+    sys.exit(1)
+
+lines, fence = [], None
+for line in description.strip().splitlines():
+    marker = re.match(r"\s*(`{3,}|~{3,})", line)
+    if marker and (fence is None or marker.group(1).startswith(fence)):
+        fence = None if fence else marker.group(1)
+    elif fence is None and re.match(r"#{1,5} ", line):
+        line = "#" + line
+    lines.append(line)
+
+with open(sys.argv[2], "w") as out:
+    out.write("\n".join(lines) + "\n")
+PY
+then
+  echo "$MARFA_ROOT/openapi.json has no info.description. Nothing has changed." >&2
+  exit 1
+fi
 
 cp "$MARFA_ROOT/openapi.json" "$CANDIDATE"
 mv "$CANDIDATE" "$SPEC"
-trap - EXIT
 
 mkdir -p "$GENERATED"
+mv "$OVERVIEW" "$GENERATED/api-overview.md"
+trap - EXIT
 cp "$MARFA_ROOT/GLOSSARY.md" "$GENERATED/GLOSSARY.md"
 printf '{"version":"%s"}\n' "$RELEASE" > "$GENERATED/marfa-release.json"
 
-echo "openapi.json, GLOSSARY.md and the release ($RELEASE) synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md and the release ($RELEASE) synced from $MARFA_ROOT"

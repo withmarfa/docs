@@ -15,7 +15,7 @@ Writing follows `STYLE.md`.
 - **`src/components/section-nav.tsx`** draws the tabs as pills in the header. Its `SECTIONS` list is separate from the `meta.json` files, so a new tab or a renamed landing page needs both.
 - **`src/lib/api-reference-tree.ts`** finds the API reference folder by its title in `meta.json` (`API reference`), then orders its tag groups as the API description lists them. Rename the folder's title and you must change `API_REFERENCE_TITLE` there.
 - **`src/lib/layout.shared.tsx`** holds the header links, including Changelog and Contract. **`src/routes/$.tsx`** renders every page, and **`src/components/release-label.tsx`** is the release label in the sidebar footer.
-- **`src/generated/`** is committed and written only by the sync script. Do not edit it by hand.
+- **`src/generated/`** is committed and written only by the sync script. Do not edit it by hand. A page shows a generated Markdown file with fumadocs-mdx's `<include cwd>src/generated/<file>.md</include>` (add `#<heading-id>` for one section, which ends at the next heading of any level), never with a component, so the page's Markdown copy and the docs MCP tools carry the same text as the HTML.
 
 ## Commands
 
@@ -42,10 +42,11 @@ Run `pnpm build` and `pnpm build:status` before `pnpm types:check`. Each build g
 MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh
 ```
 
-`MARFA_ROOT` defaults to `../marfa`. Use a checkout on an up-to-date `main` with its tags fetched: the script copies committed files and runs nothing. It stops before it changes anything if the checkout has no spec, glossary or release tag, or if the spec is not valid JSON. It copies three things:
+`MARFA_ROOT` defaults to `../marfa`. Use a checkout on an up-to-date `main` with its tags fetched: the script copies committed files and runs nothing. It stops before it changes anything if the checkout has no spec, glossary or release tag, or if the spec is not valid JSON or has no `info.description`. It writes four things:
 
 - `openapi.json`, which the monorepo's CI keeps current. Fix a gap in the monorepo's generator, never in this file.
-- `src/generated/GLOSSARY.md`, which the content lint reads its banned terms from.
+- `src/generated/api-overview.md`, the spec's `info.description` (the rules every operation follows) with each heading one level lower, included by the API reference overview under its own heading.
+- `src/generated/GLOSSARY.md`, which the content lint reads its banned terms from and the Glossary page includes.
 - `src/generated/marfa-release.json`, the latest `v` version tag, shown as "Marfa vX.Y.Z" in the sidebar.
 
 Run it after an API, glossary or release change lands in the monorepo. The `OpenAPI spec` workflow checks that the committed `openapi.json` parses and declares paths.
