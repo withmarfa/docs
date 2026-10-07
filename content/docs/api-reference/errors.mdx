@@ -1,11 +1,52 @@
 ---
 title: Errors
-description: Every refusal code, what causes it and what to do.
+description: The shape of a refusal, what it tells you, which refusals to retry, and every code Marfa answers.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+## The shape of a refusal
 
-Planned topics:
+A refusal is a JSON body with one `error` object, except in answer to `HEAD`, which has no body. Here a key that may read `core.note` but not write it updates a note:
 
-- The error envelope.
-- Each code, grouped by status.
+```http
+HTTP/1.1 403 Forbidden
+Content-Type: application/json
+X-Error-Code: type_not_permitted
+X-Request-ID: 0199b3f2-5c1e-7a40-8d2b-6f1e3a9c4d70
+
+{ "error": { "code": "type_not_permitted", "message": "Write access to type \"core.note\" denied", "details": { "grant": { "kind": "type", "name": "core.note", "level": "write" } } } }
+```
+
+- **`code`** is one of the codes below. Branch on it, not on `message`.
+- **`message`** is for people, and can change.
+- **`details`**, when it's there, is an object whose members depend on the refusal.
+- **`X-Error-Code`** repeats the code, so a client or a proxy can read it without parsing the body.
+- **`X-Request-ID`** is on every answer to a path outside `/auth/` and `/.well-known/`, and to `POST /auth/oauth2/register`, refusals included. Send your own there, 1 to 128 letters, digits, underscores and hyphens, and Marfa answers with it; otherwise Marfa makes one. Quote it when you report a problem.
+
+`409 version_conflict` and `409 ancestor_unavailable` also carry `error.status`, and `current` beside `error`; [Update an item](/api-reference/items/updateItem) shows both. Some answers under `/auth/` come in the sign-in library's own shapes instead, or as plain text or an HTML page. A request whose `Accept` header names `text/html` with no `application/json` before it gets an HTML page of the refusal's status in place of the JSON body, still with `X-Error-Code`, except for `409 version_conflict`, `409 ancestor_unavailable` and an answer replayed for an `Idempotency-Key`.
+
+## What a refusal tells you
+
+- **A grant you lack.** A `403` for a grant the key could be given names it in `details.grant`: its `kind` (`type`, `edge_type` or `extension`), its `name`, and the `level` the operation asked for, `read` or `write`. A `403` that no grant could lift, such as a write to a `system.*` type through the item operations, names none. Neither does `403 type_not_permitted` for a natural key that an item of a type you can't read already holds, so the answer says nothing of that item.
+- **Something you may not see.** An item named by its ID whose type you can't read answers `404 item_not_found`, exactly as a missing one does, so the answer says nothing of whether it exists. Creating, changing or revoking a folder is the exception: a key without write on `system.folder` is refused `403 type_not_permitted` before Marfa looks up any folder.
+- **An item in the bin.** An update or delete of an item in the bin, or a change to its metadata, tags or extensions, answers `404 item_not_found` with `details` of `{ "trashed": true }` when you may read the item's type, so you can tell an item someone trashed from one that never existed. Reading the item, its metadata, versions or extensions answers `404 item_not_found` with no `details`.
+
+## Retrying
+
+These codes mean the same request can succeed later:
+
+| Code | What to do |
+| --- | --- |
+| `write_contention` | Send the same request again. Another write held the store's lock for longer than the instance waits, and `details.budget_ms` says how long that was. On a bulk page under `atomic: false`, an entry reported `errored` with this code is the one to send again, not the page: entries before it may have been written. |
+| `idempotency_key_in_flight` | Send the same request with the same `Idempotency-Key` again. The first request with the key hasn't answered yet. |
+| `rate_limited` | Wait the seconds `Retry-After` names, then send it again. |
+| `housekeeping_job_running` | Run the job again once its current run has ended. |
+| `stream_capacity_exhausted` | Open the stream again later. The instance is serving as many live event streams as it allows. |
+| `inbound_unavailable` | For the sender of an inbound webhook: send the delivery again after `Retry-After`. |
+
+`500 internal_error` names a fault and says nothing of what failed. Read what the request changed before you send a write again, and quote its `X-Request-ID` when you report the fault.
+
+## Codes
+
+Every code Marfa answers in the `error` object, by status. The table comes from the [errors chapter of the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/errors.md), which is written from the server's own list of codes.
+
+<include cwd>src/generated/error-codes.md</include>
