@@ -71,7 +71,10 @@ trap cleanup EXIT
 if ! python3 - "$MARFA_ROOT/openapi.json" "$OVERVIEW" <<'PY'
 import json, re, sys
 
-description = json.load(open(sys.argv[1])).get("info", {}).get("description")
+# Any other shape than a description string is a refusal, never a traceback.
+spec = json.load(open(sys.argv[1]))
+info = spec.get("info") if isinstance(spec, dict) else None
+description = info.get("description") if isinstance(info, dict) else None
 if not isinstance(description, str) or not description.strip():
     sys.exit(1)
 
