@@ -12,7 +12,7 @@ This page covers the main tasks. For the full API, see the [marfa-swift reposito
 The package supports iOS 27 and macOS 27 on Apple silicon, and builds with Xcode 27 or later. Add it by URL in Xcode, or in a `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/withmarfa/marfa-swift", from: "0.0.1")
+.package(url: "https://github.com/withmarfa/marfa-swift", from: "0.0.8")
 ```
 
 Depend on the `Marfa` product. Add `MarfaTypes` too if you need the server's wire types, which are generated from the API description.
@@ -94,7 +94,7 @@ for await change in copy.changes() {
 }
 ```
 
-`queue.drain()` returns a `DrainReport` with the server's verdict on each write it sent. Answered writes stay in the queue, with their verdicts, until the app calls `queue.forgetAnswered()`.
+`queue.drain()` returns a `DrainReport` with the server's verdict on each write it sent. Answered writes stay in the queue, with their verdicts, until the app calls `queue.forgetAnswered()`. A refused write that carried content stays after that, so the app can offer the content back, until `queue.discard(_:)`.
 
 ## Conflicted copies
 
@@ -113,18 +113,19 @@ if let original = try await copy.items.original(ofConflictedCopy: item.id) {
 
 ## Folders on a Mac
 
-On macOS, `Folders` keeps a directory in step with a folder's settings on the server, as `marfa folders` does. Both use the same core and the same registry, so a folder added in an app appears in `marfa folders list`, and the other way around.
+On macOS, `Folders` keeps a directory in step with a folder's settings on the server, as `marfa folders` does. Both use the same core and the same registry, so a folder added in an app appears in `marfa folders list`, and the other way around. A sandboxed app has its own home directory, and so its own registry.
 
 Create the settings with `createFolder(_:)` on a working copy, or with `marfa folders create`. Then add the directory and confirm its first sync:
 
 ```swift
 let folders = Folders(server: Server(url: serverURL, key: credential))
+let notes = URL(filePath: "/path/to/Notes", directoryHint: .isDirectory)
 _ = try await folders.add(notes, following: folderID)
 
 if case .awaitingConfirmation(let plan) = try await folders.sync(notes) {
-    // plan.write files go into the directory, and plan.send go to the server.
+    print("Writes \(plan.write) files here and sends \(plan.send) to the server.")
     try await folders.confirmFirstSync(in: notes)
 }
 ```
 
-Nothing is written into the directory or sent until `confirmFirstSync(in:)`. To cancel instead, call `remove(_:)`, which leaves the files where they are. After that, call `sync(_:)` to sync the folder once, or iterate `watch(_:)` to keep it in step while the app runs.
+Nothing is written into the directory or sent until you confirm the first sync. To cancel instead, call `remove(_:)`, which leaves the files where they are. After you confirm, call `sync(_:)` to sync the folder once, or iterate `watch(_:)` to keep it in step while the app runs.
