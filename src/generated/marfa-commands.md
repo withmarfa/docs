@@ -275,7 +275,7 @@ Output:
 ### marfa items
 
 ```text
-Items: create, read, change, tag, link, attach, and the bulk doors
+Items: create, read, change, tag, link, attach, and the bulk operations
 
 Usage: marfa items [OPTIONS] <COMMAND>
 
@@ -482,7 +482,7 @@ Options:
           already holds
 
       --edges <JSON>
-          Edges to write with it, as the JSON object the door takes
+          Edges to write with it, as the JSON object the operation takes
 
       --idempotency-key <KEY>
           Sent as `Idempotency-Key`, so a repeat is answered from the record rather than written
@@ -548,7 +548,7 @@ Options:
           The natural key to move the row to. The server refuses one another item already holds
 
       --edges <JSON>
-          Edges to write with it, as the JSON object the door takes
+          Edges to write with it, as the JSON object the operation takes
 
       --conflict <CONFLICT>
           How a colliding write is settled: `auto` asks the server to resolve within its own
@@ -1255,7 +1255,7 @@ Options:
           A type identifier; its subtypes are included
 
       --state <STATE>
-          One state. Unset excludes the bin, as a listing does; there is no `any` on this door
+          One state. Unset excludes the bin, as a listing does; there is no `any` on this operation
 
           [possible values: active, archived, trashed, revoked]
 
@@ -1315,13 +1315,13 @@ Usage: marfa items bulk-action purge [OPTIONS]
 
 Options:
       --confirm <PURGE>
-          The word `PURGE`, because the door asks for it out loud
+          The word `PURGE`, because the operation asks for it out loud
 
       --type <TYPE>
           A type identifier; its subtypes are included
 
       --state <STATE>
-          One state. Unset excludes the bin, as a listing does; there is no `any` on this door
+          One state. Unset excludes the bin, as a listing does; there is no `any` on this operation
 
           [possible values: active, archived, trashed, revoked]
 
@@ -1389,7 +1389,7 @@ Options:
           A type identifier; its subtypes are included
 
       --state <STATE>
-          One state. Unset excludes the bin, as a listing does; there is no `any` on this door
+          One state. Unset excludes the bin, as a listing does; there is no `any` on this operation
 
           [possible values: active, archived, trashed, revoked]
 
@@ -1456,7 +1456,7 @@ Options:
           A type identifier; its subtypes are included
 
       --state <STATE>
-          One state. Unset excludes the bin, as a listing does; there is no `any` on this door
+          One state. Unset excludes the bin, as a listing does; there is no `any` on this operation
 
           [possible values: active, archived, trashed, revoked]
 
@@ -1521,7 +1521,7 @@ Options:
           A type identifier; its subtypes are included
 
       --state <STATE>
-          One state. Unset excludes the bin, as a listing does; there is no `any` on this door
+          One state. Unset excludes the bin, as a listing does; there is no `any` on this operation
 
           [possible values: active, archived, trashed, revoked]
 
@@ -1586,7 +1586,7 @@ Options:
           A type identifier; its subtypes are included
 
       --state <STATE>
-          One state. Unset excludes the bin, as a listing does; there is no `any` on this door
+          One state. Unset excludes the bin, as a listing does; there is no `any` on this operation
 
           [possible values: active, archived, trashed, revoked]
 
@@ -3077,7 +3077,7 @@ Options:
           A profile field and its level, `email=read`, repeatable
 
       --enforcement-override <JSON>
-          The enforcement override, as the JSON object the door takes
+          The enforcement override, as the JSON object the operation takes
 
       --claim <SOURCE>
           A source a write under the key may name, so its rows are keyed by it. Repeatable
@@ -3203,7 +3203,7 @@ Options:
           A profile field and its level, `email=read`, repeatable
 
       --enforcement-override <JSON>
-          The enforcement override, as the JSON object the door takes
+          The enforcement override, as the JSON object the operation takes
 
       --no-type-permissions
           Empty the type permission map on this update
@@ -4887,7 +4887,7 @@ Commands:
   changes     Print a line each time another process saves to the store. Opens it to read, with or
               without `--reader`, so watching never takes the writer's place
   items       Read items from the local copy
-  folders     Folders' settings: read from the copy, written through the folder door
+  folders     Folders' settings: read from the copy, written through the folder operations
   search      Full-text search over the local copy, best match first
   queue       Every queued write, the body it carries and what became of it
   drain       Send what the queue holds and record what came back
@@ -5932,16 +5932,17 @@ Output:
 ### marfa device folders
 
 ```text
-Folders' settings: read from the copy, written through the folder door
+Folders' settings: read from the copy, written through the folder operations
 
 Usage: marfa device folders [OPTIONS] <COMMAND>
 
 Commands:
-  create  Create a folder's settings through the folder door, at once and never queued; settings no
-          folder follows are refused before they are sent
-  change  Change a folder's settings through the folder door, at once, each named one replaced whole
-  revoke  Retire a folder's settings through the folder door, at once. A revoked folder does not
-          change
+  create  Create a folder's settings through the folder operations, at once and never queued;
+          settings no folder follows are refused before they are sent
+  change  Change a folder's settings through the folder operations, at once, each named one replaced
+          whole
+  revoke  Retire a folder's settings through the folder operations, at once. A revoked folder does
+          not change
   get     A folder's settings as the copy holds them
   help    Print this message or the help of the given subcommand(s)
 
@@ -5975,8 +5976,8 @@ Output:
 ### marfa device folders create
 
 ```text
-Create a folder's settings through the folder door, at once and never queued; settings no folder
-follows are refused before they are sent
+Create a folder's settings through the folder operations, at once and never queued; settings no
+folder follows are refused before they are sent
 
 Usage: marfa device folders create [OPTIONS]
 
@@ -6046,7 +6047,7 @@ Output:
 ### marfa device folders change
 
 ```text
-Change a folder's settings through the folder door, at once, each named one replaced whole
+Change a folder's settings through the folder operations, at once, each named one replaced whole
 
 Usage: marfa device folders change [OPTIONS] --version <VERSION> <ID>
 
@@ -6123,7 +6124,7 @@ Output:
 ### marfa device folders revoke
 
 ```text
-Retire a folder's settings through the folder door, at once. A revoked folder does not change
+Retire a folder's settings through the folder operations, at once. A revoked folder does not change
 
 Usage: marfa device folders revoke [OPTIONS] <ID>
 
