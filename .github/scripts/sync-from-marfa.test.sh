@@ -196,5 +196,8 @@ check "no release tag: says so" \
   "No release tag found in ${work}/untagged/marfa (run 'git fetch --tags' there). Nothing has changed." "${out}"
 check "no release tag: changes nothing" "${before}" "$(everything untagged)"
 
+echo "the workflow"
+check "CI runs this test" 1 "$(grep -cF 'run: bash .github/scripts/sync-from-marfa.test.sh' "${here}/../workflows/ci.yml")"
+
 printf '\nsync-from-marfa: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
