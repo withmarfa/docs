@@ -36,7 +36,7 @@ Run `pnpm build` and `pnpm build:status` before `pnpm types:check`. Each build g
 
 `pnpm test` includes the content lint, `src/lib/content-lint.test.ts`. It checks every page for em dashes (including `&mdash;`), the glossary's banned terms, a short docs-only list of avoided terms ("door"), cited contract statement numbers, a title and description, "coming soon" outside the two pages that may use it, and internal links that are not site-root paths or reach no page (a relative link or a `docs.marfa.so` link fails). Each rule has a test that proves it fires on a bad sample.
 
-The lint also reads the text a page pulls in with `<include>`, resolved the way fumadocs-mdx resolves it (relative to the page, or to the repository root with `cwd`, and `#id` for one section), and reports a line in the included file's own numbering. Only two rules reach included text: em dashes (and their entities) and internal links. The banned and avoided terms, statement numbers, "coming soon" and frontmatter do not, because the glossary names the banned words on purpose and a generated file has no frontmatter of its own. An include it cannot resolve fails too.
+The lint also reads the text a page pulls in with `<include>`, resolved the way fumadocs-mdx resolves it (relative to the page, or to the repository root with `cwd`, and `#id` for one section), and reports a line in the included file's own numbering. Only two rules reach included text: em dashes (and their entities) and internal links. No other rule does: the banned and avoided terms in particular stay out of it, because the glossary names those words on purpose. An include the lint cannot resolve fails too.
 
 ## Syncing from marfa
 
