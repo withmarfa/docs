@@ -31,11 +31,11 @@ Content-Type: application/json
 { "type": "core.file.image", "properties": { "title": "Holiday photo", "blob_ref": "sha256:d71b77fe25721711f07e19c5f39e768e1356349c08b58260a42ed97eb996a01b", "mime_type": "image/jpeg" } }
 ```
 
-The same bytes uploaded again answer the same hash and are stored once, so two files can share a blob. The first upload fixes the media type the bytes are served under. Marfa sets the file's `size_bytes` itself, from the bytes, and ignores any size a write sends.
+The same bytes uploaded again answer the same hash and are stored once, so two files can share a blob. The first upload fixes the media type the bytes are served under. Marfa sets the file's `size_bytes` itself, from the stored bytes, when its `blob_ref` lends the blob's read (see [Who may read a blob](/get-started/files#who-may-read-a-blob)), and never keeps a size a write sends.
 
 ## What keeps a blob
 
-A hash anywhere in a string counts as a reference to the blob: a whole `blob_ref`, a `sha256:` link inside a Markdown body, the same link URL-encoded, or the 64 hexadecimal characters alone. A blob is kept as long as something names it. Select a piece to see what keeps the blob and who it lets read it.
+In an item, an edge or an extension, a hash anywhere in a string counts as a reference to the blob: a whole `blob_ref`, a `sha256:` link inside a Markdown body, the same link URL-encoded, or its 64 lowercase hexadecimal characters alone. A blob is kept as long as something names it. Select a piece to see what keeps the blob and who it lets read it.
 
 <FileMap />
 
@@ -43,22 +43,21 @@ A hash anywhere in a string counts as a reference to the blob: a whole `blob_ref
 - **An edge's properties.** They can lend the read to a credential that may read the edge's type and its source item's type.
 - **An extension namespace.** It can lend the read to a working key that may read the namespace and the item's type.
 - **An earlier version** in an item's history. It keeps the blob but lends no read.
-- **A queued bulk action** whose `update_properties` patch names the hash, until the job ends. It lends no read.
 - **The blob** is the bytes, with their size and the media type of their first upload.
-- **The disk** beside the server holds every upload, on every instance.
-- **An object store**, an S3-compatible bucket the instance is configured with, holds a copy of every blob once the `blob-replicate` housekeeping job has run.
+- **The disk** beside the server receives every upload, on every instance.
+- **An object store**, an S3-compatible bucket the instance is configured with, holds a copy of every blob once the `blob-replicate` housekeeping job has caught up.
 
 ## Who may read a blob
 
 Knowing a hash isn't enough to read the bytes. A reference lends the blob's read only if whoever wrote it had uploaded the bytes or could already read them, so naming a hash you found somewhere gives you nothing. A reference keeps the standing it was written with: a later write that leaves the hash in place neither grants nor withdraws it.
 
-A blob that nothing names can't be read yet, even by the credential that uploaded it, because the upload's answer already told it everything. A blob the credential may not read answers `404 blob_not_found`, exactly as an unknown hash does. The operator key reads every blob.
+No working key or app can read a blob that nothing names, not even the one that uploaded it, because the upload's answer already told it everything. A blob the credential may not read answers `404 blob_not_found`, exactly as an unknown hash does. The operator key reads every blob.
 
 ## Downloading
 
-[Download a blob](/api-reference/blobs/downloadBlob) answers the bytes, unchanged, and takes a `Range` header for part of them. Marfa always sends a blob as an attachment and in a sandbox, so a browser never shows its bytes as a page of the instance, whatever its media type.
+[Download a blob](/api-reference/blobs/downloadBlob) answers the bytes unchanged. The instance always sends them as an attachment and in a sandbox, whatever the blob's media type, so a browser never shows them as a page of the instance.
 
-[Get a blob URL](/api-reference/blobs/getBlobUrl) answers a link that serves the bytes to a request with no credential, such as an image element in a page. A link lasts an hour unless you ask for another lifetime, up to seven days, and it keeps working for its whole lifetime even if the key that asked for it is revoked. Once an object store holds the blob, the link is the store's own, so the bytes don't pass through the instance.
+[Get a blob URL](/api-reference/blobs/getBlobUrl) answers a link that serves the bytes for a limited time to a request with no credential, such as an image element in a page. Marfa checks the read when it makes the link, not when the link is fetched, so revoking the key that asked for it doesn't end the link early. Once an object store holds the blob, the link is the store's own, so the bytes don't pass through the instance.
 
 ## Where the copies live
 
@@ -68,8 +67,8 @@ Every store wants every blob. The `blob-replicate` housekeeping job copies each 
 
 ## When nothing names a blob
 
-The `blob-orphans` housekeeping job finds blobs that nothing names. It reports each one first, and a later run purges it only once it has stood in the report longer than the grace, `MARFA_BLOB_CLEANUP_GRACE_MS` (1 day by default). An upload or a write that names the hash in between takes it off the report. [List orphaned blobs](/api-reference/blobs/listBlobOrphans) shows the report to the operator key.
+The `blob-orphans` housekeeping job finds blobs that nothing names. It reports each one first, and a later run purges it only once it has stood in the report longer than the grace, `MARFA_BLOB_CLEANUP_GRACE_MS` (1 day by default). An upload or a write that names the hash in between takes it off the report, and so does a queued bulk action whose `update_properties` patch names the hash: it keeps the blob until the job ends, but lends no read. [List orphaned blobs](/api-reference/blobs/listBlobOrphans) shows the report to the operator key.
 
-Trashing a file keeps its blob, because an item in the bin still names it. Purging the file removes its history too, so once nothing else names the hash, the blob goes after the grace. [Housekeeping](/guides/housekeeping) covers the jobs, and [Handle files](/guides/handle-files) walks through uploading and downloading from an app.
+Trashing a file keeps its blob, because an item in the bin still names it. Purging the file removes its history too, so once nothing else names the hash, the blob goes after the grace. [Housekeeping](/guides/housekeeping) covers the jobs.
 
 The rules behind this page are in the [blobs](https://github.com/withmarfa/marfa/blob/main/conformance/spec/blobs.md) and [stores](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md) chapters of the contract.

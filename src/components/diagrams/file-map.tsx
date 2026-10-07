@@ -61,8 +61,8 @@ export const pieces: readonly FilePiece[] = [
     ),
     after: (
       <>
-        writes one. In any state, it keeps the blob and lends its read to a credential that may
-        read the item&apos;s type.
+        writes one. In any state, it keeps the blob and can lend its read to a credential that
+        may read the item&apos;s type.
       </>
     ),
   }),
@@ -77,8 +77,8 @@ export const pieces: readonly FilePiece[] = [
     before: "An edge's properties can name a blob too.",
     after: (
       <>
-        writes one. It keeps the blob, and lends its read to a credential that may read the
-        edge&apos;s type and its source item&apos;s type.
+        writes one. It keeps the blob, and can lend its read to a credential that may read
+        the edge&apos;s type and its source item&apos;s type.
       </>
     ),
   }),
@@ -97,8 +97,8 @@ export const pieces: readonly FilePiece[] = [
     before: 'An extension namespace can name a blob.',
     after: (
       <>
-        writes one. It keeps the blob, and lends its read to a working key that may read the
-        namespace and the item&apos;s type.
+        writes one. It keeps the blob, and can lend its read to a working key that may read
+        the namespace and the item&apos;s type.
       </>
     ),
   }),
@@ -128,7 +128,7 @@ export const pieces: readonly FilePiece[] = [
     tier: 'store',
     label: 'Disk',
     icon: HardDrive,
-    summary: 'Holds every upload',
+    summary: 'Gets every upload',
     operation: { tag: 'Blobs', operationId: 'listBlobStores', name: 'List blob stores' },
     before: 'The directory beside the server, which every instance has.',
     after: 'lists it for the operator key beside any other store, and every upload is written to it.',
