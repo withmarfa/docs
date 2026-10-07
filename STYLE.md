@@ -83,6 +83,7 @@ A diagram earns its place when it explains a shape better than words: what conne
 - **Use HTML and CSS on the site's theme tokens** (`--color-fd-*`, and `--marfa-diagram-accent` for the one accent color), so light and dark both work. No images and no hard-coded colors.
 - **Make it usable by keyboard.** Selections are buttons with `aria-pressed`, focus is visible, and Escape clears.
 - **Make it fit at phone width** (375 px) with no horizontal scroll.
+- **Keep every label and summary on one line** at every width the layout uses, so keep them to a few words. A caption, shown on selection, can wrap.
 - **Make it useful before JavaScript runs.** The server render shows the whole diagram.
 - **Follow it with a plain-text list that says the same thing.** Agents, search and the Markdown copy of the page read the list, not the diagram.
 

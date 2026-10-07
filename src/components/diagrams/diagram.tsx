@@ -24,7 +24,7 @@ export type DiagramNode = {
   summary: ReactNode;
   /** One sentence shown under the canvas while the node is selected. */
   caption: ReactNode;
-  /** Drawn dotted and tagged, for something that doesn't exist yet. */
+  /** Drawn dashed and tagged, for something that doesn't exist yet. */
   planned?: { tag: string };
 };
 
@@ -132,21 +132,8 @@ export function DiagramBox({
 }
 
 /** A line between two boxes, lit with the node it belongs to. */
-export function DiagramWire({
-  state,
-  planned,
-  className,
-}: {
-  state: DiagramState;
-  planned?: boolean;
-  className?: string;
-}) {
+export function DiagramWire({ state, className }: { state: DiagramState; className?: string }) {
   return (
-    <span
-      className={cn('marfa-diagram-wire', className)}
-      data-state={state}
-      data-planned={planned ? true : undefined}
-      aria-hidden="true"
-    />
+    <span className={cn('marfa-diagram-wire', className)} data-state={state} aria-hidden="true" />
   );
 }
