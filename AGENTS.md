@@ -9,7 +9,7 @@ Writing follows `STYLE.md`.
 ## Layout
 
 - **Content** is under `content/docs/`, one folder per tab: `get-started/`, `guides/`, `tools/` and `api-reference/`. `changelog.mdx` sits at the root and is served at `/changelog`, outside every tab.
-- **Pages** are `.mdx` files that start with YAML frontmatter holding a `title` and a `description`. Quote a description that begins with `@`, `:`, `>`, `|`, `*`, `&`, `?` or `%`. `Card`, `Cards` and `Callout` are available in every page; import anything else from `fumadocs-ui/components/`.
+- **Pages** are `.mdx` files that start with YAML frontmatter holding a `title` and a `description`. Quote a description that begins with `@`, `:`, `>`, `|`, `*`, `&`, `?` or `%`. An optional `tocDepth` (2 to 6) limits the page's "On this page" list to headings at that level and above, for a page that includes a long generated reference (`source.config.ts`, applied in `src/routes/$.tsx`). `Card`, `Cards` and `Callout` are available in every page; import anything else from `fumadocs-ui/components/`.
 - **Tabs and groups** are declared in `meta.json` files. A folder with `"root": true` is a tab, `"pages"` orders its entries, `"---Group---"` starts a labeled sidebar group and `"..."` stands for every page not listed. `content/docs/meta.json` orders the tabs. Adding a page means adding the file and listing it in its folder's `meta.json`.
 - **`api-reference/`** holds only the hand-written index and Errors pages. Every operation page is generated from `openapi.json` by `src/lib/source.ts` and `src/lib/openapi.ts`, grouped by tag.
 - **`src/components/section-nav.tsx`** draws the tabs as pills in the header. Its `SECTIONS` list is separate from the `meta.json` files, so a new tab or a renamed landing page needs both.
