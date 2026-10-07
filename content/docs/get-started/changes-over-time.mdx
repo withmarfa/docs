@@ -1,12 +1,63 @@
 ---
 title: Changes over time
-description: Versions, conflicts, and how an item leaves and comes back.
+description: How an item's version counts its changes, how a write avoids overwriting someone else's, what history Marfa keeps, and how an item leaves and comes back.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+## What moves the version
 
-Planned topics:
+Every item has a `version`, a whole number that starts at 1 when the item is created. Each write to the item's own fields raises it by one, and nothing else moves it:
 
-- Versions, and what raises one.
-- Writing safely: sending the version you read, conflicts and merging.
-- Trash, restore, archive and purge.
+| Write | Moves the version |
+| --- | --- |
+| Properties, even ones equal to what the item holds | Yes |
+| `type`, `tier`, `occurred_at` or `source_id` | Yes |
+| Tags, metadata and extensions | No |
+| An update that carries only `edges` | No |
+| A move to the type the item already has | No |
+| Archiving, trashing or restoring the item | No |
+
+The version counts changes to the item itself, so a write that leaves the version alone never makes another writer's update stale: a title changed in one app and a tag added in another both land. A tag, metadata or extension write and a change of state still move the item's `updated_at`. An edge has a version of its own, as [Properties, metadata and edges](/get-started/properties-metadata-and-edges#edges) explains.
+
+## Writing at the version you read
+
+An update names the `version` it read. Say you read a note at version 3 and change its body, while another app changes its title, so the note is now at version 4:
+
+```http
+PATCH /items/{id}
+Content-Type: application/json
+
+{ "version": 3, "properties": { "body": "Start with the essays, then the letters." } }
+```
+
+Your write is stale, but that alone doesn't refuse it. Marfa compares your change with what changed since version 3, using the snapshot it kept of the note at that version:
+
+- **Nothing collides.** You changed the body and the other app changed the title, so Marfa applies your change over the note as it is now. The note comes back at version 5, with both changes.
+- **A field collides.** If the other app changed the body too, Marfa refuses the write with `409 version_conflict` and sends back the note as it is now, so you can combine the two and send the result at version 4.
+
+A write can instead let the item's type settle a collision, field by field. `core.note` takes the last writer's `title`, and keeps both values of a `body` by writing yours to a conflicted copy, a new note linked to the original, so neither writer's text is lost. [Write safely](/guides/write-safely) shows how to ask for that and how to handle each answer, and [Update an item](/api-reference/items/updateItem) has the full request.
+
+## History
+
+Each time an item's version moves, Marfa keeps a snapshot of the item as it stood at the version it left: its properties, `type`, `tier`, `occurred_at` and `source_id`. The snapshots are what a stale write is merged against. [List item versions](/api-reference/items/listItemVersions) reads them, oldest first, and an item still at version 1 has none.
+
+Marfa doesn't keep every snapshot forever. The `version-thinning` housekeeping job keeps every recent snapshot and fewer as they age, by the `version_policy` of the item's type, which [Define a type](/guides/define-a-type) can set. [Housekeeping](/guides/housekeeping) covers the job.
+
+A write based on a version Marfa holds no snapshot of, because it was thinned or never existed, can't be merged, so Marfa refuses it with `409 ancestor_unavailable`. An app that holds an edit for a long time reads the item again before it sends it.
+
+## Leaving and coming back
+
+An item's `state` is where it sits in its lifecycle: `active`, `archived` or `trashed`, and an item in the bin is `trashed`. A `system.*` item, such as a folder, is `active` or `revoked` instead, and a revoke is final.
+
+No move between `active`, `archived` and `trashed` changes the item's version or its history, so an edit based on the version you read before a trash still lands after a restore. Select a move to see which operation makes it and what the item keeps.
+
+<ItemLifecycle />
+
+- **Archive**: [Change an item's state](/api-reference/items/transitionItem) to `archived` sets the item aside. A listing leaves it out unless it names `archived` or `any`, and a read by its ID still returns it.
+- **Unarchive**: [Change an item's state](/api-reference/items/transitionItem) to `active` brings it back into listings.
+- **Trash**: [Trash an item](/api-reference/items/deleteItem) moves an active or archived item to the bin, with every item a cascading edge such as `parent-of` reaches from it. Until it's restored, a read or write of the item is refused, and only a listing that names `trashed` or `any` returns it.
+- **Restore**: [Restore an item](/api-reference/items/restoreItem) brings it back to `active`, with every item its trash took and nothing that was in the bin before.
+- **Purge**: [Purge an item](/api-reference/items/purgeItem) deletes an item in the bin for good, with its history and its edges. The `trash-purge` housekeeping job purges every item that has been in the bin longer than the instance's trash retention. Marfa keeps a tombstone of the item's link and natural key, if it held them, so a connector that meets the item again at its source can tell it was purged.
+
+[Apply a bulk action](/api-reference/bulk-actions/applyBulkAction) makes any of these moves for every item that matches a filter.
+
+The rules behind this page are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md), [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) and [housekeeping](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md) chapters of the contract.
