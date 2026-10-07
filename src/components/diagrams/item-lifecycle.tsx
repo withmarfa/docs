@@ -83,8 +83,8 @@ export const moves: readonly Move[] = [
     operation: transition,
     says: (
       <>
-        with <code>archived</code> sets the item aside. Listings leave it out unless they name its
-        state, and a read by its ID still returns it. The version stays at 3.
+        with <code>archived</code> sets the item aside. Listings leave it out unless they name{' '}
+        <code>archived</code> or <code>any</code>, and a read by its ID still returns it. The version stays at 3.
       </>
     ),
   }),
