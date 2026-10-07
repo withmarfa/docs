@@ -3,7 +3,7 @@
 # Two Workers ship from this repository: the documentation site, and the status
 # page that watches it. They deploy independently and are proved independently,
 # because a page reporting on the docs site must not go down with it. Each has
-# its own job, its own checkout, its own version endpoint and its own alert key.
+# its own job, its own checkout and its own version endpoint.
 #
 # Separate checkouts are not tidiness. The deploy pointer the Vite plugin writes
 # is one fixed path per project root and every build rewrites it, so building
@@ -70,15 +70,6 @@ jobs:
     # install and a full prerender. Too tight and the job dies before the step
     # that writes the annotation explaining why.
     timeout-minutes: 25
-    outputs:
-      published: ${{ steps.target.outputs.publish }}
-      # What the notifier needs to name a finding rather than restate a job
-      # conclusion. `expected` is written before the first step that can
-      # refuse, and `live` and `verdict` immediately before the proof gives up,
-      # so a failed job still carries all three.
-      expected: ${{ steps.target.outputs.expected }}
-      live: ${{ steps.proof.outputs.live }}
-      verdict: ${{ steps.proof.outputs.verdict }}
     env:
       # One expression, used for the checkout, the build stamp and the proof, so
       # the three cannot disagree. On a workflow_run event `github.sha` is the
@@ -107,16 +98,6 @@ jobs:
           source .github/scripts/read-live-commit.sh
           git fetch --quiet origin main || true
           TIP="$(resolve_main_ref)"
-          # Written before anything can refuse, so a publish that fails at any
-          # later step still tells the notifier which commit should be live.
-          # Only when it really is a sha: `resolve_main_ref` hands back the
-          # literal ref name on a checkout without origin/main, and an alert
-          # reading "main is origin/main" is a fabricated finding rather than
-          # an absent one.
-          case "$TIP" in
-            *[!0-9a-f]*|"") ;;
-            *) echo "expected=$TIP" >> "$GITHUB_OUTPUT" ;;
-          esac
           set +e
           check_deploy_target "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$DEPLOY_COMMIT" "$TIP"
           verdict=$?
@@ -205,7 +186,6 @@ jobs:
       # A deploy that returns zero is not proof that readers are served the new
       # bundle. Ask the site what it is running.
       - name: Prove the live site is serving this commit
-        id: proof
         if: steps.target.outputs.publish == 'yes'
         run: |
           source .github/scripts/read-live-commit.sh
@@ -213,21 +193,11 @@ jobs:
             LIVE="$(read_live_commit)"
             if [ "$LIVE" = "$DEPLOY_COMMIT" ]; then
               echo "Live site is serving ${LIVE}."
-              { echo "live=$LIVE"; echo "verdict=current"; } >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "Attempt ${attempt}: live site reports ${LIVE}, expected ${DEPLOY_COMMIT}."
             if [ "$attempt" -lt 10 ]; then sleep 15; fi
           done
-          # Written before the failure rather than after it. A step that exits
-          # non-zero still publishes what it put in GITHUB_OUTPUT, but only what
-          # it got there first, and this is the difference between an alert
-          # naming the commit the site is stuck on and one saying merely that
-          # something failed.
-          {
-            echo "live=$LIVE"
-            echo "verdict=$(describe_live_state "$DEPLOY_COMMIT" "$LIVE")"
-          } >> "$GITHUB_OUTPUT"
           echo "::error title=Deploy did not take::wrangler reported success, but the live version endpoint still reports ${LIVE} rather than ${DEPLOY_COMMIT}."
           exit 1
 
@@ -241,10 +211,6 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    outputs:
-      live: ${{ steps.compare.outputs.live }}
-      expected: ${{ steps.compare.outputs.expected }}
-      verdict: ${{ steps.compare.outputs.verdict }}
     env:
       DOCS_SITE_URL: ${{ vars.DOCS_SITE_URL }}
     steps:
@@ -257,7 +223,6 @@ jobs:
           fetch-depth: 0
 
       - name: Compare the live commit against main
-        id: compare
         run: |
           source .github/scripts/read-live-commit.sh
           # Tolerant on purpose. Resolving this inline killed the step under
@@ -267,7 +232,7 @@ jobs:
           EXPECTED="$(resolve_main_ref)"
 
           # Retried, unlike a one-shot read, because a single DNS or edge blip
-          # at 07:23 would otherwise open an alert against a healthy site.
+          # would otherwise fail the run against a healthy site.
           for attempt in 1 2 3; do
             LIVE="$(read_live_commit)"
             case "$LIVE" in
@@ -277,21 +242,6 @@ jobs:
             echo "Attempt ${attempt}: ${LIVE}."
             if [ "$attempt" -lt 3 ]; then sleep 20; fi
           done
-
-          # The verdict and both commits, written before `report_live_state`
-          # returns non-zero. Setting them after it would mean the one alert
-          # that matters is the one arriving with nothing in it.
-          {
-            echo "live=$LIVE"
-            echo "verdict=$(effective_verdict "$EXPECTED" "$LIVE" docs)"
-            # Only when the comparison ref resolved to a sha. `resolve_main_ref`
-            # returns the literal ref name when it does not, and reporting that
-            # as main invents a finding where the checkout is what is at fault.
-            case "$EXPECTED" in
-              *[!0-9a-f]*|"") ;;
-              *) echo "expected=$EXPECTED" ;;
-            esac
-          } >> "$GITHUB_OUTPUT"
 
           report_live_state "$EXPECTED" "$LIVE" docs
 
@@ -305,11 +255,6 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    outputs:
-      published: ${{ steps.target.outputs.publish }}
-      expected: ${{ steps.target.outputs.expected }}
-      live: ${{ steps.proof.outputs.live }}
-      verdict: ${{ steps.proof.outputs.verdict }}
     env:
       DEPLOY_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
       # The guard's URL builder reads DOCS_SITE_URL, so pointing it here is how
@@ -330,10 +275,6 @@ jobs:
           source .github/scripts/read-live-commit.sh
           git fetch --quiet origin main || true
           TIP="$(resolve_main_ref)"
-          case "$TIP" in
-            *[!0-9a-f]*|"") ;;
-            *) echo "expected=$TIP" >> "$GITHUB_OUTPUT" ;;
-          esac
           set +e
           check_deploy_target "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$DEPLOY_COMMIT" "$TIP"
           verdict=$?
@@ -413,7 +354,6 @@ jobs:
         run: pnpm exec wrangler deploy -c dist-status/server/wrangler.json
 
       - name: Prove the status page is serving this commit
-        id: proof
         if: steps.target.outputs.publish == 'yes'
         run: |
           source .github/scripts/read-live-commit.sh
@@ -421,16 +361,11 @@ jobs:
             LIVE="$(read_live_commit)"
             if [ "$LIVE" = "$DEPLOY_COMMIT" ]; then
               echo "Status page is serving ${LIVE}."
-              { echo "live=$LIVE"; echo "verdict=current"; } >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "Attempt ${attempt}: status page reports ${LIVE}, expected ${DEPLOY_COMMIT}."
             if [ "$attempt" -lt 10 ]; then sleep 15; fi
           done
-          {
-            echo "live=$LIVE"
-            echo "verdict=$(describe_live_state "$DEPLOY_COMMIT" "$LIVE")"
-          } >> "$GITHUB_OUTPUT"
           echo "::error title=Deploy did not take::wrangler reported success, but the status page still reports ${LIVE} rather than ${DEPLOY_COMMIT}."
           exit 1
 
@@ -446,11 +381,6 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    outputs:
-      live: ${{ steps.compare.outputs.live }}
-      expected: ${{ steps.compare.outputs.expected }}
-      verdict: ${{ steps.compare.outputs.verdict }}
-      store: ${{ steps.store.outputs.store }}
     env:
       DOCS_SITE_URL: ${{ vars.STATUS_SITE_URL || 'https://status.marfa.so' }}
       STATUS_SITE_URL: ${{ vars.STATUS_SITE_URL || 'https://status.marfa.so' }}
@@ -460,7 +390,6 @@ jobs:
           fetch-depth: 0
 
       - name: Compare the live commit against main
-        id: compare
         run: |
           source .github/scripts/read-live-commit.sh
           git fetch --quiet origin main || true
@@ -475,15 +404,6 @@ jobs:
             echo "Attempt ${attempt}: ${LIVE}."
             if [ "$attempt" -lt 3 ]; then sleep 20; fi
           done
-
-          {
-            echo "live=$LIVE"
-            echo "verdict=$(effective_verdict "$EXPECTED" "$LIVE" status)"
-            case "$EXPECTED" in
-              *[!0-9a-f]*|"") ;;
-              *) echo "expected=$EXPECTED" ;;
-            esac
-          } >> "$GITHUB_OUTPUT"
 
           report_live_state "$EXPECTED" "$LIVE" status
 
@@ -501,7 +421,6 @@ jobs:
       # the store and the page are all on Cloudflare, and a check that shares
       # their fate reports nothing at the moment it matters.
       - name: Check the store is still being written
-        id: store
         if: always()
         run: |
           source .github/scripts/check-store-freshness.sh
@@ -517,84 +436,4 @@ jobs:
             if [ "$attempt" -lt 3 ]; then sleep 20; fi
           done
 
-          echo "store=$(describe_store_age "$VALUE" "$NOW")" >> "$GITHUB_OUTPUT"
           report_store_age "$VALUE" "$NOW"
-
-  # Two notifiers, because the key is what pairs an open alert with the resolve
-  # that later clears it. Under one key, a green docs publish would post
-  # `resolved` against an alert an open status-publish failure is holding, and
-  # silently clear a real finding about the other site.
-  #
-  # The docs key is unchanged. Re-keying it would orphan any alert currently
-  # open: it could never be resolved, and the next failure would open a second
-  # one beside it.
-  #
-  # Both call the same script. Ninety lines of shell duplicated per target
-  # would have drifted the first time either was fixed, and the decisions in it
-  # are covered by `post-alert.test.sh`.
-  notify:
-    needs: [publish, check]
-    if: >-
-      always()
-      && (needs.publish.result != 'skipped' || needs.check.result != 'skipped')
-      && needs.publish.outputs.published != 'no'
-      && vars.ALERT_WEBHOOK_URL != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - name: Report outcome
-        env:
-          SUBJECT: Docs site
-          CHECK_SUBJECT: Docs publish check
-          SITE_LABEL: docs site
-          # `github.workflow` is the workflow's display name, not its filename.
-          # Renaming this workflow's `name:` re-keys every alert from it.
-          ALERT_KEY: github/${{ github.repository }}/${{ github.workflow }}
-          ALERT_URL: ${{ vars.ALERT_WEBHOOK_URL }}
-          ALERT_TOKEN: ${{ secrets.ALERT_WEBHOOK_TOKEN }}
-          RESULTS: ${{ join(needs.*.result, ',') }}
-          WORKFLOW: ${{ github.workflow }}
-          REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
-          RUN_NUMBER: ${{ github.run_number }}
-          SITE_URL: ${{ vars.DOCS_SITE_URL }}
-          # Whichever of the two jobs ran holds the finding; the other is
-          # skipped and contributes empty strings.
-          LIVE: ${{ needs.publish.outputs.live || needs.check.outputs.live }}
-          EXPECTED: ${{ needs.publish.outputs.expected || needs.check.outputs.expected }}
-          VERDICT: ${{ needs.publish.outputs.verdict || needs.check.outputs.verdict }}
-        run: bash .github/scripts/post-alert.sh
-
-  notify-status:
-    needs: [publish-status, check-status]
-    if: >-
-      always()
-      && (needs.publish-status.result != 'skipped' || needs.check-status.result != 'skipped')
-      && needs.publish-status.outputs.published != 'no'
-      && vars.ALERT_WEBHOOK_URL != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - name: Report outcome
-        env:
-          SUBJECT: Status page
-          CHECK_SUBJECT: Status publish check
-          SITE_LABEL: status page
-          ALERT_KEY: github/${{ github.repository }}/${{ github.workflow }}/status
-          ALERT_URL: ${{ vars.ALERT_WEBHOOK_URL }}
-          ALERT_TOKEN: ${{ secrets.ALERT_WEBHOOK_TOKEN }}
-          RESULTS: ${{ join(needs.*.result, ',') }}
-          WORKFLOW: ${{ github.workflow }}
-          REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
-          RUN_NUMBER: ${{ github.run_number }}
-          SITE_URL: ${{ vars.STATUS_SITE_URL }}
-          LIVE: ${{ needs.publish-status.outputs.live || needs.check-status.outputs.live }}
-          EXPECTED: ${{ needs.publish-status.outputs.expected || needs.check-status.outputs.expected }}
-          VERDICT: ${{ needs.publish-status.outputs.verdict || needs.check-status.outputs.verdict }}
-          STORE: ${{ needs.check-status.outputs.store }}
-        run: bash .github/scripts/post-alert.sh

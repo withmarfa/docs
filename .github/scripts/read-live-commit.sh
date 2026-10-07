@@ -204,7 +204,7 @@ target_needs_publish() {
 # something it builds from has changed, so a run that touches one leaves the
 # other legitimately behind main and correctly so. Without this, the daily
 # check reports that site as behind for as long as it takes somebody to change
-# a file it cares about — an alert that is open, permanent, and about nothing.
+# a file it cares about — a failure that is permanent and about nothing.
 #
 # Returns 0 when nothing the target builds from changed between the two.
 behind_but_unaffected() {
@@ -221,11 +221,6 @@ behind_but_unaffected() {
 # The verdict as it should be acted on: `describe_live_state`, with `behind`
 # softened to `unaffected` when the commits in between are none of this
 # target's business.
-#
-# One function for it, because the caller needs the same answer twice — once
-# for the annotation and the exit code, once for the field the notifier
-# reports. Computed separately, they drifted: the job succeeded while telling
-# the alert destination the site was behind.
 effective_verdict() {
   local verdict
   verdict="$(describe_live_state "$1" "$2")"
@@ -264,8 +259,8 @@ report_live_state() {
     unaffected)
       # Behind main, and correctly so. Nothing this target builds from has
       # changed since it published, so republishing would produce the same
-      # bundle. Reporting it as behind would open an alert that nobody can
-      # close except by changing an unrelated file.
+      # bundle. Reporting it as behind would fail a check that nobody can
+      # fix except by changing an unrelated file.
       echo "Live site is behind ${expected}, and nothing it builds from changed in between. It is serving the right bundle."
       return 0 ;;
     behind)
@@ -369,7 +364,7 @@ paths_touch_target() {
 #
 #   0  deploy
 #   1  refuse loudly, this should not have been attempted
-#   2  do not deploy and do not alert: main has moved on, and the run that
+#   2  do not deploy and do not fail: main has moved on, and the run that
 #      carries the newer commit publishes it
 check_deploy_target() {
   local event="$1" ref="$2" deploy="$3" tip="$4"
@@ -377,9 +372,9 @@ check_deploy_target() {
   # `resolve_main_ref` never fails: it hands back the literal ref name when the
   # ref does not resolve. Without this, that string is compared against a sha,
   # they differ, and a broken checkout takes the "main has moved on" arm —
-  # publishing nothing, succeeding, and suppressing the notifier, so the commit
-  # is never published and nothing says so. It also emitted the sentence "main
-  # has moved to origin/main", which is the confidently-wrong diagnostic the
+  # publishing nothing and succeeding, so the commit is never published and
+  # nothing says so. It also emitted the sentence "main has moved to
+  # origin/main", which is the confidently-wrong diagnostic the
   # `unknown-ref` verdict exists to avoid, in the one place that had no
   # equivalent.
   case "$tip" in
@@ -398,7 +393,7 @@ check_deploy_target() {
     # minutes apart, and a re-run of a superseded run. In both, the newer
     # commit is what should be live and something else publishes it, so
     # deploying this one would roll the site back. Refusing loudly would
-    # open an alert saying publishing is broken when it is working.
+    # fail the run, saying publishing is broken when it is working.
     echo "Not publishing ${deploy}: main has moved to ${tip}, and the run carrying that commit publishes it. Deploying this one would roll the site back."
     return 2
   fi
