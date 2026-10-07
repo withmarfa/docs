@@ -28,7 +28,11 @@ export type ApiGroup = {
   /** The tag's name in the API description. */
   tag: string;
   icon: LucideIcon;
-  /** A few words, on one line at every width. */
+  /**
+   * A few words, on one line at every width. A row at 320 px is 202 px wide
+   * for the name and the summary together, so the longest names leave room
+   * for only a word or two.
+   */
   summary: string;
   /**
    * The `operationId` the group's link opens: the group's first operation in
@@ -52,9 +56,9 @@ export const clusters: readonly ApiCluster[] = [
     label: 'Your data',
     groups: [
       { tag: 'Items', icon: Box, summary: 'Typed records', start: 'createItem' },
-      { tag: 'Bulk actions', icon: Layers, summary: 'Change many at once', start: 'applyBulkAction' },
+      { tag: 'Bulk actions', icon: Layers, summary: 'Change by filter', start: 'applyBulkAction' },
       { tag: 'Metadata', icon: Tags, summary: 'Tags on items', start: 'getItemMetadata' },
-      { tag: 'Extensions', icon: Puzzle, summary: 'JSON by namespace', start: 'listItemExtensions' },
+      { tag: 'Extensions', icon: Puzzle, summary: 'Attached JSON', start: 'listItemExtensions' },
       { tag: 'Edges', icon: Waypoints, summary: 'Directed relationships', start: 'listItemEdges' },
     ],
   },
@@ -62,8 +66,8 @@ export const clusters: readonly ApiCluster[] = [
     id: 'shape',
     label: 'The shape of your data',
     groups: [
-      { tag: 'Types', icon: Shapes, summary: 'What items can be', start: 'listTypes' },
-      { tag: 'Edge types', icon: Spline, summary: 'What edges can be', start: 'registerEdgeType' },
+      { tag: 'Types', icon: Shapes, summary: 'Kinds of item', start: 'listTypes' },
+      { tag: 'Edge types', icon: Spline, summary: 'Kinds of edge', start: 'registerEdgeType' },
     ],
   },
   {
@@ -79,18 +83,18 @@ export const clusters: readonly ApiCluster[] = [
     label: 'Finding and following changes',
     groups: [
       { tag: 'Search', icon: Search, summary: 'Full-text search', start: 'searchItems' },
-      { tag: 'Event stream', icon: Radio, summary: 'Changes as they happen', start: 'streamEvents' },
-      { tag: 'Webhooks', icon: Webhook, summary: 'Changes sent to a URL', start: 'createWebhook' },
+      { tag: 'Event stream', icon: Radio, summary: 'Live changes', start: 'streamEvents' },
+      { tag: 'Webhooks', icon: Webhook, summary: 'Changes to a URL', start: 'createWebhook' },
     ],
   },
   {
     id: 'instance',
     label: 'Running your instance',
     groups: [
-      { tag: 'Connectors', icon: Cable, summary: 'Run outside the server', start: 'registerConnector' },
+      { tag: 'Connectors', icon: Cable, summary: 'Run elsewhere', start: 'registerConnector' },
       { tag: 'Access', icon: KeyRound, summary: 'Keys and the owner', start: 'createKey' },
       { tag: 'Instance', icon: Server, summary: 'Config, jobs, audit', start: 'getInstance' },
-      { tag: 'Export and restore', icon: ArchiveRestore, summary: 'Archives of your data', start: 'exportData' },
+      { tag: 'Export and restore', icon: ArchiveRestore, summary: 'Archives', start: 'exportData' },
     ],
   },
 ];
