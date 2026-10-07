@@ -8,9 +8,9 @@
 #                                     reference overview
 #   src/generated/marfa-commands.md   the marfa command's reference, from its own
 #                                     help, included by the marfa command page
-#   src/generated/error-codes.md      the contract's table of error codes, which
-#                                     the server generates from its own code
-#                                     list, included by the Errors page
+#   src/generated/error-codes.md      the contract's table of error codes,
+#                                     written from the server's own code list,
+#                                     included by the Errors page
 #   src/generated/marfa-release.json  the latest release tag, shown in the sidebar
 #
 # Reads committed files from a checkout of the monorepo, by default the sibling
@@ -156,7 +156,7 @@ with open(sys.argv[2], "w", encoding="utf-8") as out:
     out.write("\n".join(rows) + "\n")
 PY
 then
-  echo "$MARFA_ROOT/conformance/spec/errors.md has no code table between its errors-table markers. Nothing has changed." >&2
+  echo "$MARFA_ROOT/conformance/spec/errors.md is not UTF-8 or has no code table between its errors-table markers. Nothing has changed." >&2
   exit 1
 fi
 

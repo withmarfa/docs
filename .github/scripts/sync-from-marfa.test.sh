@@ -321,7 +321,7 @@ refuse_errors() {
   if [ "$2" = absent ] || [ -z "$2" ]; then
     message="No conformance/spec/errors.md in ${work}/${name}/marfa. Nothing has changed."
   else
-    message="${work}/${name}/marfa/conformance/spec/errors.md has no code table between its errors-table markers. Nothing has changed."
+    message="${work}/${name}/marfa/conformance/spec/errors.md is not UTF-8 or has no code table between its errors-table markers. Nothing has changed."
   fi
   check "${1}: exits 1" 1 "${status}"
   check "${1}: says so in one line" "${message}" "${out}"
