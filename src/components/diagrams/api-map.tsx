@@ -32,9 +32,9 @@ export type ApiGroup = {
   summary: string;
   /**
    * The `operationId` the group's link opens: the group's first operation in
-   * the API description, which a test holds it to. It is written here rather
-   * than looked up because the paths would put the whole description in the
-   * page's bundle.
+   * the API description, or its entry in `landingOverrides`, which a test
+   * holds it to. It is written here rather than looked up because the paths
+   * would put the whole description in the page's bundle.
    */
   start: string;
 };
@@ -89,11 +89,23 @@ export const clusters: readonly ApiCluster[] = [
     groups: [
       { tag: 'Connectors', icon: Cable, summary: 'Run outside the server', start: 'registerConnector' },
       { tag: 'Access', icon: KeyRound, summary: 'Keys and the owner', start: 'createKey' },
-      { tag: 'Instance', icon: Server, summary: 'Config, jobs, audit', start: 'listHousekeeping' },
-      { tag: 'Export and restore', icon: ArchiveRestore, summary: 'Archives of your data', start: 'restoreArchive' },
+      { tag: 'Instance', icon: Server, summary: 'Config, jobs, audit', start: 'getInstance' },
+      { tag: 'Export and restore', icon: ArchiveRestore, summary: 'Archives of your data', start: 'exportData' },
     ],
   },
 ];
+
+/**
+ * The groups whose link opens an operation other than their first in the API
+ * description, because the first is a poor place to arrive. Keep it short:
+ * every other group opens at its first operation.
+ */
+export const landingOverrides: ReadonlyMap<string, string> = new Map([
+  // The first is listing housekeeping jobs; describing the instance comes first.
+  ['Instance', 'getInstance'],
+  // The first is restoring; an archive has to be exported before it is restored.
+  ['Export and restore', 'exportData'],
+]);
 
 /** The folder fumadocs-openapi gives a tag: its default slugify. */
 export function groupSlug(tag: string): string {
