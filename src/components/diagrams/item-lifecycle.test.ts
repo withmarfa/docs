@@ -55,7 +55,7 @@ describe('item lifecycle', () => {
 
   // withmarfa/marfa's items chapter: `items/transition` for the graph, then
   // `items/delete`, `items/restore` and `items/purge`.
-  it('holds exactly the moves the contract allows, each by its operation', () => {
+  it('draws each move the contract allows between states, by the operation that makes it', () => {
     const drawn = hops.map(({ move, from, to }) => `${from} > ${to} by ${move.operation.operationId}`).sort();
     expect(drawn).toEqual(
       [
