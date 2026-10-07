@@ -65,6 +65,12 @@ export function Diagram({
     if (!frame || !element) return;
     const publish = () => frame.style.setProperty('--marfa-diagram-caption-height', `${element.offsetHeight}px`);
     publish();
+    // Selecting the control that already has focus moves no focus, so the
+    // margin alone would leave it under the caption that just became sticky.
+    const focused = document.activeElement;
+    if (selected !== null && focused instanceof HTMLElement && frame.contains(focused)) {
+      focused.scrollIntoView({ block: 'nearest' });
+    }
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(publish);
     observer.observe(element);
