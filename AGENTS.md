@@ -9,7 +9,7 @@ Writing follows `STYLE.md`.
 ## Layout
 
 - **Content** is under `content/docs/`, one folder per tab: `get-started/`, `guides/`, `tools/` and `api-reference/`. `changelog.mdx` sits at the root and is served at `/changelog`, outside every tab.
-- **Pages** are `.mdx` files that start with YAML frontmatter holding a `title` and a `description`. Quote a description that begins with `@`, `:`, `>`, `|`, `*`, `&`, `?` or `%`. `Card`, `Cards` and `Callout` are available in every page; import anything else from `fumadocs-ui/components/`.
+- **Pages** are `.mdx` files that start with YAML frontmatter holding a `title` and a `description`. Quote a description that begins with `@`, `:`, `>`, `|`, `*`, `&`, `?` or `%`. An optional `tocDepth` (2 to 6) limits the page's "On this page" list to headings at that level and above, for a page that includes a long generated reference (`source.config.ts`, applied in `src/routes/$.tsx`). `Card`, `Cards` and `Callout` are available in every page; import anything else from `fumadocs-ui/components/`.
 - **Tabs and groups** are declared in `meta.json` files. A folder with `"root": true` is a tab, `"pages"` orders its entries, `"---Group---"` starts a labeled sidebar group and `"..."` stands for every page not listed. `content/docs/meta.json` orders the tabs. Adding a page means adding the file and listing it in its folder's `meta.json`.
 - **`api-reference/`** holds only the hand-written index and Errors pages. Every operation page is generated from `openapi.json` by `src/lib/source.ts` and `src/lib/openapi.ts`, grouped by tag.
 - **`src/components/section-nav.tsx`** draws the tabs as pills in the header. Its `SECTIONS` list is separate from the `meta.json` files, so a new tab or a renamed landing page needs both.
@@ -44,14 +44,15 @@ The lint also reads the text a page pulls in with `<include>`, resolved the way 
 MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh
 ```
 
-`MARFA_ROOT` defaults to `../marfa`. Use a checkout on an up-to-date `main` with its tags fetched: the script copies committed files and runs nothing. It stops before it changes anything if the checkout has no spec, glossary or release tag, or if the spec is not valid JSON or has no `info.description`. It writes four things:
+`MARFA_ROOT` defaults to `../marfa`. Use a checkout on an up-to-date `main` with its tags fetched: the script copies committed files and runs nothing. It stops before it changes anything if the checkout has no spec, glossary, command reference or release tag, if the spec is not valid JSON or has no `info.description`, or if the command reference holds nothing after its title. It writes five things:
 
 - `openapi.json`, which the monorepo's CI keeps current. Fix a gap in the monorepo's generator, never in this file.
 - `src/generated/api-overview.md`, the spec's `info.description` (the rules every operation follows) with each heading one level lower, included by the API reference overview under its own heading.
 - `src/generated/GLOSSARY.md`, which the content lint reads its banned terms from and the Glossary page includes.
+- `src/generated/marfa-commands.md`, the monorepo's `core/marfa-cli/COMMANDS.md` (the `marfa` command's reference, generated from its own help) without its generated-file comment and its title, included by the marfa command page.
 - `src/generated/marfa-release.json`, the latest `v` version tag, shown as "Marfa vX.Y.Z" in the sidebar.
 
-`.github/scripts/sync-from-marfa.test.sh` runs it against throwaway checkouts and pins the overview it writes and every spec it refuses. Run it after an API, glossary or release change lands in the monorepo. The `OpenAPI spec` workflow checks that the committed `openapi.json` parses and declares paths.
+`.github/scripts/sync-from-marfa.test.sh` runs it against throwaway checkouts and pins the overview and the command reference it writes and every input it refuses. Run it after an API, glossary, command or release change lands in the monorepo. The `OpenAPI spec` workflow checks that the committed `openapi.json` parses and declares paths.
 
 ## Two Workers
 
@@ -69,11 +70,11 @@ The docs site is the default target. The status page in `src/status/` is the sec
 
 ## Agent access
 
-- **Markdown copy of each page.** Append `.md` to a page URL (`src/routes/{$}[.]md.ts`). Pages are prerendered and served as static assets, so the `.md` URL is the only way to ask for Markdown. A missing page answers 404. `/` redirects to `/get-started`.
+- **Markdown copy of each page.** Append `.md` to a page URL (`src/routes/{$}[.]md.ts`). Pages are prerendered and served as static assets, so the `.md` URL is the only way to ask for Markdown. A missing page answers 404. `/` serves the What Marfa is page, whose copy is `/get-started.md`; there is no `/index.md`.
 - **`/llms.txt`, `/llms-full.txt` and `/docs-map.md`.** An index, the whole corpus, and a map grouped by tab, from `src/routes/llms[.]txt.ts`, `llms-full[.]txt.ts` and `docs-map[.]md.ts`. The map orders the tabs in its `sectionOrder`.
 - **One implementation of the docs tools.** `src/lib/docs-tools.ts` holds the search server, `searchDocs`, `fetchDocsPage`, `listTopics` and `pathToSlugs`, with no MCP types. The MCP server, the JSON addresses and the site's search box (`/api/search`) all use it, so change behavior there.
 - **The docs MCP server at `/mcp`.** `src/routes/mcp.ts` passes requests to `server.ts` in `src/lib/mcp/`, and `tools.ts` adapts the three tools over `docs-tools.ts`: `docs_search`, `docs_fetch` and `docs_list_topics`. `stdio.ts` is a bridge that forwards a stdio client to the HTTP endpoint (`MARFA_DOCS_URL`), so it cannot differ from it. `server.test.ts` checks the server against the MCP specification; add a case there before changing protocol-visible behavior.
-- **JSON addresses for clients with no MCP.** `GET /api/docs/search?q=<query>&limit=<1 to 50, default 10>` answers `{ "hits": [{ "title", "url", "snippets" }] }` with one hit per page and no highlight markup (a snippet keeps the page's inline code backticks), and a blank `q` or a bad `limit` answers 400 `{ "error", "message" }`. `GET /api/docs/topics` answers `{ "pages": [{ "title", "url", "description", "breadcrumbs" }] }`. The handlers are in `src/lib/docs-api.ts`, called by `src/routes/api/docs/`. There is no page route: fetch `/<path>.md`.
+- **JSON addresses for clients with no MCP.** `GET /api/docs/search?q=<query>&limit=<1 to 50, default 10>` answers `{ "hits": [{ "title", "url", "snippets" }] }` with one hit per page and no highlight markup (a snippet keeps the page's inline code backticks), and a blank `q` or a bad `limit` answers 400 `{ "error", "message" }`. `GET /api/docs/topics` answers `{ "pages": [{ "title", "url", "description", "breadcrumbs" }] }`. The handlers are in `src/lib/docs-api.ts`, called by `src/routes/api/docs/`. There is no page route: fetch `/<path>.md`. The `marfa docs` command in withmarfa/marfa reads these two addresses and the `.md` copies, so a change to their shapes or status codes needs a matching change there.
 
 When a page's path or title changes, check what these surfaces say about it, including the example paths in the `docs_fetch` description.
 

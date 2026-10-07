@@ -79,7 +79,7 @@ export const Route = createFileRoute('/docs-map.md')({
               lines.push('');
             }
             for (const page of subs[sub]) {
-              lines.push(`- [${page.data.title}](${page.url})${page.data.description ? ` — ${page.data.description}` : ''}`);
+              lines.push(`- [${page.data.title}](${page.url})${page.data.description ? `: ${page.data.description}` : ''}`);
             }
             lines.push('');
           }

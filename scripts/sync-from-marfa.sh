@@ -6,6 +6,8 @@
 #   src/generated/api-overview.md     the spec's info.description, the rules every
 #                                     operation follows, included by the API
 #                                     reference overview
+#   src/generated/marfa-commands.md   the marfa command's reference, from its own
+#                                     help, included by the marfa command page
 #   src/generated/marfa-release.json  the latest release tag, shown in the sidebar
 #
 # Reads committed files from a checkout of the monorepo, by default the sibling
@@ -39,7 +41,7 @@ if [ ! -f "$MARFA_ROOT/pnpm-workspace.yaml" ]; then
   exit 1
 fi
 
-for file in openapi.json GLOSSARY.md; do
+for file in openapi.json GLOSSARY.md core/marfa-cli/COMMANDS.md; do
   if [ ! -s "$MARFA_ROOT/$file" ]; then
     echo "No $file in $MARFA_ROOT. Nothing has changed." >&2
     exit 1
@@ -63,7 +65,8 @@ fi
 
 CANDIDATE="$(mktemp "${TMPDIR:-/tmp}/marfa-openapi.XXXXXX")"
 OVERVIEW="$(mktemp "${TMPDIR:-/tmp}/marfa-overview.XXXXXX")"
-cleanup() { rm -f "$CANDIDATE" "$OVERVIEW"; }
+COMMANDS="$(mktemp "${TMPDIR:-/tmp}/marfa-commands.XXXXXX")"
+cleanup() { rm -f "$CANDIDATE" "$OVERVIEW" "$COMMANDS"; }
 trap cleanup EXIT
 
 # The overview page includes this file under its own level-2 heading, so every
@@ -95,13 +98,45 @@ then
   exit 1
 fi
 
+# The command page has its own title, so the reference loses its generated-file
+# comment and its level-1 title. Nothing else changes: its headings already sit
+# below the page's.
+if ! python3 - "$MARFA_ROOT/core/marfa-cli/COMMANDS.md" "$COMMANDS" <<'PY'
+import re, sys
+
+try:
+    lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+except UnicodeDecodeError:
+    sys.exit(1)
+i = 0
+if i < len(lines) and lines[i].lstrip().startswith("<!--"):
+    while i < len(lines) and "-->" not in lines[i]:
+        i += 1
+    i += 1
+while i < len(lines) and not lines[i].strip():
+    i += 1
+if i < len(lines) and re.match(r"# ", lines[i]):
+    i += 1
+body = "\n".join(lines[i:]).strip()
+if not body:
+    sys.exit(1)
+
+with open(sys.argv[2], "w", encoding="utf-8") as out:
+    out.write(body + "\n")
+PY
+then
+  echo "$MARFA_ROOT/core/marfa-cli/COMMANDS.md is not UTF-8 or holds nothing after its title. Nothing has changed." >&2
+  exit 1
+fi
+
 cp "$MARFA_ROOT/openapi.json" "$CANDIDATE"
 mv "$CANDIDATE" "$SPEC"
 
 mkdir -p "$GENERATED"
 mv "$OVERVIEW" "$GENERATED/api-overview.md"
+mv "$COMMANDS" "$GENERATED/marfa-commands.md"
 trap - EXIT
 cp "$MARFA_ROOT/GLOSSARY.md" "$GENERATED/GLOSSARY.md"
 printf '{"version":"%s"}\n' "$RELEASE" > "$GENERATED/marfa-release.json"
 
-echo "openapi.json, the API overview, GLOSSARY.md and the release ($RELEASE) synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the command reference and the release ($RELEASE) synced from $MARFA_ROOT"

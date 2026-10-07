@@ -1,14 +1,117 @@
 ---
 title: Docs for agents
-description: The ways an agent can read these docs, as Markdown, as an index, and over MCP.
+description: Every way an agent can read these docs, from a terminal, over MCP, as JSON and as Markdown.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+None of these needs a credential or a Marfa server.
 
-Planned topics:
+| Surface | What it gives |
+| --- | --- |
+| The `marfa docs` command | Search, the list of pages, and one page as Markdown, in a terminal |
+| The docs MCP server at `/mcp` | The same three, as tools for an MCP client |
+| The JSON addresses under `/api/docs/` | Search and the list of pages, as JSON |
+| Markdown: each page's `.md` copy, `/llms.txt`, `/llms-full.txt` and `/docs-map.md` | One page, an index, every page at once, and a map |
 
-- The `marfa docs` command.
-- The docs MCP server at `/mcp`.
-- `llms.txt` and `llms-full.txt`.
-- `docs-map.md`, the map of every page.
-- The `.md` copy of each page.
+## The marfa docs command
+
+`marfa docs` reads this site. It needs no server, store or key, sends no credential, and refuses `--url` and `--key`. It ships with [the marfa command](/tools/marfa-command) from v0.0.6.
+
+| Command | What it prints |
+| --- | --- |
+| `marfa docs search <query> [--limit <n>]` | The pages that match, best match first: each page's title, its path, and its first snippet. `--limit` is 1 to 50, and without it the site returns up to 10. |
+| `marfa docs topics` | Every page: its title, its path and its description. |
+| `marfa docs <page>` | One page as Markdown. |
+
+Name a page by its path, such as `get-started/files`. A leading or trailing slash, a leading `docs/`, a trailing `.md` and the page's whole address name the same page. `search`, `topics` and `help` are commands, so a page with one of those names takes a leading slash, such as `/search`.
+
+```bash
+marfa docs search "trash an item" --limit 2
+```
+
+```text
+Trash an item  /api-reference/items/deleteItem
+  Moves the item, and every item a cascading edge such as `parent-of` reaches, to the trash. You can restore them until the retention window ends. Marfa then purges them.
+List inbound edges  /api-reference/edges/listItemBackrefs
+  Returns the edges that point at an item. An item in the trash still lists its edges. `GET /items/{id}/edges` lists the edges that start at it.
+```
+
+With `--json`, `search` and `topics` print the site's answer as the [JSON addresses](#json-addresses) return it, and a page prints `{ "path", "url", "markdown" }`. The `url` is the address the command asked for, even when a redirect led it elsewhere. A refusal is one JSON object on stderr.
+
+`MARFA_DOCS_URL` points the command at another copy of the site, such as `http://localhost:3000`. It must be an `http` or `https` address with a host and no query or fragment.
+
+| Exit | Code | When |
+| --- | --- | --- |
+| 0 | | The command printed its answer. |
+| 1 | `docs_page_not_found` | The site has no page at that path. The message names the path. |
+| 1 | `invalid` | The page isn't a path the command accepts, or `MARFA_DOCS_URL` isn't an address it accepts. Nothing is sent. |
+| 2 | `usage` | The command line is wrong, or names `--url` or `--key`. Nothing is sent. |
+| 3 | `docs_unreachable` | The site can't be reached, answers with a server fault or another status the command doesn't read, or redirects more than five times in a row. The message names the site. |
+| 3 | `decoding` | The answer isn't what the command reads: not the JSON it expects, a page served as HTML, a body larger than 10 MiB, or a body that isn't UTF-8. Nothing of the body is printed. |
+
+The [device chapter of the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#the-docs-site) states these rules.
+
+## The docs MCP server
+
+The server at `https://docs.marfa.so/mcp` speaks the Streamable HTTP transport, statelessly: every request stands alone, and there are no sessions. It needs no credential. Add it to an MCP client as a remote HTTP server. The shape of the setting depends on the client, for example:
+
+```json
+{
+  "mcpServers": {
+    "marfa-docs": {
+      "type": "http",
+      "url": "https://docs.marfa.so/mcp"
+    }
+  }
+}
+```
+
+The server has three read-only tools. Each answers with one text block, and `docs_search` and `docs_list_topics` put JSON in it.
+
+| Tool | Input | Answer |
+| --- | --- | --- |
+| `docs_search` | `query`, and `limit` from 1 to 50 (default 10) | `{ "hits": [{ "title", "url", "snippets" }] }`, best match first |
+| `docs_fetch` | `path`, such as `/get-started/files` or `get-started/files` | The page's Markdown, the same text as its `.md` copy |
+| `docs_list_topics` | None | `{ "pages": [{ "title", "url", "description", "breadcrumbs" }] }` |
+
+When `docs_fetch` finds no page, its answer is an error result holding `{ "error": "not_found", "message", "path", "slugs" }`. The `slugs` show how the path was read. A blank `path` answers `invalid_path`.
+
+## JSON addresses
+
+For a client with no MCP, two addresses answer the same searches and lists as JSON.
+
+`GET /api/docs/search?q=<query>&limit=<n>` searches the pages. `q` is required, and `limit` is a whole number from 1 to 50, 10 when left out. The answer holds one hit per page, best match first, each with its title, its path and up to three snippets. A snippet keeps the page's Markdown, such as inline code, with no highlight markup:
+
+```http
+GET /api/docs/search?q=trash%20an%20item&limit=1 HTTP/1.1
+Host: docs.marfa.so
+```
+
+```json
+{
+  "hits": [
+    {
+      "title": "Trash an item",
+      "url": "/api-reference/items/deleteItem",
+      "snippets": [
+        "Moves the item, and every item a cascading edge such as `parent-of` reaches, to the trash. You can restore them until the retention window ends. Marfa then purges them."
+      ]
+    }
+  ]
+}
+```
+
+A blank `q` answers `400` with `{ "error": "invalid_query", "message" }`, and a `limit` that isn't a whole number from 1 to 50 answers `400` with `{ "error": "invalid_limit", "message" }`.
+
+`GET /api/docs/topics` lists every page as `{ "pages": [{ "title", "url", "description", "breadcrumbs" }] }`. `url` is the page's path, `description` is `null` for a page with none, and `breadcrumbs` holds the segments of the path.
+
+Neither address serves a page. Fetch its Markdown instead.
+
+## Markdown
+
+Add `.md` to a page's path for its Markdown, such as `/get-started/files.md`. The copy starts with a heading that holds the page's title and path, then the page's text, including any reference the page includes. A path with no page answers `404`.
+
+| Address | What it holds |
+| --- | --- |
+| `/llms.txt` | An index: every page as a link with its description, in the order of the sidebar |
+| `/llms-full.txt` | The Markdown of every page, in one file |
+| `/docs-map.md` | A map: every page as a link with its description, grouped by tab |
