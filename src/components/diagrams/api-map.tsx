@@ -29,7 +29,7 @@ export type ApiGroup = {
   tag: string;
   icon: LucideIcon;
   /**
-   * A few words, on one line at every width. A row at 320 px is 202 px wide
+   * A few words, on one line at every width. A row at 320 px leaves 182 px
    * for the name and the summary together, so the longest names leave room
    * for only a word or two.
    */
