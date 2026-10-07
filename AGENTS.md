@@ -51,7 +51,7 @@ MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh
 - `src/generated/GLOSSARY.md`, which the content lint reads its banned terms from and the Glossary page includes.
 - `src/generated/marfa-release.json`, the latest `v` version tag, shown as "Marfa vX.Y.Z" in the sidebar.
 
-Run it after an API, glossary or release change lands in the monorepo. The `OpenAPI spec` workflow checks that the committed `openapi.json` parses and declares paths.
+`.github/scripts/sync-from-marfa.test.sh` runs it against throwaway checkouts and pins the overview it writes and every spec it refuses. Run it after an API, glossary or release change lands in the monorepo. The `OpenAPI spec` workflow checks that the committed `openapi.json` parses and declares paths.
 
 ## Two Workers
 
