@@ -2,13 +2,16 @@
 # Runs scripts/sync-from-marfa.sh against throwaway checkouts of the docs and of
 # the monorepo, and pins what it writes and when it refuses.
 #
-# The part that needs a test is the API overview: the script turns the spec's
-# info.description into src/generated/api-overview.md, moving each heading down
-# a level. A description that is missing, blank or the wrong type, or a spec
-# whose top level or `info` is not an object, must stop the script before it
-# changes anything, with one line saying so, never a Python traceback. The
-# script is copied into each fixture so that its docs root is the fixture, and
-# the real tree is never touched.
+# The parts that need a test are the two files the script rewrites rather than
+# copies. It turns the spec's info.description into
+# src/generated/api-overview.md, moving each heading down a level, and the
+# command reference into src/generated/marfa-commands.md, dropping its
+# generated-file comment and its title. A description that is missing, blank or
+# the wrong type, a spec whose top level or `info` is not an object, or a
+# command reference that is missing, empty, not UTF-8 or holds nothing past its
+# title, must stop the script before it changes anything, with one line saying
+# so, never a Python traceback. The script is copied into each fixture so that
+# its docs root is the fixture, and the real tree is never touched.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,11 +26,55 @@ check() { # check <label> <expected> <actual>
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+# The command reference every fixture holds: the generated-file comment, the
+# title, the intro and one root command, with a `#` inside a fence that must
+# survive.
+commands="$(cat <<'EOF'
+<!-- Generated from the command tree. Do not edit by hand. -->
+
+# marfa command reference
+
+Global options, which every command accepts, and the exit codes:
+
+```text
+Usage: marfa [OPTIONS] <COMMAND>
+```
+
+## status
+
+### marfa status
+
+```text
+# not a heading
+Usage: marfa status [OPTIONS]
+```
+
+EOF
+)"
+commands_expected="$(cat <<'EOF'
+Global options, which every command accepts, and the exit codes:
+
+```text
+Usage: marfa [OPTIONS] <COMMAND>
+```
+
+## status
+
+### marfa status
+
+```text
+# not a heading
+Usage: marfa status [OPTIONS]
+```
+EOF
+)"
+
 # fixture <name> <spec file>
 #
 # Builds <name>/docs, holding the script and a stale copy of everything it
 # writes, and <name>/marfa, a git checkout of a monorepo at release v1.2.3 that
-# holds the spec. The stale copies are what a refusal must leave as they were.
+# holds the spec and the command reference. The stale copies are what a refusal
+# must leave as they were.
 fixture() {
   local dir="${work}/$1"
   mkdir -p "${dir}/docs/scripts" "${dir}/docs/src/generated" "${dir}/marfa"
@@ -35,10 +82,13 @@ fixture() {
   printf '{"stale":"spec"}\n' > "${dir}/docs/openapi.json"
   printf 'stale glossary\n' > "${dir}/docs/src/generated/GLOSSARY.md"
   printf 'stale overview\n' > "${dir}/docs/src/generated/api-overview.md"
+  printf 'stale commands\n' > "${dir}/docs/src/generated/marfa-commands.md"
   printf '{"version":"v0.0.0"}\n' > "${dir}/docs/src/generated/marfa-release.json"
 
   cp "$2" "${dir}/marfa/openapi.json"
   printf 'new glossary\n' > "${dir}/marfa/GLOSSARY.md"
+  mkdir -p "${dir}/marfa/core/marfa-cli"
+  printf '%s\n' "${commands}" > "${dir}/marfa/core/marfa-cli/COMMANDS.md"
   : > "${dir}/marfa/pnpm-workspace.yaml"
   git -C "${dir}/marfa" init -q
   git -C "${dir}/marfa" add -A
@@ -132,16 +182,19 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md and the release (v1.2.3) synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the command reference and the release (v1.2.3) synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
 check "the spec is copied byte for byte" \
   "$(cat "${work}/good.json")" "$(cat "${work}/good/docs/openapi.json")"
 check "the glossary is copied" "new glossary" "$(cat "${work}/good/docs/src/generated/GLOSSARY.md")"
+check "the command reference loses its comment and title, and nothing else" \
+  "${commands_expected}" "$(cat "${work}/good/docs/src/generated/marfa-commands.md")"
+check "the command reference ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/marfa-commands.md" | tr -d '\n')"
 check "the release is the latest version tag" '{"version":"v1.2.3"}' "$(cat "${work}/good/docs/src/generated/marfa-release.json")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md marfa-release.json" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md marfa-commands.md marfa-release.json" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 # ----------------------------------------------------------------- every refusal
 
@@ -195,6 +248,30 @@ check "no release tag: exits 1" 1 "${status}"
 check "no release tag: says so" \
   "No release tag found in ${work}/untagged/marfa (run 'git fetch --tags' there). Nothing has changed." "${out}"
 check "no release tag: changes nothing" "${before}" "$(everything untagged)"
+
+# refuse_commands <label> <expected message> <command reference text, or
+# "absent" for no file>: the spec and the tag are good, and still nothing is
+# written. The message's @marfa@ is the fixture's monorepo.
+m=0
+refuse_commands() {
+  m=$((m+1))
+  local name="commands-${m}"
+  fixture "${name}" "${work}/untagged.json"
+  local file="${work}/${name}/marfa/core/marfa-cli/COMMANDS.md"
+  if [ "$3" = absent ]; then rm "${file}"; else printf '%b' "$3" > "${file}"; fi
+  local before; before="$(everything "${name}")"
+  sync "${name}"
+  check "${1}: exits 1" 1 "${status}"
+  check "${1}: says so in one line" "${2//@marfa@/${work}/${name}/marfa}" "${out}"
+  check "${1}: shows no traceback" 0 "$(printf '%s' "${out}" | grep -c 'Traceback\|File "' || true)"
+  check "${1}: changes nothing" "${before}" "$(everything "${name}")"
+}
+unreadable="@marfa@/core/marfa-cli/COMMANDS.md is not UTF-8 or holds nothing after its title. Nothing has changed."
+refuse_commands "no command reference" "No core/marfa-cli/COMMANDS.md in @marfa@. Nothing has changed." absent
+refuse_commands "an empty command reference" "No core/marfa-cli/COMMANDS.md in @marfa@. Nothing has changed." ''
+refuse_commands "a command reference with only its comment and title" "${unreadable}" '<!-- Generated. -->\n\n# marfa command reference\n\n'
+refuse_commands "a comment that never closes" "${unreadable}" '<!-- Generated.\n# marfa command reference\n## status\n'
+refuse_commands "a command reference that is not UTF-8" "${unreadable}" '# marfa command reference\n\n\xff\xfe\n'
 
 echo "the workflow"
 check "CI runs this test" 1 "$(grep -cF 'run: bash .github/scripts/sync-from-marfa.test.sh' "${here}/../workflows/ci.yml")"
