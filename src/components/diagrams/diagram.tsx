@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import Link from 'fumadocs-core/link';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -51,6 +51,25 @@ export function Diagram({
   children: (selection: DiagramSelection) => ReactNode;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const figure = useRef<HTMLElement>(null);
+  const caption = useRef<HTMLElement>(null);
+
+  // A caption that sticks to the bottom of the screen can cover the control
+  // that has focus. Publish its real height so the stylesheet can keep focus
+  // out from under it. A selection changes the caption's text, so measure it
+  // before the next paint rather than on the observer's next frame; the
+  // observer catches a change of width or text size.
+  useLayoutEffect(() => {
+    const frame = figure.current;
+    const element = caption.current;
+    if (!frame || !element) return;
+    const publish = () => frame.style.setProperty('--marfa-diagram-caption-height', `${element.offsetHeight}px`);
+    publish();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(publish);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [selected]);
 
   const selection: DiagramSelection = {
     selected,
@@ -69,6 +88,7 @@ export function Diagram({
 
   return (
     <figure
+      ref={figure}
       className="marfa-diagram not-prose"
       aria-label={label}
       data-selected={selected ?? undefined}
@@ -90,7 +110,7 @@ export function Diagram({
 
       <div className="marfa-diagram-canvas">{children(selection)}</div>
 
-      <figcaption className="marfa-diagram-caption" aria-live="polite">
+      <figcaption ref={caption} className="marfa-diagram-caption" aria-live="polite">
         {current ? current.caption : idleCaption}
       </figcaption>
     </figure>
