@@ -1,4 +1,5 @@
-import { useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import Link from 'fumadocs-core/link';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
@@ -50,6 +51,31 @@ export function Diagram({
   children: (selection: DiagramSelection) => ReactNode;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const figure = useRef<HTMLElement>(null);
+  const caption = useRef<HTMLElement>(null);
+
+  // A caption that sticks to the bottom of the screen can cover the control
+  // that has focus. Publish its real height so the stylesheet can keep focus
+  // out from under it. A selection changes the caption's text, so measure it
+  // before the next paint rather than on the observer's next frame; the
+  // observer catches a change of width or text size.
+  useLayoutEffect(() => {
+    const frame = figure.current;
+    const element = caption.current;
+    if (!frame || !element) return;
+    const publish = () => frame.style.setProperty('--marfa-diagram-caption-height', `${element.offsetHeight}px`);
+    publish();
+    // Selecting the control that already has focus moves no focus, so the
+    // margin alone would leave it under the caption that just became sticky.
+    const focused = document.activeElement;
+    if (selected !== null && focused instanceof HTMLElement && frame.contains(focused)) {
+      focused.scrollIntoView({ block: 'nearest' });
+    }
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(publish);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [selected]);
 
   const selection: DiagramSelection = {
     selected,
@@ -68,6 +94,7 @@ export function Diagram({
 
   return (
     <figure
+      ref={figure}
       className="marfa-diagram not-prose"
       aria-label={label}
       data-selected={selected ?? undefined}
@@ -89,7 +116,7 @@ export function Diagram({
 
       <div className="marfa-diagram-canvas">{children(selection)}</div>
 
-      <figcaption className="marfa-diagram-caption" aria-live="polite">
+      <figcaption ref={caption} className="marfa-diagram-caption" aria-live="polite">
         {current ? current.caption : idleCaption}
       </figcaption>
     </figure>
@@ -100,16 +127,22 @@ export function Diagram({
  * One node drawn as a box. Clicking it selects it like its chip does. It is
  * not a second focus stop: the chips are the keyboard's way in, and two
  * buttons per node would double every Tab.
+ *
+ * With `href`, the title is a link to that page, and a click on it goes there
+ * instead of selecting. The link is a focus stop, because it goes somewhere
+ * no chip does.
  */
 export function DiagramBox({
   node,
   state,
   onSelect,
+  href,
   className,
 }: {
   node: DiagramNode;
   state: DiagramState;
   onSelect: () => void;
+  href?: string;
   className?: string;
 }) {
   const Icon = node.icon;
@@ -122,7 +155,17 @@ export function DiagramBox({
     >
       <div className="marfa-diagram-box-title">
         <Icon aria-hidden="true" />
-        <span>{node.label}</span>
+        {href ? (
+          <Link
+            href={href}
+            className="marfa-diagram-box-link"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {node.label}
+          </Link>
+        ) : (
+          <span>{node.label}</span>
+        )}
       </div>
       <div className="marfa-diagram-box-summary">{node.summary}</div>
     </div>
