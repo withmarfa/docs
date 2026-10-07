@@ -11,8 +11,7 @@
  * be cloned and built by people who are not us, and a hardcoded key would put
  * their traffic in our project. Absent, the analytics component returns before
  * it loads anything, so a contributor running the dev server gets a site that
- * reports nowhere and says nothing about it. That matches how the alerting
- * workflows already behave: an unset destination sends nothing.
+ * reports nowhere and says nothing about it.
  *
  * Shared by both build targets. A `define` does not carry from one Vite config
  * to another, and two copies of this would drift the moment one was fixed.

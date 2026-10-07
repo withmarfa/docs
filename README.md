@@ -78,8 +78,8 @@ returning zero is not that proof.
 
 Each Worker publishes in its own job against its own hostname, and only when
 something its target builds from has changed. A manual run with `mode` set to
-`check` compares both live commits against `main` and reports anything left
-behind.
+`check` compares both live commits against `main` and fails the run if either
+is behind.
 
 `pnpm run deploy` and `pnpm run deploy:status` still work and are the fallback if
 the CI credential is ever missing. Use `run`: `pnpm deploy` is pnpm's own

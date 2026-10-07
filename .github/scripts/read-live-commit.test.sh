@@ -280,8 +280,8 @@ check "a main dispatch at the tip publishes" 0 "$(target workflow_dispatch refs/
 # it would be refusing something legitimate.
 check "a branch dispatch at the tip publishes" 0 "$(target workflow_dispatch refs/heads/side "$c3" "$c3")"
 # An unresolvable tip is a broken checkout, not "main has moved on". Reading it
-# as the latter published nothing, succeeded, and suppressed the notifier, so
-# the commit was never published and nothing reported it.
+# as the latter published nothing and succeeded, so the commit was never
+# published and nothing reported it.
 check "an unresolvable tip is refused"       1 "$(target workflow_run refs/heads/main "$c3" "origin/main")"
 check "an empty tip is refused"              1 "$(target workflow_run refs/heads/main "$c3" "")"
 
@@ -339,9 +339,9 @@ else
   # call, so deleting the call outright still reported coverage.
   #
   # Stated rather than papered over: the workflow's own gating is not tested
-  # here and cannot be. The step-level `if:` conditions and the notifier's
-  # condition are GitHub expressions, not shell, and nothing in this repository
-  # evaluates them outside a run. The linter in CI catches a malformed file,
+  # here and cannot be. The step-level `if:` conditions are GitHub
+  # expressions, not shell, and nothing in this repository evaluates them
+  # outside a run. The linter in CI catches a malformed file,
   # which is the worst of those failure modes, because a parse error takes the
   # daily guard down with no signal anywhere.
   # A malformed workflow is the worst failure mode the untestable gating leaves
@@ -354,13 +354,13 @@ else
     const fs = require('fs');
     const doc = parse(fs.readFileSync('$workflow', 'utf8'));
     if (!doc || !doc.jobs) throw new Error('no jobs block');
-    for (const j of ['publish','publish-status','check','check-status','notify','notify-status']) {
+    for (const j of ['publish','publish-status','check','check-status']) {
       if (!doc.jobs[j]) throw new Error('missing job: ' + j);
     }
   " 2>/dev/null; then
-    pass=$((pass+1)); printf '  ok    the workflow parses and has a publish, check and notifier per target\n'
+    pass=$((pass+1)); printf '  ok    the workflow parses and has a publish and a check per target\n'
   else
-    fail=$((fail+1)); printf '  FAIL  the workflow does not parse, or has lost one of its six jobs\n'
+    fail=$((fail+1)); printf '  FAIL  the workflow does not parse, or has lost one of its four jobs\n'
   fi
 
   # Comments are stripped before matching, both whole-line and trailing.
@@ -380,7 +380,7 @@ else
   # laptop and failed in CI, reporting that a publish guard had stopped being
   # called when it had not.
   workflow_body="$(sed 's/#.*//' "$workflow")"
-  for fn in report_live_state check_deploy_target resolve_main_ref read_live_commit target_needs_publish effective_verdict; do
+  for fn in report_live_state check_deploy_target resolve_main_ref read_live_commit target_needs_publish; do
     if [[ $workflow_body == *"$fn"* ]]; then
       pass=$((pass+1)); printf '  ok    the workflow calls %s\n' "$fn"
     else
@@ -395,7 +395,7 @@ fi
 # something it builds from changed, so a merge touching one leaves the other
 # legitimately behind main. Without this refinement the daily check reports
 # that site as behind until somebody happens to change a file it cares about:
-# an alert that is open, permanent, and about nothing.
+# a failure that is permanent and about nothing.
 echo
 echo "report_live_state, target-aware"
 
