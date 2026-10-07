@@ -1,17 +1,25 @@
 ---
 title: Properties, metadata and edges
-description: The three places data lives on an item, who defines each, and which ones change the item's version.
+description: The three places an item's data lives, who defines each, and which ones change the item's version.
 ---
+
+This note shows all three. Select a part to see who defines it, which operation writes it, and whether a write moves the note's version.
+
+<ItemLayers />
+
+- **Properties**, here `title` and `body`, are inside the note. The note's type, `core.note`, defines them. [Update an item](/api-reference/items/updateItem) writes them, and each write raises the note's version by one.
+- **Tags**, here `favorite`, are in the note's metadata record. You or an app choose them freely, with no schema. [Add tags to an item](/api-reference/metadata/addItemTags) writes them, and the note's version stays as it is.
+- **Extensions**, here the `com.example.reader` namespace, are in the metadata record too. The app that writes a namespace decides what it holds. [Replace an extension namespace](/api-reference/extensions/replaceItemExtension) writes one, and the note's version stays as it is.
+- **An `about` edge** joins the note to a book, a `core.media.book`. The edge type `about` defines it: any item can be about any other. [Create an edge](/api-reference/edges/createEdge) writes it at version 1, its own, and the note's version stays as it is.
+- **A `parent-of` edge** joins the note to a child note. The edge type `parent-of` defines it: an item has one parent at most, and trashing the parent trashes its children. It also has its own version.
 
 ## Properties
 
-Properties are the item's own content: named values such as a note's `title` and `body`.
+Properties are an item's own content: named values such as a note's `title` and `body`.
 
-The item's type defines them. It declares each property's name and shape, and which properties are required. Marfa checks every write against the type and refuses a missing or invalid property with `400 invalid_properties`. A property the type doesn't declare is kept, unless the instance's strict mode is on for that type.
+The item's type defines them. It declares each property's name and shape, and which ones are required. Marfa refuses a write that leaves out a required property, or gives one the wrong shape, with `400 invalid_properties`. A property the type doesn't declare is kept, unless strict mode is on for that type. [Items and types](/get-started/items-and-types) explains types.
 
-You write properties with `POST /items`, `PATCH /items/{id}`, and `POST /items/bulk`. An update sends the `version` it read. By default, `PATCH /items/{id}` merges the properties you send over the ones you don't send. With `properties_mode` set to `replace`, the properties you send become the item's whole set.
-
-Every update to the properties raises the item's `version` by one, and Marfa keeps a snapshot of the properties as they were. The version also counts changes to the item's `type`, `tier`, `occurred_at`, and `source_id`.
+An update names the `version` it read, and the properties it sends are laid over the ones the item has. Each update raises the item's `version` by one, and Marfa keeps a snapshot of the properties as they were.
 
 ```http
 PATCH /items/{id}
@@ -20,25 +28,17 @@ Content-Type: application/json
 { "version": 3, "properties": { "title": "Reading list" } }
 ```
 
-The item comes back at `version: 4`.
+The note comes back at `version` 4, with its `body` unchanged.
 
 ## Metadata
 
-Every item has a metadata record beside it, which holds its tags and its extensions. `GET /items/{id}/metadata` returns both. Neither is part of the item's properties, and neither changes the item's `version`.
+Every item has a metadata record beside it, which holds its tags and its extensions. Neither is a property. A write to either leaves the item's `version` as it is and moves its `updated_at`, and Marfa announces it as `metadata.changed`. Writing either needs write on the item's type.
 
 ### Tags
 
-A tag is a free-form label on an item, such as `favorite`. Tags are flat: they have no hierarchy and no schema. You or an app decide which tags to use, and any key that can write the item's type can change them. An item holds at most 100 tags, each up to 128 characters. A search matches tags along with the item's text.
+A tag is a free-form label, such as `favorite`. Tags are flat, with no hierarchy and no schema, so you or an app decide which to use. An item's tags are a set: a tag written twice is kept once, so [List tags](/api-reference/metadata/listTags) counts each item that carries a tag once. A search matches tags along with an item's text.
 
-You write tags in these ways:
-
-- `tags` on `POST /items` sets them when you create the item.
-- `POST /items/{id}/tags` adds tags.
-- `PATCH /items/{id}/metadata` merges tags into the ones the item has.
-- `PUT /items/{id}/metadata` replaces all of the item's tags.
-- `DELETE /items/{id}/tags/{tag}` removes one tag.
-
-A tag write leaves the item's `version` as it is. It moves the item's `updated_at`, and Marfa announces it as `metadata.changed`.
+You can send `tags` when you [create an item](/api-reference/items/createItem), and change them later with the [Metadata](/api-reference/metadata/getItemMetadata) operations:
 
 ```http
 POST /items/{id}/tags
@@ -49,13 +49,9 @@ Content-Type: application/json
 
 ### Extensions
 
-An extension is a JSON object stored on an item under a namespace. It holds data that an app keeps about an item that something else wrote. For example, a reading app can keep your place in an article that a connector brought in.
+An extension is a JSON object stored on an item under a namespace. It holds what an app keeps about an item that something else wrote: a reading app can keep your place in an article that a connector brought in.
 
-The app that writes a namespace decides what goes in it. Marfa requires only a JSON object. Namespaces are independent: writing one leaves the others alone. Which namespaces a key can read and write is set on the key, and a key sees only the namespaces it can read. The namespaces `core`, `marfa`, and `system` are reserved.
-
-You write an extension with `PUT /items/{id}/extensions/{namespace}`, which replaces that namespace's data whole, and remove it with `DELETE /items/{id}/extensions/{namespace}`.
-
-An extension write leaves the item's `version` as it is. It moves the item's `updated_at`, and Marfa announces it as `metadata.changed`.
+The app that writes a namespace decides what goes in it, and Marfa requires only a JSON object. Writing one namespace leaves the others alone, and `core`, `marfa` and `system` are reserved. A credential's permissions name the namespaces it can read and write, and it sees only the namespaces it can read. [Keys and permissions](/get-started/keys-and-permissions) explains permissions.
 
 ```http
 PUT /items/{id}/extensions/com.example.reader
@@ -64,34 +60,30 @@ Content-Type: application/json
 { "position": 0.42 }
 ```
 
-The item's metadata then carries `"com.example.reader": { "position": 0.42 }` under `extensions`.
-
 ## Edges
 
-An edge is a typed, directed relationship from one item, its source, to another item, its target. For example, `parent-of` puts one item under another, and `about` says that one item is about another. An edge isn't part of either item. It has its own `id`, its own `properties`, and its own `version`.
+An edge is a typed, directed relationship from a source item to a target item, such as a note `about` a book. It's a record of its own, with its own `id`, `properties` and `version`, so writing it leaves both items' versions as they are. Writing an edge needs write on its source item's type and on its edge type.
 
-The edge's type defines it: how many edges each end can hold, which item types can be at each end, and what deleting one end does to the other. Marfa ships edge types such as `about`, `parent-of`, `references`, and `in-folder`. You or an app can register more with `POST /edge-types`.
+An edge starts at version 1, and each update raises it by one. An update has to name the edge's current version: unlike an item's, a stale edge update isn't merged but refused with `409 version_conflict`.
 
-You write edges with `POST /edges`, `PATCH /edges/{id}`, `DELETE /edges/{id}`, and `POST /edges/bulk`. You can also send `edges` on `POST /items` and `PATCH /items/{id}`. `GET /items/{id}` returns the item's outbound edges, grouped by edge type.
+You can also send `edges` when you create or update an item. On [Update an item](/api-reference/items/updateItem), they replace the item's outbound edges of each edge type named, and on their own they leave the item's version as it is.
 
-A change to an item's edges leaves the item's `version` as it is. The edge has its own version instead: it starts at 1 and goes up by one on every update, and `PATCH /edges/{id}` sends the version it read.
+### Edge types
 
-```http
-POST /edges
-Content-Type: application/json
+An edge's type defines it. Marfa ships ten edge types, such as `about`, `parent-of`, `references` and `in-folder`, and a credential with the `metadata.edge_types:write` permission can [register more](/api-reference/edge-types/registerEdgeType). An edge type sets these:
 
-{ "source_id": "<note id>", "target_id": "<book id>", "edge_type": "about" }
-```
+| What it sets | For example |
+| --- | --- |
+| Cardinality: how many edges of the type each end can hold | `parent-of` is `one-to-many`, so an item has one parent at most. |
+| The item types each end can be | `in-folder` joins any item to a `system.folder`. |
+| What trashing an item does across the edge: `cascade`, `orphan` or `block` | Trashing a parent trashes its children, and trashing a note leaves the book it's `about`. |
+| The edge's own properties | An `in-thread` edge carries a `position`. |
+| A reverse name: the edge's name read from its target | A `parent-of` edge reads as `child-of` from the child. |
 
-The edge comes back at `version: 1`.
+A `block` edge refuses the trash of either item it joins. The refusal names each blocking edge your credential can read, wherever it stands in the cascade ([`edges/block-named`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/edges.md#edgesblock-named)).
 
-## How they compare
+## What moves the version
 
-| | What it is | Defined by | Raises the item's version | Written with |
-| --- | --- | --- | --- | --- |
-| Properties | The item's own content | The item's type | Yes | `POST /items`, `PATCH /items/{id}`, `POST /items/bulk` |
-| Tags | Free-form labels on the item | You or an app, freely | No. Moves `updated_at` | `POST /items/{id}/tags`, `PATCH /items/{id}/metadata`, `PUT /items/{id}/metadata`, `DELETE /items/{id}/tags/{tag}` |
-| Extensions | JSON objects an app keeps on the item, one per namespace | The app that writes the namespace | No. Moves `updated_at` | `PUT /items/{id}/extensions/{namespace}`, `DELETE /items/{id}/extensions/{namespace}` |
-| Edges | Typed, directed relationships between two items | The edge type | No. The edge has its own `version` | `POST /edges`, `PATCH /edges/{id}`, `DELETE /edges/{id}`, `POST /edges/bulk` |
+Only a write to an item's own fields moves its version: its properties, `type`, `tier`, `occurred_at` and `source_id`. Tag, extension and edge writes leave it alone, so they don't make another writer's pending update stale: a title changed in one app and a tag added in another both land. [Changes over time](/get-started/changes-over-time) covers versions, snapshots and conflicts.
 
-Because tag, extension, and edge writes leave the item's version alone, they don't make another writer's pending property update stale. A title changed in one app and a tag added in another both land.
+The rules behind this page are in the [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) and [edges](https://github.com/withmarfa/marfa/blob/main/conformance/spec/edges.md) chapters of the contract.
