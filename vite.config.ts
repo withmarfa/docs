@@ -23,19 +23,29 @@ export default defineConfig({
     tanstackStart({
       prerender: {
         enabled: true,
-        // /version.json must stay a Worker route rather than being frozen
-        // into the asset store. Prerender crawls links, so a docs page
-        // linking to it would otherwise turn it into a static asset served
-        // with the asset store's cache headers instead of the route's
-        // `no-store`, and the one endpoint whose job is answering "what is
-        // live right now" would answer from a cache.
+        // /version.json, /mcp and everything under /api/ must stay Worker
+        // routes rather than being frozen into the asset store. Prerender
+        // crawls links, so a docs page that names one of them would otherwise
+        // turn it into a static asset: /version.json would answer from a cache
+        // instead of the route's `no-store`, and the JSON and MCP addresses
+        // would answer from a frozen file, ignoring the query.
         //
         // Crawled links arrive as the href was written rather than normalized,
-        // so `./version.json` and `/version.json?x=1` both have to miss an
-        // exact-string comparison. Compare the final path segment instead.
+        // so `./version.json`, `../api/search` and `/api/docs/topics/?x=1` all
+        // have to miss an exact-string comparison. Resolve the path against a
+        // dummy origin first, which drops dot segments, the query and the
+        // fragment, then compare. Only `/version.json` is matched by its final
+        // segment, as it was before.
         filter: (page: { path: string }) => {
-          const path = page.path.split('?')[0].split('#')[0];
-          return path.replace(/^.*\//, '') !== 'version.json';
+          let path: string;
+          try {
+            path = new URL(page.path, 'http://prerender.invalid/').pathname;
+          } catch {
+            return true;
+          }
+          if (path.replace(/^.*\//, '') === 'version.json') return false;
+          if (path === '/api' || path.startsWith('/api/')) return false;
+          return path.replace(/\/+$/, '') !== '/mcp';
         },
       },
     }),
