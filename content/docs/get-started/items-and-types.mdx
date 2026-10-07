@@ -1,6 +1,6 @@
 ---
 title: Items and types
-description: What an item is, what its type says about it, and how types inherit from each other, sit in namespaces and are defined.
+description: What an item is, what its type says about it, and how types inherit from each other and sit in namespaces.
 ---
 
 ## Items
@@ -31,23 +31,7 @@ Content-Type: application/json
 { "type": "core.note", "properties": { "title": "Reading list", "body": "Start with the essays." } }
 ```
 
-The `item` in the answer holds the parts Marfa filled in. It has no `source_id`, because the request named none:
-
-```json
-{
-  "id": "01a10119-55c0-7c4e-9a3d-5e8f1b2c7d40",
-  "type": "core.note",
-  "properties": { "title": "Reading list", "body": "Start with the essays." },
-  "state": "active",
-  "tier": "library",
-  "occurred_at": "2026-10-03T09:30:00.000Z",
-  "version": 1,
-  "schema_version": 0,
-  "source": "notes-app",
-  "created_at": "2026-10-03T09:30:00.000Z",
-  "updated_at": "2026-10-03T09:30:00.000Z"
-}
-```
+Marfa fills in the rest: a new `id`, `state` `active`, `tier` `library`, `version` 1, and an `occurred_at` of when the note was created.
 
 ## Types
 
@@ -62,7 +46,7 @@ Content-Type: application/json
 { "type": "core.note", "properties": { "title": "Reading list" } }
 ```
 
-A type identifier is two or more lowercase segments separated by dots. Its first segment is its namespace, which says who adds types there:
+A type identifier has two or more segments separated by dots, and at most 128 characters. Each segment starts with a lowercase letter and holds only lowercase letters, digits, hyphens and underscores. The first segment is the namespace, which says who adds types there:
 
 | Namespace | Identifiers | Who adds types |
 | --- | --- | --- |
@@ -81,7 +65,7 @@ A type can name another type as its `parent`. Its items then take every property
 
 Files show how this works. `core.file` requires `blob_ref` and `mime_type`, and a file is any item whose type inherits from `core.file`, as [Files](/get-started/files) explains. `core.file.image` is a child of `core.file` that adds `width`, `height` and a location, and an app can register a child of its own under it.
 
-A listing that names a type returns the items of every type under it too. This request lists every file, images included:
+A listing that names a type also returns the items of the types under it: each type whose identifier starts with the type's identifier and a dot, such as `core.file.image`, and each type whose chain of `parent` reaches it, such as an app's child type. This request lists every file, images included:
 
 ```http
 GET /items?type=core.file
@@ -120,7 +104,7 @@ To promote a feed item is to make a library item from it: a copy in a core type,
 
 ## Defining types
 
-Register a type with [Register a type](/api-reference/types/registerType), `POST /types`. This request registers `user.recipe` from the diagram, readable as a note:
+You register a type with [Register a type](/api-reference/types/registerType), `POST /types`. This request registers `user.recipe` from the diagram, readable as a note:
 
 ```http
 POST /types
@@ -137,52 +121,12 @@ Content-Type: application/json
 }
 ```
 
-Marfa answers `201` with the type as it stored it:
+Marfa stores it with the label `Recipe`, made from the identifier's last segment because the request named none, and at `version` 0, a number Marfa keeps for you and never changes itself.
 
-- **The label** is `Recipe`. When a write names no `label`, or an empty one, Marfa makes one from the identifier's last segment, splitting words at hyphens and underscores and capitalizing each word: `user.reading_list` gets `Reading List`.
-- **The version** is 0. A type's `version` is an integer for you to track your own changes. Marfa stores the number each write names, or 0 if it names none, and never changes it. Each item records the version its type had when the item was created, as `schema_version`.
-
-### Identifiers
-
-A type identifier has two or more segments separated by dots, and at most 128 characters. Each segment starts with a lowercase letter and holds only lowercase letters, digits, hyphens and underscores. An `app` identifier has exactly three segments. Marfa refuses any other identifier with `400 validation_error`.
-
-These conventions aren't enforced, but they match the types Marfa ships:
-
-- Name a type with a singular noun: `user.recipe`, not `user.recipes`.
-- Use `snake_case` for words within a segment and for property names, as in `blob_ref` and `mime_type`.
-
-### Properties
-
-`fields` holds one entry for each property the type declares, by name. Each entry takes these attributes:
-
-| Attribute | What it does |
-| --- | --- |
-| `type` | The property's type: `string`, `number`, `integer`, `boolean`, `url`, `email`, `datetime`, `date`, `enum`, `array`, `object` or `thumbnail`. Required. |
-| `required` | `true` if every item of the type has to hold the property. A top-level `required` list of names means the same. |
-| `description` | What the property holds. |
-| `enum_values` | The values an `enum` allows. Required on an `enum`. |
-| `items_type` | The type of each element of an `array`. Required on an `array`. |
-| `format` | A refinement of a `string`. `url`, `email`, `datetime`, `date` and `thumbnail` become the property's `type`, and `bcp47` and `iso3166` stay as `format`. |
-| `maxLength` | The longest value a `string` or `enum` allows. Without it, a string holds at most 100,000 UTF-16 code units. |
-| `maxItems` | The most elements an `array` allows. |
-| `searchable` | `false` keeps the property out of full-text search. Items still return it. |
-
-A property can't take the name of one of the item's fixed parts, such as `id`, `type`, `state` or `occurred_at`. Marfa refuses that with `400 property_shadows_field`, and `types/field-shadows-item` lists every such name.
-
-### Changing a type
-
-[Replace a type](/api-reference/types/replaceType), `PUT /types/{id}`, replaces the whole type. A property you leave out is removed from the type, but items keep their values for it. A `version` you leave out goes back to 0. [Delete a type](/api-reference/types/deleteType), `DELETE /types/{id}`, removes one.
-
-The types Marfa ships are locked. Registering a type under `core`, `system` or `marfa` is refused with `403 forbidden`, and replacing or deleting a type Marfa ships is refused with `403 core_type_immutable`, whatever the credential.
-
-Each of these needs a credential with write on the type's identifier, and one more permission:
-
-- **Registering** takes `metadata.types:write`.
-- **Replacing** takes `schema.write`. `metadata.types:write` is enough for a change that only adds optional properties no item holds a value under, or changes the label, the description, a property's description, the display hints or the version.
-- **Deleting** takes `schema.write`.
+The types Marfa ships are locked: no credential can register a type under `core`, `system` or `marfa`, or replace or delete a type Marfa ships. [Replace a type](/api-reference/types/replaceType) and [Delete a type](/api-reference/types/deleteType) change your own types, and [Define a type](/guides/define-a-type) walks through registering, checking and changing one.
 
 ## Permissions
 
-A credential's permissions name the types it can read and the types it can write, so a type is also what access is granted to. Inheritance doesn't widen a permission: one that reaches `core.file` doesn't reach `core.file.image`, or an app's child of it, unless it names those types too. The types themselves are open to every credential, which can read the whole registry with [List types](/api-reference/types/listTypes). [Keys and permissions](/get-started/keys-and-permissions) explains credentials and their permissions.
+A credential's permissions name the types it can read and the types it can write, so a type is also what access is granted to. Inheritance doesn't widen a permission: one that reaches `core.file` doesn't reach `core.file.image`, or an app's child of it, unless it names those types too. The types themselves are open to every credential, which can read the whole registry with [List types](/api-reference/types/listTypes). Registering a type takes `metadata.types:write`, and replacing or deleting one takes `schema.write`, except for the smaller changes that [Define a type](/guides/define-a-type) lists. Each also takes write on the type's identifier. [Keys and permissions](/get-started/keys-and-permissions) explains credentials and their permissions.
 
 The rules behind this page are in the [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) and [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) chapters of the contract.
