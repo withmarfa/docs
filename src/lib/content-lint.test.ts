@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { source } from '@/lib/source';
 
+const ROOT_DIR = fileURLToPath(new URL('../..', import.meta.url));
 const CONTENT_DIR = fileURLToPath(new URL('../../content/docs', import.meta.url));
 const GLOSSARY_PATH = fileURLToPath(new URL('../generated/GLOSSARY.md', import.meta.url));
 
@@ -26,7 +27,8 @@ type Rule =
   | 'statement-number'
   | 'frontmatter'
   | 'coming-soon'
-  | 'link';
+  | 'link'
+  | 'include';
 
 interface Violation {
   file: string;
@@ -51,6 +53,25 @@ function blank(s: string): string {
   return s.replace(/[^\n]/g, ' ');
 }
 
+/** Which lines are a code fence or inside one. */
+function fenceMask(lines: string[]): boolean[] {
+  let fence: { char: string; length: number } | null = null;
+  return lines.map((line) => {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (fence === null) {
+      if (marker) {
+        fence = { char: marker[1][0], length: marker[1].length };
+        return true;
+      }
+      return false;
+    }
+    if (marker && marker[1][0] === fence.char && marker[1].length >= fence.length) {
+      fence = null;
+    }
+    return true;
+  });
+}
+
 /**
  * The page with fenced code blocks and inline code replaced by spaces. Every
  * offset and line number is unchanged, so a match in the result points at the
@@ -58,25 +79,13 @@ function blank(s: string): string {
  */
 export function stripCode(text: string): string {
   const lines = text.split('\n');
-  let fence: { char: string; length: number } | null = null;
-  const withoutFences = lines.map((line) => {
-    const marker = /^\s*(`{3,}|~{3,})/.exec(line);
-    if (fence === null) {
-      if (marker) {
-        fence = { char: marker[1][0], length: marker[1].length };
-        return blank(line);
-      }
-      return line;
-    }
-    if (marker && marker[1][0] === fence.char && marker[1].length >= fence.length) {
-      fence = null;
-    }
-    return blank(line);
-  });
+  const fenced = fenceMask(lines);
   // Inline code stays within one line, so a stray backtick cannot blank the
   // text that follows it.
-  return withoutFences
-    .map((line) => line.replace(/(`+)(?!`)(.*?)(?<!`)\1(?!`)/g, blank))
+  return lines
+    .map((line, index) =>
+      fenced[index] ? blank(line) : line.replace(/(`+)(?!`)(.*?)(?<!`)\1(?!`)/g, blank),
+    )
     .join('\n');
 }
 
@@ -286,6 +295,136 @@ export function checkLinks(file: string, text: string, pageUrls: Set<string>): V
   return out;
 }
 
+// ── Included text ────────────────────────────────────────────────────────
+
+/**
+ * Text a page pulls in with `<include>`, which reaches readers as the page's
+ * own prose but is not in the page's source.
+ *
+ * `file` names where the text lives and which page includes it. `text` is the
+ * included file with everything outside the included part blanked, so a line
+ * number in it is the line in the included file.
+ */
+export interface Included {
+  file: string;
+  text: string;
+}
+
+const INCLUDE_TAG = /<include\b([^>]*)>([\s\S]*?)<\/include>/g;
+
+/** A heading's id as fumadocs-mdx gives it: GitHub's slug, or a trailing `[#id]`. */
+function headingIds(lines: string[], fenced: boolean[]): Map<number, string> {
+  const ids = new Map<number, string>();
+  const used = new Map<string, number>();
+  lines.forEach((line, index) => {
+    const heading = fenced[index] ? null : /^ {0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/.exec(line);
+    if (!heading) return;
+    const custom = /\s*\[#([^\]\s]+)\]$/.exec(heading[1]);
+    const words = (custom ? heading[1].slice(0, custom.index) : heading[1])
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/[`*]/g, '');
+    if (custom) {
+      ids.set(index, custom[1]);
+      return;
+    }
+    const slug = words
+      .toLowerCase()
+      .replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, '')
+      .replace(/ /g, '-');
+    const count = used.get(slug) ?? 0;
+    used.set(slug, count + 1);
+    ids.set(index, count === 0 ? slug : `${slug}-${count}`);
+  });
+  return ids;
+}
+
+/**
+ * The part of an included file a page shows: all of it, or from the heading
+ * with the given id to the next heading of any level. What is left out is
+ * blanked, and the frontmatter is left out as fumadocs-mdx leaves it out.
+ */
+function includedPart(content: string, section: string | undefined): string | undefined {
+  const lines = content.split('\n');
+  const fenced = fenceMask(lines);
+  let from = 0;
+  let to = lines.length;
+  const frontmatter = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(content);
+  if (frontmatter) from = frontmatter[0].split('\n').length - 1;
+
+  if (section !== undefined) {
+    const ids = headingIds(lines, fenced);
+    const start = [...ids].find(([, id]) => id === section)?.[0];
+    if (start === undefined) return undefined;
+    from = start;
+    const next = [...ids.keys()].find((index) => index > start);
+    if (next !== undefined) to = next;
+  }
+  return lines.map((line, index) => (index >= from && index < to ? line : blank(line))).join('\n');
+}
+
+/**
+ * Every `<include>` on a page, and in what it includes, resolved as
+ * fumadocs-mdx resolves it: the path is relative to the including file, or to
+ * `cwd` with the `cwd` attribute, and `#id` picks one section. An include of
+ * anything other than Markdown, or with `lang`, becomes a code block and holds
+ * no prose. One that cannot be resolved is a violation, as it fails the build.
+ */
+export function resolveIncludes(
+  page: string,
+  pagePath: string,
+  text: string,
+  cwd: string,
+  read: (absolutePath: string) => string | undefined,
+  chain: readonly string[] = [pagePath],
+): { included: Included[]; violations: Violation[] } {
+  const included: Included[] = [];
+  const violations: Violation[] = [];
+  const fail = (index: number, detail: string) =>
+    violations.push({ file: page, line: lineOf(text, index), rule: 'include', detail });
+
+  for (const match of stripCode(text).matchAll(INCLUDE_TAG)) {
+    const specifier = match[2].trim();
+    if (specifier === '') continue;
+    const hash = specifier.lastIndexOf('#');
+    const file = hash === -1 ? specifier : specifier.slice(0, hash);
+    const section = hash === -1 ? undefined : specifier.slice(hash + 1);
+    const extension = path.extname(file);
+    if (/\blang=/.test(match[1]) || (extension !== '.md' && extension !== '.mdx')) continue;
+
+    const target = path.resolve(/\bcwd\b/.test(match[1]) ? cwd : path.dirname(pagePath), file);
+    if (chain.includes(target)) {
+      fail(match.index, `<include> of ${specifier} includes itself`);
+      continue;
+    }
+    const content = read(target);
+    if (content === undefined) {
+      fail(match.index, `<include> cannot read ${specifier}`);
+      continue;
+    }
+    const part = includedPart(content, section);
+    if (part === undefined) {
+      fail(match.index, `<include> finds no section "${section}" in ${file}`);
+      continue;
+    }
+
+    const name = path.relative(cwd, target).split(path.sep).join('/');
+    included.push({ file: `${name} (included by ${page})`, text: part });
+    const nested = resolveIncludes(`${name} (included by ${page})`, target, part, cwd, read, [...chain, target]);
+    included.push(...nested.included);
+    violations.push(...nested.violations);
+  }
+  return { included, violations };
+}
+
+/**
+ * The rules about what a reader sees, which is the same for included text as
+ * for the page's own. The banned and avoided terms are not among them: the
+ * glossary names those words in order to forbid them.
+ */
+export function checkIncluded(file: string, text: string, pageUrls: Set<string>): Violation[] {
+  return [...checkEmDashes(file, text), ...checkLinks(file, text, pageUrls)];
+}
+
 // ── The corpus ───────────────────────────────────────────────────────────
 
 function listPages(dir: string): string[] {
@@ -302,8 +441,26 @@ const FILES = listPages(CONTENT_DIR).map((file) => ({
   text: readFileSync(path.join(CONTENT_DIR, file), 'utf8'),
 }));
 
+function readIfPresent(absolutePath: string): string | undefined {
+  try {
+    return readFileSync(absolutePath, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+const RESOLVED = FILES.map(({ file, text }) =>
+  resolveIncludes(file, path.join(CONTENT_DIR, file), text, ROOT_DIR, readIfPresent),
+);
+const INCLUDED = RESOLVED.flatMap((resolved) => resolved.included);
+
 function lintAll(check: (file: string, text: string) => Violation[]): string[] {
   return FILES.flatMap(({ file, text }) => check(file, text)).map(format);
+}
+
+/** The same rule over the text the pages include, never over the page's own. */
+function lintIncluded(check: (file: string, text: string) => Violation[]): string[] {
+  return INCLUDED.flatMap(({ file, text }) => check(file, text)).map(format);
 }
 
 // ── Tests over the real pages ────────────────────────────────────────────
@@ -324,6 +481,22 @@ describe('content lint: the corpus', () => {
 
   it('uses no em dashes', () => {
     expect(lintAll(checkEmDashes)).toEqual([]);
+  });
+
+  it('resolves every include to text it can read', () => {
+    expect(RESOLVED.flatMap((resolved) => resolved.violations).map(format)).toEqual([]);
+    const files = INCLUDED.map((included) => included.file);
+    expect(files).toContain('src/generated/GLOSSARY.md (included by get-started/glossary.mdx)');
+    expect(files).toContain('src/generated/api-overview.md (included by api-reference/index.mdx)');
+    for (const { text } of INCLUDED) expect(text.trim().length).toBeGreaterThan(0);
+  });
+
+  it('uses no em dashes in the text pages include', () => {
+    expect(lintIncluded(checkEmDashes)).toEqual([]);
+  });
+
+  it('links only to pages that exist, in the text pages include', () => {
+    expect(lintIncluded((file, text) => checkLinks(file, text, PAGE_URLS))).toEqual([]);
   });
 
   it('uses none of the glossary\'s banned terms', () => {
@@ -499,6 +672,112 @@ describe('content lint: each rule fires on a bad sample', () => {
 
     it('ignores links inside code', () => {
       expect(checkLinks('x.mdx', '`[a](/nowhere)`\n\n```\n[b](/nowhere)\n```\n', urls)).toEqual([]);
+    });
+  });
+
+  describe('included text', () => {
+    const urls = new Set(['/get-started']);
+    const cwd = '/repo';
+    const files = new Map<string, string>([
+      ['/repo/src/generated/rules.md', '# Rules\n\nIntro.\n\n## One\nFirst — dash.\n### Two\nSecond.\n## One\nThird.\n'],
+      ['/repo/content/docs/guides/local.md', 'Local — text.\n'],
+      ['/repo/src/generated/fenced.md', '## A\n```\n## B\n```\nIn A.\n## C\nIn C.\n'],
+      ['/repo/src/generated/custom.md', '## Words [#custom-id]\nBody.\n## `Code` and [a link](/x)\nMore.\n'],
+      ['/repo/src/generated/front.md', '---\ntitle: T — U\n---\nBody.\n'],
+      ['/repo/src/generated/outer.md', 'Outer.\n<include>./inner.md</include>\n'],
+      ['/repo/src/generated/inner.md', 'Inner — dash.\n'],
+      ['/repo/src/generated/loop.md', '<include>./loop.md</include>\n'],
+      ['/repo/src/generated/code.ts', 'export const x = 1; // —\n'],
+    ]);
+    const read = (absolutePath: string) => files.get(absolutePath);
+    const resolve = (text: string, page = 'guides/page.mdx') =>
+      resolveIncludes(page, `/repo/content/docs/${page}`, text, cwd, read);
+    const lines = (included: Included[]) => included.map((i) => i.text.split('\n').map((l) => l.trim()));
+
+    it('resolves a path from the site root with cwd and from the page without it', () => {
+      const root = resolve('<include cwd>src/generated/rules.md</include>');
+      expect(root.violations).toEqual([]);
+      expect(root.included.map((i) => i.file)).toEqual(['src/generated/rules.md (included by guides/page.mdx)']);
+      const local = resolve('<include>./local.md</include>');
+      expect(local.violations).toEqual([]);
+      expect(local.included[0].text).toBe('Local — text.\n');
+      expect(rules(resolve('<include>src/generated/rules.md</include>').violations)).toEqual(['include']);
+    });
+
+    it('takes one section, to the next heading of any level, and keeps the file\'s line numbers', () => {
+      const { included } = resolve('<include cwd>src/generated/rules.md#one</include>');
+      expect(lines(included)[0].filter(Boolean)).toEqual(['## One', 'First — dash.']);
+      const found = checkEmDashes(included[0].file, included[0].text);
+      expect(found.map((v) => v.line)).toEqual([6]);
+      // The next heading, at any level, ends it; a repeated heading gets a numbered id.
+      expect(lines(resolve('<include cwd>src/generated/rules.md#two</include>').included)[0].filter(Boolean)).toEqual(['### Two', 'Second.']);
+      expect(lines(resolve('<include cwd>src/generated/rules.md#one-1</include>').included)[0].filter(Boolean)).toEqual(['## One', 'Third.']);
+    });
+
+    it('does not take a "#" line inside a code fence for a heading', () => {
+      const { included } = resolve('<include cwd>src/generated/fenced.md#a</include>');
+      expect(included[0].text).toContain('In A.');
+      expect(included[0].text).not.toContain('In C.');
+    });
+
+    it('finds a section by a custom id and by a heading with markup', () => {
+      expect(resolve('<include cwd>src/generated/custom.md#custom-id</include>').included[0].text).toContain('Body.');
+      expect(resolve('<include cwd>src/generated/custom.md#code-and-a-link</include>').included[0].text).toContain('More.');
+    });
+
+    it('leaves the frontmatter out', () => {
+      const { included } = resolve('<include cwd>src/generated/front.md</include>');
+      expect(checkEmDashes(included[0].file, included[0].text)).toEqual([]);
+      expect(included[0].text).toContain('Body.');
+    });
+
+    it('follows an include inside an included file', () => {
+      const { included, violations } = resolve('<include cwd>src/generated/outer.md</include>');
+      expect(violations).toEqual([]);
+      expect(included.map((i) => i.file)).toEqual([
+        'src/generated/outer.md (included by guides/page.mdx)',
+        'src/generated/inner.md (included by src/generated/outer.md (included by guides/page.mdx))',
+      ]);
+    });
+
+    it('treats an include of code, or with lang, as no prose', () => {
+      expect(resolve('<include cwd>src/generated/code.ts</include>')).toEqual({ included: [], violations: [] });
+      expect(resolve('<include cwd lang="md">src/generated/rules.md</include>')).toEqual({ included: [], violations: [] });
+    });
+
+    it('ignores an include inside code', () => {
+      expect(resolve('`<include cwd>x.md</include>`\n\n```\n<include cwd>y.md</include>\n```\n')).toEqual({ included: [], violations: [] });
+    });
+
+    it('include fires on a missing file, a missing section and an include of itself', () => {
+      const missing = resolve('Ok.\n<include cwd>src/generated/none.md</include>');
+      expect(rules(missing.violations)).toEqual(['include']);
+      expect(missing.violations[0].line).toBe(2);
+      expect(rules(resolve('<include cwd>src/generated/rules.md#nope</include>').violations)).toEqual(['include']);
+      expect(rules(resolve('<include cwd>src/generated/loop.md</include>').violations)).toEqual(['include']);
+    });
+
+    it('an included file with an em dash fails', () => {
+      const { included } = resolve('<include cwd>src/generated/rules.md</include>');
+      const found = checkIncluded(included[0].file, included[0].text, urls);
+      expect(rules(found)).toEqual(['em-dash']);
+      expect(found[0].file).toBe('src/generated/rules.md (included by guides/page.mdx)');
+      expect(found[0].line).toBe(6);
+    });
+
+    it('an included file with a bad internal link fails', () => {
+      for (const link of ['[a](/nowhere)', '[a](files)', '[a](https://docs.marfa.so/get-started)', '<a href="./x">a</a>']) {
+        const found = checkIncluded('x.md (included by y.mdx)', `Ok.\nSee ${link}.\n`, urls);
+        expect(rules(found)).toEqual(['link']);
+        expect(found[0].line).toBe(2);
+      }
+      expect(checkIncluded('x.md', 'See [a](/get-started) and [b](https://example.com).', urls)).toEqual([]);
+    });
+
+    it('an included file that names a banned or avoided term passes', () => {
+      const text = 'Never "door". An integration, a space and a substrate are banned words.\n';
+      expect(checkIncluded('x.md', text, urls)).toEqual([]);
+      expect(rules(checkBannedTerms('x.md', text, ['integration']))).toEqual(['banned-term']);
     });
   });
 
