@@ -54,8 +54,12 @@ export function pathToSlugs(input: string): string[] {
   return p.split('/');
 }
 
-/** Rows requested from Orama per page asked for, since one page returns several rows. */
-const ROWS_PER_PAGE = 5;
+/**
+ * Rows requested per page asked for. Fumadocs returns a page as its own row
+ * plus up to 8 matching sections (`groupBy.maxResult`), so fewer than 9 can
+ * run out of rows before the limit's worth of pages.
+ */
+const ROWS_PER_PAGE = 9;
 
 const NAMED_ENTITIES: Record<string, string> = {
   amp: '&',

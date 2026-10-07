@@ -42,7 +42,7 @@ describe('searchDocs', () => {
   });
 
   it('counts pages, not rows, against the limit', async () => {
-    for (const limit of [1, 2, 10]) {
+    for (const limit of [1, 2, 3, 5, 10]) {
       const { hits } = await searchDocs('the', limit);
       expect(hits.length, `limit ${limit}`).toBe(limit);
     }
