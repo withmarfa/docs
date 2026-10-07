@@ -106,7 +106,9 @@ export async function searchDocs(
       byPage.set(url, entry);
     }
     if (r.type !== 'page' && r.content && entry.snippets.length < MAX_SNIPPETS_PER_PAGE) {
-      entry.snippets.push(toPlainText(r.content));
+      // A table repeats the same cell text on every row, and each row is a hit.
+      const snippet = toPlainText(r.content);
+      if (!entry.snippets.includes(snippet)) entry.snippets.push(snippet);
     }
   }
 

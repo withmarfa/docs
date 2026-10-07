@@ -36,6 +36,11 @@ describe('searchDocs', () => {
     }
   });
 
+  it('never repeats a snippet within a hit', async () => {
+    const { hits } = await searchDocs('housekeeping', 20);
+    for (const hit of hits) expect(new Set(hit.snippets).size, hit.url).toBe(hit.snippets.length);
+  });
+
   it('counts pages, not rows, against the limit', async () => {
     for (const limit of [1, 2, 10]) {
       const { hits } = await searchDocs('the', limit);
