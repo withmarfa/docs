@@ -31,7 +31,7 @@ const spokes: readonly (DiagramNode & { side: Side })[] = [
     icon: Cable,
     summary: 'Records in and out',
     caption:
-      'Connectors run outside the server and bring records in or send them out over the API, registering and reporting each run.',
+      'Connectors run outside the server, register with the instance, and bring records in or send them out over the API, reporting each run.',
   },
   {
     id: 'devices',
@@ -72,7 +72,7 @@ const cloud: DiagramNode = {
   icon: Cloud,
   summary: 'A public address, no data',
   caption:
-    'Coming soon: Marfa Cloud puts a ready-made public address in front of your instance, and holds none of your data.',
+    'Coming soon: Marfa Cloud puts a ready-made public address in front of your instance and holds none of your data.',
   planned: { tag: 'Coming soon' },
 };
 
