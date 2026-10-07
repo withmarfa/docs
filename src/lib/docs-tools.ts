@@ -66,7 +66,10 @@ const NAMED_ENTITIES: Record<string, string> = {
   nbsp: ' ',
 };
 
-/** Orama rows carry the `<mark>` highlight and may carry HTML entities; callers get plain text. */
+/**
+ * Fumadocs returns each row re-serialized as Markdown with `<mark>` around matches,
+ * and re-serializing can encode characters as entities. Undo both.
+ */
 function toPlainText(text: string): string {
   return text
     .replace(/<\/?mark>/g, '')

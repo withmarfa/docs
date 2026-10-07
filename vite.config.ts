@@ -25,7 +25,7 @@ export default defineConfig({
         enabled: true,
         // /version.json, /mcp and everything under /api/ must stay Worker
         // routes rather than being frozen into the asset store. Prerender
-        // crawls links, so a docs page that names one of them would otherwise
+        // crawls links, so a docs page that links to one of them would otherwise
         // turn it into a static asset: /version.json would answer from a cache
         // instead of the route's `no-store`, and the JSON and MCP addresses
         // would answer from a frozen file, ignoring the query.
@@ -34,8 +34,7 @@ export default defineConfig({
         // so `./version.json`, `../api/search` and `/api/docs/topics/?x=1` all
         // have to miss an exact-string comparison. Resolve the path against a
         // dummy origin first, which drops dot segments, the query and the
-        // fragment, then compare. Only `/version.json` is matched by its final
-        // segment, as it was before.
+        // fragment, then compare. `version.json` is matched by its final segment.
         filter: (page: { path: string }) => {
           let path: string;
           try {
