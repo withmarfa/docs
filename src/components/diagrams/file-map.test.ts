@@ -46,14 +46,16 @@ describe('file map', () => {
   // (`stores/orphan-keeps-items`, `-edges`, `-extensions`, `-versions`), and
   // its blobs chapter withholds the read through an earlier version alone
   // (`blobs/lend-earlier-version`).
-  it('keeps the blob through every referrer and lends through all but an earlier version', () => {
+  // The caption's last sentence is built from `reference`, so this holds
+  // what each referrer's caption says.
+  it('gives every referrer a reference, lending through all but an earlier version', () => {
     for (const p of pieces) {
       if (p.tier !== 'referrer') {
         expect(p.reference, p.id).toBeUndefined();
         continue;
       }
-      expect(p.reference?.keeps, p.id).toBe(true);
-      expect(p.reference?.lends, p.id).toBe(p.id !== 'version');
+      expect(p.reference, p.id).toBeDefined();
+      expect(p.reference?.lendsTo === null, p.id).toBe(p.id === 'version');
     }
   });
 });

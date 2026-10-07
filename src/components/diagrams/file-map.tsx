@@ -12,11 +12,38 @@ export type FilePiece = DiagramNode & {
   /** The operation the caption links to. */
   operation: Operation;
   /**
-   * For a referrer: whether a digest it holds keeps the blob from the
-   * `blob-orphans` sweep, and whether it can lend the blob's read.
+   * For a referrer, which keeps the blob from the `blob-orphans` sweep: the
+   * credentials its reference can lend the blob's read to, or `null` for one
+   * that lends no read.
    */
-  reference?: { keeps: boolean; lends: boolean };
+  reference?: { lendsTo: ReactNode | null };
 };
+
+/** A referrer's caption ends with what it keeps and whom it can lend to. */
+function referrer(
+  data: Omit<FilePiece, 'caption' | 'tier' | 'reference'> & {
+    before: ReactNode;
+    verb: string;
+    lendsTo: ReactNode | null;
+  },
+): FilePiece {
+  const { verb, lendsTo, ...rest } = data;
+  return piece({
+    ...rest,
+    tier: 'referrer',
+    reference: { lendsTo },
+    after: (
+      <>
+        {verb}.{' '}
+        {lendsTo === null ? (
+          'It keeps the blob from the orphan sweep, but lends no read.'
+        ) : (
+          <>It keeps the blob, and can lend its read to {lendsTo}.</>
+        )}
+      </>
+    ),
+  });
+}
 
 function piece(
   data: Omit<FilePiece, 'caption'> & { before: ReactNode; after: ReactNode },
@@ -45,73 +72,54 @@ function piece(
  * `stores/link-store-once-held`).
  */
 export const pieces: readonly FilePiece[] = [
-  piece({
+  referrer({
     id: 'file',
-    tier: 'referrer',
     label: 'File item',
     icon: FileImage,
     summary: <code>blob_ref</code>,
-    reference: { keeps: true, lends: true },
     operation: { tag: 'Items', operationId: 'createItem', name: 'Create an item' },
     before: (
       <>
         A file is an item whose type inherits from <code>core.file</code>, and its{' '}
-        <code>blob_ref</code> names the blob.
+        <code>blob_ref</code> names the blob, in any state the item is in.
       </>
     ),
-    after: (
-      <>
-        writes one. In any state, it keeps the blob and can lend its read to a credential that
-        may read the item&apos;s type.
-      </>
-    ),
+    verb: 'writes one',
+    lendsTo: <>a credential that may read the item&apos;s type</>,
   }),
-  piece({
+  referrer({
     id: 'edge',
-    tier: 'referrer',
     label: 'Edge',
     icon: Waypoints,
     summary: 'In its properties',
-    reference: { keeps: true, lends: true },
     operation: { tag: 'Edges', operationId: 'createEdge', name: 'Create an edge' },
     before: "An edge's properties can name a blob too.",
-    after: (
-      <>
-        writes one. It keeps the blob, and can lend its read to a credential that may read
-        the edge&apos;s type and its source item&apos;s type.
-      </>
-    ),
+    verb: 'writes one',
+    lendsTo: <>a credential that may read the edge&apos;s type and its source item&apos;s type</>,
   }),
-  piece({
+  referrer({
     id: 'extension',
-    tier: 'referrer',
     label: 'Extension',
     icon: Puzzle,
     summary: 'In a namespace',
-    reference: { keeps: true, lends: true },
     operation: {
       tag: 'Extensions',
       operationId: 'replaceItemExtension',
       name: 'Replace an extension namespace',
     },
     before: 'An extension namespace can name a blob.',
-    after: (
-      <>
-        writes one. It keeps the blob, and can lend its read to a working key that may read
-        the namespace and the item&apos;s type.
-      </>
-    ),
+    verb: 'writes one',
+    lendsTo: <>a working key that may read the namespace and the item&apos;s type</>,
   }),
-  piece({
+  referrer({
     id: 'version',
-    tier: 'referrer',
     label: 'Earlier version',
     icon: History,
     summary: 'In the history',
-    reference: { keeps: true, lends: false },
     operation: { tag: 'Items', operationId: 'listItemVersions', name: 'List item versions' },
     before: 'A snapshot of an item that named the blob before a later write took it out.',
-    after: 'reads it. It keeps the blob from the orphan sweep, but lends no read.',
+    verb: 'reads it',
+    lendsTo: null,
   }),
   piece({
     id: 'blob',
