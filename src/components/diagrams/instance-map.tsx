@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   AppWindow,
   Box,
@@ -10,7 +11,14 @@ import {
   Waypoints,
   type LucideIcon,
 } from 'lucide-react';
-import { Diagram, DiagramBox, DiagramWire, type DiagramNode, type DiagramState } from './diagram';
+import {
+  Diagram,
+  DiagramBox,
+  DiagramSwitch,
+  DiagramWire,
+  type DiagramNode,
+  type DiagramState,
+} from './diagram';
 
 type Side = 'left' | 'right';
 
@@ -76,7 +84,7 @@ const cloud: DiagramNode = {
   planned: { tag: 'Coming soon' },
 };
 
-const nodes: readonly DiagramNode[] = [...spokes, cloud];
+const withCloud: readonly DiagramNode[] = [...spokes, cloud];
 
 const contents: readonly { label: string; icon: LucideIcon }[] = [
   { label: 'Items', icon: Box },
@@ -86,40 +94,52 @@ const contents: readonly { label: string; icon: LucideIcon }[] = [
 ];
 
 /**
- * Your instance in the middle, Marfa Cloud as a dashed layer around it, and
- * the pieces that reach it.
+ * Your instance in the middle and the pieces that reach it. Marfa Cloud is
+ * optional, so it is off until the reader switches it on; then it is a dashed
+ * layer around the instance.
  *
  * Wide, the pieces sit on either side of the instance, each with its own wire.
  * Narrow, they stack under it on one rail, so a piece's path runs down the
  * rail past the pieces above it: those segments light too.
  */
 export function InstanceMap() {
+  const [showCloud, setShowCloud] = useState(false);
+
   return (
     <Diagram
       label="What works with your instance"
-      nodes={nodes}
+      nodes={showCloud ? withCloud : spokes}
       idleCaption="Select a piece to see how it reaches your instance."
+      controls={
+        <DiagramSwitch checked={showCloud} onChange={setShowCloud}>
+          Marfa Cloud
+        </DiagramSwitch>
+      }
     >
       {({ selected, stateOf, toggle }) => {
         const selectedIndex = spokes.findIndex((spoke) => spoke.id === selected);
         const CloudIcon = cloud.icon;
 
         return (
-          <div className="marfa-im">
-            {/* Like a DiagramBox, the layer is not a focus stop: its chip is. */}
+          <div className="marfa-im" data-cloud={showCloud ? 'on' : 'off'}>
+            {/* Like a DiagramBox, the layer is not a focus stop: its chip is.
+                With the switch off it draws nothing, and only holds the
+                instance in place. */}
             <div
               className="marfa-im-cloud"
-              data-state={stateOf(cloud.id)}
-              onClick={() => toggle(cloud.id)}
+              data-state={showCloud ? stateOf(cloud.id) : 'idle'}
+              onClick={showCloud ? () => toggle(cloud.id) : undefined}
             >
-              <div className="marfa-im-cloud-head">
+              <div className="marfa-im-cloud-head" hidden={!showCloud}>
                 <div className="marfa-diagram-box-title">
                   <CloudIcon aria-hidden="true" />
                   <span>{cloud.label}</span>
                 </div>
                 <span className="marfa-diagram-tag">{cloud.planned?.tag}</span>
               </div>
-              <div className="marfa-diagram-box-summary">{cloud.summary}</div>
+              <div className="marfa-diagram-box-summary" hidden={!showCloud}>
+                {cloud.summary}
+              </div>
 
               {/* A click on the instance is not a click on the layer around it. */}
               <div

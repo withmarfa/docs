@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import Link from 'fumadocs-core/link';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -42,12 +42,15 @@ export function Diagram({
   label,
   nodes,
   idleCaption,
+  controls,
   children,
 }: {
   /** Names the diagram for assistive technology. */
   label: string;
   nodes: readonly DiagramNode[];
   idleCaption: ReactNode;
+  /** Shown at the end of the chip row, such as a switch that changes what the diagram draws. */
+  controls?: ReactNode;
   children: (selection: DiagramSelection) => ReactNode;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
@@ -77,6 +80,12 @@ export function Diagram({
     return () => observer.disconnect();
   }, [selected]);
 
+  // A node can leave the diagram, as Marfa Cloud does when its switch is off.
+  // Its selection goes with it, or everything else would stay dimmed.
+  useEffect(() => {
+    if (selected !== null && !nodes.some((node) => node.id === selected)) setSelected(null);
+  }, [nodes, selected]);
+
   const selection: DiagramSelection = {
     selected,
     stateOf: (id) => (selected === null ? 'idle' : selected === id ? 'on' : 'off'),
@@ -100,18 +109,21 @@ export function Diagram({
       data-selected={selected ?? undefined}
       onKeyDown={onKeyDown}
     >
-      <div className="marfa-diagram-chips" role="group" aria-label={`${label}: choose a piece`}>
-        {nodes.map((node) => (
-          <button
-            key={node.id}
-            type="button"
-            className="marfa-diagram-chip"
-            aria-pressed={selected === node.id}
-            onClick={() => selection.toggle(node.id)}
-          >
-            {node.label}
-          </button>
-        ))}
+      <div className="marfa-diagram-head">
+        <div className="marfa-diagram-chips" role="group" aria-label={`${label}: choose a piece`}>
+          {nodes.map((node) => (
+            <button
+              key={node.id}
+              type="button"
+              className="marfa-diagram-chip"
+              aria-pressed={selected === node.id}
+              onClick={() => selection.toggle(node.id)}
+            >
+              {node.label}
+            </button>
+          ))}
+        </div>
+        {controls}
       </div>
 
       <div className="marfa-diagram-canvas">{children(selection)}</div>
@@ -169,6 +181,32 @@ export function DiagramBox({
       </div>
       <div className="marfa-diagram-box-summary">{node.summary}</div>
     </div>
+  );
+}
+
+/** An on and off switch for the diagram's chip row. */
+export function DiagramSwitch({
+  checked,
+  onChange,
+  children,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      className="marfa-diagram-switch"
+      onClick={() => onChange(!checked)}
+    >
+      <span className="marfa-diagram-switch-track" aria-hidden="true">
+        <span className="marfa-diagram-switch-thumb" />
+      </span>
+      {children}
+    </button>
   );
 }
 
