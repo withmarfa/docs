@@ -4,6 +4,7 @@ import { AccessTree } from './diagrams/access-tree';
 import { ApiMap } from './diagrams/api-map';
 import { ChangeFlow } from './diagrams/change-flow';
 import { ConnectorMap } from './diagrams/connector-map';
+import { DeviceMap } from './diagrams/device-map';
 import { FileMap } from './diagrams/file-map';
 import { InstanceMap } from './diagrams/instance-map';
 import { ItemLifecycle } from './diagrams/item-lifecycle';
@@ -18,6 +19,7 @@ export function getMDXComponents(components?: MDXComponents) {
     ApiMap,
     ChangeFlow,
     ConnectorMap,
+    DeviceMap,
     FileMap,
     InstanceMap,
     ItemLifecycle,
