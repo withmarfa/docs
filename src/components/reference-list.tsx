@@ -6,7 +6,7 @@ function elements(node: ReactNode): WithChildren[] {
   return Children.toArray(node).filter((child): child is WithChildren => isValidElement(child));
 }
 
-/** Every row of the first table under `node`, as the contents of its cells. */
+/** Every table row under `node`, in order, as the contents of its cells. A second table's rows, its header included, follow the first's. */
 export function tableRows(node: ReactNode): ReactNode[][] {
   const rows: ReactNode[][] = [];
   for (const element of elements(node)) {
