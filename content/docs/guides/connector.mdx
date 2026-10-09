@@ -10,8 +10,8 @@ In this tutorial you build a connector for a small reading list service. The con
 You need:
 
 - An instance, and the `marfa` command pointed at it. [Run an instance](/get-started/run-an-instance) starts one, and [The marfa command](/tools/marfa-command) installs the command.
-- A credential on that instance that can mint keys, which the `marfa` command uses.
-- Git, Node 22.12 or later, and pnpm 11.
+- A credential on that instance that holds `keys.mint`, which the `marfa` command uses. A key it mints can hold no more than it does.
+- Git, Node 22.13 or later, and pnpm 11.
 
 <Steps>
 <Step>
@@ -216,8 +216,8 @@ The definition says what the connector is, and `run` says what one pass does:
 
 - **`name`, `description` and `source`** register the connector. `source` labels every item it writes, and with an entry's `source_id` makes the item's natural key.
 - **`types`** lists the type the connector writes and, in `fields`, the properties the service holds. The kit registers the type on the first start and checks it against the instance's on every start.
-- **`env`** names what the connector reads from its environment. A `required` value that is missing stops the start, and a `secret` is also kept out of every log line and report.
-- **`signal`** ends the run when the process is told to stop. Pass it to every call to the vendor, as `fetch` does here, with a time limit of your own beside it.
+- **`env`** names what the connector reads from its environment. A `required` or `secret` value that is missing stops the start, and a `secret` is kept out of every log line and report.
+- **`signal`** ends the run when the process is told to stop, or when the run can no longer trust its hold on the connector. Pass it to every call to the vendor, as `fetch` does here, with a time limit of your own beside it.
 - **`upsert`** takes each entry's `source_id`, its properties and its `occurred_at`. The kit compares the entries with the rows already written and writes only those that changed.
 - **`held` and `archive`** set aside what the service deleted. `held` answers the connector's active rows, and `archive` archives the rows you name by `source_id`. The service here lists every entry it has, so an entry it leaves out is gone. A service that lists only some of what it holds can't be read that way.
 
@@ -247,9 +247,9 @@ marfa keys create --label readlist --source readlist --type-permission readlist.
 - **`--source readlist`** is the source every item written under the key carries.
 - **`--type-permission readlist.entry=write`** gives the key read and write on its one type, and on nothing else.
 - **`--metadata-permission types=write`** lets the connector register its type on its first start and keep it current.
-- **`--default-tier feed`** puts what the key writes in the feed tier.
+- **`--default-tier feed`** is the tier of a write under the key that names none. The kit names `feed` on every row it creates, so this keeps any other write made with the key out of the library too.
 
-The key holds no permission. The command shows the key once, so save it. Don't run the connector on the credential you minted it with: the connector refuses a key that holds more than it needs, and names what to remove. [Keys and permissions](/get-started/keys-and-permissions) explains the parts of a key.
+The key holds no permission. The command shows the key once, so save it. Don't run the connector on the credential you minted it with: the connector refuses a key that holds more than it needs, and names what the key holds beyond that. [Keys and permissions](/get-started/keys-and-permissions) explains the parts of a key.
 
 </Step>
 <Step>
@@ -291,9 +291,11 @@ marfa items list --type readlist.entry
 01a1218c-0dc2-7d9f-8a62-cafae55b0f4d  readlist.entry  2026-09-01T09:00:00.000Z  The Pragmatic Programmer
 ```
 
-The connector's registration shows the run:
+The connector's registration shows the run. A key without `connectors.manage` lists only its own registration, so list it with the connector's key:
 
 ```bash
+MARFA_API_URL=<the address of your instance> \
+MARFA_API_KEY=<the connector's key> \
 marfa connectors list
 ```
 
@@ -301,7 +303,7 @@ marfa connectors list
 01a1218c-0d99-7845-8fc9-379d21db8954  readlist  readlist  succeeded  2026-10-09T16:43:09.138Z  created 2, updated 0, archived 0, unchanged 0, skipped 0
 ```
 
-`marfa connectors runs <connector-id>` lists the last runs, newest first.
+`marfa connectors runs <connector-id>`, with the same key, lists the last runs, newest first.
 
 </Step>
 <Step>
@@ -360,7 +362,7 @@ Run the connector with the wrong token, such as `READLIST_TOKEN=wrong-token`. Th
 2026-10-09T16:43:37.081Z error run failed: the reading list answered 401; created 0, updated 0, archived 0, unchanged 0, skipped 0
 ```
 
-The process exits with code 1, and `marfa connectors list` shows the run as `failed` with the error. A run that fails keeps its place, so the next successful run carries on from where the last one reached. A token shorter than eight characters stops the start with exit code 2 instead, because the kit couldn't keep a value that short out of the logs.
+The process exits with code 1, and `marfa connectors list` shows the run as `failed` with the error. A failed run saves none of the state it set, so the next run starts from where the last successful run left off. A token shorter than eight characters stops the start with exit code 2 instead, because the kit couldn't keep a value that short out of the logs.
 
 </Step>
 </Steps>
