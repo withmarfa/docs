@@ -11,6 +11,10 @@
 #   src/generated/error-codes.md      the contract's table of error codes,
 #                                     written from the server's own code list,
 #                                     included by the Errors page
+#   src/generated/settings.md         the contract's table of the instance's
+#                                     environment settings, written from the
+#                                     server's own setting list, included by
+#                                     the Settings guide
 #   src/generated/marfa-release.json  the latest release tag, shown in the sidebar
 #
 # Reads committed files from a checkout of the monorepo, by default the sibling
@@ -44,7 +48,7 @@ if [ ! -f "$MARFA_ROOT/pnpm-workspace.yaml" ]; then
   exit 1
 fi
 
-for file in openapi.json GLOSSARY.md core/marfa-cli/COMMANDS.md conformance/spec/errors.md; do
+for file in openapi.json GLOSSARY.md core/marfa-cli/COMMANDS.md conformance/spec/errors.md conformance/spec/instance.md; do
   if [ ! -s "$MARFA_ROOT/$file" ]; then
     echo "No $file in $MARFA_ROOT. Nothing has changed." >&2
     exit 1
@@ -70,7 +74,8 @@ CANDIDATE="$(mktemp "${TMPDIR:-/tmp}/marfa-openapi.XXXXXX")"
 OVERVIEW="$(mktemp "${TMPDIR:-/tmp}/marfa-overview.XXXXXX")"
 COMMANDS="$(mktemp "${TMPDIR:-/tmp}/marfa-commands.XXXXXX")"
 ERRORS="$(mktemp "${TMPDIR:-/tmp}/marfa-errors.XXXXXX")"
-cleanup() { rm -f "$CANDIDATE" "$OVERVIEW" "$COMMANDS" "$ERRORS"; }
+SETTINGS="$(mktemp "${TMPDIR:-/tmp}/marfa-settings.XXXXXX")"
+cleanup() { rm -f "$CANDIDATE" "$OVERVIEW" "$COMMANDS" "$ERRORS" "$SETTINGS"; }
 trap cleanup EXIT
 
 # The overview page includes this file under its own level-2 heading, so every
@@ -160,6 +165,33 @@ then
   exit 1
 fi
 
+# The settings table is the part of the instance chapter between its two
+# markers, which the monorepo's CI holds to the server's own list of settings.
+if ! python3 - "$MARFA_ROOT/conformance/spec/instance.md" "$SETTINGS" <<'PY'
+import sys
+
+try:
+    text = open(sys.argv[1], encoding="utf-8").read()
+except UnicodeDecodeError:
+    sys.exit(1)
+start, end = "<!-- settings-table:start -->", "<!-- settings-table:end -->"
+if text.count(start) != 1 or text.count(end) != 1:
+    sys.exit(1)
+rest = text.partition(start)[2]
+if end not in rest:
+    sys.exit(1)
+rows = rest.partition(end)[0].strip().splitlines()
+if len(rows) < 3 or not all(line.startswith("|") for line in rows):
+    sys.exit(1)
+
+with open(sys.argv[2], "w", encoding="utf-8") as out:
+    out.write("\n".join(rows) + "\n")
+PY
+then
+  echo "$MARFA_ROOT/conformance/spec/instance.md is not UTF-8 or has no settings table between its settings-table markers. Nothing has changed." >&2
+  exit 1
+fi
+
 cp "$MARFA_ROOT/openapi.json" "$CANDIDATE"
 mv "$CANDIDATE" "$SPEC"
 
@@ -167,8 +199,9 @@ mkdir -p "$GENERATED"
 mv "$OVERVIEW" "$GENERATED/api-overview.md"
 mv "$COMMANDS" "$GENERATED/marfa-commands.md"
 mv "$ERRORS" "$GENERATED/error-codes.md"
+mv "$SETTINGS" "$GENERATED/settings.md"
 trap - EXIT
 cp "$MARFA_ROOT/GLOSSARY.md" "$GENERATED/GLOSSARY.md"
 printf '{"version":"%s"}\n' "$RELEASE" > "$GENERATED/marfa-release.json"
 
-echo "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes and the release ($RELEASE) synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings and the release ($RELEASE) synced from $MARFA_ROOT"

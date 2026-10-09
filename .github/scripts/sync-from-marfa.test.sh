@@ -7,10 +7,12 @@
 # src/generated/api-overview.md, moving each heading down a level, and the
 # command reference into src/generated/marfa-commands.md, dropping its
 # generated-file comment and its title, and it takes the code table from the
-# errors chapter into src/generated/error-codes.md. A description that is missing, blank or
+# errors chapter into src/generated/error-codes.md and the settings table from
+# the instance chapter into src/generated/settings.md. A description that is missing, blank or
 # the wrong type, a spec whose top level or `info` is not an object, or a
 # command reference that is missing, empty, not UTF-8 or holds nothing past its
-# title, or an errors chapter with no table between its markers, must stop the
+# title, or an errors chapter or an instance chapter with no table between its
+# markers, must stop the
 # script before it changes anything, with one line saying
 # so, never a Python traceback. The script is copied into each fixture so that
 # its docs root is the fixture, and the real tree is never touched.
@@ -96,6 +98,31 @@ errors_expected="$(cat <<'EOF'
 EOF
 )"
 
+# The instance chapter every fixture holds, and the table the script takes from it.
+instance="$(cat <<'EOF'
+# The instance
+
+| Not | This |
+| --- | ---- |
+
+## Settings
+
+<!-- settings-table:start -->
+
+| Setting | Default | Allowed values | What it sets |
+| ------- | ------- | -------------- | ------------ |
+| `PORT`  | `8600`  | Whole number   | The port.    |
+
+<!-- settings-table:end -->
+EOF
+)"
+instance_expected="$(cat <<'EOF'
+| Setting | Default | Allowed values | What it sets |
+| ------- | ------- | -------------- | ------------ |
+| `PORT`  | `8600`  | Whole number   | The port.    |
+EOF
+)"
+
 # fixture <name> <spec file>
 #
 # Builds <name>/docs, holding the script and a stale copy of everything it
@@ -111,6 +138,7 @@ fixture() {
   printf 'stale overview\n' > "${dir}/docs/src/generated/api-overview.md"
   printf 'stale commands\n' > "${dir}/docs/src/generated/marfa-commands.md"
   printf 'stale codes\n' > "${dir}/docs/src/generated/error-codes.md"
+  printf 'stale settings\n' > "${dir}/docs/src/generated/settings.md"
   printf '{"version":"v0.0.0"}\n' > "${dir}/docs/src/generated/marfa-release.json"
 
   cp "$2" "${dir}/marfa/openapi.json"
@@ -119,6 +147,7 @@ fixture() {
   printf '%s\n' "${commands}" > "${dir}/marfa/core/marfa-cli/COMMANDS.md"
   mkdir -p "${dir}/marfa/conformance/spec"
   printf '%s\n' "${errors}" > "${dir}/marfa/conformance/spec/errors.md"
+  printf '%s\n' "${instance}" > "${dir}/marfa/conformance/spec/instance.md"
   : > "${dir}/marfa/pnpm-workspace.yaml"
   git -C "${dir}/marfa" init -q
   git -C "${dir}/marfa" add -A
@@ -212,7 +241,7 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes and the release (v1.2.3) synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings and the release (v1.2.3) synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -224,9 +253,11 @@ check "the command reference loses its comment and title, and nothing else" \
 check "the command reference ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/marfa-commands.md" | tr -d '\n')"
 check "the error codes are the rows between the markers, and nothing else" \
   "${errors_expected}" "$(cat "${work}/good/docs/src/generated/error-codes.md")"
+check "the settings are the rows between the markers, and nothing else" \
+  "${instance_expected}" "$(cat "${work}/good/docs/src/generated/settings.md")"
 check "the release is the latest version tag" '{"version":"v1.2.3"}' "$(cat "${work}/good/docs/src/generated/marfa-release.json")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md error-codes.md marfa-commands.md marfa-release.json" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md error-codes.md marfa-commands.md marfa-release.json settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 # ----------------------------------------------------------------- every refusal
 
@@ -338,6 +369,40 @@ refuse_errors "nothing between the markers" '<!-- errors-table:start -->\n\n<!--
 refuse_errors "a header with no rows" '<!-- errors-table:start -->\n| Code | Status |\n| --- | --- |\n<!-- errors-table:end -->\n'
 refuse_errors "prose between the markers" '<!-- errors-table:start -->\nNot a table.\n| Code | Status |\n| --- | --- |\n| `x` | 400 |\n<!-- errors-table:end -->\n'
 refuse_errors "a chapter that is not UTF-8" '<!-- errors-table:start -->\n| \xff | 400 |\n| --- | --- |\n| `x` | 400 |\n<!-- errors-table:end -->\n'
+
+# refuse_settings <label> <instance chapter text, or "absent" for no file>: the
+# spec, the tag, the command reference and the errors chapter are good, and
+# still nothing is written.
+j=0
+refuse_settings() {
+  j=$((j+1))
+  local name="settings-${j}"
+  fixture "${name}" "${work}/untagged.json"
+  local file="${work}/${name}/marfa/conformance/spec/instance.md"
+  if [ "$2" = absent ]; then rm "${file}"; else printf '%b' "$2" > "${file}"; fi
+  local before; before="$(everything "${name}")"
+  sync "${name}"
+  local message
+  if [ "$2" = absent ] || [ -z "$2" ]; then
+    message="No conformance/spec/instance.md in ${work}/${name}/marfa. Nothing has changed."
+  else
+    message="${work}/${name}/marfa/conformance/spec/instance.md is not UTF-8 or has no settings table between its settings-table markers. Nothing has changed."
+  fi
+  check "${1}: exits 1" 1 "${status}"
+  check "${1}: says so in one line" "${message}" "${out}"
+  check "${1}: shows no traceback" 0 "$(printf '%s' "${out}" | grep -c 'Traceback\|File "' || true)"
+  check "${1}: changes nothing" "${before}" "$(everything "${name}")"
+}
+echo "an instance chapter the script refuses"
+refuse_settings "no instance chapter" absent
+refuse_settings "an empty instance chapter" ''
+refuse_settings "no markers" '# The instance\n\n| Setting | Default |\n| --- | --- |\n| `PORT` | `8600` |\n'
+refuse_settings "no end marker" '<!-- settings-table:start -->\n| Setting | Default |\n| --- | --- |\n| `PORT` | `8600` |\n'
+refuse_settings "the markers in the wrong order" '<!-- settings-table:end -->\n| Setting | Default |\n| --- | --- |\n| `PORT` | `8600` |\n<!-- settings-table:start -->\n'
+refuse_settings "nothing between the markers" '<!-- settings-table:start -->\n\n<!-- settings-table:end -->\n'
+refuse_settings "a header with no rows" '<!-- settings-table:start -->\n| Setting | Default |\n| --- | --- |\n<!-- settings-table:end -->\n'
+refuse_settings "prose between the markers" '<!-- settings-table:start -->\nNot a table.\n| Setting | Default |\n| --- | --- |\n| `PORT` | `8600` |\n<!-- settings-table:end -->\n'
+refuse_settings "a chapter that is not UTF-8" '<!-- settings-table:start -->\n| \xff | 8600 |\n| --- | --- |\n| `PORT` | `8600` |\n<!-- settings-table:end -->\n'
 
 echo "the workflow"
 check "CI runs this test" 1 "$(grep -cF 'run: bash .github/scripts/sync-from-marfa.test.sh' "${here}/../workflows/ci.yml")"
