@@ -1,12 +1,377 @@
 ---
 title: Build a connector
-description: A connector that brings items in from another service, built on the kit.
+description: Build a connector from the template in marfa-connectors that reads a vendor and writes its records to an instance as items, then run it.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+import { Step, Steps } from 'fumadocs-ui/components/steps';
 
-Planned topics:
+In this tutorial you build a connector for a small reading list service. The connector registers itself with your instance, reads the list, writes each entry as an item, archives an entry the service drops, and reports the run. The connector is one short file, because the connector kit does the rest. [Connectors](/get-started/connectors) explains what the instance keeps for a connector, and [Pull and push](/guides/connector-pull-and-push) describes the requests the kit makes.
 
-- Starting from the template.
-- Pulling from a vendor and writing items.
-- Running it against an instance.
+You need:
+
+- An instance, and the `marfa` command pointed at it. [Run an instance](/get-started/run-an-instance) starts one, and [The marfa command](/tools/marfa-command) installs the command.
+- A credential on that instance that can mint keys, which the `marfa` command uses.
+- Git, Node 22.13 or later, and pnpm 11.
+
+<Steps>
+<Step>
+
+### Get the kit and the template
+
+The [marfa-connectors](https://github.com/withmarfa/marfa-connectors) repository holds the kit, `@withmarfa/connector`, a template to copy, and the connectors Marfa ships. Clone it and build the kit:
+
+```bash
+git clone https://github.com/withmarfa/marfa-connectors
+cd marfa-connectors
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+</Step>
+<Step>
+
+### Start a reading list to read
+
+A connector needs a vendor. This one is a stand-in that serves a list from a file, so you can change the list and see the connector follow. In a new folder outside the checkout, save the list as `entries.json`:
+
+```json
+[
+  {
+    "id": "1",
+    "title": "The Pragmatic Programmer",
+    "url": "https://example.com/pragmatic",
+    "author": "Hunt and Thomas",
+    "added": "2026-09-01T09:00:00Z"
+  },
+  {
+    "id": "2",
+    "title": "A Philosophy of Software Design",
+    "url": "https://example.com/philosophy",
+    "author": "Ousterhout",
+    "added": "2026-09-03T18:30:00Z"
+  }
+]
+```
+
+Save the service as `vendor.mjs` beside it:
+
+```js
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+
+createServer(async (request, response) => {
+  if (request.headers.authorization !== "Bearer demo-token") {
+    response.writeHead(401).end();
+    return;
+  }
+  if (request.method === "GET" && request.url === "/entries") {
+    const entries = JSON.parse(await readFile("entries.json", "utf8"));
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ account: "demo", entries }));
+    return;
+  }
+  response.writeHead(404).end();
+}).listen(4100, "127.0.0.1", () => {
+  console.log("The reading list is at http://127.0.0.1:4100");
+});
+```
+
+Run it, and leave it running:
+
+```bash
+node vendor.mjs
+```
+
+The service answers `GET /entries` with `{ account, entries }` for the token `demo-token`, and nothing else.
+
+</Step>
+<Step>
+
+### Copy the template
+
+From the checkout, copy the template's package, build settings and source into a folder for your connector. The template's `test` folder runs its example against a scripted server, and you leave it out here:
+
+```bash
+mkdir connectors/readlist
+cp -R template/connector/package.json template/connector/tsconfig.json template/connector/src connectors/readlist/
+rm connectors/readlist/src/example.item.json
+```
+
+In `connectors/readlist/package.json`, change `"name": "example"` to `"name": "readlist"`. Then add the folder to the references in the root `tsconfig.json`, after the `rss` line, so that `pnpm build` builds it:
+
+```json
+{ "path": "connectors/readlist" },
+```
+
+</Step>
+<Step>
+
+### Describe the type
+
+A connector writes items of a type of its own. Save this as `connectors/readlist/src/readlist.entry.json`:
+
+```json
+{
+  "id": "readlist.entry",
+  "label": "Reading List Entry",
+  "description": "An entry from the reading list service.",
+  "parent": "core.bookmark",
+  "fields": {
+    "entry_id": {
+      "type": "string",
+      "required": true,
+      "description": "The entry's id in the reading list service."
+    }
+  },
+  "display_hints": { "title_field": "title" }
+}
+```
+
+The type inherits from `core.bookmark`, so an entry already has `title`, `url` and `author`, and a person or an app can promote it into a bookmark in the library. The type adds only what the service holds that a bookmark doesn't: the entry's own ID. [Define a type](/guides/define-a-type) explains the rest.
+
+</Step>
+<Step>
+
+### Write the connector
+
+Replace `connectors/readlist/src/main.ts` with:
+
+```ts
+import {
+  defineConnector,
+  main,
+  type Entry,
+  type TypeDefinition,
+} from "@withmarfa/connector";
+import readlistEntry from "./readlist.entry.json" with { type: "json" };
+
+interface VendorEntry {
+  id: string;
+  title: string;
+  url?: string;
+  author?: string;
+  added: string;
+}
+
+const connector = defineConnector({
+  name: "readlist",
+  description: "Entries from a reading list service.",
+  source: "readlist",
+  types: [
+    {
+      type: readlistEntry as TypeDefinition,
+      fields: ["entry_id", "title", "url", "author"],
+    },
+  ],
+  env: {
+    READLIST_URL: "required",
+    READLIST_TOKEN: "secret",
+  },
+  async run({ env, signal, upsert, archive, held }) {
+    const base = env.READLIST_URL.replace(/\/+$/, "");
+    const response = await fetch(`${base}/entries`, {
+      headers: { Authorization: `Bearer ${env.READLIST_TOKEN}` },
+      signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+    });
+    if (!response.ok) {
+      throw new Error(`the reading list answered ${String(response.status)}`);
+    }
+    const { account, entries } = (await response.json()) as {
+      account: string;
+      entries: VendorEntry[];
+    };
+
+    // The account goes inside the source ID, so two accounts under one
+    // source never share a row.
+    const key = (entry: VendorEntry): string => `${account}:${entry.id}`;
+
+    await upsert(
+      readlistEntry.id,
+      entries.map((entry): Entry => ({
+        source_id: key(entry),
+        properties: {
+          entry_id: entry.id,
+          title: entry.title,
+          url: entry.url,
+          author: entry.author,
+        },
+        occurred_at: entry.added,
+      })),
+    );
+
+    // This service lists every entry it has, so a row it no longer lists
+    // was deleted there.
+    const listed = new Set(entries.map(key));
+    const gone = (await held(readlistEntry.id))
+      .map((row) => row.source_id)
+      .filter((id): id is string => id !== undefined && !listed.has(id));
+    await archive(readlistEntry.id, gone);
+  },
+});
+
+await main(connector);
+```
+
+The definition says what the connector is, and `run` says what one pass does:
+
+- **`name`, `description` and `source`** register the connector. `source` labels every item it writes, and with an entry's `source_id` makes the item's natural key.
+- **`types`** lists the type the connector writes and, in `fields`, the properties the service holds. The kit registers the type on the first start and checks it against the instance's on every start.
+- **`env`** names what the connector reads from its environment. A `required` value that is missing stops the start, and a `secret` is also kept out of every log line and report.
+- **`signal`** ends the run when the process is told to stop. Pass it to every call to the vendor, as `fetch` does here, with a time limit of your own beside it.
+- **`upsert`** takes each entry's `source_id`, its properties and its `occurred_at`. The kit compares the entries with the rows already written and writes only those that changed.
+- **`held` and `archive`** set aside what the service deleted. `held` answers the connector's active rows, and `archive` archives the rows you name by `source_id`. The service here lists every entry it has, so an entry it leaves out is gone. A service that lists only some of what it holds can't be read that way.
+
+</Step>
+<Step>
+
+### Build it
+
+Installing links the new folder into the workspace and adds it to `pnpm-lock.yaml`:
+
+```bash
+pnpm install
+pnpm build
+```
+
+</Step>
+<Step>
+
+### Mint the connector's key
+
+A connector runs on a key of its own, with only the reach it needs. Mint it with the `marfa` command, using your credential that can mint keys:
+
+```bash
+marfa keys create --label readlist --source readlist --type-permission readlist.entry=write --metadata-permission types=write --default-tier feed
+```
+
+- **`--source readlist`** is the source every item written under the key carries.
+- **`--type-permission readlist.entry=write`** gives the key read and write on its one type, and on nothing else.
+- **`--metadata-permission types=write`** lets the connector register its type on its first start and keep it current.
+- **`--default-tier feed`** puts what the key writes in the feed tier.
+
+The key holds no permission. The command shows the key once, so save it. Don't run the connector on the credential you minted it with: the connector refuses a key that holds more than it needs, and names what to remove. [Keys and permissions](/get-started/keys-and-permissions) explains the parts of a key.
+
+</Step>
+<Step>
+
+### Run it
+
+Run the connector once. Set the connector's key and the instance's address on this command alone, so they don't replace the credential your `marfa` command uses:
+
+```bash
+MARFA_API_URL=<the address of your instance> \
+MARFA_API_KEY=<the connector's key> \
+READLIST_URL=http://127.0.0.1:4100 \
+READLIST_TOKEN=demo-token \
+node connectors/readlist/dist/main.js --once
+```
+
+The connector registers, runs, reports the run and exits:
+
+```text
+2026-10-09T16:43:09.096Z info registered as 01a1218c-0d99-7845-8fc9-379d21db8954
+2026-10-09T16:43:09.138Z info run succeeded: created 2, updated 0, archived 0, unchanged 0, skipped 0
+```
+
+The exit code is `0` for a run that succeeded, `1` for a run that failed or a start that could not complete, and `2` for a missing or malformed setting.
+
+</Step>
+<Step>
+
+### See what it wrote
+
+With your own credential, list the items:
+
+```bash
+marfa items list --type readlist.entry
+```
+
+```text
+01a1218c-0dc7-78a6-9c5d-5d0d059ef322  readlist.entry  2026-09-03T18:30:00.000Z  A Philosophy of Software Design
+01a1218c-0dc2-7d9f-8a62-cafae55b0f4d  readlist.entry  2026-09-01T09:00:00.000Z  The Pragmatic Programmer
+```
+
+The connector's registration shows the run:
+
+```bash
+marfa connectors list
+```
+
+```text
+01a1218c-0d99-7845-8fc9-379d21db8954  readlist  readlist  succeeded  2026-10-09T16:43:09.138Z  created 2, updated 0, archived 0, unchanged 0, skipped 0
+```
+
+`marfa connectors runs <connector-id>` lists the last runs, newest first.
+
+</Step>
+<Step>
+
+### Change the list and run again
+
+Edit `entries.json`: retitle entry 1, delete entry 2, and add entry 3.
+
+```json
+[
+  {
+    "id": "1",
+    "title": "The Pragmatic Programmer, 20th anniversary edition",
+    "url": "https://example.com/pragmatic",
+    "author": "Hunt and Thomas",
+    "added": "2026-09-01T09:00:00Z"
+  },
+  {
+    "id": "3",
+    "title": "Designing Data-Intensive Applications",
+    "url": "https://example.com/ddia",
+    "author": "Kleppmann",
+    "added": "2026-10-02T07:15:00Z"
+  }
+]
+```
+
+Run the same command. The report says what changed:
+
+```text
+2026-10-09T16:43:26.600Z info run succeeded: created 1, updated 1, archived 1, unchanged 0, skipped 0
+```
+
+List the items in every state to see the archived entry:
+
+```bash
+marfa items list --type readlist.entry --state any
+```
+
+```text
+01a1218c-51fb-7d2a-b2cb-816bec224509  readlist.entry  2026-10-02T07:15:00.000Z  Designing Data-Intensive Applications
+01a1218c-0dc7-78a6-9c5d-5d0d059ef322  readlist.entry  2026-09-03T18:30:00.000Z  A Philosophy of Software Design                     [archived]
+01a1218c-0dc2-7d9f-8a62-cafae55b0f4d  readlist.entry  2026-09-01T09:00:00.000Z  The Pragmatic Programmer, 20th anniversary edition
+```
+
+Run it a third time with no change to the list, and every row is `unchanged`: the connector writes nothing, so the items' versions don't move.
+
+</Step>
+<Step>
+
+### See a run fail
+
+Run the connector with the wrong token, such as `READLIST_TOKEN=wrong-token`. The service answers `401`, and the run fails:
+
+```text
+2026-10-09T16:43:37.081Z error run failed: the reading list answered 401; created 0, updated 0, archived 0, unchanged 0, skipped 0
+```
+
+The process exits with code 1, and `marfa connectors list` shows the run as `failed` with the error. A run that fails keeps its place, so the next successful run carries on from where the last one reached. A token shorter than eight characters stops the start with exit code 2 instead, because the kit couldn't keep a value that short out of the logs.
+
+</Step>
+</Steps>
+
+## Keep going
+
+The connector reads one way. A change made in Marfa to a field it writes, such as a retitled entry, is put back on the next run, because the service is the source of truth. To run it on a schedule, use `--every 15m` for a long-lived process, or run `--once` from launchd, cron or a container. The template's README, in the checkout at `template/README.md`, covers both.
+
+From here:
+
+- [Pull and push](/guides/connector-pull-and-push) adds `onChange` and a `link_field`, so changes made in Marfa reach the vendor.
+- [Receive vendor webhooks](/guides/connector-webhooks) adds an `inbound` section, so the vendor can tell the connector at once.
+- [Holds and retries](/guides/connector-holds-and-retries) explains how the kit keeps one process running at a time, and what it keeps on the instance.
+- The `rss`, `todoist` and `github` folders in `connectors/` are complete connectors to read.
