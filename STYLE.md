@@ -35,7 +35,7 @@ The sources of truth, in withmarfa/marfa:
 
 Check every Marfa name, field, error code and rule on a page against them before it's published, including the values in code samples. If the sources disagree, don't choose one for the page: raise the disagreement with the owners of the contract.
 
-Link to the contract chapter a page draws on. Where a reader needs one exact rule, link to it by its ID, such as `blobs/lend-earlier-version`. Never cite a statement number, such as "items.md 7": the contract has none.
+Link to the contract chapter a page draws on. Where a reader needs one exact rule, link to its heading, which is its ID, such as [`blobs/lend-earlier-version`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/blobs.md#blobslend-earlier-version). Never cite a statement number, such as "items.md 7": the contract has none.
 
 Don't restate what the API reference already says. A page explains what the reference can't: how the pieces fit, the order to do things in, and the rule behind a behavior. Then it links to the operation.
 
