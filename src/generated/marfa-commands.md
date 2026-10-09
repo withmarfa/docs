@@ -22,6 +22,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -77,6 +80,39 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
+Output:
+      --json
+          Print the answer as JSON, and a refusal as one JSON object on stderr
+```
+
+## metrics
+
+### marfa metrics
+
+```text
+Instance-wide counters and process uptime. Needs `instance.read`
+
+Usage: marfa metrics [OPTIONS]
+
+Options:
+  -h, --help
+          Print help
+
+Server:
+      --url <URL>
+          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
+          made current
+
+      --key <KEY>
+          A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
+          file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -103,6 +139,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -145,6 +184,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -172,24 +214,28 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
 ```
 
-## owner
+## setup
 
-### marfa owner
+### marfa setup
 
 ```text
-The owner: the one account behind the sign-in surface
+Claim a new instance, obtain a setup code, or open a browser handoff
 
-Usage: marfa owner [OPTIONS] <COMMAND>
+Usage: marfa setup [OPTIONS] <COMMAND>
 
 Commands:
-  show    Who owns this instance. Operator key
-  create  Create the owner, once. The password is asked for on the terminal, or read from stdin with
-          --password-stdin; it is never an argument. Operator key
+  status  Show whether this instance has been claimed (private socket required)
+  code    Replace the setup code and invalidate earlier setup sessions (private socket required)
+  open    Issue a single-use browser handoff and open it (private socket required)
+  claim   Claim the instance. Password and remote setup code use hidden prompts or structured stdin
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -205,6 +251,168 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
+Output:
+      --json
+          Print the answer as JSON, and a refusal as one JSON object on stderr
+```
+
+### marfa setup status
+
+```text
+Show whether this instance has been claimed (private socket required)
+
+Usage: marfa setup status [OPTIONS]
+
+Options:
+  -h, --help
+          Print help
+
+Server:
+      --url <URL>
+          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
+          made current
+
+      --key <KEY>
+          A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
+          file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
+Output:
+      --json
+          Print the answer as JSON, and a refusal as one JSON object on stderr
+```
+
+### marfa setup code
+
+```text
+Replace the setup code and invalidate earlier setup sessions (private socket required)
+
+Usage: marfa setup code [OPTIONS]
+
+Options:
+  -h, --help
+          Print help
+
+Server:
+      --url <URL>
+          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
+          made current
+
+      --key <KEY>
+          A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
+          file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
+Output:
+      --json
+          Print the answer as JSON, and a refusal as one JSON object on stderr
+```
+
+### marfa setup open
+
+```text
+Issue a single-use browser handoff and open it (private socket required)
+
+Usage: marfa setup open [OPTIONS]
+
+Options:
+      --no-browser
+          Print the handoff link without opening a browser
+
+  -h, --help
+          Print help
+
+Server:
+      --url <URL>
+          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
+          made current
+
+      --key <KEY>
+          A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
+          file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
+Output:
+      --json
+          Print the answer as JSON, and a refusal as one JSON object on stderr
+```
+
+### marfa setup claim
+
+```text
+Claim the instance. Password and remote setup code use hidden prompts or structured stdin
+
+Usage: marfa setup claim [OPTIONS]
+
+Options:
+      --email <EMAIL>
+          The owner's email address. Required when using terminal prompts
+
+      --name <NAME>
+          The owner's display name
+
+      --stdin
+          Read JSON containing email, password, optional name, and code for a remote claim
+
+  -h, --help
+          Print help
+
+Server:
+      --url <URL>
+          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
+          made current
+
+      --key <KEY>
+          A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
+          file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
+Output:
+      --json
+          Print the answer as JSON, and a refusal as one JSON object on stderr
+```
+
+## owner
+
+### marfa owner
+
+```text
+The owner: the one account behind the sign-in surface
+
+Usage: marfa owner [OPTIONS] <COMMAND>
+
+Commands:
+  show     Show the instance's owner
+  recover  Recover the owner's password using private machine authority; revoke browser sessions
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help
+          Print help
+
+Server:
+      --url <URL>
+          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
+          made current
+
+      --key <KEY>
+          A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
+          file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -213,7 +421,7 @@ Output:
 ### marfa owner show
 
 ```text
-Who owns this instance. Operator key
+Show the instance's owner
 
 Usage: marfa owner show [OPTIONS]
 
@@ -230,28 +438,24 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
 ```
 
-### marfa owner create
+### marfa owner recover
 
 ```text
-Create the owner, once. The password is asked for on the terminal, or read from stdin with
---password-stdin; it is never an argument. Operator key
+Recover the owner's password using private machine authority; revoke browser sessions
 
-Usage: marfa owner create [OPTIONS] --email <EMAIL>
+Usage: marfa owner recover [OPTIONS]
 
 Options:
-      --email <EMAIL>
-          The owner's email address, which is what they sign in with
-
-      --name <NAME>
-          A display name. The address's local part when absent
-
-      --password-stdin
-          Read the password from stdin (the first line) instead of the terminal
+      --stdin
+          Read a JSON object containing password from standard input instead of a hidden prompt
 
   -h, --help
           Print help
@@ -264,6 +468,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -319,6 +526,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -398,6 +608,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -429,6 +642,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -499,6 +715,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -572,6 +791,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -605,6 +827,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -637,6 +862,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -676,6 +904,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -708,6 +939,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -745,6 +979,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -777,6 +1014,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -808,6 +1048,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -847,6 +1090,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -884,6 +1130,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -932,6 +1181,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -975,6 +1227,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1004,6 +1259,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -1038,6 +1296,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -1079,6 +1340,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1110,6 +1374,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -1154,6 +1421,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1195,6 +1465,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1232,6 +1505,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -1300,6 +1576,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1365,6 +1644,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -1434,6 +1716,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1501,6 +1786,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1565,6 +1853,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -1631,6 +1922,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1660,6 +1954,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1688,6 +1985,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -1724,6 +2024,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -1765,6 +2068,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1793,6 +2099,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -1837,6 +2146,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -1883,6 +2195,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1915,6 +2230,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -1953,6 +2271,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -1988,6 +2309,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2012,6 +2336,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2045,6 +2372,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2075,6 +2405,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2098,8 +2431,9 @@ Commands:
             and `schema.write` or `metadata.types:write`
   delete    Remove a registered type. Needs `schema.write` and write on the type in the key's type
             map
-  drift     Shipped types this instance carries that the build no longer does. Operator only
-  prune     Remove one shipped type the build no longer carries. Operator only
+  drift     Shipped types this instance carries that the build no longer does. Requires
+            `instance.read`
+  prune     Remove one shipped type the build no longer carries. Requires `instance.maintain`
   help      Print this message or the help of the given subcommand(s)
 
 Options:
@@ -2114,6 +2448,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2139,6 +2476,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2168,6 +2508,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2200,6 +2543,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2241,6 +2587,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2273,6 +2622,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2281,7 +2633,7 @@ Output:
 ### marfa types drift
 
 ```text
-Shipped types this instance carries that the build no longer does. Operator only
+Shipped types this instance carries that the build no longer does. Requires `instance.read`
 
 Usage: marfa types drift [OPTIONS]
 
@@ -2298,6 +2650,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2306,7 +2661,7 @@ Output:
 ### marfa types prune
 
 ```text
-Remove one shipped type the build no longer carries. Operator only
+Remove one shipped type the build no longer carries. Requires `instance.maintain`
 
 Usage: marfa types prune [OPTIONS] <ID>
 
@@ -2326,6 +2681,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2392,6 +2750,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2426,6 +2787,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2454,6 +2818,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2487,6 +2854,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2519,6 +2889,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2543,6 +2916,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2578,6 +2954,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2606,6 +2985,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2638,6 +3020,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2677,6 +3062,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2709,6 +3097,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2728,12 +3119,13 @@ Commands:
   download         Fetch a blob's bytes
   url              A time-limited link that fetches a blob without the API in between
   stores           Every store the instance has attached, and the copies a blob keeps at the least.
-                   Operator key only
+                   Requires `blobs.manage`
   locations        The stores recorded as holding one blob's bytes, and when each copy was last
                    found intact
-  delete-location  Remove one store's copy of a blob, where enough live copies remain. Operator key
-                   only
-  orphans          The blobs the last orphan sweep found nothing referencing. Operator key only
+  delete-location  Remove one store's copy of a blob, where enough live copies remain. Requires
+                   `blobs.manage`
+  orphans          The blobs the last orphan sweep found nothing referencing. Requires
+                   `blobs.manage`
   help             Print this message or the help of the given subcommand(s)
 
 Options:
@@ -2748,6 +3140,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2781,6 +3176,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2812,6 +3210,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2845,6 +3246,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2853,7 +3257,8 @@ Output:
 ### marfa blobs stores
 
 ```text
-Every store the instance has attached, and the copies a blob keeps at the least. Operator key only
+Every store the instance has attached, and the copies a blob keeps at the least. Requires
+`blobs.manage`
 
 Usage: marfa blobs stores [OPTIONS]
 
@@ -2869,6 +3274,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -2899,6 +3307,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2907,7 +3318,7 @@ Output:
 ### marfa blobs delete-location
 
 ```text
-Remove one store's copy of a blob, where enough live copies remain. Operator key only
+Remove one store's copy of a blob, where enough live copies remain. Requires `blobs.manage`
 
 Usage: marfa blobs delete-location [OPTIONS] --store <STORE> <HASH>
 
@@ -2931,6 +3342,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2939,7 +3353,7 @@ Output:
 ### marfa blobs orphans
 
 ```text
-The blobs the last orphan sweep found nothing referencing. Operator key only
+The blobs the last orphan sweep found nothing referencing. Requires `blobs.manage`
 
 Usage: marfa blobs orphans [OPTIONS]
 
@@ -2956,6 +3370,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -2971,21 +3388,19 @@ Keys: the credentials that reach the API
 Usage: marfa keys [OPTIONS] <COMMAND>
 
 Commands:
-  bootstrap  Mint a fresh instance's operator key with the one-time secret it printed to its log.
-             The secret is read from `--secret` or from stdin. The operator key is not a working
-             key: the next call is `keys create` with it
-  create     Mint a key. Needs `keys.mint`, or the operator key
-  list       Every key, without plaintext. Needs `keys.mint`, or the operator key
-  current    The key this call bears, without plaintext: what it holds and what it claims. Any key
-             may read itself
-  update     Change a key's label, tier or permission maps. Needs `keys.mint`
-  revoke     Revoke a key; the next request bearing it is refused. Needs `keys.mint`, or the
-             operator key
-  keep       Keep a key for this server in the operating system's keychain, and make this server the
-             one a bare command talks to. The key is read from `--key`, from MARFA_API_KEY, or from
-             stdin; never from a file
-  forget     Forget the key kept for this server
-  help       Print this message or the help of the given subcommand(s)
+  create   Mint a key. Needs `keys.mint` or direct owner/local authority
+  list     List key metadata. Needs `keys.manage` or direct owner/local authority
+  current  The key this call bears, without plaintext: what it holds and what it claims. Any key may
+           read itself
+  update   Change a key's label, tier or permission maps. Needs `keys.manage` or direct owner/local
+           authority
+  revoke   Revoke a key; the next request bearing it is refused. Needs `keys.manage` or direct
+           owner/local authority
+  keep     Keep a key for this server in the operating system's keychain, and make this server the
+           one a bare command talks to. The key is read from `--key`, from MARFA_API_KEY, or from
+           stdin; never from a file
+  forget   Forget the key kept for this server
+  help     Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help
@@ -3000,36 +3415,8 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
-Output:
-      --json
-          Print the answer as JSON, and a refusal as one JSON object on stderr
-```
-
-### marfa keys bootstrap
-
-```text
-Mint a fresh instance's operator key with the one-time secret it printed to its log. The secret is
-read from `--secret` or from stdin. The operator key is not a working key: the next call is `keys
-create` with it
-
-Usage: marfa keys bootstrap [OPTIONS]
-
-Options:
-      --secret <SECRET>
-          The bootstrap secret from the server's log. Left out, it is read from stdin, which keeps
-          it out of the shell's history
-
-  -h, --help
-          Print help
-
-Server:
-      --url <URL>
-          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
-          made current
-
-      --key <KEY>
-          A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
-          file MARFA_KEYCHAIN names, where it names one
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -3039,7 +3426,7 @@ Output:
 ### marfa keys create
 
 ```text
-Mint a key. Needs `keys.mint`, or the operator key.
+Mint a key. Needs `keys.mint` or direct owner/local authority.
 
 The key holds exactly what the flags name. A permission, a map entry or a claim each names a part of
 what it holds, and a part left unnamed is held as nothing. With none named, the key takes the
@@ -3059,7 +3446,8 @@ Options:
           A permission, repeatable
 
           [possible values: schema.write, keys.mint, items.purge, webhooks.manage, config.manage,
-          audit.read, grants.manage]
+          audit.read, grants.manage, instance.read, instance.maintain, connectors.manage,
+          blobs.manage, keys.manage]
 
       --type-permission <PATTERN=LEVEL>
           A type pattern and its level, `core.note=write`, repeatable
@@ -3092,9 +3480,6 @@ Options:
 
           [possible values: library, feed]
 
-      --operator
-          Mint a second operator key, which holds nothing. Operator only
-
       --no-permissions
           A key that holds nothing at all, asked for out loud
 
@@ -3110,6 +3495,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3118,7 +3506,7 @@ Output:
 ### marfa keys list
 
 ```text
-Every key, without plaintext. Needs `keys.mint`, or the operator key
+List key metadata. Needs `keys.manage` or direct owner/local authority
 
 Usage: marfa keys list [OPTIONS]
 
@@ -3134,6 +3522,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -3161,6 +3552,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3169,7 +3563,7 @@ Output:
 ### marfa keys update
 
 ```text
-Change a key's label, tier or permission maps. Needs `keys.mint`
+Change a key's label, tier or permission maps. Needs `keys.manage` or direct owner/local authority
 
 Usage: marfa keys update [OPTIONS] <ID>
 
@@ -3185,7 +3579,8 @@ Options:
           A permission, repeatable
 
           [possible values: schema.write, keys.mint, items.purge, webhooks.manage, config.manage,
-          audit.read, grants.manage]
+          audit.read, grants.manage, instance.read, instance.maintain, connectors.manage,
+          blobs.manage, keys.manage]
 
       --type-permission <PATTERN=LEVEL>
           A type pattern and its level, `core.note=write`, repeatable
@@ -3249,6 +3644,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3257,7 +3655,8 @@ Output:
 ### marfa keys revoke
 
 ```text
-Revoke a key; the next request bearing it is refused. Needs `keys.mint`, or the operator key
+Revoke a key; the next request bearing it is refused. Needs `keys.manage` or direct owner/local
+authority
 
 Usage: marfa keys revoke [OPTIONS] <ID>
 
@@ -3277,6 +3676,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -3304,6 +3706,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3328,6 +3733,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -3362,6 +3770,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3387,6 +3798,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -3418,6 +3832,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -3471,6 +3888,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3481,7 +3901,7 @@ Output:
 ### marfa restore
 
 ```text
-Restore an archive. Operator key only.
+Restore an archive with direct owner or local authority.
 
 Preserves item and edge IDs, created_at and updated_at dates, current versions, tags, extensions,
 and the item's earlier versions carried in the archive. Existing items and their history remain
@@ -3513,6 +3933,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -3551,6 +3974,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3588,6 +4014,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3612,6 +4041,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -3641,6 +4073,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -3686,6 +4121,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3714,6 +4152,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -3747,6 +4188,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3778,6 +4222,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -3827,6 +4274,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3868,6 +4318,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3878,14 +4331,14 @@ Output:
 ### marfa housekeeping
 
 ```text
-The housekeeping jobs the server runs on itself. Operator key only
+The housekeeping jobs the server runs on itself. Explicit management permission required
 
 Usage: marfa housekeeping [OPTIONS] <COMMAND>
 
 Commands:
   list  Every housekeeping job the server runs on itself: its cadence, when it is next due, and what
-        its last run did. Operator key only
-  run   Run one housekeeping job now and report what it did. Operator key only
+        its last run did. Requires `instance.read`
+  run   Run one housekeeping job now and report what it did. Requires `instance.maintain`
   help  Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3901,6 +4354,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3910,7 +4366,7 @@ Output:
 
 ```text
 Every housekeeping job the server runs on itself: its cadence, when it is next due, and what its
-last run did. Operator key only
+last run did. Requires `instance.read`
 
 Usage: marfa housekeeping list [OPTIONS]
 
@@ -3927,6 +4383,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3935,7 +4394,7 @@ Output:
 ### marfa housekeeping run
 
 ```text
-Run one housekeeping job now and report what it did. Operator key only
+Run one housekeeping job now and report what it did. Requires `instance.maintain`
 
 Usage: marfa housekeeping run [OPTIONS] <NAME>
 
@@ -3956,6 +4415,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -3967,7 +4429,7 @@ Output:
 
 ```text
 Processes that write on a key's behalf: registered, heard from, and reporting their runs. A key
-registers itself; the operator key sees every registration and may remove one
+registers itself; `connectors.manage` sees every registration and may remove one
 
 Usage: marfa connectors [OPTIONS] <COMMAND>
 
@@ -3976,7 +4438,7 @@ Commands:
               it has one: the key is the identity
   list        Every registered connector, newest first
   get         One connector's registration
-  delete      Remove a registration. The connector's own key, or the operator key
+  delete      Remove a registration. The connector's own key, or `connectors.manage`
   heartbeat   Say the connector is alive. Its own key only
   report      Report one run of the connector. Its own key only
   runs        The runs a connector has reported, newest first
@@ -4002,6 +4464,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4035,6 +4500,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4059,6 +4527,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4089,6 +4560,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4097,7 +4571,7 @@ Output:
 ### marfa connectors delete
 
 ```text
-Remove a registration. The connector's own key, or the operator key
+Remove a registration. The connector's own key, or `connectors.manage`
 
 Usage: marfa connectors delete [OPTIONS] <ID>
 
@@ -4117,6 +4591,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4146,6 +4623,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4193,6 +4673,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4225,6 +4708,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4238,8 +4724,8 @@ The addresses a sender posts inbound webhooks to
 Usage: marfa connectors endpoints [OPTIONS] <COMMAND>
 
 Commands:
-  create  Make an endpoint. Its address is shown in full this once. The connector's own key, or the
-          operator key
+  create  Make an endpoint. Its address is shown in full this once. The connector's own key, or
+          `connectors.manage`
   list    A connector's endpoints, newest first, each address redacted
   retire  Retire an endpoint: its address stops answering
   help    Print this message or the help of the given subcommand(s)
@@ -4257,6 +4743,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4265,8 +4754,8 @@ Output:
 ### marfa connectors endpoints create
 
 ```text
-Make an endpoint. Its address is shown in full this once. The connector's own key, or the operator
-key
+Make an endpoint. Its address is shown in full this once. The connector's own key, or
+`connectors.manage`
 
 Usage: marfa connectors endpoints create [OPTIONS] <ID>
 
@@ -4293,6 +4782,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4322,6 +4814,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4355,6 +4850,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4385,6 +4883,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4429,6 +4930,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4463,6 +4967,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4501,6 +5008,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4534,6 +5044,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4566,6 +5079,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4581,8 +5097,8 @@ Usage: marfa connectors state [OPTIONS] <COMMAND>
 Commands:
   get     The state document, `{}` until one is written. Its own key only
   put     Replace the state document with a JSON object. Its own key only
-  delete  Remove the state document and every agreement. The connector's own key, or the operator
-          key
+  delete  Remove the state document and every agreement. The connector's own key, or
+          `connectors.manage`
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -4597,6 +5113,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4626,6 +5145,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4665,6 +5187,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4673,7 +5198,7 @@ Output:
 ### marfa connectors state delete
 
 ```text
-Remove the state document and every agreement. The connector's own key, or the operator key
+Remove the state document and every agreement. The connector's own key, or `connectors.manage`
 
 Usage: marfa connectors state delete [OPTIONS] <ID>
 
@@ -4693,6 +5218,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4724,6 +5252,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4763,6 +5294,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4794,6 +5328,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4835,6 +5372,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4861,6 +5401,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -4929,6 +5472,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -4975,6 +5521,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -5014,6 +5563,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -5052,6 +5604,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -5085,6 +5640,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -5125,6 +5683,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -5162,6 +5723,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -5222,6 +5786,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -5311,6 +5878,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -5348,6 +5918,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -5414,6 +5987,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -5479,6 +6055,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -5516,6 +6095,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -5560,6 +6142,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -5607,6 +6192,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -5645,6 +6233,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -5688,6 +6279,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -5745,6 +6339,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -5754,7 +6351,11 @@ Output:
 
 ```text
 Attach a file to an item: its upload, a file item naming the bytes, and an `attached-to` edge, three
-queued writes
+queued writes.
+
+Answers the text that embeds the file in the item's body, `![[title]]`, where the file's title names
+it alone among the item's attachments. Under --json the answer is one object: `upload`, `item` and
+`edge`, each a queued write, and `embed`, the text or null.
 
 Usage: marfa device items attach [OPTIONS] <ID> <FILE>
 
@@ -5790,7 +6391,7 @@ Options:
           [possible values: library, feed]
 
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
 
 Server:
       --url <URL>
@@ -5800,6 +6401,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -5839,6 +6443,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -5882,6 +6489,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -5923,6 +6533,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -5967,6 +6580,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6038,6 +6654,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6116,6 +6735,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -6158,6 +6780,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -6195,6 +6820,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6265,6 +6893,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -6298,6 +6929,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6336,6 +6970,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -6372,6 +7009,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6413,6 +7053,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6458,6 +7101,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -6500,6 +7146,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -6533,6 +7182,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6579,6 +7231,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -6612,6 +7267,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6647,6 +7305,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6685,6 +7346,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6730,6 +7394,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -6764,6 +7431,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6806,6 +7476,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -6839,6 +7512,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6874,6 +7550,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6912,6 +7591,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -6955,6 +7637,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -6993,6 +7678,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7030,6 +7718,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -7081,6 +7772,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -7134,6 +7828,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7171,6 +7868,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -7210,6 +7910,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -7252,6 +7955,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7293,6 +7999,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7331,6 +8040,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -7373,6 +8085,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7414,6 +8129,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7452,6 +8170,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -7499,6 +8220,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7540,6 +8264,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7579,6 +8306,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -7621,6 +8351,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7658,6 +8391,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -7711,6 +8447,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7748,6 +8487,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7773,6 +8515,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -7805,6 +8550,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7833,6 +8581,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -7864,6 +8615,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7894,6 +8648,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7922,6 +8679,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -7952,6 +8712,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -7981,6 +8744,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -8009,6 +8775,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -8070,6 +8839,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -8139,6 +8911,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -8172,6 +8947,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -8203,6 +8981,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json
@@ -8250,6 +9031,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -8287,6 +9071,9 @@ Server:
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
 
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
 Output:
       --json
           Print the answer as JSON, and a refusal as one JSON object on stderr
@@ -8311,6 +9098,9 @@ Server:
       --key <KEY>
           A key or a token for that server. Falls back to MARFA_API_KEY, then to the keychain: the
           file MARFA_KEYCHAIN names, where it names one
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
 
 Output:
       --json

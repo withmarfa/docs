@@ -139,7 +139,7 @@ export const pieces: readonly FilePiece[] = [
     summary: 'Gets every upload',
     operation: { tag: 'Blobs', operationId: 'listBlobStores', name: 'List blob stores' },
     before: 'The directory beside the server, which every instance has.',
-    after: 'lists it for the operator key beside any other store, and every upload is written to it.',
+    after: 'lists it beside any other store, and every upload is written to it.',
   }),
   piece({
     id: 'object-store',
