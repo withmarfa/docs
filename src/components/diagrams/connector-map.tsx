@@ -15,7 +15,7 @@ import { Diagram, DiagramBox, DiagramWire, type DiagramNode, type DiagramState }
 import { operationHref, type Operation } from './item-layers';
 
 /** Where a piece lives, and so what it belongs to. */
-export type Place = 'outside' | 'key' | 'source' | 'data';
+export type Place = 'outside' | 'registration' | 'source' | 'data';
 
 export type ConnectorPiece = DiagramNode & {
   place: Place;
@@ -73,7 +73,7 @@ export const pieces: readonly ConnectorPiece[] = [
   }),
   piece({
     id: 'registration',
-    place: 'key',
+    place: 'registration',
     label: 'Registration',
     icon: IdCard,
     summary: 'Heartbeat and runs',
@@ -83,7 +83,7 @@ export const pieces: readonly ConnectorPiece[] = [
   }),
   piece({
     id: 'hold',
-    place: 'key',
+    place: 'registration',
     label: 'Hold',
     icon: Lock,
     summary: 'One at a time',
@@ -91,6 +91,36 @@ export const pieces: readonly ConnectorPiece[] = [
     before:
       'A lock on the registration that one process takes under a name it chose. Only the process that holds a live hold writes the state document or the agreements, and the hold lapses when the process stops renewing it.',
     after: 'takes the hold for a process, and the same request renews it.',
+  }),
+  piece({
+    id: 'endpoint',
+    place: 'registration',
+    label: 'Endpoint',
+    icon: Webhook,
+    summary: 'Vendor posts here',
+    operation: {
+      tag: 'Connectors',
+      operationId: 'createInboundEndpoint',
+      name: 'Create a webhook endpoint',
+    },
+    before:
+      'An address on the instance where the vendor posts without a credential: the address is the credential. A registration holds at most ten live endpoints.',
+    after: 'shows the address in full once.',
+  }),
+  piece({
+    id: 'deliveries',
+    place: 'registration',
+    label: 'Deliveries',
+    icon: Inbox,
+    summary: 'Stored as they came',
+    operation: {
+      tag: 'Connectors',
+      operationId: 'listInboundDeliveries',
+      name: 'List inbound deliveries',
+    },
+    before:
+      'Each request an endpoint received, kept byte for byte. Marfa never checks or acts on one: the connector checks it came from the vendor and marks it handled.',
+    after: 'lists them, oldest first.',
   }),
   piece({
     id: 'state',
@@ -130,38 +160,8 @@ export const pieces: readonly ConnectorPiece[] = [
     summary: 'The rows it writes',
     operation: { tag: 'Items', operationId: 'bulkUpsertItems', name: 'Upsert items in bulk' },
     before:
-      'What the connector brings in: items at the feed tier, under its source, each found again by its source ID. A person or an app promotes an item into the library.',
+      'What the connector brings in: items under its source, each found again by its source ID. A connector names the feed tier for them, and a person or an app promotes an item into the library.',
     after: 'writes up to 5,000 at a time.',
-  }),
-  piece({
-    id: 'endpoint',
-    place: 'data',
-    label: 'Endpoint',
-    icon: Webhook,
-    summary: 'Vendor posts here',
-    operation: {
-      tag: 'Connectors',
-      operationId: 'createInboundEndpoint',
-      name: 'Create a webhook endpoint',
-    },
-    before:
-      'An address on the instance where the vendor posts without a credential: the address is the credential. A registration holds at most ten live endpoints.',
-    after: 'shows the address in full once.',
-  }),
-  piece({
-    id: 'deliveries',
-    place: 'data',
-    label: 'Deliveries',
-    icon: Inbox,
-    summary: 'Stored as they came',
-    operation: {
-      tag: 'Connectors',
-      operationId: 'listInboundDeliveries',
-      name: 'List inbound deliveries',
-    },
-    before:
-      'Each request an endpoint received, kept byte for byte. Marfa never reads one: the connector checks it came from the vendor and marks it handled.',
-    after: 'lists them, oldest first.',
   }),
 ];
 
@@ -170,16 +170,16 @@ const byId = new Map(pieces.map((p) => [p.id, p]));
 
 /**
  * The connector and its vendor outside the instance, joined by one wire to
- * what the instance keeps: what belongs to the key, what belongs to its
- * source, and what the connector writes or receives. Selecting a piece
- * lights it and the wire, and says what it belongs to.
+ * what the instance keeps: what goes with the registration, what belongs to
+ * its source, and what the connector writes. Selecting a piece
+ * lights it and the wire, and says what it is.
  */
 export function ConnectorMap() {
   return (
     <Diagram
       label="A connector and what the instance keeps for it"
       nodes={pieces}
-      idleCaption="Select a piece to see what it is, what it belongs to, and the operation that makes it."
+      idleCaption="Select a piece to see what it is and the operation that works with it."
     >
       {({ selected, stateOf, toggle }) => {
         const current = selected === null ? undefined : byId.get(selected);
@@ -203,9 +203,9 @@ export function ConnectorMap() {
             <div className="marfa-cm-group">
               <div className="marfa-cm-group-title">On the instance</div>
               <div className="marfa-cm-subs">
-                {group('Belongs to its key', 'key')}
-                {group('Belongs to its source', 'source')}
-                {group('Written and received', 'data')}
+                {group('Its registration', 'registration')}
+                {group('Its source', 'source')}
+                {group('Written under its source', 'data')}
               </div>
             </div>
           </div>

@@ -47,11 +47,12 @@ export const nodes: readonly AccessNode[] = [
     text: (
       <>
         The owner signs in to the instance in the browser, or runs a command through its private
-        socket, and has direct authority to manage the instance: mint keys, approve apps and run
-        maintenance. It reads and writes no items, so the owner mints a key for that.
+        socket, and has direct authority to manage the instance, such as minting keys and running
+        maintenance. In the browser, the owner also approves apps. Direct authority reads and writes
+        no items, so the owner mints a key for that.
       </>
     ),
-    made: 'One claim, with a setup code, makes the owner:',
+    made: 'One claim makes the owner:',
   }),
   node({
     id: 'key',

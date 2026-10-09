@@ -7,12 +7,12 @@ An app built on the [Swift package](/tools/swift-package) is a device, and so is
 
 ## What a device keeps
 
-A device keeps a working copy and a queue, and follows one instance. The instance is the truth: the copy is a copy, not a peer. Select a piece to see what it holds and which operations reach it.
+A device keeps a working copy and a queue, and follows one instance. The instance is the truth: the copy is a copy, not a peer.
 
 <DeviceMap />
 
 - **Instance.** A device reads its items with [List items](/api-reference/items/listItems) to hydrate, follows [Stream change events](/api-reference/event-stream/streamEvents) to catch up, and sends each queued write to the operation that makes it, such as [Update an item](/api-reference/items/updateItem).
-- **Working copy.** A local replica of a **slice** of the instance: the types it names and the types under them, a tier (`library`, `feed` or both), and any edge types the device holds whole. Listings, searches and reads answer from the copy. A **pin** holds one item by ID whatever the slice says of it.
+- **Working copy.** A local replica of a **slice** of the instance: the types it names and the types under them, a tier (`library`, `feed`, or `all` for both), and any edge types the device holds whole. Listings, searches and reads of items answer from the copy. A **pin** holds one item by ID whatever the slice says of it.
 - **Queue.** Every write the device makes shows in the copy at once and waits in the queue until the instance answers it. The queue outlives the process that made it.
 - **Directory.** A folder's files, on a Mac. [Folders](#folders) covers it.
 
@@ -20,18 +20,26 @@ A device keeps a working copy and a queue, and follows one instance. The instanc
 
 A copy is filled once and then kept current from the instance's event log.
 
-- **Hydrate.** The device reads the log's head, then the item listing for each type in the slice, in the slice's tier and in every state, with each item's edges and tags. It then applies the events written while it read. Hydrating replaces the copy and keeps the queue and the pins.
+- **Hydrate.** The device reads the log's head, then the item listing for each type in the slice, in the slice's tier and in every state, with each item's edges, tags and extensions. It then applies the events written while it read. Hydrating replaces the copy and keeps the queue and the pins.
 - **Catch up.** The device opens the event stream at its cursor and takes each event until the stream says it has reached the head. It skips an event older than the item it holds, lets go of an item that has left the slice by type or tier, and adds one that has entered it. Every event, taken or skipped, moves the cursor past it.
 - **Follow.** A device can hold the stream open and apply events as they arrive. A stream that drops opens again from the cursor.
 
-A copy **expires** when it can no longer be kept current from where it stands: the log has dropped the event after its cursor (the instance keeps events for its event log retention), the log ends behind the cursor because the instance was restored from an earlier point, another instance answers at the same address, or the read view the copy was certified under changed. An expired copy refuses reads and writes with `hydration_incomplete` until the next hydration replaces it. The queue survives. [Staying in step](/get-started/staying-in-step) explains the event stream and read views.
+A copy **expires** when it can no longer be kept current from where it stands, for example when:
+
+- The log has dropped the event after its cursor. The instance keeps events for its event log retention.
+- The log ends behind the cursor, because the instance was restored from an earlier point.
+- Another instance answers at the same address.
+- The read view the copy was certified under changed.
+- The credential has ended and can't be renewed.
+
+An expired copy refuses reads and writes with `hydration_incomplete` until the next hydration replaces it. The queue survives. [Staying in step](/get-started/staying-in-step) explains the event stream and read views.
 
 ## Working offline
 
-A copy that has hydrated answers every read with no connection. A device that has never hydrated reads what it holds and still queues writes.
+A copy that has hydrated answers every read of items, edges and types with no connection. A file's bytes are there only once the device has fetched them. A device that has never hydrated reads what it holds and still queues writes.
 
-- **A write is queued the moment it is made.** The queue gives it an idempotency key then, and keeps the same key on every retry, so a retry whose answer was lost doesn't write twice.
-- **Writes go in order.** A drain sends the queue in the order the writes were made. A write to an item waits for the earlier unanswered writes to that item, and a write to an item the device just created waits for the create. A held write goes in the same drain once what it waits for is answered.
+- **A write is queued the moment it is made.** The queue gives it an idempotency key then, and keeps that key on every retry until an app releases the write, so a retry whose answer was lost doesn't write twice.
+- **Writes go in order.** A drain sends the queue in the order the writes were made. A write to an item waits for the earlier unanswered writes to that item, and a write to an item the device just created waits for the create. A held write goes in the same drain once the write it waits for lands. If that write is refused or dead, the held write is refused without being sent.
 - **An unreachable instance costs nothing.** A dropped connection, a timeout or a busy instance leaves the write waiting for the next drain.
 - **An update names a version.** A device refuses to queue an update that names no version, and sends each property an edit names with the whole value its caller gave it. It resolves no collision itself: two values for one field are the instance's to reconcile.
 
@@ -41,20 +49,20 @@ A **drain** sends the queue once. Each write the instance answers gets one verdi
 
 | Verdict | What it means |
 | --- | --- |
-| `accepted` | The instance applied the write as sent. |
-| `merged` | The instance applied it over changes made since, field by field. |
-| `conflicted` | The instance kept its own value and put the write's in a new conflicted copy. |
+| `accepted` | The instance applied the write. A write based on an older version is `accepted` too when no field it changes has changed since. |
+| `merged` | A field the write changes had also changed since, and the instance merged the two without a copy. |
+| `conflicted` | A field collided and the type keeps both copies: the item keeps its value, and the write's value goes to a new conflicted copy. |
 | `refused` | The instance refused the write, for example with `validation_error`. The device keeps the answer so an app can show it. |
-| `blocked` | Something has to change before the write can go: the credential was refused, the version the write was based on is gone, or a collision the type can't settle. |
+| `blocked` | Something has to change before the write can go: the credential was refused or lacks a grant, the write's idempotency key was spent on another request, the version the write was based on is gone, or the instance refused a collision it can't settle in the write, such as an update that also changes the item's type. |
 | `dead` | The write failed five times in ways that count against it. An unreachable instance never counts. |
 
-After `accepted`, `merged` or `conflicted`, the device holds what the instance has and never sends the write again. Every update goes with `conflict=auto`, so a type that settles collisions settles them in the write, and the verdict is `merged` or `conflicted`. [Write safely](/guides/write-safely) explains both.
+After `accepted`, `merged` or `conflicted`, the device holds what the instance has and never sends the write again. Every update goes with `conflict=auto`, so the instance settles a collision in the write by the type's merge policy, and the verdict is `merged` or `conflicted`. [Write safely](/guides/write-safely) explains both.
 
-A stopped write waits for an app to decide. The app can **release** a blocked or dead write to send it again, **withdraw** a write whose base version is gone or whose conflict is unresolved, **discard** a refused write, and **clear** the answered writes from the queue. The [queue and verdicts chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) lists every reason a write can be blocked.
+A write blocked for its credential goes again by itself at the next drain. Any other stopped write waits for an app to decide. The app can **release** a blocked or dead write to send it again under a new idempotency key, **withdraw** a write whose base version is gone or whose conflict is unresolved, **discard** a refused write, and **forget** the answered writes, which removes them from the queue. The [queue and verdicts chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) lists every reason a write can be blocked.
 
 ## Folders
 
-A folder is a device whose face is a directory. It has the same working copy, the same queue and the same verdicts, so the rules above hold. What differs is that an item is a file on disk, and an edit made to either the item or the file reaches the other.
+A folder has the same working copy, the same queue and the same verdicts as any device, so the rules above hold. What differs is that an item is a file on disk, and an edit made to either the item or the file reaches the other.
 
 ### The settings
 
@@ -63,14 +71,14 @@ A `system.folder` item on the instance holds a folder's settings, and every mach
 - `search` decides which items the folder holds: `types`, `tier`, `state`, `filter` and `beneath`. A search that names no types holds every type the credential reads except `system.*`, in the `library` tier, active and archived.
 - `defaults` is what a new file takes where it leaves a blank: `type`, `tier`, `properties`, `tags` and `edges`.
 - `include` and `ignore` are lists of gitignore patterns for the paths the folder takes and leaves alone.
-- `first_placement` says which directory a new item of a type first appears in.
+- `first_placement` says, by type, which directory an item made elsewhere first appears in.
 - `removal_threshold` says when a removal waits for confirmation.
 
 Edit `.marfa/folder.yaml` and the device sends the change with [Update a folder](/api-reference/folders/updateFolder), so it reaches every machine bound to the folder. [Create a folder](/api-reference/folders/createFolder) makes the settings.
 
 ### Items as files
 
-A pull writes each item the search holds as a file, and a push turns an edit to a file into a queued write. A note in a folder is a Markdown file:
+A pull writes each item the search holds as a file, and a push sends each edit to a file as a write. A note in a folder is a Markdown file:
 
 ```markdown
 ---
@@ -85,22 +93,23 @@ Start with the essays.
 
 - `type`, `tier`, `tags`, `state` and `occurred_at` are the item's own fields.
 - `marfa_id` and `marfa_version` name the item and the version the file was written from.
+- A line named for an edge type, such as `parent-of`, is an edge.
 - Every other line between the `---` fences is a property, such as `title`, and the text after them is the body.
 
-A `.txt` file is all body. Any other file becomes a file item and a blob, and a file the body embeds travels with the file that shows it. A new file's name comes from the item's title, and its path from the item's `in-folder` edge to the folder.
+A `.txt` file is all body. Any other file the search admits becomes a file item, with its bytes uploaded as a blob. A file that a document embeds is uploaded and kept in the folder even when the search doesn't hold its type. A new file's name comes from the item's title, and its path from the item's `in-folder` edge to the folder.
 
 ### Edits in either place
 
-An edit to a file is an ordinary queued write based on the `marfa_version` its file names, so the rules of [Changes over time](/get-started/changes-over-time) apply. A file saved from an older version merges, field by field, and a collision the type settles with a conflicted copy gives a second file in the folder. A change made on the instance reaches the file at the next pull, which edits the file in place and keeps the frontmatter's order, comments and quoting.
+An edit to a file is an ordinary queued write based on the `marfa_version` its file names, so the rules of [Changes over time](/get-started/changes-over-time) apply. A file saved from an older version merges, field by field, and a collision the type settles with a conflicted copy can give a second file in the folder at the next pull. A change made on the instance reaches the file at the next pull, which edits the file in place and keeps the frontmatter's order, comments and quoting.
 
 A new Markdown file becomes an item when the device sends its create, and the device then writes the accepted `marfa_id` into the file. A renamed file stays the same item, found by its `marfa_id` line or by the file's identity on disk. A deleted file trashes its item after a five-second grace, so a rename or a save that replaces the file isn't taken for a delete.
 
 ### What a folder won't do on its own
 
 - **It confirms the first pass.** A new folder reads the directory and the copy and says how many files it will write, send and place beside a file already there. Nothing is written into the directory or sent until a person confirms.
-- **It pauses a large removal.** Missing files, or files whose items left the folder, wait for confirmation when they exceed both `removal_threshold.files` and `removal_threshold.fraction` of the bound files, 10 and 0.25 by default. `marfa folders confirm` carries the removal out and `marfa folders restore` undoes it.
+- **It pauses a large removal.** Missing files, or files whose items left the folder, wait for confirmation when they exceed both `removal_threshold.files` and `removal_threshold.fraction` of the bound files, 10 and 0.25 by default. `marfa folders confirm` carries the removal out, and `marfa folders restore` cancels it, writing the missing files back and restoring the items that left.
 - **It keeps secrets out.** A name such as `.env`, `*.pem` or `*.key` is never admitted, and the folder's own `.marfa/` directory is never read as items.
-- **It keeps one process on a folder.** While a watch holds the folder, other calls on it are refused, except a status read.
+- **It keeps one process on a folder.** While one process works on a folder, such as a watch, other work on it is refused with `reading_handle`. A status read still answers.
 
 A folder runs on macOS, through `marfa folders` or the Swift package's `Folders`. The [`marfa` command](/tools/marfa-command) lists every folder command, and the [Swift package](/tools/swift-package) shows how to add and watch a folder.
 

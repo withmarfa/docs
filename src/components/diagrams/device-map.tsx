@@ -63,7 +63,7 @@ export const pieces: readonly DevicePiece[] = [
     summary: 'One slice',
     operations: [],
     caption:
-      'The working copy holds the slice the device declared: the types, the tier and the edge types it keeps whole. Every read answers from it, offline too.',
+      'The working copy holds the slice the device declared: the types, the tier and the edge types it keeps whole. Every read of an item answers from it, offline too.',
   },
   {
     id: 'queue',
@@ -73,7 +73,7 @@ export const pieces: readonly DevicePiece[] = [
     summary: 'Unanswered writes',
     operations: [],
     caption:
-      'A write shows in the working copy at once and waits in the queue. A drain sends the queue in order, and the instance answers each write with a verdict.',
+      'A write shows in the working copy at once and waits in the queue. A drain sends the queue in order, and each write the instance answers gets a verdict.',
   },
   {
     id: 'directory',

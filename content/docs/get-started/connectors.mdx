@@ -7,11 +7,11 @@ description: What a connector is, the key it runs with, and what the instance ke
 
 A connector is a process outside the server that brings records in from another service, its **vendor**, and can carry changes made in Marfa back. GitHub, Todoist and an RSS feed are vendors. The server never runs a connector and never calls a vendor. You run the connector wherever you like, and it uses the API as any other client does.
 
-A connector writes what it finds as items at the feed tier, which holds what arrives from outside as it came. A person or an app promotes an item into the library. [Items and types](/get-started/items-and-types) explains the tiers.
+A connector writes what it finds as items at the feed tier, which holds what arrives from outside as it came. It names `feed` as the `tier` of each write, or gets it from its key's `default_tier`: a write that names neither lands in the library. A person or an app promotes an item into the library. [Items and types](/get-started/items-and-types) explains the tiers.
 
 ## What the instance keeps for a connector
 
-The instance holds a few things for a connector so that it can stop, restart and run as a second copy without losing its place. Select a piece to see what it is and what it belongs to.
+The instance holds a few things for a connector, so that it can stop, restart or move to another machine without losing its place, and so that two copies of it don't write over each other. Select a piece to see what it is and the operation that works with it.
 
 <ConnectorMap />
 
@@ -26,18 +26,18 @@ The instance holds a few things for a connector so that it can stop, restart and
 
 A connector acts through an ordinary key made for it alone. [Keys and permissions](/get-started/keys-and-permissions) explains keys. For a connector, three things about the key matter:
 
-- **Its source** labels every item the connector writes. With an item's `source_id`, the vendor's own ID for the record, the source is the item's natural key, so the connector finds a row again and updates it instead of making a second.
+- **Its source** labels the items the connector writes, unless a write names another source the key claims. Together with an item's `source_id`, the vendor's own ID for the record, the source forms the item's natural key. The connector uses it to find a row again and update it instead of making a second.
 - **Its type map** decides what the connector reaches. A connector key usually holds write on the connector's own types and nothing else.
 - **Its permissions** decide the other operations it may use. A connector needs none to register, report and receive webhooks. `connectors.manage` is for the person who looks after connectors.
 
-[Register a connector](/api-reference/connectors/registerConnector) ties a name to the key that sends it. A key holds one registration, so registering again updates the name and description and answers the same `id`. The owner and an app's access token can't register: a token is renewed on every refresh, so a registration made under one would be orphaned by the next.
+[Register a connector](/api-reference/connectors/registerConnector) ties a name to the key that sends it. A key holds one registration, so registering again updates the name and description and answers the same `id`. Only a key can register. The owner is refused, because the owner isn't a connector. An app's access token is refused too: it's renewed on every refresh, so a registration made under one would be orphaned by the next.
 
-Most operations on a registration belong to the connector's own key. Some also open to those who look after connectors from outside:
+Most operations on a registration accept only the connector's own key. A few also accept a holder of `connectors.manage` and direct authority:
 
 - **Only the connector's own key** sends heartbeats and reports runs, takes and releases the hold, reads and replaces the state document, writes and reads agreements, and reads deliveries and marks them handled.
 - **The own key, a holder of `connectors.manage`, or direct authority** may [read the registration](/api-reference/connectors/getConnector) and [its runs](/api-reference/connectors/listConnectorRuns), make, list and retire endpoints, delete the registration, and clear the state document and agreements. Direct authority is the owner signed in to the browser, or a command run through the instance's private socket.
 
-A key that is neither the connector's own nor a holder of `connectors.manage` is refused `403 forbidden` on these operations. When it only reads a registration or its runs, it is told `404 connector_not_found`, exactly as for an ID that doesn't exist.
+Any other key is refused `403 forbidden`, except when it reads a registration or its runs: then it's told `404 connector_not_found`, exactly as for an ID that doesn't exist.
 
 ## Heartbeats and runs
 
@@ -54,9 +54,9 @@ Only the process that holds a live hold can replace the state document or write 
 
 ## State and agreements
 
-The **state document** is a JSON object of at most 512 KiB that a connector keeps on the instance instead of on disk: a sync token, a cursor into the vendor, a position in the event stream. A connector can restart on another machine and pick up where it stopped. [Replace the state document](/api-reference/connectors/replaceConnectorState) replaces it whole.
+The **state document** is a JSON object of at most 512 KiB that a connector keeps on the instance instead of on disk: a sync token, a cursor into the vendor, a position in the vendor's event stream. A connector can restart on another machine and pick up where it stopped. [Replace the state document](/api-reference/connectors/replaceConnectorState) replaces it whole.
 
-An **agreement** is the connector's record of what it and the vendor last agreed about one row, kept beside the row and not in it. Its `record` holds whatever the connector needs, up to 16 KiB, and `waiting` says that a change to the row is yet to be carried to the vendor. A connector that carries changes both ways compares a row with its agreement to tell a change a person made from one it made itself. [Write agreements](/api-reference/connectors/writeConnectorAgreements) sets and clears up to 500 at a time. Writing one announces nothing on the event stream and doesn't move the row's `updated_at` or `version`.
+An **agreement** is the connector's record of what it and the vendor last agreed about one row, kept beside the row and not in it. Its `record` holds whatever the connector needs, up to 16 KiB, and `waiting` says that a change to the row is yet to be carried to the vendor. A connector that carries changes both ways compares a row with its agreement to tell a change a person made from one it made itself. [Write agreements](/api-reference/connectors/writeConnectorAgreements) sets up to 500 agreements and clears up to 500 in one request. Writing one announces nothing on the event stream and doesn't move the row's `updated_at` or `version`.
 
 Both belong to the key's **source**, not to the registration or the key. A new key minted under the same source, after you revoke the old one, registers as a new connector and reads the same state document and agreements. Trashing a row keeps its agreement, and purging the row removes it. [Delete the state document](/api-reference/connectors/deleteConnectorState) removes the document and every agreement of the source, and needs no hold.
 
@@ -72,7 +72,7 @@ A vendor may send a webhook twice, late, or not at all, so treat a delivery as a
 
 ## Replacing a connector's key
 
-Revoking a connector's key removes nothing the connector registered. The registration, with its last heartbeat and its runs, stays for an owner or a holder of `connectors.manage` to read, until one deletes it. Its endpoints stop answering with `404`, and the key itself is refused `401` on every connector operation.
+Revoking a connector's key removes nothing the connector registered. The registration, with its last heartbeat and its runs, stays for direct authority or a holder of `connectors.manage` to read and delete. A request to one of its endpoints answers `404`, and the revoked key is refused `401` on every connector operation.
 
 To replace the key, mint a new one with the same source and register again. The new registration has its own `id` and none of the old runs, and it finds the old state document and agreements. [Delete a connector](/api-reference/connectors/deleteConnector) removes a registration, its runs, its hold, and its endpoints with every delivery they stored. It keeps the state document and agreements, for a later key with the same source.
 
