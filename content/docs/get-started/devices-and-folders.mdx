@@ -22,7 +22,7 @@ A copy is filled once and then kept current from the instance's event log.
 
 - **Hydrate.** The device reads the log's head, then the item listing for each type in the slice, in the slice's tier and in every state, with each item's edges and tags. It then applies the events written while it read. Hydrating replaces the copy and keeps the queue and the pins.
 - **Catch up.** The device opens the event stream at its cursor and takes each event until the stream says it has reached the head. It skips an event older than the item it holds, lets go of an item that has left the slice by type or tier, and adds one that has entered it. Every event, taken or skipped, moves the cursor past it.
-- **Follow.** A device can hold the stream open and apply events as they arrive. A stream that drops opens again from the cursor after a wait that grows each time, up to 30 seconds, and a refusal no retry changes, such as a refused credential, ends it.
+- **Follow.** A device can hold the stream open and apply events as they arrive. A stream that drops opens again from the cursor.
 
 A copy **expires** when it can no longer be kept current from where it stands: the log has dropped the event after its cursor (the instance keeps events for its event log retention), the log ends behind the cursor because the instance was restored from an earlier point, another instance answers at the same address, or the read view the copy was certified under changed. An expired copy refuses reads and writes with `hydration_incomplete` until the next hydration replaces it. The queue survives. [Staying in step](/get-started/staying-in-step) explains the event stream and read views.
 
@@ -32,42 +32,25 @@ A copy that has hydrated answers every read with no connection. A device that ha
 
 - **A write is queued the moment it is made.** The queue gives it an idempotency key then, and keeps the same key on every retry, so a retry whose answer was lost doesn't write twice.
 - **Writes go in order.** A drain sends the queue in the order the writes were made. A write to an item waits for the earlier unanswered writes to that item, and a write to an item the device just created waits for the create. A held write goes in the same drain once what it waits for is answered.
-- **An unreachable instance counts for nothing.** A dropped connection, a timeout, a `5xx`, a `408`, a `425` or a `429` leaves the write unanswered and uncounted, and the drain ends there.
+- **An unreachable instance costs nothing.** A dropped connection, a timeout or a busy instance leaves the write waiting for the next drain.
 - **An update names a version.** A device refuses to queue an update that names no version, and sends each property an edit names with the whole value its caller gave it. It resolves no collision itself: two values for one field are the instance's to reconcile.
 
 ## What a verdict is
 
-A **drain** sends the queue once. The instance's answer to each write gives it one of six verdicts, and no write has more than one.
+A **drain** sends the queue once. Each write the instance answers gets one verdict:
 
-| Verdict | When the write gets it | What the device does next |
-| --- | --- | --- |
-| `accepted` | The instance applied the write as sent. | Reads the item or edge again, holds what comes back, and never sends the write again. |
-| `merged` | The instance applied the write over changes made since, field by field, and names the fields. | The same. |
-| `conflicted` | The instance kept its own text and put the write's in a new conflicted copy, and names the copy. | The same. The copy reaches the working copy with the event stream, not with the verdict. |
-| `refused` | The instance refused the write with an error that names the contract, such as `validation_error`. | Keeps the answer whole with the write and reads the item again. Sends the write again only if it is released. |
-| `blocked` | Something outside the queue has to change first. | Keeps the write laid over the item and sends nothing for it. |
-| `dead` | Five failures that count have been counted against it. | Stops sending it until it is released. |
+| Verdict | What it means |
+| --- | --- |
+| `accepted` | The instance applied the write as sent. |
+| `merged` | The instance applied it over changes made since, field by field. |
+| `conflicted` | The instance kept its own value and put the write's in a new conflicted copy. |
+| `refused` | The instance refused the write, for example with `validation_error`. The device keeps the answer so an app can show it. |
+| `blocked` | Something has to change before the write can go: the credential was refused, the version the write was based on is gone, or a collision the type can't settle. |
+| `dead` | The write failed five times in ways that count against it. An unreachable instance never counts. |
 
-Only three kinds of failure count against a write: a success whose body the device can't read, a `409 idempotency_key_in_flight`, and a failure of the device's own store. An unreachable instance never counts.
+After `accepted`, `merged` or `conflicted`, the device holds what the instance has and never sends the write again. Every update goes with `conflict=auto`, so a type that settles collisions settles them in the write, and the verdict is `merged` or `conflicted`. [Write safely](/guides/write-safely) explains both.
 
-A `blocked` write carries one of five reasons.
-
-| Reason | Cause | How it ends |
-| --- | --- | --- |
-| `credential_refused` | The instance refused the credential with `401`, or refused a write because the credential lacks a grant. | The next drain tries it again. |
-| `key_spent` | The instance answered `422 idempotency_key_reused`. | An app releases it. |
-| `ancestor_unavailable` | The instance no longer keeps the version the write was based on (`409 ancestor_unavailable`). | An app withdraws or releases it. |
-| `conflict_unresolved` | The instance answered `409 version_conflict`. | An app withdraws or releases it. |
-| `awaiting_dependency` | The write waits for a write it depends on. | The write it waits for is answered. An app shows this as waiting, not as a stop. |
-
-Every update goes with `conflict=auto`, so a type that settles a collision does it in the write and the verdict is `merged` or `conflicted`. Only a collision that the type's merge policy can't settle reaches `conflict_unresolved`. [Write safely](/guides/write-safely) covers both.
-
-An app acts on a stopped write in four ways:
-
-- **Release** a `blocked` or `dead` write to send it again under a fresh idempotency key, with its failure count cleared. A `refused` write can't be released.
-- **Withdraw** a write blocked `ancestor_unavailable` or `conflict_unresolved` to take it out of the queue and hold the item as the instance has it. Withdrawing needs the instance, and any write waiting on it is refused unsent.
-- **Discard** a `refused` write to take it out of the queue. The copy already shows what the instance holds. Until then the write keeps the content it carried, so an app can offer it back to the person.
-- **Clear** the answered writes. This removes the `accepted`, `merged` and `conflicted` ones and the `refused` ones that carried no content. Stopped writes and refused writes with content stay.
+A stopped write waits for an app to decide. The app can **release** a blocked or dead write to send it again, **withdraw** a write whose base version is gone or whose conflict is unresolved, **discard** a refused write, and **clear** the answered writes from the queue. The [queue and verdicts chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) lists every reason a write can be blocked.
 
 ## Folders
 
