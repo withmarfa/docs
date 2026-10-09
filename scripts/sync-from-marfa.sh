@@ -6,8 +6,8 @@
 #   src/generated/api-overview.md     the spec's info.description, the rules every
 #                                     operation follows, included by the API
 #                                     reference overview
-#   src/generated/marfa-commands.md   the marfa command's reference, from its own
-#                                     help, included by the marfa command page
+#   src/generated/marfa-commands.md   the CLI's reference, from its own
+#                                     help, included by the CLI reference page
 #   src/generated/error-codes.md      the contract's table of error codes,
 #                                     written from the server's own code list,
 #                                     included by the Errors page
