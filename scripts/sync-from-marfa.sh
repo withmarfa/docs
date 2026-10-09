@@ -15,6 +15,12 @@
 #                                     environment settings, written from the
 #                                     server's own setting list, included by
 #                                     the Settings guide
+#   src/generated/core-types.md       the contract's table of the types every
+#                                     instance ships, written from the
+#                                     server's type registry
+#   src/generated/edge-types.md       the same for the shipped edge types
+#   src/generated/permissions.md      the same for the twelve permissions
+#   src/generated/event-types.md      the same for the event types
 #   src/generated/marfa-release.json  the latest release tag, shown in the sidebar
 #
 # Reads committed files from a checkout of the monorepo, by default the sibling
@@ -48,7 +54,7 @@ if [ ! -f "$MARFA_ROOT/pnpm-workspace.yaml" ]; then
   exit 1
 fi
 
-for file in openapi.json GLOSSARY.md core/marfa-cli/COMMANDS.md conformance/spec/errors.md conformance/spec/instance.md; do
+for file in openapi.json GLOSSARY.md core/marfa-cli/COMMANDS.md conformance/spec/errors.md conformance/spec/instance.md conformance/spec/types.md conformance/spec/edges.md conformance/spec/keys-and-oauth.md conformance/spec/events.md; do
   if [ ! -s "$MARFA_ROOT/$file" ]; then
     echo "No $file in $MARFA_ROOT. Nothing has changed." >&2
     exit 1
@@ -75,7 +81,11 @@ OVERVIEW="$(mktemp "${TMPDIR:-/tmp}/marfa-overview.XXXXXX")"
 COMMANDS="$(mktemp "${TMPDIR:-/tmp}/marfa-commands.XXXXXX")"
 ERRORS="$(mktemp "${TMPDIR:-/tmp}/marfa-errors.XXXXXX")"
 SETTINGS="$(mktemp "${TMPDIR:-/tmp}/marfa-settings.XXXXXX")"
-cleanup() { rm -f "$CANDIDATE" "$OVERVIEW" "$COMMANDS" "$ERRORS" "$SETTINGS"; }
+TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-types.XXXXXX")"
+EDGE_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-edge-types.XXXXXX")"
+PERMISSIONS="$(mktemp "${TMPDIR:-/tmp}/marfa-permissions.XXXXXX")"
+EVENT_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-event-types.XXXXXX")"
+cleanup() { rm -f "$CANDIDATE" "$OVERVIEW" "$COMMANDS" "$ERRORS" "$SETTINGS" "$TYPES" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES"; }
 trap cleanup EXIT
 
 # The overview page includes this file under its own level-2 heading, so every
@@ -138,16 +148,20 @@ then
   exit 1
 fi
 
-# The code table is the part of the errors chapter between its two markers,
-# which the monorepo's CI holds to the server's own list of codes.
-if ! python3 - "$MARFA_ROOT/conformance/spec/errors.md" "$ERRORS" <<'PY'
+# Each table is the part of a contract chapter between its two markers, which
+# the monorepo's CI holds to what the server defines: the code table to the
+# server's list of codes, the settings table to its settings schema, and the
+# types, edge types, permissions and event types to the definitions it ships.
+# extract_table <chapter> <marker name> <output file> <what the table lists>
+extract_table() {
+  if ! python3 - "$MARFA_ROOT/conformance/spec/$1" "$2" "$3" <<'PY'
 import sys
 
 try:
     text = open(sys.argv[1], encoding="utf-8").read()
 except UnicodeDecodeError:
     sys.exit(1)
-start, end = "<!-- errors-table:start -->", "<!-- errors-table:end -->"
+start, end = f"<!-- {sys.argv[2]}-table:start -->", f"<!-- {sys.argv[2]}-table:end -->"
 if text.count(start) != 1 or text.count(end) != 1:
     sys.exit(1)
 rest = text.partition(start)[2]
@@ -157,40 +171,21 @@ rows = rest.partition(end)[0].strip().splitlines()
 if len(rows) < 3 or not all(line.startswith("|") for line in rows):
     sys.exit(1)
 
-with open(sys.argv[2], "w", encoding="utf-8") as out:
+with open(sys.argv[3], "w", encoding="utf-8") as out:
     out.write("\n".join(rows) + "\n")
 PY
-then
-  echo "$MARFA_ROOT/conformance/spec/errors.md is not UTF-8 or has no code table between its errors-table markers. Nothing has changed." >&2
-  exit 1
-fi
+  then
+    echo "$MARFA_ROOT/conformance/spec/$1 is not UTF-8 or has no $4 table between its $2-table markers. Nothing has changed." >&2
+    exit 1
+  fi
+}
 
-# The settings table is the part of the instance chapter between its two
-# markers, which the monorepo's CI holds to the server's own list of settings.
-if ! python3 - "$MARFA_ROOT/conformance/spec/instance.md" "$SETTINGS" <<'PY'
-import sys
-
-try:
-    text = open(sys.argv[1], encoding="utf-8").read()
-except UnicodeDecodeError:
-    sys.exit(1)
-start, end = "<!-- settings-table:start -->", "<!-- settings-table:end -->"
-if text.count(start) != 1 or text.count(end) != 1:
-    sys.exit(1)
-rest = text.partition(start)[2]
-if end not in rest:
-    sys.exit(1)
-rows = rest.partition(end)[0].strip().splitlines()
-if len(rows) < 3 or not all(line.startswith("|") for line in rows):
-    sys.exit(1)
-
-with open(sys.argv[2], "w", encoding="utf-8") as out:
-    out.write("\n".join(rows) + "\n")
-PY
-then
-  echo "$MARFA_ROOT/conformance/spec/instance.md is not UTF-8 or has no settings table between its settings-table markers. Nothing has changed." >&2
-  exit 1
-fi
+extract_table errors.md errors "$ERRORS" code
+extract_table instance.md settings "$SETTINGS" settings
+extract_table types.md types "$TYPES" types
+extract_table edges.md edge-types "$EDGE_TYPES" "edge types"
+extract_table keys-and-oauth.md permissions "$PERMISSIONS" permissions
+extract_table events.md event-types "$EVENT_TYPES" "event types"
 
 cp "$MARFA_ROOT/openapi.json" "$CANDIDATE"
 mv "$CANDIDATE" "$SPEC"
@@ -200,8 +195,12 @@ mv "$OVERVIEW" "$GENERATED/api-overview.md"
 mv "$COMMANDS" "$GENERATED/marfa-commands.md"
 mv "$ERRORS" "$GENERATED/error-codes.md"
 mv "$SETTINGS" "$GENERATED/settings.md"
+mv "$TYPES" "$GENERATED/core-types.md"
+mv "$EDGE_TYPES" "$GENERATED/edge-types.md"
+mv "$PERMISSIONS" "$GENERATED/permissions.md"
+mv "$EVENT_TYPES" "$GENERATED/event-types.md"
 trap - EXIT
 cp "$MARFA_ROOT/GLOSSARY.md" "$GENERATED/GLOSSARY.md"
 printf '{"version":"%s"}\n' "$RELEASE" > "$GENERATED/marfa-release.json"
 
-echo "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings and the release ($RELEASE) synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings, the type, edge type, permission and event type catalogues and the release ($RELEASE) synced from $MARFA_ROOT"
