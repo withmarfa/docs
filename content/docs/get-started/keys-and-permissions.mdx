@@ -1,13 +1,85 @@
 ---
 title: Keys and permissions
-description: Who can read and write what on an instance.
+description: Who can act on an instance, what a key or an app reads and writes, and how access is handed from the owner to keys and apps.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+Every request to the API carries a credential, and the credential decides what the request may do. A credential is either a key (`marfa_k1_…`) or the access token of an app the owner signed in (`marfa_at_…`). Two things limit it:
 
-Planned topics:
+- Its **five maps** decide which content it reads and writes.
+- Its **twelve permissions** decide which other operations it may use, such as reading the audit log.
 
-- The owner, keys, and apps you sign in to.
-- The twelve permissions, and the five maps.
-- Sources: what a key writes under.
-- Signing in, and connecting an app with OAuth.
+## Who can act
+
+The owner holds direct authority and hands access down. Select a piece to see what it holds and what it can pass on.
+
+<AccessTree />
+
+- **The owner** signs in to the instance in the browser, or runs a command through the instance's private socket (`--socket`). Either has direct authority to manage the instance: mint keys, approve apps and run maintenance. Neither reads or writes items, so the owner mints a key for that. [Run an instance](/get-started/run-an-instance) claims the instance. No credential, even one holding all twelve permissions, gets the owner's authority.
+- **A key** holds what it was minted with: permissions, maps and claimed sources.
+- **A narrower key** is minted by a key that holds `keys.mint`, and holds nothing its minter doesn't.
+- **An app** is a program the owner signed in through OAuth. Its access token holds only the scopes the owner consented to, its grant.
+- **An app's key** is minted by an app whose grant includes `keys.mint`, and holds nothing the grant doesn't cover.
+
+## What a credential reads and writes
+
+Content access comes from five maps. Each maps a name to a level, `read` or `write`, and `write` includes `read`. A name no entry covers is denied.
+
+| Map | Names | Example entry |
+| --- | --- | --- |
+| Type | Item types, by identifier or a wildcard | `"core.*": "write"` |
+| Edge | Edge types, by identifier or a wildcard | `"about": "read"` |
+| Extension | Extension namespaces | `"com.example.reader": "write"` |
+| Metadata | Registrations: `types` and `edge_types` | `"types": "write"` |
+| Profile | The owner's `name`, `email` and `avatar` | `"email": "read"` |
+
+The type map also takes the level `none`, which denies a type that a wildcard in the map would reach. An item's tags and extensions need the type map, and an extension also needs the extension map.
+
+An item of a type the credential can't read answers `404 item_not_found`, exactly as an item that doesn't exist does, so a refusal never tells a credential what it can't see. A credential that can read a type but not write it is refused `403 type_not_permitted`. [Authenticate](/guides/authenticate#what-a-refusal-looks-like) shows both answers.
+
+## The twelve permissions
+
+A permission opens operations and no item. A key that holds all twelve and no map is refused `403 type_not_permitted` on every item.
+
+| Permission | Lets a credential |
+| --- | --- |
+| `audit.read` | Read the audit log. |
+| `blobs.manage` | Manage blob bytes and locations across the instance. |
+| `config.manage` | Read and replace the configuration at `/config`. |
+| `connectors.manage` | Read and administer connector registrations, endpoints and retained state. |
+| `grants.manage` | List and revoke the apps the owner signed in. |
+| `instance.maintain` | Run housekeeping, reset platform types and cancel bulk actions. |
+| `instance.read` | Read detailed health, metrics, housekeeping status, platform drift, blob diagnostics and bulk action status. |
+| `items.purge` | Purge a trashed item for good. |
+| `keys.manage` | List and revoke every key, and narrow a key's access. It can't mint a key or widen one. |
+| `keys.mint` | Mint keys within its own access, and list, change and revoke keys within that access. |
+| `schema.write` | Replace and delete types and edge types. |
+| `webhooks.manage` | Read, register and remove outbound webhooks. |
+
+## Sources: what a key writes under
+
+An item's `source` says which writer it came from, and with `source_id` it forms the item's natural key. Every key has one **own source**, chosen when the key is minted. Marfa stamps it on each item the key creates, and the source can't change later. No two keys that haven't been revoked share an own source: the mint is refused `409 conflict`, with the source in `details.source`.
+
+A key can also **claim** other sources, up to 1,000. A write may then name a claimed source, and Marfa stamps that source instead. Keys that claim one source share its natural keys, so a connector's item is one item whichever of its keys writes it. A write that names a source the key neither owns nor claims is refused `403 forbidden`.
+
+A key can grant only its own source and the ones it claims. The owner can grant any source that doesn't start with `oauth:`, which belongs to apps: no key can own or claim one.
+
+## How a key is made and what it passes on
+
+The owner, in the browser or through the socket, mints a key with [Create an API key](/api-reference/access/createKey). Marfa answers the key's plaintext once, and no later answer shows it. What the key holds depends on what the request names:
+
+- **Nothing named.** The owner's key holds all twelve permissions, `*` at `write` in all five maps and no claimed source. A key minted by another key holds the minter's whole set.
+- **Something named.** The key holds exactly what the request names in each part it names, and nothing in any part it leaves out. A key minted with only `permissions` reads and writes no item.
+
+A key can hand on only what it holds. A request for a permission or map entry that the minter lacks is refused `403 forbidden`, with the first one in `details.required_scope`, and a source it can't grant is refused the same way, with the source in `details.source`. A key holding `keys.mint` can list, change and revoke only the keys within its reach, which are the keys that hold nothing it doesn't; any other key answers `404 api_key_not_found`. A key holding `keys.manage` reaches every key but can only take access away. [Update an API key](/api-reference/access/updateKey) narrows a key in place, and [Revoke an API key](/api-reference/access/revokeKey) ends it: the next request it sends is refused `401 unauthorized`. A key reads what it holds with [Get the current key](/api-reference/access/getCurrentKey).
+
+## Signing in an app
+
+An app is never given a key. It registers itself, with no credential, as an OAuth client with [Register an OAuth client](/api-reference/access/registerOAuthClient), and then sends the owner to the instance to approve it. The owner signs in if they haven't and sees a consent screen that names the app and offers each scope it asks for, with a caution that Marfa hasn't verified the app, because any program can choose any name. The app's token holds exactly the scopes the owner leaves ticked.
+
+A **scope** is one literal an app asks for: a type at a level, such as `core.note:read`, an edge type at a level, such as `edge.about:write`, a permission such as `keys.mint`, or an OpenID literal such as `offline_access`. A key holds its reach as permissions and maps, never as scopes.
+
+The owner's decision is a **consent**, and it stands: a later request for the same scopes is approved without asking, and a request for a wider set asks again. The scopes the app holds for the owner are its **grant**. The owner's browser session isn't the app, so signing out of the browser ends no app's access. Only revoking the grant does. Revoking ends the app's tokens and the consent, but keys the app minted keep working unless the revocation also asks for them to go. The `grants.manage` permission lists and revokes grants.
+
+[Authenticate](/guides/authenticate) shows an app's requests, from registration to a refreshed token.
+
+The rules behind this page are in the [keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md) and [instance claim](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance-claim.md) chapters of the contract.

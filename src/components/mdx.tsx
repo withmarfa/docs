@@ -1,5 +1,6 @@
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import type { MDXComponents } from 'mdx/types';
+import { AccessTree } from './diagrams/access-tree';
 import { ApiMap } from './diagrams/api-map';
 import { FileMap } from './diagrams/file-map';
 import { InstanceMap } from './diagrams/instance-map';
@@ -11,6 +12,7 @@ import { ReferenceList } from './reference-list';
 export function getMDXComponents(components?: MDXComponents) {
   return {
     ...defaultMdxComponents,
+    AccessTree,
     ApiMap,
     FileMap,
     InstanceMap,
