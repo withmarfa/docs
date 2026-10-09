@@ -1,12 +1,99 @@
 ---
 title: Handle files
-description: Upload, link and download files.
+description: Upload a file's bytes, create the item that points at them, download them, and hand out a time-limited link.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+A file is an item whose `blob_ref` names a blob, the bytes, by their hash. [Files](/get-started/files) explains blobs, stores and who may read a blob. This guide does the task, in the order it happens. To upload you need write on at least one registered type outside `system.*`, or the `blobs.manage` permission. To create the file item you need write on its type.
 
-Planned topics:
+## Upload the bytes
 
-- Uploading a blob.
-- Pointing an item at it.
-- Downloading, and time-limited links.
+[Upload a blob](/api-reference/blobs/uploadBlob) takes the bytes as the request body, as they are and not as `multipart/form-data`, with their media type as the `Content-Type`:
+
+```bash
+curl -X POST "$MARFA_API_URL/blobs" \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -H "Content-Type: text/plain" \
+  --data-binary @reading-list.txt
+```
+
+Marfa answers `201` with the `hash`, the `mime_type` it will serve the bytes under, and their `size_bytes`:
+
+```json
+{ "hash": "sha256:74030a283e04b4a11c67c314b1a52bde9b8b85def2a7200c697e8559d2f926fd", "mime_type": "text/plain", "size_bytes": 41 }
+```
+
+An upload has no size limit. Its only bound is what the disk can hold: where the instance keeps a reserve of free capacity, Marfa refuses a body that would use the reserve up with `507 insufficient_storage`. An empty body or a `multipart/form-data` body answers `400 validation_error`. The `Content-Type` is recorded without its parameters, and `application/octet-stream` is recorded where you send none. The same bytes always give the same hash. If Marfa already holds them, it answers `201` again with the media type of the first upload, which no later upload changes.
+
+## Point an item at the bytes
+
+Create a file item that names the hash in `blob_ref`, with the `mime_type`:
+
+```http
+POST /items
+Authorization: Bearer <credential>
+Content-Type: application/json
+
+{
+  "type": "core.file",
+  "properties": {
+    "title": "reading-list.txt",
+    "blob_ref": "sha256:74030a283e04b4a11c67c314b1a52bde9b8b85def2a7200c697e8559d2f926fd",
+    "mime_type": "text/plain"
+  }
+}
+```
+
+`core.file` takes any file. Use `core.file.image`, `core.file.audio` or `core.file.video` where they fit, or a type of your own that inherits from `core.file`. Marfa sets `size_bytes` itself, and the `enrichment-sweep` housekeeping job fills in an image's `width` and `height` and a document's `extracted_text` from the bytes.
+
+To make the file belong to another item, create an `attached-to` edge from the file item to it with [Create an edge](/api-reference/edges/createEdge).
+
+The `marfa` command does the upload and the item together, and `attach` adds the edge:
+
+```bash
+marfa items add reading-list.txt
+marfa items attach <item-id> reading-list.txt
+```
+
+Until an item names the hash, nobody can read the blob, not even the credential that uploaded it. A name you write in `blob_ref` for bytes you didn't upload and can't read lends no read, and the write isn't refused. The file item then exists, and a download of it answers `404 blob_not_found`.
+
+## Download the bytes
+
+[Download a blob](/api-reference/blobs/downloadBlob) answers the bytes unchanged, from whichever store holds them:
+
+```http
+GET /blobs/sha256:74030a283e04b4a11c67c314b1a52bde9b8b85def2a7200c697e8559d2f926fd
+Authorization: Bearer <credential>
+```
+
+```bash
+marfa blobs download sha256:74030a283e04b4a11c67c314b1a52bde9b8b85def2a7200c697e8559d2f926fd --output reading-list.txt
+```
+
+The hash is `sha256:` and 64 lowercase hexadecimal characters, or the 64 characters alone. Marfa always sends the bytes as an attachment named after the hash, not after the file, and in a sandbox, so a browser never shows them as a page of the instance. Take the file name from the item's `title`.
+
+Send one `Range` of the form `bytes=<first>-<last>` or `bytes=<first>-` to get part of a blob. Marfa answers `206` with the bytes and a `Content-Range`. A range that starts past the end answers `416 range_not_satisfiable`, and any other `Range` gets the whole blob. `HEAD` returns the headers alone.
+
+A download answers `404 blob_not_found` when no item, edge or extension you can read names the hash, so it looks the same as an unknown hash. It answers `403 type_not_permitted` when your credential reaches no type.
+
+## Hand out a link
+
+[Get a blob URL](/api-reference/blobs/getBlobUrl) answers a link that serves the bytes to a request with no credential, such as an image element in a page, and for a limited time:
+
+```http
+GET /blobs/sha256:74030a283e04b4a11c67c314b1a52bde9b8b85def2a7200c697e8559d2f926fd/url?ttl=900
+Authorization: Bearer <credential>
+```
+
+```bash
+marfa blobs url sha256:74030a283e04b4a11c67c314b1a52bde9b8b85def2a7200c697e8559d2f926fd --ttl 900
+```
+
+The answer holds the `url` and `expires_in`, the seconds until it stops working. `ttl` is in seconds and defaults to 3,600. Marfa caps it at 604,800, seven days, and `expires_in` shows the lifetime it used. The link serves a `Range` too, and sends the bytes as an attachment like a download.
+
+Marfa checks your read when it makes the link, not when someone fetches it. Revoking your key, narrowing it, or removing every item that names the blob doesn't end a link early. It works until it expires, or until the orphan sweep purges the blob and the link answers `404 blob_not_found`. So ask for a link when you need one, with the shortest `ttl` that serves the purpose, and don't keep it. A fetch of an expired or altered link fails with a status outside `2xx`.
+
+## Replace a file's bytes
+
+Upload the new bytes, then update the file item's `blob_ref` at the version you read, as [Write safely](/guides/write-safely) shows. The old blob stays while an earlier version of the item names it, and the `blob-orphans` housekeeping job removes it after the grace period once nothing does. [Housekeeping](/guides/housekeeping) covers the job.
+
+The rules behind this guide are in the [blobs](https://github.com/withmarfa/marfa/blob/main/conformance/spec/blobs.md) and [stores](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md) chapters of the contract.
