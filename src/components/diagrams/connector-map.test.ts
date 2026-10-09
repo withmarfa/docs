@@ -48,8 +48,8 @@ describe('connector map', () => {
   it('draws the vendor and the connector outside, and the rest in three groups', () => {
     const places = (place: string) => pieces.filter((p) => p.place === place).map((p) => p.id);
     expect(places('outside')).toEqual(['vendor', 'connector']);
-    expect(places('key')).toEqual(['registration', 'hold']);
+    expect(places('registration')).toEqual(['registration', 'hold', 'endpoint', 'deliveries']);
     expect(places('source')).toEqual(['state', 'agreements']);
-    expect(places('data')).toEqual(['items', 'endpoint', 'deliveries']);
+    expect(places('data')).toEqual(['items']);
   });
 });
