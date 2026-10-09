@@ -1,12 +1,161 @@
 ---
 title: Keep a copy in sync
-description: Follow the event stream and resume where you left off.
+description: Follow the event stream, resume from a cursor after a break, and recover when the stream ends or the cursor is too old.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+This guide keeps your own copy of the items you read up to date. Your app reads the current state once, then applies each event from the stream. [Staying in step](/get-started/staying-in-step) explains the event log and what an event carries. You need a credential that can read at least one type.
 
-Planned topics:
+To watch a stream by hand, use `curl -N`, or the `marfa` command, which prints one frame a line and resumes with `--from`:
 
-- Opening the stream and reading frames.
-- Resuming from a cursor.
-- What to do when the stream ends.
+```bash
+curl -N -H "Authorization: Bearer $MARFA_API_KEY" "$MARFA_API_URL/events"
+marfa events --type core.note --for 30
+```
+
+## Start from the head of the log
+
+A cursor is the ID of the last event you applied. When you have none, take the log's head, read the state, and follow the stream from the head. Events written while you read the state are in the log after the head, so you miss none.
+
+1. Open [the stream](/api-reference/event-stream/streamEvents) with no cursor. Its first frame, `stream_cursor`, names the latest event in the log, or `0` if the log is empty. Keep the `cursor` and close the stream.
+2. Read the state you need, for example with [List items](/api-reference/items/listItems) until `next_cursor` is `null`. See [List, filter and search](/guides/list-filter-search).
+3. Open the stream again with the cursor as `Last-Event-ID`, as the next section shows.
+
+A change you read in step 2 can arrive again as an event in step 3. Apply each event by replacing what you hold for the item or edge with the one in the frame, so an event you already reflect changes nothing.
+
+## Follow the stream
+
+Send the cursor in the `Last-Event-ID` header. Marfa opens with `stream_cursor`, replays every event after your cursor, sends `stream_live` when the replay is done, and then sends events as they happen. Here the log held one event after 1041:
+
+```http
+GET /events
+Authorization: Bearer <credential>
+Last-Event-ID: 1041
+```
+
+```text
+event: stream_cursor
+data: {"event_type":"stream_cursor","cursor":"1042"}
+
+id: 1042
+event: item.created
+data: {"event_type":"item.created","item":{"id":"0199a9c4-7c1e-7d3a-9f2b-3c4d5e6f7a8b","type":"core.note","properties":{"title":"Reading list","body":"Finish the chapter on tides."},"state":"active","tier":"library","version":1,"schema_version":0,"source":"notes-app","occurred_at":"2026-10-03T09:30:00.000Z","created_at":"2026-10-03T09:30:00.000Z","updated_at":"2026-10-03T09:30:00.000Z"},"metadata":{"item_id":"0199a9c4-7c1e-7d3a-9f2b-3c4d5e6f7a8b","tags":[],"extensions":{}}}
+
+event: stream_live
+data: {"event_type":"stream_live","cursor":"1042"}
+```
+
+A browser `EventSource` can't send an `Authorization` header, so read the stream with `fetch`. The code below reads frames, applies each event, and saves its ID after it applies it. `apply`, `saveCursor`, `loadCursor`, `baseUrl` and `credential` are yours:
+
+```ts
+type Frame = { id?: string; event: string; data: string };
+
+async function* readFrames(body: ReadableStream<Uint8Array>): AsyncGenerator<Frame> {
+  let buffer = "";
+  for await (const text of body.pipeThrough(new TextDecoderStream())) {
+    buffer += text;
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() ?? "";
+    for (const block of blocks) {
+      const frame: Frame = { event: "message", data: "" };
+      for (const line of block.split("\n")) {
+        if (line.startsWith(":")) continue; // a comment, such as the ping
+        const colon = line.indexOf(":");
+        const field = colon === -1 ? line : line.slice(0, colon);
+        const value = colon === -1 ? "" : line.slice(colon + 1).replace(/^ /, "");
+        if (field === "id") frame.id = value;
+        else if (field === "event") frame.event = value;
+        else if (field === "data") frame.data += (frame.data ? "\n" : "") + value;
+      }
+      if (frame.data !== "") yield frame;
+    }
+  }
+}
+
+async function open(cursor?: string): Promise<ReadableStream<Uint8Array>> {
+  const response = await fetch(`${baseUrl}/events`, {
+    headers: {
+      Authorization: `Bearer ${credential}`,
+      ...(cursor === undefined ? {} : { "Last-Event-ID": cursor }),
+    },
+  });
+  if (!response.ok || response.body === null) throw new Error(`The stream answered ${response.status}`);
+  return response.body;
+}
+
+// Returns the frame that ended the stream, or "closed" if the connection dropped.
+async function follow(cursor: string | undefined): Promise<string> {
+  for await (const frame of readFrames(await open(cursor))) {
+    const data = JSON.parse(frame.data);
+    switch (frame.event) {
+      case "stream_cursor":
+        break;
+      case "stream_live":
+        if (data.cursor !== null) await saveCursor(data.cursor);
+        break;
+      case "stream_incomplete":
+      case "catchup_too_old":
+      case "cursor_ahead":
+        return frame.event;
+      default:
+        await apply(data); // replaces the item or edge you hold
+        if (frame.id !== undefined) await saveCursor(frame.id);
+    }
+  }
+  return "closed";
+}
+```
+
+Three kinds of line are not events:
+
+- **`stream_cursor` and `stream_live`** carry no `id:`. Marfa leaves it off so that a client that resumes from the last `id:` it received never resumes from a marker. The `cursor` of `stream_live` is a position you can resume from. Save it: under a `type` filter, the last event you received can be far behind it.
+- **Comment lines** start with `:`. Marfa sends `:ping` every 30 seconds while the stream is quiet.
+- **The frames that end a stream**, described below, carry no `id:` either, so the last `id:` you saved stays the cursor to resume from.
+
+## Resume after a break
+
+Save the cursor in step with what you apply, and send it as `Last-Event-ID` when you open the stream again. Marfa sends each event after it exactly once, also across a restart of the server. Send the cursor as the stream wrote it: a decimal number with no sign, blanks or leading zeros. An empty `Last-Event-ID` counts as no cursor, and a malformed one answers `400 validation_error` naming `Last-Event-ID`.
+
+## When the stream ends
+
+A stream never ends of its own accord. What you see tells you what to do:
+
+| You see | It means | What to do |
+| --- | --- | --- |
+| The connection closes, with no ending frame | A network or proxy fault. | Open the stream again from your saved cursor, after a short wait. |
+| `stream_incomplete` | The stream can no longer deliver what it opened with. Its `reason` says why: `server_stopping`, `reader_behind`, `credential_ended`, `replay_failed`, `live_delivery_failed` or `backlog_overflow`. | Open the stream again from your saved cursor. The frame's `cursor` is the ID of the last event it sent, or `null` if it sent none, and everything after it is still in the log. For `credential_ended`, the credential was revoked or expired: open the stream with one that stands. For `reader_behind`, take frames off the connection as fast as they arrive and apply them from a queue. |
+| `catchup_too_old` | The log no longer holds the events after your cursor. `min_retained_id` is the oldest it holds and `requested` is your cursor. | Read the state again and start from the head of the log, as at the top of this guide. |
+| `cursor_ahead` | Your cursor is past the log's head, as after the instance is restored to an earlier state. `requested` is your cursor and `head` is the latest event. | The same: discard the cursor, read the state again and start from the head of the log. |
+
+Marfa keeps each event for at least the event log retention, seven days by default, so a copy that stays offline for longer meets `catchup_too_old`. This loop ties the cases together. `rebuild` is the three steps at the top of this guide, and returns the cursor of the head it started from.
+
+```ts
+let cursor = await loadCursor(); // undefined on the first run
+for (;;) {
+  cursor ??= await rebuild();
+  const ended = await follow(cursor);
+  if (ended === "catchup_too_old" || ended === "cursor_ahead") cursor = undefined;
+  else cursor = await loadCursor();
+  await sleep(1000);
+}
+```
+
+A stream can also be refused before it opens, and `open` throws. Open it again for the retryable answers, and fix the request for the rest:
+
+| Answer | What to do |
+| --- | --- |
+| `401 unauthorized` | Use a credential that stands. |
+| `403 type_not_permitted` | The credential reads no type, or a `type` entry names one it can't read. Change the credential or the filter. |
+| `400 validation_error` | The cursor is malformed, `type` is `*` or has more than ten entries, or the request has a query key the operation doesn't declare, named in `details.unknown_parameters`. |
+| `400 unknown_type` | A `type` entry names a type nothing registers. |
+| `429 rate_limited` | Wait the seconds `Retry-After` names. |
+| `503 stream_capacity_exhausted` | The instance serves as many streams as it allows. Try again later. |
+
+## Narrow the stream
+
+`type` limits item events to a type and its subtypes. It takes up to ten types or patterns, comma-separated, such as `core.note,app.*`. `edges=none` leaves out edge events, and `type` doesn't filter edge events. A cursor works under any filter. IDs under a filter skip the events it leaves out.
+
+## Keep a working copy
+
+A working copy that holds a slice of an instance follows the copy stream, `GET /events?edges=all&copy=1`, and sends back the read view it received. [Read views](/get-started/staying-in-step#read-views) explains why. An app built on the [Swift package](/tools/swift-package) does this for you.
+
+The rules behind this guide are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) chapter of the contract.
