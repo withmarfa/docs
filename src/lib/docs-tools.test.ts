@@ -95,6 +95,15 @@ describe('fetchDocsPage', () => {
   it('returns null for a page that does not exist', async () => {
     expect(await fetchDocsPage('/definitely/not/a/page')).toBeNull();
   });
+
+  it('serves a page in the Overview group at the site root, and nothing at the old paths', async () => {
+    const page = await fetchDocsPage('/files');
+    expect(page).toMatch(/^# Files \(\/files\)\n/);
+    expect(await fetchDocsPage('/overview.md')).toMatch(/^# What Marfa is \(\/overview\)\n/);
+    expect(await fetchDocsPage('/cli-reference')).toContain('marfa items');
+    expect(await fetchDocsPage('/get-started/files')).toBeNull();
+    expect(await fetchDocsPage('/tools/marfa-command')).toBeNull();
+  });
 });
 
 describe('listTopics', () => {

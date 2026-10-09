@@ -24,9 +24,9 @@ export default defineConfig({
       // Prerender starts here, not at `/`. `/` redirects to the first page,
       // and prerender follows a redirect and saves the page it lands on as
       // `/index.html`. Served from there, the client router runs `/`'s
-      // redirect on a page already rendered as Get started, and hydration
+      // redirect on a page already rendered as the Overview, and hydration
       // fails. Left out, `/` reaches the Worker, which answers the redirect.
-      pages: [{ path: '/get-started' }],
+      pages: [{ path: '/overview' }],
       prerender: {
         enabled: true,
         // /version.json, /mcp and everything under /api/ must stay Worker
