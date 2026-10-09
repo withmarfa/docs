@@ -1,11 +1,153 @@
 ---
 title: Receive vendor webhooks
-description: Take in what a vendor sends to your connector.
+description: Make an address a vendor posts to, read what arrives, check each delivery came from the vendor, and mark it handled.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+A vendor can post a webhook to your connector when something changes, so the connector acts at once instead of waiting for its next scheduled read. [Connectors](/get-started/connectors#receiving-what-a-vendor-sends) explains what the instance does with a webhook: it stores the request and answers, and the connector does the rest. This guide covers that rest, in order. Every request here is made with the connector's own key unless it says otherwise.
 
-Planned topics:
+## Create an endpoint
 
-- Creating an endpoint.
-- Reading deliveries and marking them handled.
+[Create a webhook endpoint](/api-reference/connectors/createInboundEndpoint) makes an address on the instance for the vendor to post to. The connector's own key can make it, and so can a key holding `connectors.manage`:
+
+```http
+POST /connectors/01a1218c-0d99-7845-8fc9-379d21db8954/endpoints
+Authorization: Bearer <credential>
+Content-Type: application/json
+
+{ "label": "readlist webhooks", "duplicate_header": "X-Delivery-Id" }
+```
+
+Marfa answers `201` with the endpoint:
+
+```json
+{
+  "id": "01a1218c-e829-7330-89f0-5f43deb154d1",
+  "connector_id": "01a1218c-0d99-7845-8fc9-379d21db8954",
+  "label": "readlist webhooks",
+  "duplicate_header": "x-delivery-id",
+  "path": "/inbound/ZUB9L6-WCq3eIVADl0AOUVfKDlttRqWduw1IwAGwwZA",
+  "created_at": "2026-10-09T16:44:05.033Z",
+  "retired_at": null
+}
+```
+
+**Save `path` now.** The address is the credential, so this is the only answer that shows it in full. Every later read shows `/inbound/****` and its last four characters. Give the vendor your instance's public address followed by the path, and the secret the vendor signs its requests with. Marfa never sees that secret, so keep it in the connector's environment.
+
+`label` is a name for people to read. `duplicate_header` names the header whose value identifies a delivery, such as `X-GitHub-Delivery` for GitHub, so that Marfa can mark a delivery the vendor sends twice. Marfa stores it lowercased.
+
+A registration holds at most ten live endpoints. The `marfa` command makes one too:
+
+```bash
+marfa connectors endpoints create <connector-id> --label "readlist webhooks" --duplicate-header X-Delivery-Id
+```
+
+## Read what arrives
+
+[List inbound deliveries](/api-reference/connectors/listInboundDeliveries) answers the deliveries that haven't been handled, oldest first, without their bodies:
+
+```http
+GET /connectors/01a1218c-0d99-7845-8fc9-379d21db8954/deliveries
+Authorization: Bearer <credential>
+```
+
+Each delivery is the request as it arrived:
+
+```json
+{
+  "id": "01a1218c-f9c3-7bde-8e07-1335a5a31db1",
+  "endpoint_id": "01a1218c-e829-7330-89f0-5f43deb154d1",
+  "received_at": "2026-10-09T16:44:09.539Z",
+  "method": "POST",
+  "query": "src=test",
+  "headers": [["Content-Type", "application/json"], ["X-Delivery-Id", "d-100"], ["X-Signature", "sha256=e672d35202fa15e46723468fc2268a111e456cbc56bf1b632b670c0a178fa6cc"]],
+  "size": 34,
+  "sha256": "db5e1e5347c8c004449fbd6d36693a4f41adbf9f7d6d777291e8bc328574c43d",
+  "duplicate_of": { "id": "01a1218c-f9b8-74bc-b50b-4979a0eceb15", "outcome": null },
+  "handled_at": null,
+  "outcome": null
+}
+```
+
+`headers` keeps every header in the order and case it arrived, with repeats. `state` narrows the list to `pending` (the default), `handled` or `any`, and `endpoint_id` to one endpoint. A page can be short with a `next_cursor` still to follow, so walk until it is `null`. Only the connector's own key reads deliveries. A key holding `connectors.manage` is refused, as it is for every read of the connector's data.
+
+[Get an inbound delivery's body](/api-reference/connectors/getInboundDeliveryBody) answers the body byte for byte as `application/octet-stream`, whatever content type the vendor declared.
+
+## Check the delivery came from the vendor
+
+Anyone who learns the address can post to it, so a stored delivery proves nothing about its sender. Check it before you act. Most vendors sign the body with a shared secret and send the signature in a header. Marfa keeps the body byte for byte, so the signature you recompute over the bytes from the body operation is the one the vendor made:
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function genuine(body: Uint8Array, signature: string, secret: string): boolean {
+  const expected = Buffer.from(
+    `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`,
+  );
+  const received = Buffer.from(signature);
+  return expected.length === received.length && timingSafeEqual(expected, received);
+}
+```
+
+Take `signature` from the delivery's `headers`, matching the header name without regard to case. A vendor's scheme differs in the header, the prefix and the encoding, so follow its documentation. Compare in constant time, as `timingSafeEqual` does, and never compare a hash of the parsed body: parsing changes the bytes.
+
+A delivery that fails the check is not the vendor's. Mark it `rejected` and read nothing from it.
+
+## Act on a delivery
+
+Treat a delivery as a prompt to read the vendor, not as the vendor's state. A vendor may send webhooks out of order, twice, or not at all. Read from the delivery only what names the thing that changed, such as an ID, then fetch that thing from the vendor and write it as [Pull and push](/guides/connector-pull-and-push) describes. Keep a scheduled read as well, as the safety net for a webhook that never came.
+
+When a delivery repeats the `duplicate_header` value of an earlier delivery on the same endpoint, Marfa stores both and fills `duplicate_of` with the earlier one's `id` and its `outcome`. Read the outcome when you list: if the earlier delivery was `processed`, you have already acted on this one.
+
+## Mark deliveries handled
+
+[Mark inbound deliveries handled](/api-reference/connectors/markInboundDeliveriesHandled) takes up to 200 IDs and one outcome:
+
+```http
+POST /connectors/01a1218c-0d99-7845-8fc9-379d21db8954/deliveries/handled
+Authorization: Bearer <credential>
+Content-Type: application/json
+
+{ "ids": ["01a1218c-f9b8-74bc-b50b-4979a0eceb15"], "outcome": "processed" }
+```
+
+| Outcome | Use it when |
+| --- | --- |
+| `processed` | You read the vendor because of the delivery, and your run succeeded. |
+| `duplicate` | An earlier delivery of the same thing was processed. |
+| `rejected` | The delivery failed your check, or names nothing you act on. |
+
+Marfa records the mark with the time and acts on nothing. The answer lists the deliveries in the order you first named them. The first mark stands: marking a delivery again answers it unchanged. If any ID isn't one of this connector's deliveries, Marfa answers `404 delivery_not_found` and marks none of them.
+
+Mark a delivery `processed` only after the run that used it has ended without error. A delivery you leave unmarked comes back in the next listing. That's the retry: a run that fails loses nothing.
+
+The `marfa` command reads and marks too:
+
+```bash
+marfa connectors deliveries list <connector-id>
+marfa connectors deliveries handle <connector-id> <delivery-id> --outcome processed
+```
+
+## What the vendor is told
+
+The instance answers the vendor before your connector sees anything, and a vendor often retries on a refusal. Leaving deliveries unmarked has a cost, because a registration's backlog is bounded.
+
+| Answer | Why |
+| --- | --- |
+| `202` | Marfa stored the delivery. The body holds its `id`. |
+| `404` | The address isn't a live endpoint: it was retired, never existed, or its key was revoked. Marfa stores nothing and tells the sender nothing more. |
+| `408` | The body didn't arrive whole within 30 seconds. |
+| `413` | The body is over the limit, 25 MiB unless `MARFA_INBOUND_MAX_BYTES` names another. |
+| `429` | The endpoint took more requests in one window than it allows, 600 in 60 seconds by default. `Retry-After` gives the seconds left. |
+| `503` | Marfa can't take the delivery now: the registration holds as many unhandled or retained deliveries as it may, 10,000 deliveries or 1 GiB of bodies by default, or the instance is already receiving as many bytes as it allows. `Retry-After` gives the seconds to wait. |
+
+Handling a delivery frees its place in the backlog of unhandled deliveries, but only age removes it. Handled deliveries go 7 days after they were handled, and unhandled ones 30 days after they arrived, by default. The `inbound-delivery-cleanup` housekeeping job does it, and `PUT /config` changes both periods through `inbound_handled_retention_days` and `inbound_pending_retention_days`. [Housekeeping](/guides/housekeeping) covers the job.
+
+## Replace an endpoint
+
+To move a vendor to a new address, create the new endpoint first, give the vendor the new path, and retire the old one when the vendor has switched. [Retire a webhook endpoint](/api-reference/connectors/retireInboundEndpoint) stops the address accepting deliveries, and answers `404` to the vendor from then on. A retired endpoint stays in the listing with `retired_at` set, and the deliveries it stored stay readable until they age out. Read and mark them before you retire it, because they still count toward the backlog.
+
+```bash
+marfa connectors endpoints retire <connector-id> <endpoint-id>
+```
+
+The rules behind this page are in the [inbound webhooks](https://github.com/withmarfa/marfa/blob/main/conformance/spec/inbound-webhooks.md) chapter of the contract.

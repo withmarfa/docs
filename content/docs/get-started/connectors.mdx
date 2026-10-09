@@ -1,12 +1,81 @@
 ---
 title: Connectors
-description: Programs outside the server that bring records in from another service, and send changes back.
+description: What a connector is, the key it runs with, and what the instance keeps for it, such as its runs, hold, state document, agreements and webhook endpoints.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+## What a connector is
 
-Planned topics:
+A connector is a process outside the server that brings records in from another service, its **vendor**, and can carry changes made in Marfa back. GitHub, Todoist and an RSS feed are vendors. The server never runs a connector and never calls a vendor. You run the connector wherever you like, and it uses the API as any other client does.
 
-- What a connector is, and the key it runs with.
-- Holds, state and agreements.
-- Inbound webhooks: receiving what a vendor sends.
+A connector writes what it finds as items at the feed tier, which holds what arrives from outside as it came. A person or an app promotes an item into the library. [Items and types](/get-started/items-and-types) explains the tiers.
+
+## What the instance keeps for a connector
+
+The instance holds a few things for a connector so that it can stop, restart and run as a second copy without losing its place. Select a piece to see what it is and what it belongs to.
+
+<ConnectorMap />
+
+- **The registration** names the connector and shows its last heartbeat, its last run and its hold. It belongs to the connector's key.
+- **The hold** lets one process at a time write the state document and the agreements. It belongs to the registration.
+- **The state document** is the JSON object the connector resumes from. It belongs to the key's source.
+- **The agreements** record, row by row, what the connector and the vendor last agreed. They belong to the key's source.
+- **Feed items** are the rows the connector writes, under its source.
+- **An endpoint** is an address where the vendor posts without a credential, and **a delivery** is one request that arrived there. Both belong to the registration.
+
+## The key a connector runs with
+
+A connector acts through an ordinary key made for it alone. [Keys and permissions](/get-started/keys-and-permissions) explains keys. For a connector, three things about the key matter:
+
+- **Its source** labels every item the connector writes. With an item's `source_id`, the vendor's own ID for the record, the source is the item's natural key, so the connector finds a row again and updates it instead of making a second.
+- **Its type map** decides what the connector reaches. A connector key usually holds write on the connector's own types and nothing else.
+- **Its permissions** decide the other operations it may use. A connector needs none to register, report and receive webhooks. `connectors.manage` is for the person who looks after connectors.
+
+[Register a connector](/api-reference/connectors/registerConnector) ties a name to the key that sends it. A key holds one registration, so registering again updates the name and description and answers the same `id`. The owner and an app's access token can't register: a token is renewed on every refresh, so a registration made under one would be orphaned by the next.
+
+Most operations on a registration belong to the connector's own key. Some also open to those who look after connectors from outside:
+
+- **Only the connector's own key** sends heartbeats and reports runs, takes and releases the hold, reads and replaces the state document, writes and reads agreements, and reads deliveries and marks them handled.
+- **The own key, a holder of `connectors.manage`, or direct authority** may [read the registration](/api-reference/connectors/getConnector) and [its runs](/api-reference/connectors/listConnectorRuns), make, list and retire endpoints, delete the registration, and clear the state document and agreements. Direct authority is the owner signed in to the browser, or a command run through the instance's private socket.
+
+A key that is neither the connector's own nor a holder of `connectors.manage` is refused `403 forbidden` on these operations. When it only reads a registration or its runs, it is told `404 connector_not_found`, exactly as for an ID that doesn't exist.
+
+## Heartbeats and runs
+
+A connector tells the instance it is alive and what it did:
+
+- [Send a heartbeat](/api-reference/connectors/heartbeatConnector) sets `last_heartbeat_at`. It says only that the process was running at that time. Marfa takes no action when heartbeats stop, so what a stale one means is yours to decide.
+- [Report a run](/api-reference/connectors/reportConnectorRun) records one pass of the connector's work: an `outcome` of `succeeded` or `failed`, when it started and finished, and optionally a `summary` and an `error`. The registration shows the newest as `last_run`, and Marfa keeps the last 100.
+
+## One process at a time
+
+Nothing stops you starting a connector twice. The hold keeps two copies from writing over each other. A process picks a name for itself, such as a UUID made at start, and [takes the hold](/api-reference/connectors/holdConnector) under it. While the hold is live, another process's attempt answers `409 connector_held`, with the time the hold ends in `details.expires_at`. The hold lapses three minutes after the last take or renewal, unless the instance sets another window, so a process renews it for as long as it runs, and a crashed process loses it by itself.
+
+Only the process that holds a live hold can replace the state document or write agreements. Marfa enforces this on every write. [Holds and retries](/guides/connector-holds-and-retries) shows the sequence.
+
+## State and agreements
+
+The **state document** is a JSON object of at most 512 KiB that a connector keeps on the instance instead of on disk: a sync token, a cursor into the vendor, a position in the event stream. A connector can restart on another machine and pick up where it stopped. [Replace the state document](/api-reference/connectors/replaceConnectorState) replaces it whole.
+
+An **agreement** is the connector's record of what it and the vendor last agreed about one row, kept beside the row and not in it. Its `record` holds whatever the connector needs, up to 16 KiB, and `waiting` says that a change to the row is yet to be carried to the vendor. A connector that carries changes both ways compares a row with its agreement to tell a change a person made from one it made itself. [Write agreements](/api-reference/connectors/writeConnectorAgreements) sets and clears up to 500 at a time. Writing one announces nothing on the event stream and doesn't move the row's `updated_at` or `version`.
+
+Both belong to the key's **source**, not to the registration or the key. A new key minted under the same source, after you revoke the old one, registers as a new connector and reads the same state document and agreements. Trashing a row keeps its agreement, and purging the row removes it. [Delete the state document](/api-reference/connectors/deleteConnectorState) removes the document and every agreement of the source, and needs no hold.
+
+## Receiving what a vendor sends
+
+Many vendors post a webhook when something changes, so a connector can act at once instead of waiting for its next scheduled read. An inbound webhook is that request. The webhooks the instance sends are outbound webhooks, which [Staying in step](/get-started/staying-in-step) covers.
+
+[Create a webhook endpoint](/api-reference/connectors/createInboundEndpoint) makes an address on the instance, `/inbound/` followed by 43 characters. The vendor posts to it without a credential: the address is the credential. Marfa shows the address in full in the answer to the request that made it, and afterward only its last four characters. A registration holds at most ten live endpoints, and a retired endpoint stays listed.
+
+Marfa stores each request byte for byte and answers `202` at once. It holds no vendor's secret, so it can't check that a request came from the vendor. The connector does that, with its own key: it reads the deliveries, checks each one, and [marks it handled](/api-reference/connectors/markInboundDeliveriesHandled) as `processed`, `duplicate` or `rejected`. Marfa records the mark and acts on nothing. [Receive vendor webhooks](/guides/connector-webhooks) shows how.
+
+A vendor may send a webhook twice, late, or not at all, so treat a delivery as a prompt to read the vendor, not as the vendor's state.
+
+## Replacing a connector's key
+
+Revoking a connector's key removes nothing the connector registered. The registration, with its last heartbeat and its runs, stays for an owner or a holder of `connectors.manage` to read, until one deletes it. Its endpoints stop answering with `404`, and the key itself is refused `401` on every connector operation.
+
+To replace the key, mint a new one with the same source and register again. The new registration has its own `id` and none of the old runs, and it finds the old state document and agreements. [Delete a connector](/api-reference/connectors/deleteConnector) removes a registration, its runs, its hold, and its endpoints with every delivery they stored. It keeps the state document and agreements, for a later key with the same source.
+
+[Build a connector](/guides/connector) walks through writing one, and [Pull and push](/guides/connector-pull-and-push) covers the two directions of its work.
+
+The rules behind this page are in the [connectors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md) and [inbound webhooks](https://github.com/withmarfa/marfa/blob/main/conformance/spec/inbound-webhooks.md) chapters of the contract.

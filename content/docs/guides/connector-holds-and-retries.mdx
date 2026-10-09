@@ -1,12 +1,154 @@
 ---
 title: Holds and retries
-description: Run one process at a time and recover from failures.
+description: Take and renew a connector's hold, keep its state document and agreements between runs, and repeat a failed request safely.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+A connector can start twice, lose its network in the middle of a write, or crash between two requests. This guide shows how to keep one process writing at a time, what to keep on the instance so a restart resumes, and which failed requests are safe to send again. [Connectors](/get-started/connectors#one-process-at-a-time) explains what a hold, a state document and an agreement are. Every request here is made with the connector's own key.
 
-Planned topics:
+## Take the hold
 
-- Taking and renewing a hold.
-- State and agreements.
-- Retrying safely.
+Before it writes its state document or its agreements, a process takes the hold under a name it chooses. [Take or renew a hold](/api-reference/connectors/holdConnector) answers with when the hold lapses:
+
+```http
+POST /connectors/01a1218c-0d99-7845-8fc9-379d21db8954/hold
+Authorization: Bearer <credential>
+Content-Type: application/json
+
+{ "process": "8f14e45f-ceea-467a-9c1b-5b3e1c3e0a2d" }
+```
+
+```json
+{ "expires_at": "2026-10-09T16:47:04.962Z", "ttl_ms": 180000, "renewed": false }
+```
+
+Make the name unique to the process, such as a UUID made when the process starts. Marfa treats it as opaque, and two processes that share a name look like one process to it. The hold lasts `ttl_ms`, three minutes unless the instance sets another window, after each take or renewal.
+
+If another process holds a live hold, Marfa answers `409 connector_held` and leaves that hold alone. `details.expires_at` says when it ends:
+
+```json
+{
+  "error": {
+    "code": "connector_held",
+    "message": "Another process holds this connector until 2026-10-09T16:46:43.579Z",
+    "details": { "expires_at": "2026-10-09T16:46:43.579Z" }
+  }
+}
+```
+
+Wait until that time and take it again. Once a hold has lapsed, any process can take it. When two processes take a free hold at once, one gets `200` and the other `409`.
+
+## Renew it while the process runs
+
+Send the same request again, under the same name, before `expires_at`. Marfa moves `expires_at` to a full window from the renewal and answers `renewed: true`. Use `ttl_ms` to schedule the next renewal without reading Marfa's clock, and renew well inside the window: a connector built on the kit renews a third of a window apart.
+
+`renewed` is the signal that matters:
+
+- **`true`:** your hold was live when the request arrived, so no other process wrote the state document or agreements in between.
+- **`false` on a first take:** expected.
+- **`false` when you believed you held it:** your hold lapsed, and another process may have held it and written since. Read the state document and the agreements again before you write anything.
+
+If a renewal doesn't arrive, because the network is down or Marfa is busy, you can't know whether the hold is still yours once `expires_at` passes. Stop writing until a renewal succeeds. Marfa refuses a state or agreement write from a process without a live hold, but it can't stop that process from changing the vendor, so stop it yourself.
+
+A [heartbeat](/api-reference/connectors/heartbeatConnector) doesn't take or renew the hold. Send heartbeats on their own timer.
+
+When the process ends cleanly, [release the hold](/api-reference/connectors/releaseConnectorHold) so the next process starts at once instead of waiting for it to lapse:
+
+```http
+DELETE /connectors/01a1218c-0d99-7845-8fc9-379d21db8954/hold?process=8f14e45f-ceea-467a-9c1b-5b3e1c3e0a2d
+Authorization: Bearer <credential>
+```
+
+Marfa answers `{ "ok": true }` whether or not that process held the hold, and never releases another process's hold. A process that crashes releases nothing, and its hold lapses by itself.
+
+The `marfa` command makes the same requests as `marfa connectors hold <connector-id> --process <name>` and `marfa connectors release <connector-id> --process <name>`.
+
+## Keep state between runs
+
+The state document is where a connector keeps its place in the vendor, so that a restart, even on another machine, resumes instead of reading everything again. [Get the state document](/api-reference/connectors/getConnectorState) answers `{ "state": {}, "updated_at": null }` until one is written. [Replace the state document](/api-reference/connectors/replaceConnectorState) replaces the whole document, under the hold:
+
+```http
+PUT /connectors/01a1218c-0d99-7845-8fc9-379d21db8954/state
+Authorization: Bearer <credential>
+Content-Type: application/json
+
+{ "process": "8f14e45f-ceea-467a-9c1b-5b3e1c3e0a2d", "state": { "cursor": "42" } }
+```
+
+```json
+{ "state": { "cursor": "42" }, "updated_at": "2026-10-09T16:43:43.609Z" }
+```
+
+The request replaces the document, it doesn't merge into it. To change one value, read the document, change the value, and send it all. The document is at most 512 KiB serialized, and a larger one is refused `400 validation_error`. A process without a live hold is refused `409 connector_held`, and the document stays as it was.
+
+Two rules keep a restart correct:
+
+- **Save the state last.** Write the cursor only after everything it covers has landed in Marfa. A run that stops before the save leaves the old cursor, so the next run reads the same part of the vendor again and writes it again, which the next section makes safe. A cursor saved first would skip what the run never wrote.
+- **Expect it to be empty.** The owner and a holder of `connectors.manage` can clear the document, and the agreements go with it. A connector that finds an empty state document reads the vendor whole.
+
+The document belongs to the key's source, not to the registration, so a new key with the same source continues from it. [Delete the state document](/api-reference/connectors/deleteConnectorState) clears it and every agreement, and needs no hold.
+
+## Record agreements
+
+An agreement records, for one item, what the connector and the vendor last agreed. [Write agreements](/api-reference/connectors/writeConnectorAgreements) sets some and clears others in one request, under the hold:
+
+```http
+POST /connectors/01a1218c-0d99-7845-8fc9-379d21db8954/agreements
+Authorization: Bearer <credential>
+Content-Type: application/json
+
+{
+  "process": "8f14e45f-ceea-467a-9c1b-5b3e1c3e0a2d",
+  "set": [
+    {
+      "item_id": "01a1218c-51fb-7d2a-b2cb-816bec224509",
+      "waiting": true,
+      "record": { "title": "Designing Data-Intensive Applications" }
+    }
+  ],
+  "clear": ["01a1218c-0dc7-78a6-9c5d-5d0d059ef322"]
+}
+```
+
+```json
+{ "written": 1, "cleared": 0, "skipped": ["01a1218c-0dc7-78a6-9c5d-5d0d059ef322"] }
+```
+
+Each entry of `set` replaces the item's agreement. `waiting` is `true` while a change to the item is still to be carried to the vendor. `record` is a JSON object of at most 16 KiB, with whatever you need to tell later what the two sides agreed. A request holds at most 500 entries in `set` and 500 IDs in `clear`.
+
+An ID is `skipped`, and the rest of the request goes through, when no item has it or its type is one the key can't read. Here the ID to clear names an item that has since been purged, so there was nothing to clear. A trashed item counts as stored, and its agreement survives the trash. Purging the item removes the agreement.
+
+[Look up agreements](/api-reference/connectors/lookupConnectorAgreements) answers the agreements of up to 500 named items, and [List a connector's agreements](/api-reference/connectors/listConnectorAgreements) walks them all, longest-written first. `waiting=true` lists only the changes still to carry. Both read from the key's own type map, so they leave out an item of a type the key can't read.
+
+## Send a request again
+
+Each failure has a safe response:
+
+| Answer | What it means | What to do |
+| --- | --- | --- |
+| `409 connector_held` | The process holds no live hold. Nothing was written. | Take the hold. If `renewed` is `false`, read the state document and agreements again before writing. |
+| `429 rate_limited` | The key sent too many requests. | Wait the seconds `Retry-After` names, then send the same request. |
+| `503 write_contention` | The database was busy. Nothing changed. | Send the same request again. |
+| `500 internal_error` | The request may not have completed. | Read what you changed before you repeat a write. |
+| `413 request_too_large` | The body is over the cap for the operation. | Send less. A batch of agreements may be larger than the usual request cap: up to 16 MiB unless `MARFA_MAX_BULK_REQUEST_BYTES` names another. |
+
+A write whose result you didn't see is the hard case, and the writes of a connector differ in how they answer to a repeat:
+
+- **State and agreements** replace what is there. Sending the same one again, under the hold, leaves the same result.
+- **Items written by natural key** land on the same rows when repeated, because `source` and `source_id` find the row again. A repeat that changes nothing still raises each row's `version`, as [Changes over time](/get-started/changes-over-time) explains, so on a retry read the rows first and write only those that differ. A repeat can't make a second row.
+- **A create without a natural key** can make a second item. Send an `Idempotency-Key` header, up to 255 characters, with [Create an item](/api-reference/items/createItem). Marfa answers a repeat of the same request and key with the first response and writes nothing. [Write safely](/guides/write-safely) covers the header.
+- **A write to the vendor** is yours to make safe. Send the vendor an idempotency key, if it takes one, taken from something that doesn't change between attempts, such as the item's ID. Record the vendor's own ID for a row you just made as soon as you have it, in the type's `link_field`, so a retry updates that vendor record instead of making another.
+
+## Put a run in order
+
+An order that survives a stop at any step:
+
+1. Take the hold, and renew it for as long as the run takes.
+2. Read the state document and the agreements you need.
+3. Read the vendor, and write the items. The natural key makes a repeat harmless.
+4. Write the agreements for what you wrote or carried.
+5. Replace the state document with the new cursor.
+6. [Report the run](/api-reference/connectors/reportConnectorRun), as `succeeded` or `failed` with an `error`, then release the hold.
+
+A run that fails reports `failed`, and the next run starts from the last state document that was saved. Reporting needs no hold, and Marfa keeps the last 100 runs.
+
+The rules behind this page are in the [connectors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md) chapter of the contract, which also holds the rule for [a take after a lapse](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md#connectorshold-lapsed-not-renewed).
