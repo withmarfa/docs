@@ -42,9 +42,9 @@ Set `NODE_ENV=production`. The server then refuses to start without both secrets
 
 ### The address
 
-`MARFA_AUTH_BASE_URL` is the public URL clients reach the server at, such as `https://marfa.example.com`. The server uses it as the OAuth issuer, the cookie domain, and the origin of the links it makes. The owner can claim the instance and sign in only at an `https` address, or on a loopback host such as `localhost`.
+`MARFA_AUTH_BASE_URL` is the public URL clients reach the server at, such as `https://marfa.example.com`. The server uses it as the OAuth issuer, the cookie domain, and the origin of the links it makes. The owner can claim the instance and sign in only when this URL is `https`, or `http` on `localhost`, `127.0.0.1` or `[::1]`.
 
-[Where it runs](/get-started#where-it-runs) lists the ways to get an address: Tailscale (suggested) or a Cloudflare Tunnel. When a proxy or tunnel sits in front of the server, set `TRUSTED_PROXY_CIDRS` to the proxy's address ranges, or `TRUSTED_PROXY_HEADER` to a header the platform's edge overwrites with the client address. Without either, the server ignores `X-Forwarded-For`.
+[Where it runs](/get-started#where-it-runs) lists the ways to reach an instance, including Tailscale (suggested) and a Cloudflare Tunnel. When a proxy or tunnel sits in front of the server, set `TRUSTED_PROXY_CIDRS` to the proxy's address ranges, or `TRUSTED_PROXY_HEADER` to a header the platform's edge overwrites with the client address. Without either, the server ignores `X-Forwarded-For`.
 
 ### An object store
 
@@ -76,10 +76,10 @@ docker exec marfa marfa --socket /data/control/marfa.sock setup open --no-browse
 Whatever supervises the server, three facts decide how to configure it:
 
 - **Health.** `GET /health` answers without a credential. It answers `503` when the database, a write, the disk, or blob storage is `down`, and `200` otherwise, `degraded` included. The container image checks it every 30 seconds.
-- **Stopping.** `SIGTERM` or `SIGINT` stops the server. It ends open event streams with a `stream_incomplete` frame whose `reason` is `server_stopping`, finishes the requests and housekeeping runs in flight, and exits `0` within eight seconds. A runtime that allows ten seconds before it kills the process leaves room for that.
+- **Stopping.** `SIGTERM` or `SIGINT` stops the server. It ends open event streams with a `stream_incomplete` frame whose `reason` is `server_stopping`, waits a few seconds for the requests and housekeeping runs in flight, and exits within eight seconds: `0` for a clean stop, `1` if a request was still open or storage didn't close. A runtime that allows ten seconds before it kills the process leaves room for that.
 - **Exit statuses.** Status `78` means the database was written by another build: the server changed nothing and starting it again meets the same refusal, so do not restart on `78`. [Upgrade](/guides/upgrade) says what to do. Status `1` is any other failed start, such as a setting outside its rules or a port in use. The container does not exit on `78`. It stays up and unhealthy with the reason in its log, so a restart policy cannot loop on it.
 
-Without a container, build the server with `pnpm --filter "@withmarfa/server..." build` in a clone of the repository, then run `node dist/index.js` from `packages/server` with the settings in its environment. The container recipe is the tested route.
+Without a container, in a clone of the repository, run `pnpm install --frozen-lockfile` and `pnpm --filter "@withmarfa/server..." build`, then run `node dist/index.js` from `packages/server` with the settings in its environment. The container recipe is the tested route.
 
 The server creates a private socket at `control/marfa.sock` beside the database, unless `MARFA_CONTROL_SOCKET` names another path. A command run on the machine, under the server's account, reaches the instance through it with direct authority. [The marfa command](/tools/marfa-command) explains `--socket`.
 
