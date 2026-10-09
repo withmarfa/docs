@@ -3,10 +3,39 @@ title: Back up and restore
 description: Export your data to an archive, restore it into an instance, and copy the machine so you can bring the same instance back.
 ---
 
-Two kinds of copy do two jobs:
+There are two ways to keep a copy, and they do different jobs:
 
-- **A copy of the machine's data** brings the same instance back: its items, keys, configuration and sign-ins.
-- **An export archive** carries your items, edges, types and blobs into an instance. Before Marfa's first release, only the build that wrote an archive is sure to read it, so an archive moves data between instances and builds ([Upgrade](/guides/upgrade)) and is not a backup that outlasts a build.
+- **Copy the machine's data** to bring the same instance back after a failure. The copy holds everything: items, keys, configuration and sign-ins.
+- **Export an archive** to move your items, edges, types and blobs into another instance, such as a new build when you [upgrade](/guides/upgrade). Until Marfa's first release, a build other than the one that wrote an archive may refuse it, so an archive isn't a long-term backup.
+
+## Back up the machine
+
+Copy two things:
+
+- **The data directory.** The database file (`SQLITE_PATH`), the log beside it named `marfa.db-wal`, and the blob folder (`BLOB_PATH`). In the container image, this is the volume at `/data`.
+- **The two secrets**, `API_KEY_SALT` and `MARFA_AUTH_SECRET`, from wherever you keep them. They are not in the data directory. A restore without the salt holds every key and accepts none.
+
+How you copy decides whether the copy restores. Each of these restores to an instance with every write it had acknowledged before the copy began:
+
+| How | Why it works |
+| --- | --- |
+| A snapshot of the volume or filesystem, such as Time Machine on an APFS volume or a host's disk snapshot. | It is an image of the directory at one instant, which SQLite recovers from as it does from a crash. |
+| Stop the instance, copy the directory, start it. | A stop moves every write into the database file. Copy `marfa.db-wal` too when it exists. |
+| Copy the files one after another while the instance runs, holding a read transaction on the database for the whole copy. | The log is not restarted while a reader holds it. Copy the database file, then the log, then the blob folder. |
+
+Copying the files one after another with no reader held does not restore. A checkpoint between reading the file and reading the log leaves a database that either does not open or has lost writes. With the `sqlite3` command on the same machine, hold the transaction like this:
+
+```bash
+sqlite3 /data/marfa.db "BEGIN; SELECT count(*) FROM sqlite_master;" ".shell cp /data/marfa.db /data/marfa.db-wal /backup/" ".shell cp -R /data/blobs /backup/" "COMMIT;"
+```
+
+To restore, stop the instance, put the copied files where `SQLITE_PATH` and `BLOB_PATH` name (leave out any `marfa.db-shm`), and start it with the same two secrets. Read `GET /health` to confirm. The rules are in the [instance chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#instancecopy-under-reader).
+
+### With a bucket
+
+The container recipe copies for you when `S3_BUCKET` is set. Litestream streams each committed database write to the bucket within a second and keeps a day of hourly snapshots. The `blob-replicate` housekeeping job copies each blob there. A new volume with the same bucket and secrets restores the database at start and brings the blobs back as replication runs.
+
+The database reaches the bucket before a blob does, so a restore to a moment between the two can name a blob the bucket does not hold yet. The [deployment guide](https://github.com/withmarfa/marfa/blob/main/deploy/README.md#restoring-by-hand) has the commands to restore to the latest state or to a point in time.
 
 ## Export an archive
 
@@ -98,34 +127,5 @@ Replaying a backup never overwrites work made since: a duplicate keeps the insta
 - **It does not unpack.** The body is empty, is not a gzip-compressed tar, or has an entry twice, or a line over 64 MiB: `400 validation_error`.
 
 [Errors](/api-reference/errors) lists every code.
-
-## Copy the machine
-
-A restore of the machine's data brings back everything an archive leaves out. Copy two things:
-
-- **The data directory.** The database file (`SQLITE_PATH`), the log beside it named `marfa.db-wal`, and the blob folder (`BLOB_PATH`). In the container image, this is the volume at `/data`.
-- **The two secrets**, `API_KEY_SALT` and `MARFA_AUTH_SECRET`, from wherever you keep them. They are not in the data directory. A restore without the salt holds every key and accepts none.
-
-How you copy decides whether the copy restores. Each of these restores to an instance with every write it had acknowledged before the copy began:
-
-| How | Why it works |
-| --- | --- |
-| A snapshot of the volume or filesystem, such as Time Machine on an APFS volume or a host's disk snapshot. | It is an image of the directory at one instant, which SQLite recovers from as it does from a crash. |
-| Stop the instance, copy the directory, start it. | A stop moves every write into the database file. Copy `marfa.db-wal` too when it exists. |
-| Copy the files one after another while the instance runs, holding a read transaction on the database for the whole copy. | The log is not restarted while a reader holds it. Copy the database file, then the log, then the blob folder. |
-
-Copying the files one after another with no reader held does not restore. A checkpoint between reading the file and reading the log leaves a database that either does not open or has lost writes. With the `sqlite3` command on the same machine, hold the transaction like this:
-
-```bash
-sqlite3 /data/marfa.db "BEGIN; SELECT count(*) FROM sqlite_master;" ".shell cp /data/marfa.db /data/marfa.db-wal /backup/" ".shell cp -R /data/blobs /backup/" "COMMIT;"
-```
-
-To restore, stop the instance, put the copied files where `SQLITE_PATH` and `BLOB_PATH` name (leave out any `marfa.db-shm`), and start it with the same two secrets. Read `GET /health` to confirm. The rules are in the [instance chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#instancecopy-under-reader).
-
-### With a bucket
-
-The container recipe copies for you when `S3_BUCKET` is set. Litestream streams each committed database write to the bucket within a second and keeps a day of hourly snapshots. The `blob-replicate` housekeeping job copies each blob there. A new volume with the same bucket and secrets restores the database at start and brings the blobs back as replication runs.
-
-The database reaches the bucket before a blob does, so a restore to a moment between the two can name a blob the bucket does not hold yet. The [deployment guide](https://github.com/withmarfa/marfa/blob/main/deploy/README.md#restoring-by-hand) has the commands to restore to the latest state or to a point in time.
 
 The rules behind this page are in the [search and filters](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md), [instance](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md) and [stores](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md) chapters of the contract.
