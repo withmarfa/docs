@@ -6,6 +6,7 @@ import { InstanceMap } from './diagrams/instance-map';
 import { ItemLifecycle } from './diagrams/item-lifecycle';
 import { ItemLayers } from './diagrams/item-layers';
 import { TypeTree } from './diagrams/type-tree';
+import { ReferenceList } from './reference-list';
 
 export function getMDXComponents(components?: MDXComponents) {
   return {
@@ -15,6 +16,7 @@ export function getMDXComponents(components?: MDXComponents) {
     InstanceMap,
     ItemLifecycle,
     ItemLayers,
+    ReferenceList,
     TypeTree,
     ...components,
   } satisfies MDXComponents;
