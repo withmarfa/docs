@@ -2,7 +2,7 @@
 
 The source of the public documentation site at `docs.marfa.so` and of the status page at `status.marfa.so`. Fumadocs on TanStack Start, deployed to Cloudflare Workers with `@cloudflare/vite-plugin`.
 
-The docs follow the API description and the contract in `withmarfa/marfa`, and those are the source of truth. This repository is where published docs live: code repositories open a pull request here when they change a public surface. Check any Marfa name, field, error code or rule on a page against them before it ships.
+The docs follow the API description and the contract in `withmarfa/marfa`, and those are the source of truth. Check any Marfa name, field, error code or rule on a page against them before it ships. Generated reference reaches this repository through the sync script; hand-written pages are rewritten in a docs pass at each release, never patched for each code change (`STYLE.md`, "Keeping pages current").
 
 Writing follows `STYLE.md`.
 
