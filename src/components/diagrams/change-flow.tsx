@@ -82,7 +82,7 @@ export const pieces: readonly FlowPiece[] = [
     operation: { tag: 'Event stream', operationId: 'streamEvents', name: 'Stream change events' },
     before: (
       <>
-        The same stream with <code>copy=1</code>. Its markers carry a read view, which tells a working copy
+        The same stream with <code>edges=all&amp;copy=1</code>. Its markers carry a read view, which tells a working copy
         that what it listed, what it fetched and what it follows belong together.
       </>
     ),

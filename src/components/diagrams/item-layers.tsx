@@ -121,7 +121,7 @@ export const parts: readonly ItemPart[] = [
     label: 'Extensions',
     icon: Puzzle,
     summary: <code>com.example.reader</code>,
-    definedBy: 'The app that writes a namespace decides what it holds.',
+    definedBy: 'Whoever writes a namespace decides what it holds.',
     writtenWith: {
       tag: 'Extensions',
       operationId: 'replaceItemExtension',
