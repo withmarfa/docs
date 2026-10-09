@@ -38,4 +38,4 @@ Every time is UTC, written as `2026-10-03T09:30:00.000Z`. A time field is named 
 
 ### Every response
 
-Every response carries `X-Marfa-Contract`, the version of this contract, which is also this document's version, and `X-Request-ID`, which identifies the request if you report a problem.
+Every response carries `X-Marfa-Contract`, the version of this contract, which is also this document's version. Every response outside `/auth/` and `/.well-known/`, and every response to `POST /auth/oauth2/register`, also carries `X-Request-ID`, which identifies the request if you report a problem.

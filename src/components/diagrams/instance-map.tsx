@@ -22,7 +22,7 @@ const spokes: readonly (DiagramNode & { side: Side })[] = [
     icon: AppWindow,
     summary: 'Read and write data',
     caption:
-      'Apps read and write over the HTTP API with a credential, and see only the types their permissions reach.',
+      'Apps read and write over the HTTP API with a credential, and see only the types their credential reaches.',
   },
   {
     id: 'connectors',

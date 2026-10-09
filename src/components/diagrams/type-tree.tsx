@@ -70,7 +70,7 @@ export const trees: readonly (readonly TypeNode[])[] = [
           An example of an app&apos;s own type, in the <code>app</code> namespace. Its{' '}
           <code>parent</code> is <code>core.file.image</code>, so it inherits from{' '}
           <code>core.file</code> too, and a listing of <code>core.file</code> includes receipts. A
-          credential whose permissions reach <code>app.example.receipt</code> can register and
+          credential whose type map reaches <code>app.example.receipt</code> can register and
           change it.
         </>
       ),
@@ -99,7 +99,7 @@ export const trees: readonly (readonly TypeNode[])[] = [
           An example of your own type, in the <code>user</code> namespace. It names{' '}
           <code>core.note</code> in <code>compatible_with</code>, not <code>parent</code>: it
           inherits nothing, Marfa checks that it requires <code>body</code> as a note does, and a
-          listing of <code>core.note</code> leaves it out. A credential whose permissions reach{' '}
+          listing of <code>core.note</code> leaves it out. A credential whose type map reaches{' '}
           <code>user.recipe</code> can register and change it.
         </>
       ),
