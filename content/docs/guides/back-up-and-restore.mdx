@@ -39,7 +39,7 @@ The database reaches the bucket before a blob does, so a restore to a moment bet
 
 ## Export an archive
 
-[Export items and edges](/api-reference/export-and-restore/exportData) with `format=archive` answers a `.tar.gz` file. It holds what the credential can read: items with their tags, extensions and version history, the edges between them, the type registrations, and the blobs they name.
+[Export items and edges](/api-reference/export-and-restore/exportData) with `format=archive` answers a `.tar.gz` file. It holds the items the credential can read, with their tags, the extensions it can read and their version history, the edges between them, and the blobs they name. It also holds every type and edge type registered on the instance, whatever the credential reads.
 
 The credential decides what the archive holds, and a permission such as `blobs.manage` adds no content. To keep everything, use a key that reads every type, edge type and extension namespace:
 
@@ -48,7 +48,7 @@ marfa --socket /data/control/marfa.sock keys create --label backup --source back
   --type-permission '*=read' --edge-permission '*=read' --extension-permission '*=read'
 ```
 
-Run the command on the instance's machine, under the server's account. [Create a key](/api-reference/access/createKey) shows the key once, so copy it then. Then export:
+Run the command on the instance's machine, under the server's account. [Create an API key](/api-reference/access/createKey) shows the key once, so copy it then. Then export:
 
 ```http
 GET /export?format=archive&state=any
@@ -95,6 +95,8 @@ The target can be a new instance or the one the archive came from. The answer co
 }
 ```
 
+`blobs_imported` counts every blob in the archive whose bytes match its hash, including the ones the instance already held.
+
 A restore writes in one transaction. One that is refused, fails, or is interrupted leaves no rows, types or edges behind, so you can run it again. A blob's bytes are written before the transaction opens. If the process stops, the `blob-replicate` and `blob-integrity` [housekeeping jobs](/guides/housekeeping) remove the bytes no row names.
 
 While it runs, `GET /health` reports `database_write` as `degraded`, and a request that writes waits for the restore. After the busy budget, 5 seconds by default (`SQLITE_BUSY_BUDGET_MS`), it answers `503 write_contention`. Let the restore answer before you connect clients. When it commits, the restored items appear on the event stream.
@@ -117,11 +119,11 @@ While it runs, `GET /health` reports `database_write` as `degraded`, and a reque
 - A type or edge type the instance already registers identically, counted in `types_skipped` or `edge_types_skipped`.
 - A blob entry whose bytes do not hash to its name, left out and not counted in `blobs_imported`.
 
-**Never in an archive:** keys, webhooks, configuration, tombstones, and the audit log. Trashed items are in an archive only if the export named `state=any`.
+**Never in an archive:** keys, webhooks, configuration, tombstones, and the audit log. Trashed items are in an archive only if the export named `state=any` or `state=trashed`.
 
 Replaying a backup never overwrites work made since: a duplicate keeps the instance's copy. A restore refuses the whole archive, and writes nothing, in these cases:
 
-- **The archive was written by another build.** Its `manifest.json` names a `version` other than 0, and the answer is `400 validation_error`. See [`search-and-filters/restore-version`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#search-and-filtersrestore-version).
+- **The archive's version isn't 0.** Every build before the first release writes `version` 0 in `manifest.json`, and a restore refuses any other with `400 validation_error`. An archive of version 0 from another build may restore or be refused, because version 0 promises nothing between builds. See [`search-and-filters/restore-version`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#search-and-filtersrestore-version).
 - **A type or edge type differs.** The archive registers one the instance holds differently, or carries a core edge type: `409 conflict`, with `details.conflicting_ids` naming each.
 - **A row cannot be valid.** It has a state its type cannot be in, a `source` starting with `oauth:`, a bad version, tier or date, or malformed history: `400 validation_error` naming the row. A row that sets a property no type declares, where `strict_mode` names its type, answers `400 invalid_properties`.
 - **It does not unpack.** The body is empty, is not a gzip-compressed tar, or has an entry twice, or a line over 64 MiB: `400 validation_error`.
