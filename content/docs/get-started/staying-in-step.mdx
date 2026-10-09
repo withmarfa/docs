@@ -1,12 +1,76 @@
 ---
 title: Staying in step
-description: How an app or service learns what changed.
+description: How an app or service learns what changed, through the event log and its stream, read views for working copies, and webhooks.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+Marfa keeps an event log. Every write that commits adds events to it, and an app or a service learns what changed by reading the log. There are three ways to read it. Select a piece to see how a change reaches it.
 
-Planned topics:
+<ChangeFlow />
 
-- The event stream, and resuming from a cursor.
-- Read views: a consistent copy of what a key can see.
-- Webhooks: Marfa calling your service when something changes.
+- **A write** that commits adds an event to the log. A write that is refused or rolled back adds none.
+- **The event log** numbers each event in the order Marfa made the changes, and keeps it for at least the event log retention, seven days by default.
+- **The event stream** is a connection your app opens. Marfa replays what you missed after the cursor you send, then sends each new event as it happens.
+- **The copy stream** is the same stream with `copy=1`, for a working copy. Its markers carry a read view.
+- **A webhook** is a URL you register. Marfa sends each event you named to it, and tries again when your service doesn't take it.
+
+## What an event is
+
+An event says that something changed and carries the thing as it stands after the change. It has an ID, a whole number that rises with each event, never changes, and survives a restart. A cursor is the ID of the last event you applied.
+
+| Event | Sent when |
+| --- | --- |
+| `item.created` | An item is created. |
+| `item.updated` | An item is updated. |
+| `item.state_changed` | An item is archived or unarchived. |
+| `item.deleted` | An item moves to the bin, with each item a cascading edge took with it. |
+| `item.restored` | An item comes back from the bin. |
+| `item.purged` | An item is purged, on request or by the `trash-purge` housekeeping job. |
+| `metadata.changed` | An item's tags or an extension namespace change. |
+| `edge.created`, `edge.updated`, `edge.deleted` | An edge is created, changed or deleted. |
+
+You are told only of what your credential can read. An item event reaches you if you can read the item's type. An edge event reaches you if you can read the edge type and the type its source item had when the event happened. A `metadata.changed` carries only the extension namespaces you can read. Marfa reads your credential again as it goes, so a credential that is narrowed stops receiving what it can no longer read, and one that is revoked or expired ends the stream.
+
+## Streams and cursors
+
+[Stream change events](/api-reference/event-stream/streamEvents) opens the stream. It opens with a `stream_cursor` frame that names the latest event in the log, replays every event after the cursor you sent, marks the end of the replay with `stream_live`, and then sends events as they happen. Only event frames carry an `id:`, so a client that resumes from the last `id:` it received never resumes from a marker.
+
+When you resume from a cursor, Marfa sends every later event exactly once, also across a restart of the server. A `type` filter (up to ten types, subtypes included) and `edges=none` narrow the stream, and a cursor stays valid under any filter.
+
+The log doesn't keep events forever. The `event-log-cleanup` housekeeping job retires the oldest first, so a cursor can fall behind it. A stream then ends with a `catchup_too_old` frame, and your app reads its state again. [Keep a copy in sync](/guides/keep-in-sync) shows how to follow a stream, and what to do with each way it ends.
+
+## Read views
+
+A working copy holds a slice of an instance: an inventory it listed, items it read one by one, and the events it follows. Those only fit together if they were all read under the same permissions. A read view is Marfa's proof that they were, for one credential: 64 hexadecimal characters that Marfa gives in the markers of a copy stream and that a working copy presents back on its next request.
+
+A copy stream is `GET /events?edges=all&copy=1`. Its `stream_cursor` and `stream_live` carry the `read_view`, with the `instance_id`, and each item frame carries `listed`: `true` if the item is in the set the credential can list, `false` if the credential can read it only by ID. A working copy sends the read view back as `X-Marfa-Read-View`, with `Last-Event-ID`, to resume a copy stream, and on a read of items, edges, types or edge types to check that the answer belongs to the same view. A matching read answers with the same header. A read view that has changed answers `409 read_view_changed`, and an open copy stream sends a final `read_view_changed` frame and closes. Either way, the working copy is rebuilt.
+
+A read view changes when what the credential can read changes:
+
+- The credential's reach narrows or widens over item types, edge types, metadata or extensions, or its source filter changes.
+- An item moves to another type, or an edge moves to another source.
+- A type or an edge type is registered or deleted, or a type gets another parent.
+- A retention sweep purges an item.
+
+It stays the same when an item's properties, tags, tier or state change without a change of type, when an item goes to the bin or comes back, when edges are created or deleted, and when only the credential's write reach changes. Two keys that read the same things still get different read views. Two access tokens of one app that hold the same scopes share one, so a refresh keeps it.
+
+A device does this for you. An app built on the [Swift package](/tools/swift-package) hydrates and follows a working copy under one read view, and expires the copy when the view changes. You read read views yourself only when you build a working copy of your own.
+
+## Webhooks
+
+A webhook is the event stream turned around: Marfa connects to your service. [Create a webhook](/api-reference/webhooks/createWebhook) registers a `url`, the `events` you want from the table above (there is no wildcard), and optionally a `type_filter` for item events. It needs the `webhooks.manage` permission, and the webhook belongs to the key or the app's grant that registered it. Marfa deletes it when the grant is revoked, and sends nothing while the key has lost the permission or has expired. By default the URL must reach a public address.
+
+Every delivery is signed with the webhook's secret. Marfa generates a 64-character secret and shows it once, in the answer that creates the webhook, or uses one of at least 32 characters that you send. A delivery is a `POST` of JSON: the frame the stream would have sent, shaped for what the registering credential can read, with three more members.
+
+| Member | What it holds |
+| --- | --- |
+| `event_id` | The event's ID, the same as its `id:` on the stream. |
+| `delivery_id` | The delivery's ID, the same on every attempt. Use it to recognize a repeat. |
+| `delivered_at` | When Marfa sent this attempt. |
+
+The `X-Marfa-Event-Type` header repeats `event_type`. The `X-Marfa-Signature` header reads `t=<unix seconds>,v1=<hex>`, where `v1` is the HMAC-SHA-256, under the secret, of `<t>.<raw body>`. Check it against the raw body before you trust a delivery.
+
+Answer with a `2xx` status. Marfa tries again when your service is unreachable, doesn't answer in time, or answers `5xx`, `408` or `429`. It makes up to eight attempts, waiting 1, 5, 25, 125, 625, 3,125 and 15,625 seconds between them, or as long as your `Retry-After` asks if that is longer, up to five minutes. Any other `4xx` status, or a redirect, ends the delivery at once. A delivery that Marfa gives up on is `dead_letter`. [List webhook deliveries](/api-reference/webhooks/listWebhookDeliveries) shows each delivery and its outcome, and [Redeliver a failed delivery](/api-reference/webhooks/redeliverWebhookDelivery) sends a `dead_letter` delivery again, to the webhook's current URL.
+
+A webhook has no cursor and no replay. It receives the events written after it was registered, and nothing earlier. Use the stream when you need to catch up.
+
+The rules behind this page are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) and [read views](https://github.com/withmarfa/marfa/blob/main/conformance/spec/read-views.md) chapters of the contract.
