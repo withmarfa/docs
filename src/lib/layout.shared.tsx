@@ -14,9 +14,9 @@ const NpmIcon = (
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
-      // The wordmark is the home affordance, linking to what Marfa is.
+      // The wordmark is the home affordance, linking to the Overview.
       title: appName,
-      url: '/get-started',
+      url: '/overview',
     },
     // The section tabs render as pills in the navbar (OpenAI-style), in
     // place of the central search. The native notebook tab row is hidden via
@@ -27,14 +27,6 @@ export function baseOptions(): BaseLayoutProps {
       // all when it cannot get an answer, so this site never depends on that
       // one being reachable.
       { type: 'custom', secondary: true, children: <StatusIndicator /> },
-      // Pages and sources that sit outside the four sections.
-      { text: 'Changelog', url: '/changelog', secondary: true },
-      {
-        text: 'Contract',
-        url: `https://github.com/${gitConfig.user}/marfa/tree/main/conformance/spec`,
-        external: true,
-        secondary: true,
-      },
       // npm org link, paired with the GitHub icon on the navbar's right edge.
       // The GitHub org and npm scope share the same slug.
       {
