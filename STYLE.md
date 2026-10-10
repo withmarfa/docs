@@ -144,7 +144,7 @@ Every visual follows these rules:
 
 The docs stay right by being rewritten whole, not by being added to.
 
-- **Generated reference is synced, never written by hand.** The API reference, the CLI reference, the error codes, the settings and the glossary come from withmarfa/marfa through `scripts/sync-from-marfa.sh`.
+- **Generated reference is synced, never written by hand.** The API reference, the CLI reference, the error codes, the settings, the shipped types and edge types, the permissions, the event types and the glossary come from withmarfa/marfa through `scripts/sync-from-marfa.sh`.
 - **A code change doesn't need a docs change.** Code repositories don't open a pull request here for each public change.
 - **A docs pass runs at each release.** It reads every page whose contract rules or operations changed since the last release and rewrites each one whole, to this file. "No change needed" is a normal answer.
 - **A page that grows is a warning.** When a change makes a page much longer, check whether the new text belongs in the reference instead, or replaces something.

@@ -8,11 +8,13 @@
 # command reference into src/generated/marfa-commands.md, dropping its
 # generated-file comment and its title, and it takes the code table from the
 # errors chapter into src/generated/error-codes.md and the settings table from
-# the instance chapter into src/generated/settings.md. A description that is missing, blank or
+# the instance chapter into src/generated/settings.md, and the tables of the
+# shipped types, edge types, permissions and event types from their chapters
+# into src/generated/core-types.md, edge-types.md, permissions.md and
+# event-types.md. A description that is missing, blank or
 # the wrong type, a spec whose top level or `info` is not an object, or a
 # command reference that is missing, empty, not UTF-8 or holds nothing past its
-# title, or an errors chapter or an instance chapter with no table between its
-# markers, must stop the
+# title, or a chapter with no table between its markers, must stop the
 # script before it changes anything, with one line saying
 # so, never a Python traceback. The script is copied into each fixture so that
 # its docs root is the fixture, and the real tree is never touched.
@@ -123,6 +125,23 @@ instance_expected="$(cat <<'EOF'
 EOF
 )"
 
+# The four catalogue chapters every fixture holds, and the table the script
+# takes from each.
+catalogue_chapter() { # catalogue_chapter <marker> <header> <row>
+  printf '# Chapter\n\n<!-- %s-table:start -->\n\n%s\n| --- | --- |\n%s\n\n<!-- %s-table:end -->\n' "$1" "$2" "$3" "$1"
+}
+catalogue_expected() { # catalogue_expected <header> <row>
+  printf '%s\n| --- | --- |\n%s' "$1" "$2"
+}
+types_chapter="$(catalogue_chapter types '| Type | Family |' '| `core.note` | core |')"
+types_expected="$(catalogue_expected '| Type | Family |' '| `core.note` | core |')"
+edges_chapter="$(catalogue_chapter edge-types '| Edge type | On delete |' '| `parent-of` | cascade |')"
+edges_expected="$(catalogue_expected '| Edge type | On delete |' '| `parent-of` | cascade |')"
+permissions_chapter="$(catalogue_chapter permissions '| Permission | Lets |' '| `keys.mint` | Minting keys. |')"
+permissions_expected="$(catalogue_expected '| Permission | Lets |' '| `keys.mint` | Minting keys. |')"
+events_chapter="$(catalogue_chapter event-types '| Event | Sent to |' '| `item.created` | Streams |')"
+events_expected="$(catalogue_expected '| Event | Sent to |' '| `item.created` | Streams |')"
+
 # fixture <name> <spec file>
 #
 # Builds <name>/docs, holding the script and a stale copy of everything it
@@ -139,6 +158,10 @@ fixture() {
   printf 'stale commands\n' > "${dir}/docs/src/generated/marfa-commands.md"
   printf 'stale codes\n' > "${dir}/docs/src/generated/error-codes.md"
   printf 'stale settings\n' > "${dir}/docs/src/generated/settings.md"
+  printf 'stale types\n' > "${dir}/docs/src/generated/core-types.md"
+  printf 'stale edge types\n' > "${dir}/docs/src/generated/edge-types.md"
+  printf 'stale permissions\n' > "${dir}/docs/src/generated/permissions.md"
+  printf 'stale events\n' > "${dir}/docs/src/generated/event-types.md"
   printf '{"version":"v0.0.0"}\n' > "${dir}/docs/src/generated/marfa-release.json"
 
   cp "$2" "${dir}/marfa/openapi.json"
@@ -148,6 +171,10 @@ fixture() {
   mkdir -p "${dir}/marfa/conformance/spec"
   printf '%s\n' "${errors}" > "${dir}/marfa/conformance/spec/errors.md"
   printf '%s\n' "${instance}" > "${dir}/marfa/conformance/spec/instance.md"
+  printf '%s\n' "${types_chapter}" > "${dir}/marfa/conformance/spec/types.md"
+  printf '%s\n' "${edges_chapter}" > "${dir}/marfa/conformance/spec/edges.md"
+  printf '%s\n' "${permissions_chapter}" > "${dir}/marfa/conformance/spec/keys-and-oauth.md"
+  printf '%s\n' "${events_chapter}" > "${dir}/marfa/conformance/spec/events.md"
   : > "${dir}/marfa/pnpm-workspace.yaml"
   git -C "${dir}/marfa" init -q
   git -C "${dir}/marfa" add -A
@@ -241,7 +268,7 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings and the release (v1.2.3) synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings, the type, edge type, permission and event type catalogues and the release (v1.2.3) synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -255,9 +282,17 @@ check "the error codes are the rows between the markers, and nothing else" \
   "${errors_expected}" "$(cat "${work}/good/docs/src/generated/error-codes.md")"
 check "the settings are the rows between the markers, and nothing else" \
   "${instance_expected}" "$(cat "${work}/good/docs/src/generated/settings.md")"
+check "the types are the rows between the markers, and nothing else" \
+  "${types_expected}" "$(cat "${work}/good/docs/src/generated/core-types.md")"
+check "the edge types are the rows between the markers, and nothing else" \
+  "${edges_expected}" "$(cat "${work}/good/docs/src/generated/edge-types.md")"
+check "the permissions are the rows between the markers, and nothing else" \
+  "${permissions_expected}" "$(cat "${work}/good/docs/src/generated/permissions.md")"
+check "the event types are the rows between the markers, and nothing else" \
+  "${events_expected}" "$(cat "${work}/good/docs/src/generated/event-types.md")"
 check "the release is the latest version tag" '{"version":"v1.2.3"}' "$(cat "${work}/good/docs/src/generated/marfa-release.json")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md error-codes.md marfa-commands.md marfa-release.json settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md core-types.md edge-types.md error-codes.md event-types.md marfa-commands.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 # ----------------------------------------------------------------- every refusal
 
@@ -336,73 +371,53 @@ refuse_commands "a command reference with only its comment and title" "${unreada
 refuse_commands "a comment that never closes" "${unreadable}" '<!-- Generated.\n# marfa command reference\n## status\n'
 refuse_commands "a command reference that is not UTF-8" "${unreadable}" '# marfa command reference\n\n\xff\xfe\n'
 
-# refuse_errors <label> <errors chapter text, or "absent" for no file>: the
-# spec, the tag and the command reference are good, and still nothing is
-# written.
-k=0
-refuse_errors() {
-  k=$((k+1))
-  local name="errors-${k}"
+# refuse_table <heading> <chapter file> <marker> <noun> <label> <chapter text, or
+# "absent" for no file>: the spec, the tag, the command reference and every
+# other chapter are good, and still nothing is written.
+t=0
+refuse_table() {
+  t=$((t+1))
+  local name="table-${t}"
   fixture "${name}" "${work}/untagged.json"
-  local file="${work}/${name}/marfa/conformance/spec/errors.md"
-  if [ "$2" = absent ]; then rm "${file}"; else printf '%b' "$2" > "${file}"; fi
+  local file="${work}/${name}/marfa/conformance/spec/$2"
+  if [ "$6" = absent ]; then rm "${file}"; else printf '%b' "$6" > "${file}"; fi
   local before; before="$(everything "${name}")"
   sync "${name}"
   local message
-  if [ "$2" = absent ] || [ -z "$2" ]; then
-    message="No conformance/spec/errors.md in ${work}/${name}/marfa. Nothing has changed."
+  if [ "$6" = absent ] || [ -z "$6" ]; then
+    message="No conformance/spec/$2 in ${work}/${name}/marfa. Nothing has changed."
   else
-    message="${work}/${name}/marfa/conformance/spec/errors.md is not UTF-8 or has no code table between its errors-table markers. Nothing has changed."
+    message="${file} is not UTF-8 or has no $4 table between its $3-table markers. Nothing has changed."
   fi
-  check "${1}: exits 1" 1 "${status}"
-  check "${1}: says so in one line" "${message}" "${out}"
-  check "${1}: shows no traceback" 0 "$(printf '%s' "${out}" | grep -c 'Traceback\|File "' || true)"
-  check "${1}: changes nothing" "${before}" "$(everything "${name}")"
+  check "$2, ${5}: exits 1" 1 "${status}"
+  check "$2, ${5}: says so in one line" "${message}" "${out}"
+  check "$2, ${5}: shows no traceback" 0 "$(printf '%s' "${out}" | grep -c 'Traceback\|File "' || true)"
+  check "$2, ${5}: changes nothing" "${before}" "$(everything "${name}")"
 }
-echo "an errors chapter the script refuses"
-refuse_errors "no errors chapter" absent
-refuse_errors "an empty errors chapter" ''
-refuse_errors "no markers" '# Errors\n\n| Code | Status |\n| --- | --- |\n| `x` | 400 |\n'
-refuse_errors "no end marker" '<!-- errors-table:start -->\n| Code | Status |\n| --- | --- |\n| `x` | 400 |\n'
-refuse_errors "the markers in the wrong order" '<!-- errors-table:end -->\n| Code | Status |\n| --- | --- |\n| `x` | 400 |\n<!-- errors-table:start -->\n'
-refuse_errors "nothing between the markers" '<!-- errors-table:start -->\n\n<!-- errors-table:end -->\n'
-refuse_errors "a header with no rows" '<!-- errors-table:start -->\n| Code | Status |\n| --- | --- |\n<!-- errors-table:end -->\n'
-refuse_errors "prose between the markers" '<!-- errors-table:start -->\nNot a table.\n| Code | Status |\n| --- | --- |\n| `x` | 400 |\n<!-- errors-table:end -->\n'
-refuse_errors "a chapter that is not UTF-8" '<!-- errors-table:start -->\n| \xff | 400 |\n| --- | --- |\n| `x` | 400 |\n<!-- errors-table:end -->\n'
 
-# refuse_settings <label> <instance chapter text, or "absent" for no file>: the
-# spec, the tag, the command reference and the errors chapter are good, and
-# still nothing is written.
-j=0
-refuse_settings() {
-  j=$((j+1))
-  local name="settings-${j}"
-  fixture "${name}" "${work}/untagged.json"
-  local file="${work}/${name}/marfa/conformance/spec/instance.md"
-  if [ "$2" = absent ]; then rm "${file}"; else printf '%b' "$2" > "${file}"; fi
-  local before; before="$(everything "${name}")"
-  sync "${name}"
-  local message
-  if [ "$2" = absent ] || [ -z "$2" ]; then
-    message="No conformance/spec/instance.md in ${work}/${name}/marfa. Nothing has changed."
-  else
-    message="${work}/${name}/marfa/conformance/spec/instance.md is not UTF-8 or has no settings table between its settings-table markers. Nothing has changed."
-  fi
-  check "${1}: exits 1" 1 "${status}"
-  check "${1}: says so in one line" "${message}" "${out}"
-  check "${1}: shows no traceback" 0 "$(printf '%s' "${out}" | grep -c 'Traceback\|File "' || true)"
-  check "${1}: changes nothing" "${before}" "$(everything "${name}")"
+# refuse_table_cases <chapter file> <marker> <noun> <header cell>: the same nine
+# chapters for every table.
+refuse_table_cases() {
+  local f="$1" m="$2" n="$3" h="$4"
+  local start="<!-- ${m}-table:start -->" end="<!-- ${m}-table:end -->"
+  local head="| ${h} | Other |\\n| --- | --- |"
+  echo "$f, a chapter the script refuses"
+  refuse_table "$f" "$f" "$m" "$n" "no chapter" absent
+  refuse_table "$f" "$f" "$m" "$n" "an empty chapter" ''
+  refuse_table "$f" "$f" "$m" "$n" "no markers" "# Chapter\\n\\n${head}\\n| \`x\` | y |\\n"
+  refuse_table "$f" "$f" "$m" "$n" "no end marker" "${start}\\n${head}\\n| \`x\` | y |\\n"
+  refuse_table "$f" "$f" "$m" "$n" "the markers in the wrong order" "${end}\\n${head}\\n| \`x\` | y |\\n${start}\\n"
+  refuse_table "$f" "$f" "$m" "$n" "nothing between the markers" "${start}\\n\\n${end}\\n"
+  refuse_table "$f" "$f" "$m" "$n" "a header with no rows" "${start}\\n${head}\\n${end}\\n"
+  refuse_table "$f" "$f" "$m" "$n" "prose between the markers" "${start}\\nNot a table.\\n${head}\\n| \`x\` | y |\\n${end}\\n"
+  refuse_table "$f" "$f" "$m" "$n" "a chapter that is not UTF-8" "${start}\\n| \\xff | y |\\n| --- | --- |\\n| \`x\` | y |\\n${end}\\n"
 }
-echo "an instance chapter the script refuses"
-refuse_settings "no instance chapter" absent
-refuse_settings "an empty instance chapter" ''
-refuse_settings "no markers" '# The instance\n\n| Setting | Default |\n| --- | --- |\n| `PORT` | `8600` |\n'
-refuse_settings "no end marker" '<!-- settings-table:start -->\n| Setting | Default |\n| --- | --- |\n| `PORT` | `8600` |\n'
-refuse_settings "the markers in the wrong order" '<!-- settings-table:end -->\n| Setting | Default |\n| --- | --- |\n| `PORT` | `8600` |\n<!-- settings-table:start -->\n'
-refuse_settings "nothing between the markers" '<!-- settings-table:start -->\n\n<!-- settings-table:end -->\n'
-refuse_settings "a header with no rows" '<!-- settings-table:start -->\n| Setting | Default |\n| --- | --- |\n<!-- settings-table:end -->\n'
-refuse_settings "prose between the markers" '<!-- settings-table:start -->\nNot a table.\n| Setting | Default |\n| --- | --- |\n| `PORT` | `8600` |\n<!-- settings-table:end -->\n'
-refuse_settings "a chapter that is not UTF-8" '<!-- settings-table:start -->\n| \xff | 8600 |\n| --- | --- |\n| `PORT` | `8600` |\n<!-- settings-table:end -->\n'
+refuse_table_cases errors.md errors code Code
+refuse_table_cases instance.md settings settings Setting
+refuse_table_cases types.md types types Type
+refuse_table_cases edges.md edge-types "edge types" "Edge type"
+refuse_table_cases keys-and-oauth.md permissions permissions Permission
+refuse_table_cases events.md event-types "event types" Event
 
 echo "the workflow"
 check "CI runs this test" 1 "$(grep -cF 'run: bash .github/scripts/sync-from-marfa.test.sh' "${here}/../workflows/ci.yml")"

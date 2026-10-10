@@ -44,7 +44,7 @@ The lint also reads the text a page pulls in with `<include>`, resolved the way 
 MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh
 ```
 
-`MARFA_ROOT` defaults to `../marfa`. Use a checkout on an up-to-date `main` with its tags fetched: the script copies committed files and runs nothing. It stops before it changes anything if the checkout has no spec, glossary, command reference, errors chapter or release tag, if the spec is not valid JSON or has no `info.description`, if the command reference holds nothing after its title, if the errors chapter has no code table between its markers, or if the instance chapter has no settings table between its markers. It writes seven things:
+`MARFA_ROOT` defaults to `../marfa`. Use a checkout on an up-to-date `main` with its tags fetched: the script copies committed files and runs nothing. It stops before it changes anything if the checkout has no spec, glossary, command reference, errors chapter or release tag, if the spec is not valid JSON or has no `info.description`, if the command reference holds nothing after its title, if the errors chapter has no code table between its markers, if the instance chapter has no settings table between its markers, or if the types, edges, keys and sign-in or events chapter has no table between its markers. It writes eleven things:
 
 - `openapi.json`, which the monorepo's CI keeps current. Fix a gap in the monorepo's generator, never in this file.
 - `src/generated/api-overview.md`, the spec's `info.description` (the rules every operation follows) with each heading one level lower, included by the API reference overview under its own heading.
@@ -52,11 +52,15 @@ MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh
 - `src/generated/marfa-commands.md`, the monorepo's `core/marfa-cli/COMMANDS.md` (the `marfa` command's reference, generated from its own help) without its generated-file comment and its title, included by the marfa command page.
 - `src/generated/error-codes.md`, the code table between the `errors-table` markers of the monorepo's `conformance/spec/errors.md`, which the monorepo generates from the server's own list of codes, included by the Errors page.
 - `src/generated/settings.md`, the settings table between the `settings-table` markers of the monorepo's `conformance/spec/instance.md`, which the monorepo holds to the server's own settings schema, included by the Settings guide.
+- `src/generated/core-types.md`, the table between the `types-table` markers of the monorepo's `conformance/spec/types.md`: every type an instance ships, `core.*` and `system.*`, with its family, parent, required properties and description. The monorepo generates it from the shipped type registry.
+- `src/generated/edge-types.md`, the table between the `edge-types-table` markers of `conformance/spec/edges.md`: each shipped edge type with its reverse name, cardinality, what a delete does to the other end (`cascade`, `orphan` or `block`) and the type constraints it declares on each end. Generated from the shipped edge type definitions.
+- `src/generated/permissions.md`, the table between the `permissions-table` markers of `conformance/spec/keys-and-oauth.md`: the twelve permissions and what each lets a credential do. Generated from the server's permission list, with wording from the monorepo's `GLOSSARY.md`.
+- `src/generated/event-types.md`, the table between the `event-types-table` markers of `conformance/spec/events.md`: every event and stream frame, whether a webhook can name it, and when it is sent. Generated from the server's webhook event list and the stream's frame schema.
 - `src/generated/marfa-release.json`, the latest `v` version tag, shown as "Marfa vX.Y.Z" in the sidebar.
 
-`.github/scripts/sync-from-marfa.test.sh` runs it against throwaway checkouts and pins the overview, the command reference, the error codes and the settings it writes and every input it refuses. Run it after an API, glossary, command, error code, setting or release change lands in the monorepo.
+`.github/scripts/sync-from-marfa.test.sh` runs it against throwaway checkouts and pins the overview, the command reference and every table it writes and every input it refuses. Run it after an API, glossary, command, error code, setting, type, edge type, permission, event type or release change lands in the monorepo.
 
-The script takes only what the monorepo generates and commits as Markdown between markers or as a file of its own. The core types, the edge types, the twelve permissions and the event types have no such source yet, so no page includes a table of them: the pages link to the operation that lists them (`GET /types`, `GET /edge-types`) or to the page that explains them. Never copy such a list into a page by hand.
+The script takes only what the monorepo generates and commits as Markdown between markers or as a file of its own. A page that lists types, edge types, permissions or events includes the generated table and never copies one by hand; a list the monorepo does not generate gets a source there first.
 
 The `OpenAPI spec` workflow checks that the committed `openapi.json` parses and declares paths.
 
