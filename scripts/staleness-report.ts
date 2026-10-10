@@ -344,7 +344,7 @@ export function renderReport(
     out.push(
       '### Chapter changed',
       '',
-      'These pages link to a whole chapter in which a rule changed. They are lower priority: the changed rule may have nothing to do with the page.',
+      'These pages link to a chapter as a whole, and a rule in that chapter changed, went away or was added. They are lower priority: that rule may have nothing to do with the page.',
       '',
     );
     for (const page of findings.chapterPages) {
