@@ -21,7 +21,7 @@ describe('grewTooMuch', () => {
 describe('growthWarning', () => {
   it('is a workflow annotation on the file, pointing to STYLE.md', () => {
     expect(growthWarning('content/docs/guides/files.mdx', 4000, 6000)).toBe(
-      '::warning file=content/docs/guides/files.mdx::This page grew from 4000 to 6000 characters (50% longer). ' +
+      '::warning file=content/docs/guides/files.mdx::This page grew from 4000 to 6000 characters (50 percent longer). ' +
         'Check whether the new text belongs in the API reference or the contract instead, ' +
         'or replaces something already here: STYLE.md, "Keeping pages current".',
     );

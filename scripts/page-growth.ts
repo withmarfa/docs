@@ -42,7 +42,7 @@ function escapeData(value: string): string {
 export function growthWarning(path: string, before: number, after: number): string {
   const percent = Math.round(((after - before) / before) * 100);
   const message =
-    `This page grew from ${before} to ${after} characters (${percent}% longer). ` +
+    `This page grew from ${before} to ${after} characters (${percent} percent longer). ` +
     'Check whether the new text belongs in the API reference or the contract instead, ' +
     'or replaces something already here: STYLE.md, "Keeping pages current".';
   return `::warning file=${escapeProperty(path)}::${escapeData(message)}`;

@@ -359,7 +359,11 @@ export function renderReport(
 // ── Reading git ──────────────────────────────────────────────────────────
 
 function git(args: string[]): string {
-  return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  return execFileSync('git', args, {
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
 }
 
 type Read<T> = { value: T } | { problem: string };
