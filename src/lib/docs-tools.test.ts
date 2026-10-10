@@ -104,6 +104,14 @@ describe('fetchDocsPage', () => {
     expect(await fetchDocsPage('/get-started/files')).toBeNull();
     expect(await fetchDocsPage('/tools/marfa-command')).toBeNull();
   });
+
+  it('returns every page the topics list, including one whose name starts with docs', async () => {
+    const { pages } = listTopics();
+    expect(pages.map((p) => p.url)).toContain('/docs-for-agents');
+    for (const { url } of pages) {
+      expect(await fetchDocsPage(url), url).not.toBeNull();
+    }
+  });
 });
 
 describe('listTopics', () => {
