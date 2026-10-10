@@ -486,7 +486,7 @@ describe('content lint: the corpus', () => {
   it('resolves every include to text it can read', () => {
     expect(RESOLVED.flatMap((resolved) => resolved.violations).map(format)).toEqual([]);
     const files = INCLUDED.map((included) => included.file);
-    expect(files).toContain('src/generated/GLOSSARY.md (included by (overview)/glossary.mdx)');
+    expect(files).toContain('src/generated/glossary-words.md (included by (overview)/glossary.mdx)');
     expect(files).toContain('src/generated/api-overview.md (included by api-reference/index.mdx)');
     for (const { text } of INCLUDED) expect(text.trim().length).toBeGreaterThan(0);
   });

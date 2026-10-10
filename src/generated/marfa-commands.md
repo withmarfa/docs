@@ -37,7 +37,7 @@ Output:
 
 Exit codes:
   0  done
-  1  the request was refused, by the server, by the command before
+  1  the request was refused, by the server, by the CLI before
      sending, for an answer on another contract, or for a docs page
      that does not exist; a retry does not change it
   2  the command line was wrong, or named no store or server

@@ -44,11 +44,12 @@ The lint also reads the text a page pulls in with `<include>`, resolved the way 
 MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh
 ```
 
-`MARFA_ROOT` defaults to `../marfa`. Use a checkout on an up-to-date `main` with its tags fetched: the script copies committed files and runs nothing. It stops before it changes anything if the checkout has no spec, glossary, command reference, errors chapter or release tag, if the spec is not valid JSON or has no `info.description`, if the command reference holds nothing after its title, if the errors chapter has no code table between its markers, if the instance chapter has no settings table between its markers, or if the types, edges, keys and sign-in or events chapter has no table between its markers. It writes eleven things:
+`MARFA_ROOT` defaults to `../marfa`. Use a checkout on an up-to-date `main` with its tags fetched: the script copies committed files and runs nothing. It stops before it changes anything if the checkout has no spec, glossary, command reference, errors chapter or release tag, if the spec is not valid JSON or has no `info.description`, if the command reference holds nothing after its title, if the errors chapter has no code table between its markers, if the instance chapter has no settings table between its markers, if the types, edges, keys and sign-in or events chapter has no table between its markers, or if the glossary has no words section, if the contract's chapters hold no rules, repeat a rule ID or name a rule under another chapter's ID. It writes thirteen things:
 
 - `openapi.json`, which the monorepo's CI keeps current. Fix a gap in the monorepo's generator, never in this file.
 - `src/generated/api-overview.md`, the spec's `info.description` (the rules every operation follows) with each heading one level lower, included by the API reference overview under its own heading.
-- `src/generated/GLOSSARY.md`, which the content lint reads its banned terms from and the Glossary page includes.
+- `src/generated/GLOSSARY.md`, which the content lint reads its banned terms from.
+- `src/generated/glossary-words.md`, the `## The words` section of that glossary without its heading, up to the next `##` heading, which the Glossary page includes. It is a file of its own because fumadocs-mdx ends an included section at the next heading of any level, and the section is split into `###` topic groups. The page's `tocDepth` of 3 lists the groups.
 - `src/generated/marfa-commands.md`, the monorepo's `core/marfa-cli/COMMANDS.md` (the CLI's reference, generated from its own help) without its generated-file comment and its title, included by the CLI reference page.
 - `src/generated/error-codes.md`, the code table between the `errors-table` markers of the monorepo's `conformance/spec/errors.md`, which the monorepo generates from the server's own list of codes, included by the Errors page.
 - `src/generated/settings.md`, the settings table between the `settings-table` markers of the monorepo's `conformance/spec/instance.md`, which the monorepo holds to the server's own settings schema, included by the Settings guide.
@@ -56,13 +57,32 @@ MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh
 - `src/generated/edge-types.md`, the table between the `edge-types-table` markers of `conformance/spec/edges.md`: each shipped edge type with its reverse name, cardinality, what a delete does to the other end (`cascade`, `orphan` or `block`) and the type constraints it declares on each end. Generated from the shipped edge type definitions.
 - `src/generated/permissions.md`, the table between the `permissions-table` markers of `conformance/spec/keys-and-oauth.md`: the twelve permissions and what each lets a credential do. Generated from the server's permission list, with wording from the monorepo's `GLOSSARY.md`.
 - `src/generated/event-types.md`, the table between the `event-types-table` markers of `conformance/spec/events.md`: every event and stream frame, whether a webhook can name it, and when it is sent. Generated from the server's webhook event list and the stream's frame schema.
+- `src/generated/contract-index.json`, every rule ID in the chapters of the monorepo's `conformance/spec/` (the `###` headings, not the standard in `README.md`), grouped by chapter, each with a hash of its rule and reason. The hash leaves out the Tests line and collapses whitespace, so a renamed fixture or a rewrapped paragraph changes nothing. The staleness report compares it between two commits (see "Keeping pages current").
 - `src/generated/marfa-release.json`, the latest `v` version tag, shown as "Marfa vX.Y.Z" in the sidebar.
 
-`.github/scripts/sync-from-marfa.test.sh` runs it against throwaway checkouts and pins the overview, the command reference and every table it writes and every input it refuses. Run it after an API, glossary, command, error code, setting, type, edge type, permission, event type or release change lands in the monorepo.
+`.github/scripts/sync-from-marfa.test.sh` runs it against throwaway checkouts and pins the overview, the command reference, every table and the contract index it writes and every input it refuses. Run it after an API, glossary, command, error code, setting, type, edge type, permission, event type or release change lands in the monorepo.
 
 The script takes only what the monorepo generates and commits as Markdown between markers or as a file of its own. A page that lists types, edge types, permissions or events includes the generated table and never copies one by hand; a list the monorepo does not generate gets a source there first.
 
 The `OpenAPI spec` workflow checks that the committed `openapi.json` parses and declares paths.
+
+## Keeping pages current
+
+Generated reference is synced, and hand-written pages are rewritten whole in a docs pass at each release. Nothing here asks an agent to write: the reports below name pages to read again, and "no change needed" is a normal answer.
+
+- **After a marfa change,** run the sync (above) and open the sync pull request. Do not open a docs pull request for a code change, and do not patch a page for one.
+- **On a sync pull request,** the `Docs reports` job in `ci.yml` writes the staleness report to the job summary whenever `openapi.json` or `src/generated/contract-index.json` changed. It lists each hand-written page under `content/docs/` that cites a rule whose statement changed or went away, or an operation that changed or went away, and below them each page that cites a chapter in which a rule changed, went away or was added ("chapter changed"). It reads a page's links: a rule by its heading in `conformance/spec/<chapter>.md`, a chapter by the same link without a heading or with a heading that is not a rule, an operation by `/api-reference/<tag>/<operationId>`. An operation counts as changed when its method, path or operation object changed, or anything it reaches through `$ref`. The same job warns on a page that grew by more than 30% and 2,000 characters. Neither report can fail the job, and the job is separate from the required build.
+- **At each release,** run the docs pass. If no docs commit has synced the new tag yet, run the sync and merge its pull request first. Find the docs commit that synced the previous release and the one that synced the new tag from the history of `src/generated/marfa-release.json`, then run the report between them:
+
+  ```bash
+  git log --format='%h %ad %s' --date=short -- src/generated/marfa-release.json
+  git show <commit>:src/generated/marfa-release.json   # which release a commit synced
+  node --experimental-strip-types scripts/staleness-report.ts <previous-release-commit> <new-release-commit>
+  ```
+
+  Read each page it lists against the contract and the API description, and rewrite the page whole to `STYLE.md` if it is out of date. Do the pages under "chapter changed" last. When a page is still right, leave it alone.
+
+`scripts/staleness-report.ts` and `scripts/page-growth.ts` use only Node built-ins, and `src/lib/staleness-report.test.ts` and `src/lib/page-growth.test.ts` test them.
 
 ## Two Workers
 
@@ -72,7 +92,7 @@ The docs site is the default target. The status page in `src/status/` is the sec
 
 ## CI and publishing
 
-`CI` runs on every pull request and every push to `main`. A `Classify changes` job skips the build only for a change that touches nothing but agent instructions, the root README or LICENSE, `.agents/`, `.claude/`, `.codex/`, `.githooks/` or the issue and pull request templates (`.github/scripts/ci-changes.sh`). The `Build and type-check` job runs `pnpm build`, `pnpm build:status`, `pnpm types:check`, the shell tests in `.github/scripts/` and `pnpm test`. It is a required check, so never add `paths` filters to `ci.yml`: a filtered-out workflow leaves the check pending. `OpenAPI spec` is not required and runs only when `openapi.json` changes.
+`CI` runs on every pull request and every push to `main`. A `Classify changes` job skips the build only for a change that touches nothing but agent instructions, the root README or LICENSE, `.agents/`, `.claude/`, `.codex/`, `.githooks/` or the issue and pull request templates (`.github/scripts/ci-changes.sh`). The `Build and type-check` job runs `pnpm build`, `pnpm build:status`, `pnpm types:check`, the shell tests in `.github/scripts/` and `pnpm test`. It is a required check, so never add `paths` filters to `ci.yml`: a filtered-out workflow leaves the check pending. `Docs reports` runs on pull requests only and is not required (see "Keeping pages current"). `OpenAPI spec` is not required and runs only when `openapi.json` changes.
 
 **Merging to `main` publishes.** `Publish` runs when `CI` completes successfully on `main`. Separate jobs build and deploy the docs site and the status page, each only if something its target builds from has changed since the commit it serves (`.github/scripts/read-live-commit.sh`; any uncertain case publishes). Each job then fetches `/version.json` from its live site and fails unless it reports the deployed commit. A build from a modified tree reports `<sha>-dirty`. Deploying needs the `CLOUDFLARE_API_TOKEN` secret and the `CLOUDFLARE_ACCOUNT_ID` variable.
 

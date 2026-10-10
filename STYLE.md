@@ -149,6 +149,8 @@ The docs stay right by being rewritten whole, not by being added to.
 - **A docs pass runs at each release.** It reads every page whose contract rules or operations changed since the last release and rewrites each one whole, to this file. "No change needed" is a normal answer.
 - **A page that grows is a warning.** When a change makes a page much longer, check whether the new text belongs in the reference instead, or replaces something.
 
+`scripts/staleness-report.ts` lists the pages to read for a docs pass; `AGENTS.md`, "Keeping pages current", says how to run it.
+
 ## Frontmatter
 
 Every page starts with a `title` and a one-sentence `description`. Both are required. The description says what the page gives the reader, not what it contains.
