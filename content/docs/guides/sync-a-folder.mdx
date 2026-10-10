@@ -1,0 +1,245 @@
+---
+title: Sync a folder
+description: Keep a directory on your Mac and a set of items in step, so each note is a Markdown file you can edit in any app.
+---
+
+A folder puts part of your instance on disk as ordinary files. Your notes become Markdown files that any editor can open, a file you add becomes an item, and a change made on either side reaches the other. This guide creates a folder, binds a directory on your Mac to it, and shows what happens to files as you and other apps change them.
+
+A folder is a [device](/devices) whose working copy is a directory. Its settings live on the instance as a `system.folder` item, so every Mac that follows the same folder shares them, and each Mac keeps its own copy and its own queue of writes. Folders run on macOS, through the CLI's `marfa folders` commands or the Swift package's `Folders`.
+
+You need a credential that can write `system.folder` to create the settings, read it to bind a directory, and write the types the folder holds.
+
+## Set up a folder
+
+<Steps>
+<Step>
+
+### Create the folder's settings
+
+The settings say which items the folder holds, through a search, and what a new file becomes. This folder holds every note:
+
+```bash tab="CLI" tab-group="client"
+marfa folders create --title Notes --search '{"types":["core.note"]}'
+```
+
+```http tab="HTTP"
+POST /folders
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "title": "Notes", "search": { "types": ["core.note"] } }
+```
+
+```ts tab="TypeScript"
+const { data: folder, error } = await marfa.POST("/folders", {
+  body: { title: "Notes", search: { types: ["core.note"] } },
+});
+if (error) throw new Error(error.error.message);
+```
+
+```swift tab="Swift"
+let folder = try await copy.createFolder(
+    FolderSettings(title: "Notes", search: FolderSearch(types: ["core.note"])))
+```
+
+The answer is the `system.folder` item. Keep its ID: the next step binds a directory to it.
+
+```text
+01a1232d-949d-758c-b244-70057174b96a  system.folder  2026-10-10T00:19:12.157Z  Notes
+```
+
+</Step>
+<Step>
+
+### Add the directory
+
+Bind a directory to the folder. It can be empty, or hold files already; the CLI makes it if it isn't there.
+
+```bash tab="CLI" tab-group="client"
+marfa folders add Notes --folder 01a1232d-949d-758c-b244-70057174b96a
+```
+
+```swift tab="Swift"
+let folders = Folders(server: Server(url: serverURL, key: credential))
+let notes = URL(filePath: "/path/to/Notes", directoryHint: .isDirectory)
+_ = try await folders.add(notes, following: folder.id)
+```
+
+Nothing is written into the directory or sent to the instance yet. The first sync waits for you, and says what it will do:
+
+```text
+Notes follows the folder 01a1232d-949d-758c-b244-70057174b96a
+the first sync will write and send nothing until you confirm it: 2 file(s) to write into the directory, 1 to send to the server
+`marfa folders confirm Notes` lets it go; `marfa folders remove Notes` drops the folder and leaves the files
+```
+
+Here the instance holds two notes, and the directory held one file, `Ideas.md`. At a terminal, `marfa folders add` asks whether to go ahead; in a script, pass `--yes` to confirm without asking.
+
+</Step>
+<Step>
+
+### Confirm the first sync
+
+Confirm it, then sync once:
+
+```bash tab="CLI" tab-group="client"
+marfa folders confirm Notes
+marfa folders push Notes
+```
+
+```swift tab="Swift"
+if case .awaitingConfirmation(let plan) = try await folders.sync(notes) {
+    print("Writes \(plan.write) files here and sends \(plan.send) to the server.")
+    try await folders.confirmFirstSync(in: notes)
+}
+_ = try await folders.sync(notes)
+```
+
+`marfa folders push` does everything a folder does, once: it reads the directory and sends what changed, catches up with the instance, and writes out what changed there. To keep the folder in step for as long as it runs, use `marfa folders watch Notes`, or iterate `watch(_:)` in the Swift package.
+
+</Step>
+</Steps>
+
+The directory now holds a file for each note, and `Ideas.md` is an item:
+
+<Files>
+  <Folder name="Notes" defaultOpen>
+    <Folder name=".marfa">
+      <File name="folder.yaml" />
+    </Folder>
+    <File name="Ideas.md" />
+    <File name="Packing for the trip.md" />
+    <File name="Reading list.md" />
+  </Folder>
+</Files>
+
+## How items appear as files
+
+A note is a Markdown file named after its title. An item with no title is named by its ID. Here's `Reading list.md`:
+
+```markdown title="Notes/Reading list.md"
+---
+type: core.note
+tier: library
+title: Reading list
+marfa_id: 01a1232d-947e-7399-86e1-97648a87c232
+marfa_version: 1
+---
+Start with the essays, then the letters.
+```
+
+The lines between the `---` fences are the frontmatter. `type`, `tier`, `tags`, `state` and `occurred_at` are the item's own fields. `marfa_id` and `marfa_version` name the item and the version the file was written from: leave them to Marfa. A line named after an edge type, such as `parent-of`, is an edge, and every other line, such as `title`, is a property. The text after the fences is the body.
+
+A new Markdown file needs no frontmatter. `Ideas.md` held only a sentence, and after the first sync it reads:
+
+```markdown title="Notes/Ideas.md"
+---
+type: core.note
+tier: library
+title: Ideas
+marfa_id: 01a1232d-a48c-7208-a34c-41ec4fccb6a1
+marfa_version: 1
+---
+A walking tour of the old harbor.
+```
+
+The file took its type from the folder's settings, its title from its name, and its `marfa_id` once the instance created the item. A `.txt` file is all body. Any other file the search admits, such as a photo, becomes a file item, with its bytes uploaded as a blob, as [Handle files](/guides/handle-files) describes.
+
+## Edits on either side
+
+Edit a file and sync, and the edit reaches its item:
+
+```text
+0 created, 1 updated, 0 renamed, 2 unchanged, 0 missing, 0 deleted, 0 skipped
+answered 1, held 0
+1 file(s) written
+```
+
+An edit to a file is a write based on the `marfa_version` the file names, so if another app changed the same note meanwhile, the instance settles the two as [Versions](/versions) explains: changes to different fields merge, and a collision the type can't merge leaves a conflicted copy, which appears as a second file.
+
+A change made elsewhere reaches the file at the next sync, which rewrites the file in place and keeps its name, even when the title changes. A file you rename stays the same item. A file you delete trashes its item after a few seconds' grace, so a save that replaces a file isn't taken for a delete; the item stays in the bin until you restore or purge it.
+
+## A large removal waits for you
+
+When many files go at once, such as when a directory is moved away or a disk isn't mounted, the folder doesn't trash their items. It pauses the removal and waits for you to decide:
+
+```text
+0 created, 0 updated, 0 renamed, 4 unchanged, 12 missing, 0 deleted, 0 skipped
+a large removal waits: 12 delete(s) not sent; `folders confirm` sends them, `folders restore` writes the files back
+answered 0, held 0
+0 file(s) written
+```
+
+A removal pauses when it takes more than 10 files and more than a quarter of the folder's files; the `removal_threshold` setting changes both. The same holds for files whose items left the folder elsewhere, such as notes another app archived.
+
+Cancel the removal to write the missing files back, or confirm it to trash their items at the next sync:
+
+```bash tab="CLI" tab-group="client"
+marfa folders restore Notes
+marfa folders confirm Notes
+```
+
+```swift tab="Swift"
+let status = try await folders.status(of: notes)
+if status.paused.isPaused {
+    _ = try await folders.restoreRemoval(in: notes)   // or confirmRemoval(in:)
+}
+```
+
+`marfa folders status Notes` shows where every file stands, and whether a removal waits, without asking the instance.
+
+## What a folder never takes in
+
+A folder never takes in a file whose name is one a secret goes by, whatever its settings say: `.env` and `.env.*`, `*.pem`, `*.key`, SSH keys such as `id_ed25519`, and credential files such as `.netrc` and `.npmrc`. It names each one it leaves out:
+
+```text
+server.pem: not taken, because its name is one a secret goes by
+.env: not taken, because its name is one a secret goes by
+```
+
+It also leaves out the files a Mac or an editor writes for itself, such as `.DS_Store` and `*.swp`, and takes a name that starts with a period only where an `include` pattern names it. Its own `.marfa` directory is never read as items. The [folders chapter of the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) lists every name.
+
+## The settings
+
+Each Mac writes the folder's settings out as `.marfa/folder.yaml`:
+
+```yaml title="Notes/.marfa/folder.yaml"
+# This folder's settings, the system.folder it follows. An edit here is
+# sent through the folder operations by `folders push`, or while watching.
+folder: 01a1232d-949d-758c-b244-70057174b96a
+version: 1
+title: Notes
+search:
+  types:
+    - core.note
+```
+
+Edit the file, and the next sync sends your change to the instance, through [Update a folder](/api-reference/folders/updateFolder), so it reaches every Mac that follows the folder. `marfa folders change` and the Swift package's `changeFolder(_:_:baseVersion:)` change the settings without the file. These are the settings:
+
+<TypeTable
+  type={{
+    folder: { type: 'string', description: 'The ID of the system.folder this directory follows. Written by Marfa.' },
+    version: { type: 'number', description: 'The version of the settings the file was written from. Written by Marfa.' },
+    title: { type: 'string', description: "The folder's name." },
+    search: { type: 'object', description: 'Which items the folder holds: types (each with its subtypes), tier, state, filter, and beneath, an item whose descendants by parent-of the folder holds.', default: 'Every type the credential reads except system.*, in the library tier, active and archived' },
+    defaults: { type: 'object', description: 'What a new file takes where it leaves a blank: type, tier, properties, tags and edges.' },
+    include: { type: 'string[]', description: 'Gitignore patterns for the paths the folder takes.', default: 'Every path' },
+    ignore: { type: 'string[]', description: 'Gitignore patterns for the paths the folder leaves alone. They win over include.' },
+    first_placement: { type: 'object', description: 'Where an item made elsewhere first appears: a map from a type to a directory inside the folder.' },
+    removal_threshold: { type: 'object', description: 'When a removal waits for confirmation: files, a count, and fraction, a share of the folder\'s files.', default: '{ files: 10, fraction: 0.25 }' },
+  }}
+/>
+
+For example, adding these lines leaves a `drafts` directory alone and tags every new note:
+
+```yaml title="Notes/.marfa/folder.yaml"
+ignore:
+  - drafts/
+defaults:
+  tags:
+    - from-folder
+```
+
+To stop following a folder on one Mac, run `marfa folders remove Notes`, or call `remove(_:)`. The folder's own state goes, and the files stay where they are, as plain files.
+
+The rules behind this guide are in the [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapter of the contract.

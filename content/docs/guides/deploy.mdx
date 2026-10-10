@@ -1,86 +1,160 @@
 ---
 title: Deploy
-description: Run Marfa somewhere it stays up, with storage that survives a restart, two secrets and an address.
+description: Run an instance you keep, somewhere it stays up, with storage that survives a restart, two secrets and an address you can reach.
 ---
 
-An instance is one server process on one SQLite file. To deploy it, give that process storage that outlives it, two secrets, and an address you can reach. [Run an instance](/run-an-instance) starts a server to try. This guide is for one you leave running.
+The Quickstart runs an instance to try. An instance you keep needs more: storage that outlives the process, two secrets kept somewhere safe, and an address your devices can reach. This guide covers where an instance can run, what the server needs, and how to keep it running, so that your data is still there after a restart, a move or a failed disk.
+
+An instance is one server process and one SQLite database, so there is no database server to set up. Run one server for each database: keep a host at one replica.
 
 ## Where it can run
 
-| Where | How |
-| --- | --- |
-| A computer you own that stays on | Run the server under a supervisor that restarts it. |
-| A container on a host you run | Build the image from `deploy/Dockerfile` in the [Marfa repository](https://github.com/withmarfa/marfa) and mount one volume at `/data`. |
-| Railway | Deploy the [Marfa template](https://railway.com/new/template/5z9-Ja). It creates the server, a volume, and a private bucket for backups, and generates the two secrets. [Create a personal Marfa instance on Railway](https://github.com/withmarfa/marfa/blob/main/deploy/railway.md) has the steps, including claiming the instance. Railway bills the service and its storage to you. |
+- On a computer you own that stays on, such as a Mac mini at home, run the server under a supervisor that restarts it.
+- In a container on a host you run, build the image from `deploy/Dockerfile` in the [Marfa repository](https://github.com/withmarfa/marfa) and give it one volume.
+- On Railway, deploy the [Marfa template](https://railway.com/new/template/5z9-Ja). It creates the server, a volume and a private bucket for backups, generates the two secrets, and sets the address. [Create a personal Marfa instance on Railway](https://github.com/withmarfa/marfa/blob/main/deploy/railway.md) has the steps, including claiming the instance. Railway bills the service and its storage to you.
 
-Run one server for each database, so keep a host at one replica. The server also runs its own [housekeeping jobs](/guides/housekeeping) and backup work in the background, so turn off any host feature that stops an idle service, such as Railway's Serverless mode.
+The server runs its own [housekeeping jobs](/guides/housekeeping) and backup work in the background, so turn off any host feature that stops an idle service, such as Railway's Serverless mode.
 
 ## What the server needs
 
-| Need | Setting | What to know |
-| --- | --- | --- |
-| A place for the database | `SQLITE_PATH` | One file, `./data/marfa.db` by default. A log named `marfa.db-wal` sits beside it and holds writes not yet moved into the file. |
-| A place for blobs | `BLOB_PATH` | A folder, `./data/blobs` by default. Every upload lands here. |
-| Two secrets | `API_KEY_SALT` and `MARFA_AUTH_SECRET` | Required in production. |
-| The address clients use | `MARFA_AUTH_BASE_URL` | Required in production. |
-| A port | `PORT` | `8600` by default. |
+The server reads its settings from its environment when it starts. An instance you keep needs these, here as an environment file:
 
-Put the database and the blob folder on storage that survives a restart: a volume in a container, or a directory on a disk you keep. [Back up and restore](/guides/back-up-and-restore) covers copying it. [Settings](/guides/settings) covers every other setting.
+```bash title="marfa.env"
+NODE_ENV=production
+PORT=8600
+SQLITE_PATH=/srv/marfa/data/marfa.db
+BLOB_PATH=/srv/marfa/data/blobs
+API_KEY_SALT=<a secret>
+MARFA_AUTH_SECRET=<another secret>
+MARFA_AUTH_BASE_URL=https://marfa.example.com
+```
+
+With `NODE_ENV=production`, the server refuses to start without the two secrets and the address, and refuses a weak secret. Outside production it falls back to defaults that suit only a trial. [Settings](/guides/settings) covers every other setting.
+
+### The data directory
+
+The database and the blobs are the whole of your data. Put them on storage that survives a restart: a volume in a container, or a directory on a disk you keep. With the paths above, the directory looks like this once the server has started:
+
+<Files>
+  <Folder name="data" defaultOpen>
+    <File name="marfa.db" />
+    <File name="marfa.db-wal" />
+    <File name="marfa.db-shm" />
+    <Folder name="blobs" />
+    <Folder name="control" defaultOpen>
+      <File name="marfa.sock" />
+    </Folder>
+  </Folder>
+</Files>
+
+`marfa.db` is the database. `marfa.db-wal` is SQLite's log of writes not yet moved into the file, and belongs with it in every copy; `marfa.db-shm` is an index SQLite rebuilds, which no copy needs. Every upload lands in `blobs/`. [Back up and restore](/guides/back-up-and-restore) covers copying the directory safely.
+
+### The private socket
+
+`control/marfa.sock` is the instance's private socket. A command run on the same machine, under the account that runs the server, reaches the instance through it with the owner's own authority, and needs no key:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock setup open
+```
+
+That is how you claim the instance, make the first key and [recover the owner's password](/guides/manage-keys#recover-the-owners-password). The CLI refuses `--socket` while `MARFA_API_URL` or `MARFA_API_KEY` is set, so unset them first. The socket's folder must belong to the server's account and be readable by no one else. On Linux, install the `acl` package: the server uses it to check who can reach the socket. `MARFA_CONTROL_SOCKET` moves the socket to another absolute path.
 
 ### The secrets
 
-Generate each secret once and keep a copy outside the data directory, because neither is stored in it:
+Generate each secret once:
 
 ```bash
 openssl rand -hex 32
 ```
 
-- `API_KEY_SALT` hashes keys and app tokens. The database holds only the hashes, so a server started with another salt refuses every existing key and token with `401 unauthorized`. Starting again with the original salt accepts them again.
-- `MARFA_AUTH_SECRET` signs sign-in cookies and credential-free blob links, among other things. It must be at least 32 characters. Starting with another value ends every signed-in session.
-
-Set `NODE_ENV=production`. The server then refuses to start without both secrets and `MARFA_AUTH_BASE_URL`, and refuses a weak secret. Outside production an unset salt falls back to a built-in one, which is no protection on an address anyone can reach. The container image sets `NODE_ENV=production`.
+**Keep a copy of both secrets outside the data directory, because neither is stored in it.** `API_KEY_SALT` hashes keys and app tokens, and the database holds only the hashes: a server started with another salt refuses every existing key and token with `401 unauthorized`, until it starts again with the original. `MARFA_AUTH_SECRET` signs sign-in cookies and the links the server makes; starting with another value signs out every browser.
 
 ### The address
 
-`MARFA_AUTH_BASE_URL` is the public URL clients reach the server at, such as `https://marfa.example.com`. The server uses it as the OAuth issuer, the cookie domain, and the origin of the links it makes. The owner can claim the instance and sign in only when this URL is `https`, or `http` on `localhost`, `127.0.0.1` or `[::1]`.
+`MARFA_AUTH_BASE_URL` is the URL your devices reach the instance at. The server uses it as the OAuth issuer and in every link it makes. The owner can claim the instance and sign in only when it is `https`, or `http` on `localhost`, `127.0.0.1` or `[::1]`.
 
-[Where it runs](/overview#where-it-runs) lists the ways to reach an instance, including Tailscale (suggested) and a Cloudflare Tunnel. When a proxy or tunnel sits in front of the server, set `TRUSTED_PROXY_CIDRS` to the proxy's address ranges, or `TRUSTED_PROXY_HEADER` to a header the platform's edge overwrites with the client address. Without either, the server ignores `X-Forwarded-For`.
+You reach an instance in one of three ways. On your local network, anything on the same network reaches the machine directly. Over Tailscale, which these docs suggest, your phones and computers reach it from anywhere, over a private network of your own. Through a Cloudflare Tunnel, it has a public address on a domain you own, without opening a port on your network.
+
+When a proxy or tunnel sits in front of the server, tell the server which client address to believe: `TRUSTED_PROXY_CIDRS` names the proxy's address ranges, or `TRUSTED_PROXY_HEADER` names a header the platform's edge overwrites with the client's address. Without either, the server ignores `X-Forwarded-For`, and every request seems to come from the proxy.
 
 ### An object store
 
-Add an S3-compatible bucket with `S3_BUCKET` and the other `S3_` settings, and the server keeps a second copy of every blob there. The `blob-replicate` housekeeping job makes the copies. With the container recipe, the bucket also receives the database, so an instance can be rebuilt from the bucket alone.
+Name an S3-compatible bucket with `S3_BUCKET` and the other `S3_` settings, and the server keeps a second copy of every blob there. In the container, the bucket also receives the database, so the instance can be rebuilt from the bucket alone.
 
 Put the bucket on a different site from the instance. A link the bucket signs serves a blob from the bucket's own host, without the protections the instance adds to its own downloads, so a bucket under the instance's domain could let an uploaded HTML file run as a page of the instance.
 
 ## Run it in a container
 
-Build the image from the repository root, then start it with one volume at `/data` and the settings in an environment file:
+<Steps>
+<Step>
+
+### Build the image
+
+From a clone of the repository:
 
 ```bash
 docker build -f deploy/Dockerfile --build-arg VERSION_SHA=$(git rev-parse HEAD) -t marfa-server .
-docker run --name marfa -d --restart unless-stopped -p 8600:8600 -v marfa-data:/data --env-file <your-env-file> marfa-server
 ```
 
-The environment file holds `API_KEY_SALT`, `MARFA_AUTH_SECRET`, `MARFA_AUTH_BASE_URL` and the `S3_` settings. Keep it out of any repository.
+</Step>
+<Step>
 
-Without `S3_BUCKET`, the container runs the server alone and says so in its log. That is a trial, because nothing is streamed off the machine.
+### Start it
 
-The image includes the `marfa` command. To claim the new instance, open a single-use setup link from inside the container, then follow [Run an instance](/run-an-instance):
+Put `API_KEY_SALT`, `MARFA_AUTH_SECRET`, `MARFA_AUTH_BASE_URL` and the `S3_` settings in `marfa.env`, kept out of any repository. Leave out `NODE_ENV`, `PORT` and the paths: the image sets them, with the database, the blobs and the socket under `/data`. Then start the container with one volume there:
+
+```bash
+docker run --name marfa -d --restart unless-stopped -p 8600:8600 \
+  -v marfa-data:/data --env-file marfa.env marfa-server
+```
+
+Without `S3_BUCKET`, the container runs the server alone and says so in its log: that's a trial, because nothing leaves the machine.
+
+</Step>
+<Step>
+
+### Claim the instance
+
+The image includes the CLI. Ask it for a single-use setup link, and open the link in your browser to choose the owner's email and password:
 
 ```bash
 docker exec marfa marfa --socket /data/control/marfa.sock setup open --no-browser
 ```
 
+The CLI prints the link as `url`, at the address `MARFA_AUTH_BASE_URL` names. It works once, for five minutes.
+
+</Step>
+</Steps>
+
+## Run it without a container
+
+In a clone of the repository, build the server:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm --filter "@withmarfa/server..." build
+```
+
+Then start it from `packages/server`, with the settings in its environment:
+
+```bash
+cd packages/server
+node dist/index.js
+```
+
+Claim it with `marfa --socket <path> setup open`, as the account that runs the server. The container is the tested route; this suits a computer you own, under a supervisor such as launchd or systemd.
+
 ## Keep it running
 
-Whatever supervises the server, three facts decide how to configure it:
+`GET /health` answers without a credential. It answers `503` when the database, a write, the disk or blob storage is down, and `200` otherwise, a degraded component included. Point your supervisor or monitor at it; the container checks it every 30 seconds.
 
-- **Health.** `GET /health` answers without a credential. It answers `503` when the database, a write, the disk, or blob storage is `down`, and `200` otherwise, `degraded` included. The container image checks it every 30 seconds.
-- **Stopping.** `SIGTERM` or `SIGINT` stops the server. It ends open event streams with a `stream_incomplete` frame whose `reason` is `server_stopping`, waits a few seconds for the requests and housekeeping runs in flight, and exits within eight seconds: `0` for a clean stop, `1` if a request was still open or storage didn't close. A runtime that allows ten seconds before it kills the process leaves room for that.
-- **Exit statuses.** Status `78` means the database was written by another build: the server changed nothing and starting it again meets the same refusal, so do not restart on `78`. [Upgrade](/guides/upgrade) says what to do. Status `1` is any other failed start, such as a setting outside its rules or a port in use. The container does not exit on `78`. It stays up and unhealthy with the reason in its log, so a restart policy cannot loop on it.
+`SIGTERM` or `SIGINT` stops the server. It ends open event streams, lets the work in flight finish, and exits within eight seconds: `0` for a clean stop, `1` if a request was still open. A runtime that allows ten seconds before it kills the process leaves room for that.
 
-Without a container, in a clone of the repository, run `pnpm install --frozen-lockfile` and `pnpm --filter "@withmarfa/server..." build`, then run `node dist/index.js` from `packages/server` with the settings in its environment. The container recipe is the tested route.
+When the server can't start, its exit status tells your supervisor whether to try again:
 
-The server creates a private socket at `control/marfa.sock` beside the database, unless `MARFA_CONTROL_SOCKET` names another path. A command run on the machine, under the server's account, reaches the instance through it with direct authority. [The CLI](/cli) explains `--socket`.
+- `1` is a failed start that a restart may mend, such as a port in use. A setting outside its rules is reported this way too, with every wrong setting named in the log.
+- `78` means the database was written by another build. The server changed nothing, and starting it again meets the same refusal, so don't restart on `78`: [Upgrade](/guides/upgrade) says what to do. The container doesn't exit on `78`; it stays up and unhealthy with the reason in its log, so a restart policy can't loop on it.
 
-The rules behind this page are in the [instance chapter of the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md). The container recipe is documented in the [deployment guide](https://github.com/withmarfa/marfa/blob/main/deploy/README.md).
+A server that crashes, rather than stops, leaves its socket file behind, and the next start refuses with `Control socket already exists`. Check that no server is running on that data directory, remove `control/marfa.sock`, and start again.
+
+The rules behind this page are in the [instance chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md) of the contract, and the container recipe is described in the [deployment guide](https://github.com/withmarfa/marfa/blob/main/deploy/README.md).

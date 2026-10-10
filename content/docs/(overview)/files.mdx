@@ -1,13 +1,15 @@
 ---
 title: Files
-description: How Marfa keeps a file's bytes as a blob, how an item refers to one, who may read it, and where its copies live.
+description: How Marfa keeps a file's bytes once, however many items name them, who may read them, and where the copies live.
 ---
 
-## A file is an item and a blob
+A file in Marfa comes in two parts. The bytes are a blob, stored once under the hash of their content. The file itself is an item, which names the blob by that hash and carries everything else: a title, a media type, the dimensions of an image. Keeping the two apart means the same bytes are stored once however many items use them, and an item stays small enough to sync to every device while the bytes come only when needed.
 
-A file comes in two parts. The **blob** is the bytes, stored once under the SHA-256 hash of their content. The **file** is an item whose type inherits from `core.file`, and its `blob_ref` names the blob by that hash. An item refers to a blob and never contains one.
+## A blob and the item that names it
 
-[Upload a blob](/api-reference/blobs/uploadBlob) sends the bytes as the request body, under the media type they are:
+<FileStorage />
+
+To add a file, upload its bytes, then create an item that names the hash Marfa answers. [Upload a blob](/api-reference/blobs/uploadBlob) takes the bytes as the request body, under their media type:
 
 ```http
 POST /blobs
@@ -16,13 +18,11 @@ Content-Type: image/jpeg
 <the bytes of the photo>
 ```
 
-Marfa answers the blob's `hash`, its `size_bytes` and the `mime_type` it serves the bytes under:
-
 ```json
-{ "hash": "sha256:d71b77fe25721711f07e19c5f39e768e1356349c08b58260a42ed97eb996a01b", "mime_type": "image/jpeg", "size_bytes": 13 }
+{ "hash": "sha256:d71b77fe25721711f07e19c5f39e768e1356349c08b58260a42ed97eb996a01b", "mime_type": "image/jpeg", "size_bytes": 2481934 }
 ```
 
-Then an item names the hash:
+A file item is any item whose type inherits from `core.file`, such as `core.file.image`. Its `blob_ref` is the hash:
 
 ```http
 POST /items
@@ -31,44 +31,20 @@ Content-Type: application/json
 { "type": "core.file.image", "properties": { "title": "Holiday photo", "blob_ref": "sha256:d71b77fe25721711f07e19c5f39e768e1356349c08b58260a42ed97eb996a01b", "mime_type": "image/jpeg" } }
 ```
 
-The same bytes uploaded again answer the same hash and are stored once, so two files can share a blob. The first upload fixes the media type the bytes are served under. Marfa sets the file's `size_bytes` itself, from the stored bytes, when its `blob_ref` lends the blob's read (see [Who may read a blob](/files#who-may-read-a-blob)), and never keeps a size a write sends.
-
-## What keeps a blob
-
-In an item, its history, an edge or an extension, a hash anywhere in a string counts as a reference to the blob: a whole `blob_ref`, a `sha256:` link inside a Markdown body, the same link URL-encoded, or its 64 lowercase hexadecimal characters alone. A blob is kept as long as something names it. Select a piece to see what keeps the blob and who it lets read it.
-
-<FileMap />
-
-- **A file item**, or any other item, in any state, the bin included. It can lend the blob's read to a credential that may read the item's type.
-- **An edge's properties.** They can lend the read to a credential that may read the edge's type and its source item's type.
-- **An extension namespace.** It can lend the read to a working key that may read the namespace and the item's type.
-- **An earlier version** in an item's history. It keeps the blob but lends no read.
-- **The blob** is the bytes, with their size and the media type of their first upload.
-- **The disk** beside the server receives every upload, on every instance.
-- **An object store**, an S3-compatible bucket the instance is configured with, holds a copy of every blob once the `blob-replicate` housekeeping job has caught up.
+The same bytes uploaded again answer the same hash and are stored once, so two items can share a blob. Marfa sets the item's `size_bytes` from the stored bytes. [Handle files](/guides/handle-files) walks through uploading, downloading and replacing a file.
 
 ## Who may read a blob
 
-Knowing a hash isn't enough to read the bytes. A reference lends the blob's read only if whoever wrote it had uploaded the bytes or could already read them, so naming a hash you found somewhere gives you nothing. A reference keeps the standing it was written with: a later write that leaves the hash in place neither grants nor withdraws it.
+Knowing a hash isn't enough to read the bytes. A credential reads a blob through an item that names it: if you can read a file item, you can read its blob. The item's `blob_ref` counts, and so does a hash anywhere else in an item, an edge or an extension, such as an image link inside a note's Markdown body.
 
-No working key or app can read a blob that nothing names, not even the one that uploaded it, because the upload's answer already told it everything. A blob the credential may not read answers `404 blob_not_found`, exactly as an unknown hash does. A credential holding the `blobs.manage` permission reads every blob, and so do the owner, signed in to the instance in the browser, and a command run through the instance's private socket.
+A reference lends the read only if whoever wrote it had uploaded the bytes or could already read them, so naming a hash you found somewhere gives you nothing. A blob you may not read answers `404 blob_not_found`, exactly as a hash that doesn't exist does, and that includes a blob you uploaded yourself until an item names it. A credential that can read no type at all is refused sooner, with `403 type_not_permitted`. The owner, and a credential holding the `blobs.manage` permission, can read every blob.
 
-## Downloading
-
-[Download a blob](/api-reference/blobs/downloadBlob) answers the bytes unchanged. The instance always sends them as an attachment and in a sandbox, whatever the blob's media type, so a browser never shows them as a page of the instance.
-
-[Get a blob URL](/api-reference/blobs/getBlobUrl) answers a link that serves the bytes for a limited time to a request with no credential, such as an image element in a page. Marfa checks the read when it makes the link, not when the link is fetched, so revoking the key that asked for it doesn't end the link early. Once an object store holds the blob, the link is the store's own, so the bytes don't pass through the instance.
+[Download a blob](/api-reference/blobs/downloadBlob) answers the bytes. For a page that shows an image without sending a credential, [Get a blob URL](/api-reference/blobs/getBlobUrl) answers a link that works for a limited time.
 
 ## Where the copies live
 
-A store is a place a blob's bytes live. Every instance has the disk store, a directory beside the server, and every upload lands there. Configure an object store with `S3_BUCKET` and the other `S3_` settings, and the instance attaches it as a second store.
+Every instance stores its blobs on the disk beside the server. Configure an S3-compatible object store, and the instance keeps a second copy of every blob there. Housekeeping jobs copy each new blob to every store, check the copies regularly, and replace a copy that's missing or damaged from one that's sound. [Deploy](/guides/deploy#an-object-store) covers adding a store.
 
-Every store wants every blob. The `blob-replicate` housekeeping job copies each blob to every attached store that lacks it, straight after an upload and on its interval. The `blob-integrity` housekeeping job checks the copies: it hashes each disk copy again, and asks the object store for each object's size. A copy it finds missing, altered on disk, or of the wrong length in the object store is struck, and the next replication puts it back from a store that holds it. [List a blob's locations](/api-reference/blobs/listBlobLocations) shows which stores hold a blob and when each copy was last checked.
-
-## When nothing names a blob
-
-The `blob-orphans` housekeeping job finds blobs that nothing names. It reports each one first, and a later run purges it only once it has stood in the report longer than the grace, `MARFA_BLOB_CLEANUP_GRACE_MS` (1 day by default). An upload or a write that names the hash in between takes it off the report, and so does a queued bulk action whose `update_properties` patch names the hash: it keeps the blob until the job ends, but lends no read. [List orphaned blobs](/api-reference/blobs/listBlobOrphans) shows the report to a credential holding `instance.read`.
-
-Trashing a file keeps its blob, because an item in the bin still names it. Purging the file removes its history too, so once nothing else names the hash, the blob goes after the grace. [Housekeeping](/guides/housekeeping) covers the jobs.
+A blob stays as long as something names it: an item in any state, the bin included, an earlier version of an item, an edge or an extension. Once nothing does, a housekeeping job reports it, and removes it after a day's grace. Trashing a file keeps its blob; purging the file lets it go.
 
 The rules behind this page are in the [blobs](https://github.com/withmarfa/marfa/blob/main/conformance/spec/blobs.md) and [stores](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md) chapters of the contract.

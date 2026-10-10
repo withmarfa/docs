@@ -1,90 +1,101 @@
 ---
-title: The audit log
-description: What Marfa records about changes, sign-ins and exports, who may read it, how to filter it, and how long it keeps entries.
+title: Audit log
+description: Find out who changed what on an instance, and when, by reading and filtering its audit log.
 ---
 
-The audit log answers who changed what on an instance, and when. Marfa writes it, and nothing else can: there is no permission to write an entry.
+The audit log answers who changed what on your instance, and when: which key created an item, who made a key, when the configuration changed, and who exported your data. Marfa writes every entry itself, and nothing can write one for it. This guide explains what the log records, then shows how to read and filter it, and how long it keeps entries.
 
-## What is recorded
+## What the log records
 
-Marfa records writes, sign-ins and exports. It does not record reads. An entry holds:
+Marfa records writes, sign-ins and exports, and never reads. That covers writes to items, edges, tags, extensions, types and blobs; making, changing and revoking keys; app consents and tokens, and the owner's password sign-ins, failed ones included; configuration changes, webhooks and connector registrations; and every export and restore. The list isn't closed, so read the log to see the actions your instance records.
 
-| Field | What it holds |
-| --- | --- |
-| `id` | The entry's identifier. |
-| `created_at` | When Marfa recorded the entry, in UTC. |
-| `key_id` | The ID of the credential that acted. It is `null` for a write of Marfa's own, such as a housekeeping job. |
-| `action` | What happened, such as `item.create`. |
-| `resource_type` | The kind of resource acted on, such as `item` or `key`. |
-| `resource_id` | The ID of the resource, or `null` if there is none. |
-| `client_ip` | The address the request came from, or `null`. Behind a proxy or tunnel, which address is recorded depends on the trusted proxy settings in [Deploy](/guides/deploy#the-address). |
-| `details` | More about the action. What it holds depends on `action`. |
+Some writes leave no entry: a write that Marfa refuses, a dry run of a bulk action, a request to run a housekeeping job, and the routine traffic of connectors, such as their heartbeats, holds and state writes.
 
-The kinds of action recorded:
+Three rules make the log dependable. A write that answers success is already in the log, and if Marfa can't record the entry, it rolls the write back. An export is recorded before its file starts, so an export that fails partway still has its entry. And an entry never holds a secret: no key, password, authorization code or cookie.
 
-| What | Example actions |
-| --- | --- |
-| Writes to items, edges, tags, extensions, types and blobs | `item.create` |
-| Atomic bulk writes: one entry for each committed page, with the `total`, `created`, `updated`, `skipped` and `errored` counts | `items.bulk` |
-| Queued bulk actions: one entry when queued, one for each committed chunk, one for a cancel that changes the job | `items.bulk_action`, `items.bulk_action.chunk`, `items.bulk_action.cancel` |
-| Keys and sign-in: minting, changing and revoking keys, app consent and tokens, password sign-ins, failed sign-ins, password changes, setup codes | `key.create`, `auth.sign_in.failed`, `owner.claimed` |
-| Configuration, webhooks and connectors | `config.update`, `webhook.delivery.redeliver`, `connector.register`, `connector.delete`, `connector_state.delete`, `inbound_endpoint.create`, `inbound_endpoint.retire` |
-| Exports and restores | `export.run`, `restore_archive` |
+Each entry holds these fields:
 
-The list is not closed. To see the actions an instance has recorded, read the log and look at `action`.
+<TypeTable
+  type={{
+    id: { type: 'string', description: 'The entry\'s identifier.' },
+    created_at: { type: 'string', description: 'When Marfa recorded the entry, in UTC.' },
+    key_id: { type: 'string | null', description: 'Who acted: the ID of a key or an app\'s token, or null for a write of Marfa\'s own, such as a housekeeping job.' },
+    action: { type: 'string', description: 'What happened, such as item.create or export.run.' },
+    resource_type: { type: 'string', description: 'The kind of thing acted on, such as item, key or config.' },
+    resource_id: { type: 'string | null', description: 'The ID of the thing acted on, or null where there is none.' },
+    client_ip: { type: 'string | null', description: 'The address the request came from, or null where there is none.' },
+    details: { type: 'object', description: 'More about the action, depending on action.' },
+  }}
+/>
 
-Some things leave no entry: a write that Marfa refuses, as with a refused export, configuration change or connector registration, a dry run of a bulk action, a request to run a housekeeping job, and the routine traffic of connectors (heartbeats, run reports, holds, and state and agreement writes) and of inbound webhooks (receiving a delivery and marking it handled). A failed sign-in is recorded.
+When the owner acts, `key_id` names the owner's authority rather than a key: `local:process` through the private socket, or `owner:` and the browser session when signed in. Behind a proxy or a tunnel, `client_ip` is the proxy's address unless the server is told which address to believe, as [Deploy](/guides/deploy#the-address) explains.
 
-Three rules make the log dependable:
+## Read the log
 
-- **The entry exists when the answer does.** A write that answers success is already listed. If Marfa cannot record the entry, it rolls the write back.
-- **An export is recorded before it streams.** An accepted export has its `export.run` entry whether or not the file completes.
-- **No secrets.** An entry's `details` never hold a credential value, a password, an authorization code, a private signing key or a session cookie value.
+Reading the log needs the `audit.read` permission, which opens the log and no item. The owner needs no key, through the private socket or signed in. Entries come newest first. This lists the most recent exports since the start of October:
 
-## Who may read it
+```bash tab="CLI" tab-group="client"
+marfa audit --action export.run --created-after 2026-10-01T00:00:00Z --limit 20 --json
+```
 
-[List audit log entries](/api-reference/instance/listAuditLog) needs the `audit.read` permission. A credential without it answers `403 forbidden` with `details.required_scope` set to `audit.read`, before Marfa checks the query. The permission opens the log and no item content. [Keys and permissions](/access) explains how to give a key a permission.
-
-As the owner you need no key: signed in to the instance in the browser, or through the instance's private socket with `--socket`, you can read the log.
-
-## Read and filter it
-
-Entries come newest first. This request lists the 20 most recent exports since the start of October:
-
-```http
+```http tab="HTTP"
 GET /audit?action=export.run&created_after=2026-10-01T00:00:00Z&limit=20
-Authorization: Bearer <credential>
+Authorization: Bearer <key>
 ```
 
-The `marfa` command sends the same operation:
-
-```bash
-marfa audit --action export.run --created-after 2026-10-01T00:00:00Z --limit 20
+```json
+{
+  "data": [
+    {
+      "id": "01a12312-fb3b-7053-b8d7-cbe616d22d71",
+      "created_at": "2026-10-09T23:50:08.955Z",
+      "key_id": "01a12312-ef3c-7fc2-977f-3d4b0b77407d",
+      "action": "export.run",
+      "resource_type": "export",
+      "resource_id": null,
+      "client_ip": "::1",
+      "details": { "format": "archive" }
+    }
+  ],
+  "next_cursor": null
+}
 ```
 
-| Filter | Keeps |
-| --- | --- |
-| `action` | Entries with this action. |
-| `resource_type` | Entries about this kind of resource. |
-| `resource_id` | Entries about the resource with this ID. |
-| `created_after` | Entries recorded after this time. |
-| `created_before` | Entries recorded before this time. |
+Without `--json`, the CLI prints one line for each entry: its ID, action and time.
 
-Both time bounds exclude an entry recorded at the bound itself, and either takes an instant at any precision. To see what happened to one item, filter by `resource_type=item` and its ID as `resource_id`. There is no filter for `key_id`, so to see what one key did, read the entries and compare their `key_id`.
+## Filter it
 
-`limit` is 1 to 200 and defaults to 50. When more entries match, the answer holds a `next_cursor`. Send it back as `cursor` to read the next page, and stop when it is `null`. A page can be short, or empty, with a cursor still to follow.
+Five filters narrow the log, and you can combine them:
 
-Marfa refuses a query key it does not know with `400 validation_error`, naming the key in `details.unknown_parameters`, so a misspelled bound never reads as a range that matched every entry.
+- `action` keeps the entries with this action.
+- `resource_type` keeps the entries about this kind of thing.
+- `resource_id` keeps the entries about the thing with this ID.
+- `created_after` and `created_before` keep the entries recorded between two times, not counting an entry at either time itself.
 
-## How long it is kept
+To see what happened to one item, filter by its ID:
 
-Marfa keeps entries for 90 days by default. The `audit-cleanup` housekeeping job runs once a day by default and deletes entries older than the audit retention. It also deletes the history of outbound webhook deliveries past the same age, and a `dead_letter` delivery can be redelivered only while it is within it.
+```bash tab="CLI" tab-group="client"
+marfa audit --resource-type item --resource-id 01a12312-d8f1-7766-8f94-278746e3ca32
+```
 
-Change the retention in either of two places:
+```http tab="HTTP"
+GET /audit?resource_type=item&resource_id=01a12312-d8f1-7766-8f94-278746e3ca32
+Authorization: Bearer <key>
+```
 
-- **`AUDIT_RETENTION_DAYS`**, read when the server starts, sets the instance default.
-- **`audit_retention_days`**, set with [Replace the configuration](/api-reference/instance/replaceConfig), overrides it while the server runs. It needs `config.manage`.
+```text
+01a12312-d918-7987-9bb3-ec6d81e74a38  item.update  2026-10-09T23:50:00.218Z
+01a12312-d8f0-7301-94a8-558a479db26c  item.create  2026-10-09T23:50:00.178Z
+```
 
-Each takes a whole number of days from 0 to 36500. At 0 no entry expires. [Housekeeping](/guides/housekeeping) lists the job and how to run it now, and [Settings](/guides/settings) covers the other settings.
+There is no filter for `key_id`, so to see what one key did, read the entries and compare their `key_id`.
 
-The rules behind this page are in the [events chapter of the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md#the-audit-log), under "The audit log".
+A page holds 50 entries unless `limit` asks for up to 200. When more match, the answer carries a `next_cursor`: send it back as `cursor` (or `--cursor`) for the next page, and stop when it's `null`. Marfa refuses a query key it doesn't know with `400 validation_error`, so a misspelled filter never reads as one that matched everything.
+
+## How long entries are kept
+
+Marfa keeps entries for 90 days by default. The `audit-cleanup` [housekeeping job](/guides/housekeeping) runs once a day and deletes older ones, along with the history of outbound webhook deliveries past the same age.
+
+`AUDIT_RETENTION_DAYS` sets the retention when the server starts, and `audit_retention_days` in the [configuration](/guides/settings#change-settings-while-it-runs) changes it while the server runs. At `0`, no entry expires.
+
+The rules behind this page are in [the audit log](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md#the-audit-log) section of the events chapter of the contract.

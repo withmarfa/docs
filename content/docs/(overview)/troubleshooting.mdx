@@ -1,0 +1,245 @@
+---
+title: Troubleshooting
+description: The cause and the fix for the problems people meet first, found by the message Marfa shows.
+---
+
+Most problems with a new instance come from a handful of causes: a setting the server won't accept, a credential that can't reach what it asks for, or a write based on a version that has moved on. This page lists them by what you see, so you can search for it: the message in the server's log, the status and code in an API answer, or the line the CLI prints. Each entry says why it happens and what to do, and links the page that explains more.
+
+## Starting and claiming
+
+<Accordions>
+<Accordion title="The server cannot start; fix these settings">
+
+A setting has a value the server doesn't accept, such as a number out of range. The server checks every setting before it opens the database, and the message names each one it refused:
+
+```text
+The server cannot start; fix these settings:
+  RATE_LIMIT_REQUESTS must be a whole number, 1 or more (got "0")
+```
+
+Correct the values it names. [Settings](/guides/settings) lists every setting with the values it takes.
+
+</Accordion>
+<Accordion title="MARFA_AUTH_SECRET must be set in production">
+
+With `NODE_ENV=production`, the server needs two secrets of its own and its public address: `API_KEY_SALT`, `MARFA_AUTH_SECRET` and `MARFA_AUTH_BASE_URL`. It refuses a secret that is missing, short or a placeholder. Outside production the server fills in what's missing, but still refuses a `MARFA_AUTH_SECRET` under 32 characters.
+
+Generate each secret with `openssl rand -hex 32`, and set `MARFA_AUTH_BASE_URL` to the address clients reach the server at. [Deploy](/guides/deploy) shows a complete production setup.
+
+</Accordion>
+<Accordion title="MARFA_CONTROL_SOCKET must be a normalized absolute Unix socket path of at most 103 bytes">
+
+The server opens a private socket for the CLI's `--socket`, by default at `control/marfa.sock` beside the database. A database deep in the file system makes that path longer than a Unix socket allows.
+
+Keep the data in a shorter directory, or set `MARFA_CONTROL_SOCKET` to a shorter path. Its directory must belong to the account that runs the server and be readable by no one else.
+
+</Accordion>
+<Accordion title="Control path is a symbolic link or not a directory">
+
+The path to the socket's directory passes through a symbolic link. On macOS, `/tmp` is one: it points to `/private/tmp`.
+
+Give the server a path with no links in it, such as `/private/tmp/marfa/marfa.db` in place of `/tmp/marfa/marfa.db`. In a shell, `pwd -P` prints the current directory with its links resolved.
+
+</Accordion>
+<Accordion title="listen EADDRINUSE: address already in use">
+
+Another process already listens on the server's port, often an earlier Marfa server that is still running.
+
+Stop the other process, or set `PORT` to a free port.
+
+</Accordion>
+<Accordion title="The schema in … is not this build's">
+
+The database was written by a different build of Marfa. Until the first release, a build doesn't upgrade a database in place: it refuses the file and changes nothing in it, so the build that wrote it can still open it.
+
+To move your data to the new build, export it with the old build and restore the archive into the new one. [Upgrade](/guides/upgrade) shows each step.
+
+</Accordion>
+<Accordion title="I lost the setup code">
+
+The setup code is printed in the server's log when an unclaimed instance starts, as `Claim this Marfa at /setup with setup code: …`. You don't need it on the instance's own machine: claim through the socket instead, as the [Quickstart](/quickstart) does:
+
+```bash
+marfa --socket "$(pwd -P)/data/control/marfa.sock" setup claim --email you@example.com
+```
+
+To get a new code, restart the server, which prints one, or run `marfa --socket <path> setup code`. Either way the earlier code stops working.
+
+</Accordion>
+<Accordion title="409 owner_exists">
+
+The instance already has an owner, and an instance is claimed only once.
+
+If you are the owner and have lost the password, set a new one from the instance's own machine with `marfa --socket <path> owner recover`. It also signs out every browser signed in as the owner.
+
+</Accordion>
+</Accordions>
+
+## Credentials and access
+
+<Accordions>
+<Accordion title="401 unauthorized">
+
+Marfa didn't accept the credential: it's missing, mistyped, revoked or expired. The CLI exits with `5`.
+
+Send it as `Authorization: Bearer <key>`, in full. A key sent correctly and still refused has been revoked or has expired: make a new one. [Manage keys](/guides/manage-keys) shows how.
+
+</Accordion>
+<Accordion title="404 item_not_found for an item you know exists">
+
+Your credential can't read the item's type. Marfa answers exactly as it does for an item that doesn't exist, so a refusal never tells a credential what it can't see.
+
+Check what the credential reaches with `marfa keys current`, or `GET /keys/current`, and use a key that reads the type. If the answer carries `"details": { "trashed": true }`, the item is in the trash: restore it before you change it. [Access](/access) explains how a credential's reach is set.
+
+</Accordion>
+<Accordion title="403 type_not_permitted">
+
+Your credential can read the item's type but not write it. `details.grant` names the grant it lacks:
+
+```json
+{
+  "error": {
+    "code": "type_not_permitted",
+    "message": "Write access to type \"core.note\" denied",
+    "details": { "grant": { "kind": "type", "name": "core.note", "level": "write" } }
+  }
+}
+```
+
+Give the key that grant, or use a key that holds it. [Manage keys](/guides/manage-keys) shows how.
+
+</Accordion>
+<Accordion title="429 rate_limited">
+
+The credential made more requests in the current window than the instance allows. The answer's `Retry-After` header says how many seconds to wait, and the CLI exits with `3`, which means a retry can succeed.
+
+Wait that long, then send the request again. The limits are set by the `RATE_LIMIT_*` settings in [Settings](/guides/settings).
+
+</Accordion>
+</Accordions>
+
+## Writing
+
+<Accordions>
+<Accordion title="409 version_conflict">
+
+Your write changed a field that someone else also changed since the version you read. Marfa refuses your write rather than overwrite theirs, and sends the item as it is now in `current`, beside the version you read in `ancestor`.
+
+Combine your change with `current`, and send it again naming `current.version`. Or send the write with `conflict=auto` and let the type's rules settle it. [Write safely](/guides/write-safely) shows both.
+
+</Accordion>
+<Accordion title="409 ancestor_unavailable">
+
+Marfa no longer keeps a snapshot of the version your write names, so it can't tell what changed since. Old snapshots are thinned by housekeeping, and a version that never existed has none either.
+
+Read the item again and apply your change to it. [Versions](/versions) explains the history Marfa keeps.
+
+</Accordion>
+<Accordion title="400 missing_required_field: version is required">
+
+An update must name the version it read, so Marfa can tell whether the item changed in between.
+
+Read the item, and send its `version` with the update.
+
+</Accordion>
+<Accordion title="400 validation_error: The request body must be JSON">
+
+The request has a body but no `Content-Type: application/json` header. Marfa refuses it and changes nothing.
+
+Add the header. With `curl`, that's `-H "Content-Type: application/json"`.
+
+</Accordion>
+<Accordion title="400 validation_error: Unknown query parameter">
+
+The request names a query parameter the operation doesn't take, often a misspelled filter. Marfa refuses it so a typo can't return everything, and the message lists the parameters the operation does take.
+
+Correct the name. For a parameter of your own, such as a cache buster, start its name with `_`: Marfa ignores those.
+
+</Accordion>
+<Accordion title="400 invalid_properties">
+
+The item's properties don't fit its type: a required field is missing, or a value has the wrong shape. `details.errors` names each field and what is wrong with it. A `core.note`, for example, needs a `body`.
+
+Read the type's fields with `marfa types get <type>`, or `GET /types/<type>`, and send what it asks for. [Items and types](/items-and-types) explains what a type defines.
+
+</Accordion>
+</Accordions>
+
+## Staying in step
+
+<Accordions>
+<Accordion title="The event stream ends with catchup_too_old">
+
+You asked to resume from a cursor older than anything the instance's event log still holds, so the stream can't fill the gap. The frame names the oldest event the log holds in `min_retained_id` and your cursor in `requested`, then the stream closes.
+
+Start over as you did the first time: read your data again from the API, and follow the stream from its head. The log keeps events for at least seven days unless the instance is set otherwise. [Keep a copy in sync](/guides/keep-in-sync) shows the whole loop.
+
+</Accordion>
+<Accordion title="409 read_view_changed">
+
+What your credential may read has changed since the working copy was built, for example because its key was narrowed. The copy can't be resumed, because what it holds no longer matches what the credential reads.
+
+Build the working copy again. [Devices](/devices) explains when a copy has to start over.
+
+</Accordion>
+<Accordion title="this working copy can no longer be kept current: …; hydrate again">
+
+This is how the CLI's device commands report `catchup_too_old` and `read_view_changed`, with the code `copy_expired` and exit code `4`. Writes waiting in the queue are kept.
+
+Run `marfa device hydrate` again. If the credential no longer reads one of the types you held, leave that type out of `--types`, or the hydrate is refused with `type_not_permitted`.
+
+</Accordion>
+</Accordions>
+
+## The CLI
+
+<Accordions>
+<Accordion title="--socket cannot be combined with MARFA_API_URL or MARFA_API_KEY">
+
+`--socket` acts with the machine's own authority, so it refuses to run while the environment names a server or a key for another kind of access.
+
+Unset both for the command, then run it again:
+
+```bash
+unset MARFA_API_URL MARFA_API_KEY
+```
+
+</Accordion>
+<Accordion title="--socket must not traverse symbolic links">
+
+The socket's path passes through a symbolic link, such as `/tmp` on macOS. A relative path is refused for the same reason, with `--socket requires an absolute path`.
+
+Give the full path with its links resolved. From the server's directory, `"$(pwd -P)/data/control/marfa.sock"` does that.
+
+</Accordion>
+<Accordion title="--socket fails with No such file or directory">
+
+There's no socket at that path: the server isn't running, or its data is somewhere else. The server makes the socket when it starts, at `control/marfa.sock` beside its database unless `MARFA_CONTROL_SOCKET` names another path.
+
+Start the server, and check the path.
+
+</Accordion>
+<Accordion title="no server named: pass --url or set MARFA_API_URL">
+
+The command works with an instance, and nothing told it which one.
+
+Set `MARFA_API_URL` to the instance's address, such as `http://localhost:8600`, or pass `--url`.
+
+</Accordion>
+<Accordion title="no credential for …">
+
+The command knows the instance but has no credential for it. The CLI exits with `5`.
+
+Set `MARFA_API_KEY` to a key, keep one in the keychain with `marfa keys keep`, or sign in with `marfa login`. [The CLI](/cli) covers each.
+
+</Accordion>
+<Accordion title="network: io: Connection refused">
+
+Nothing answers at the address the command used. The server isn't running, or listens on another port. The CLI exits with `3`.
+
+Start the server, and check `MARFA_API_URL` or `--url`. `marfa status` tells you when it can reach the instance.
+
+</Accordion>
+</Accordions>
+
+If your problem isn't here, the [errors reference](/api-reference/errors) lists every code Marfa answers, and the [CLI reference](/cli-reference) lists every command's exit codes.

@@ -1,32 +1,62 @@
 ---
 title: Authenticate
-description: Send a key with a request, connect an app to an instance with OAuth, and read the refusal a credential gets when it lacks access.
+description: Send a key with each request, or sign an app in with OAuth so the owner approves what it can reach, and recognize the answer when access is refused.
 ---
 
-A request carries one of two credentials: a key (`marfa_k1_…`) or the access token of an app the owner signed in (`marfa_at_…`). [Keys and permissions](/access) explains what each can hold. This guide shows how to use them.
+Every request to an instance carries a credential: a key, which begins `marfa_k1_`, or the access token of an app the owner approved, which begins `marfa_at_`. A script or a service you run yourself uses a key. An app that other people install signs in with OAuth instead, so it never holds a key or the owner's password, and the owner decides what it can reach. This guide shows both, and what a refusal looks like. [Access](/access) explains what a credential can hold.
 
 ## Send a key
 
-Send the key in the `Authorization` header as a bearer token:
+Send the key in the `Authorization` header as a bearer token. [Get the current key](/api-reference/access/getCurrentKey) is a quick way to check one: it answers what the key holds, without the key itself.
 
-```http
+```bash tab="CLI" tab-group="client"
+export MARFA_API_URL=http://localhost:8600
+export MARFA_API_KEY=<key>
+marfa keys current
+```
+
+```http tab="HTTP"
 GET /keys/current
 Authorization: Bearer <key>
 ```
 
-[Get the current key](/api-reference/access/getCurrentKey) answers what the key holds, without its plaintext, so it is a quick way to check a key. An operation that takes a credential answers `401 unauthorized` when the header is missing or the credential is unknown or revoked. `GET /`, `GET /health`, `GET /openapi.json` and the sign-in discovery documents take no credential.
+```ts tab="TypeScript"
+import { createClient } from "@withmarfa/client";
 
-The `marfa` command takes the key from `--key`, then `MARFA_API_KEY`, then the keychain, as [The CLI](/cli#choose-a-server-and-a-credential) explains. An access token goes in the same header.
+const marfa = createClient({
+  baseUrl: "http://localhost:8600",
+  credential: process.env.MARFA_API_KEY ?? "",
+});
+
+const { data } = await marfa.GET("/keys/current");
+```
+
+The answer names the key's source, its permissions and its maps:
+
+```json
+{
+  "label": "receipts app",
+  "source": "receipts",
+  "permissions": [],
+  "type_permissions": { "app.example.receipt": "write" },
+  "metadata_permissions": { "types": "write" }
+}
+```
+
+The answer has more fields than this. A request with no credential, or with one that is unknown, expired or revoked, answers `401 unauthorized`. The CLI takes the key from `--key`, then `MARFA_API_KEY`, then the keychain, as [the CLI](/cli) explains. The Swift package takes it in the `Server` you open a working copy with, as [the Swift package](/swift-package) shows.
 
 ## Connect an app with OAuth
 
-An app that acts for the owner never sees the owner's password. It registers, sends the owner to the instance to approve it, and receives an access token for the scopes the owner approved. Use the authorization code grant for an app with a browser or a redirect address, and the device grant for a command-line app.
+An app signs in the way you sign in to a website with your Google account. It registers with the instance, sends the owner to approve it, and receives an access token for the scopes the owner approved, such as `core.note:read`. The steps below use the authorization code grant, for an app that can open a browser and receive a redirect. An app with no browser, such as a command-line tool, uses the device grant in the next section.
 
-The instance's endpoints are in its discovery document, at `/.well-known/oauth-authorization-server/auth`. Its `scopes_supported` lists the scopes the instance publishes to every app.
+Every endpoint is listed in the instance's discovery document, at `/.well-known/oauth-authorization-server/auth`. Its `scopes_supported` lists the scopes an app can ask for.
+
+<Steps>
+<Step>
 
 ### Register the app
 
-Registration needs no credential. The app names itself, where Marfa may send the owner back to, and the scopes it expects to ask for:
+Registration takes no credential. The app names itself, the addresses Marfa may send the owner back to, and the scopes it expects to ask for:
 
 ```http
 POST /auth/oauth2/register
@@ -41,40 +71,40 @@ Content-Type: application/json
 }
 ```
 
-Marfa answers `201` with the `client_id` and what it registered. [Register an OAuth client](/api-reference/access/registerOAuthClient) has every field. Three choices matter:
+Marfa answers `201` with the app's `client_id`. `"token_endpoint_auth_method": "none"` registers a public client, which proves itself with PKCE alone; leave it out and the answer also holds a `client_secret` for the app to send with each token request. A web app, the default, needs `https` redirect addresses. An app on the person's own machine sets `"application_type": "native"`, which may use an `http` address on the loopback, such as `http://127.0.0.1:9000/callback`. [Register an OAuth client](/api-reference/access/registerOAuthClient) has every field.
 
-- **`token_endpoint_auth_method`.** `none` registers a public client, which proves itself with PKCE alone. Leave it out and the answer includes a `client_secret`, which the app then sends when it asks for tokens.
-- **`application_type`.** A `web` client, the default, needs `https` redirect addresses and is refused `400 invalid_redirect_uri` for one on the loopback address. A `native` client may use an `http` loopback address.
-- **`scope`.** Leave it out and the app is registered for every scope the instance offers.
-
-The consent screen tells the owner that Marfa hasn't verified the app, because any program can pick any name.
+</Step>
+<Step>
 
 ### Send the owner to approve
 
-Send the browser to the authorization endpoint. Marfa accepts only the `S256` PKCE method, so make a random verifier and send its SHA-256 hash as the challenge:
+Marfa accepts only PKCE with `S256`. Make a random verifier, and keep it for the next step:
 
 ```bash
 verifier=$(openssl rand -hex 32)
 challenge=$(printf %s "$verifier" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')
 ```
 
+Then open the authorization endpoint in the owner's browser, with the challenge and a `state` of your own:
+
 ```http
 GET /auth/oauth2/authorize?response_type=code&client_id=<client_id>&redirect_uri=https%3A%2F%2Freader.example.com%2Fcallback&scope=core.note%3Aread%20core.note%3Awrite%20offline_access&code_challenge=<challenge>&code_challenge_method=S256&state=<state>
 ```
 
-The owner signs in if they haven't and approves the scopes they choose. Marfa then sends the browser to `redirect_uri` with a `code`, your `state` and an `iss` parameter naming the instance's issuer:
+The owner signs in if they need to, and sees each scope the app asks for. They can untick any of them. When they approve, Marfa sends the browser to your redirect address with a `code` and your `state`:
 
 ```text
 https://reader.example.com/callback?code=<code>&state=<state>&iss=http%3A%2F%2Flocalhost%3A8600%2Fauth
 ```
 
-Check that `state` is the one you sent. If the owner declines, the redirect carries `error=access_denied` and no code. A request with no PKCE challenge is redirected with `error=invalid_request`, and one that names no scope the instance can grant with `error=invalid_scope`. A request naming a `redirect_uri` that wasn't registered is never redirected: Marfa shows its own error page.
+Check that `state` is the one you sent. If the owner declines, the redirect carries `error=access_denied` and no code. An owner who has already approved these scopes for your app goes straight back with a code, without seeing the screen again.
 
-An owner who has approved the app before, for the scopes you now ask for, is sent straight back with a code. Ask for a wider set and the screen appears again. Add `prompt=consent` to show it every time.
+</Step>
+<Step>
 
 ### Exchange the code for tokens
 
-The token endpoint takes a form, not JSON:
+Send the code and the verifier to the token endpoint, as a form:
 
 ```http
 POST /auth/oauth2/token
@@ -87,18 +117,21 @@ grant_type=authorization_code&code=<code>&redirect_uri=https%3A%2F%2Freader.exam
 {
   "access_token": "marfa_at_…",
   "expires_in": 3600,
-  "expires_at": 1791568097,
+  "expires_at": 1791593756,
   "token_type": "Bearer",
   "refresh_token": "marfa_rt_…",
   "scope": "core.note:read core.note:write offline_access"
 }
 ```
 
-A code works once, and only while the owner's browser session that approved it hasn't ended. `scope` lists what the owner approved, which can be less than the app asked for, so read it rather than assume. Send the access token as a bearer token. It reaches the types its scopes cover, writes under a source that begins `oauth:`, and can't call `GET /keys/current`.
+A code works once. `scope` lists what the owner approved, which can be less than you asked for, so read it rather than assume. Send the access token in the `Authorization` header exactly as you would a key, or pass it to the TypeScript client as its `credential`. Items the app creates carry a source that begins `oauth:`.
+
+</Step>
+<Step>
 
 ### Keep the token fresh
 
-A refresh token comes only with `offline_access`. Exchange it for a new access token before the old one expires, at `expires_in` seconds:
+The access token expires after `expires_in` seconds. Before it does, exchange the refresh token for a new pair:
 
 ```http
 POST /auth/oauth2/token
@@ -107,11 +140,21 @@ Content-Type: application/x-www-form-urlencoded
 grant_type=refresh_token&refresh_token=marfa_rt_…&client_id=<client_id>
 ```
 
-Each exchange answers a new refresh token and ends the old one. Store the new one before you use the new access token. If an old refresh token is sent again, Marfa answers `400 invalid_grant` and ends every token issued in that chain, because two parties hold it and Marfa can't tell which is the app.
+The app gets a refresh token only if it asked for `offline_access` and the owner approved it. **Each exchange ends the refresh token you sent, so store the new one before you use the new access token.** A refresh token sent a second time answers `400 invalid_grant`, and Marfa ends every token in its chain, because two parties hold it and Marfa can't tell which is the app. The app then signs in again.
 
-### Connect a command-line app
+</Step>
+</Steps>
 
-An app with no browser uses the device grant, which the `marfa login` command follows. Register it for that grant, with no redirect addresses:
+## Connect a command-line app
+
+An app with no browser uses the device grant: it shows the owner a short code, and the owner approves it on another device. The CLI's `marfa login` signs in this way.
+
+<Steps>
+<Step>
+
+### Register for the device grant
+
+Register as a native app, with no redirect addresses:
 
 ```http
 POST /auth/oauth2/register
@@ -125,9 +168,14 @@ Content-Type: application/json
 }
 ```
 
-Keep `refresh_token` in `grant_types` if the app asks for `offline_access`. A client registered for neither `refresh_token` nor `authorization_code` can't use a refresh token, so Marfa refuses `offline_access` to it: registration naming the scope answers `400 invalid_client_metadata`, and a device code request asking for it answers `400 invalid_scope` ([`keys-and-oauth/register-offline-no-refresh`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthregister-offline-no-refresh), [`keys-and-oauth/device-offline-no-refresh`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthdevice-offline-no-refresh)).
+Keep `refresh_token` in `grant_types` if the app will ask for `offline_access`. A client registered for neither `refresh_token` nor `authorization_code` can't use a refresh token, so Marfa refuses it the scope: a registration that names it answers `400 invalid_client_metadata`, and a device code request that asks for it answers `400 invalid_scope`.
 
-Ask for a device code. The request can be a form or JSON:
+</Step>
+<Step>
+
+### Ask for a device code
+
+Ask for a code, naming the scopes the app needs:
 
 ```http
 POST /auth/device/code
@@ -139,15 +187,22 @@ client_id=<client_id>&scope=core.note%3Aread%20offline_access
 ```json
 {
   "device_code": "…",
-  "user_code": "38NZ4BU9",
+  "user_code": "LFMCH9Q4",
   "verification_uri": "http://localhost:8600/auth/device",
-  "verification_uri_complete": "http://localhost:8600/auth/device?user_code=38NZ4BU9",
+  "verification_uri_complete": "http://localhost:8600/auth/device?user_code=LFMCH9Q4",
   "expires_in": 600,
   "interval": 5
 }
 ```
 
-Show the owner `user_code` and `verification_uri`, or open `verification_uri_complete`. The owner signs in on that page and approves. Meanwhile poll the token endpoint, no more often than `interval` seconds:
+Show the owner the `user_code` and `verification_uri`, or open `verification_uri_complete` for them. They sign in there and approve.
+
+</Step>
+<Step>
+
+### Poll for the token
+
+Meanwhile, ask the token endpoint for the token, waiting `interval` seconds between requests:
 
 ```http
 POST /auth/oauth2/token
@@ -156,11 +211,14 @@ Content-Type: application/x-www-form-urlencoded
 grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&device_code=<device_code>&client_id=<client_id>
 ```
 
-Until the owner decides, Marfa answers `400 authorization_pending`. Poll sooner than `interval` and the answer is `400 slow_down`. `400 access_denied` means the owner denied it, and `400 expired_token` means the code lapsed after `expires_in` seconds. Approval answers `200` with the same token response as the code exchange, and a device code works once.
+Until the owner decides, Marfa answers `400 authorization_pending`, and `400 slow_down` if you ask sooner than `interval`. Once the owner approves, it answers `200` with the same token response as the code exchange. `400 access_denied` means the owner declined, and `400 expired_token` means the code lapsed after `expires_in` seconds: start again.
 
-### Revoke access
+</Step>
+</Steps>
 
-An app disconnects itself by revoking its refresh token. That ends its tokens and the owner's consent, so its next authorization request shows the consent screen again:
+## Revoke access
+
+An app disconnects itself by revoking its refresh token. That ends its tokens and the owner's approval, so its next authorization request shows the consent screen again:
 
 ```http
 POST /auth/oauth2/revoke
@@ -169,47 +227,31 @@ Content-Type: application/x-www-form-urlencoded
 token=marfa_rt_…&token_type_hint=refresh_token&client_id=<client_id>
 ```
 
-Revoking an access token ends that token. Marfa answers `200` for a token it doesn't hold, as RFC 7009 asks, and `400 invalid_request` when the request names no token.
+Marfa answers `200`, even for a token it doesn't hold. The owner can also disconnect an app in the browser, and a credential holding `grants.manage` lists the apps signed in with `GET /auth/grants` and ends one with `DELETE /auth/grants/{id}`.
 
-A credential holding `grants.manage` lists the apps that are signed in with `GET /auth/grants` and ends one with `DELETE /auth/grants/{id}`, which answers `204`. The keys the app minted keep working unless the request adds `?revoke_keys=1`. The owner can also disconnect an app in the browser.
-
-The endpoints under `/auth/oauth2/` and `/auth/device/` answer errors in OAuth's own shape, `{ "error": "invalid_grant", "error_description": "…" }`, and not in the [error envelope](/api-reference/errors) the rest of the API uses. `GET /auth/grants` and `DELETE /auth/grants/{id}` answer in the envelope.
+The endpoints under `/auth/oauth2/` and `/auth/device/` answer errors in OAuth's own shape, such as `{ "error": "invalid_grant", "error_description": "invalid refresh token" }`, not in the [error envelope](/api-reference/errors) the rest of the API uses.
 
 ## What a refusal looks like
 
-A credential that lacks access gets one of these answers. Branch on `error.code`, not `message`.
+When a credential lacks access, the answer says which kind of access is missing. Branch on `error.code`, never on the message:
 
-| Answer | What it means |
-| --- | --- |
-| `401 unauthorized` | There is no credential, or it is unknown, expired or revoked. For an app whose access token expired, exchange its refresh token. |
-| `403 forbidden` | The credential lacks a permission or reach the operation needs. |
-| `403 type_not_permitted` | The credential's map doesn't grant the type at the level asked for. |
-| `404 item_not_found` | The item doesn't exist, or its type is one the credential can't read. The two answers are identical. |
+- `401 unauthorized`: there's no credential, or it's unknown, expired or revoked. An app whose access token expired exchanges its refresh token.
+- `403 forbidden`: the credential lacks a permission the operation needs, and `details.required_scope` names it.
+- `403 type_not_permitted`: the credential can't read or write the type at the level the request needs, and `details.grant` names the type and the level.
+- `404 item_not_found`: the item doesn't exist, or it's of a type the credential can't read. The two answers are identical.
 
-A missing permission names the permission:
-
-```json
-{
-  "error": {
-    "code": "forbidden",
-    "message": "This credential does not hold instance.read",
-    "details": { "required_scope": "instance.read" }
-  }
-}
-```
-
-A map that doesn't cover a type names the type and the level it needed:
+A key that can't write notes, for example, is refused like this:
 
 ```json
 {
   "error": {
     "code": "type_not_permitted",
-    "message": "Write access to type \"core.note\" denied",
+    "message": "No access to type \"core.note\"",
     "details": { "grant": { "kind": "type", "name": "core.note", "level": "write" } }
   }
 }
 ```
 
-A refusal never tells a credential what it can't see. To find out what a key holds, call [Get the current key](/api-reference/access/getCurrentKey). An app reads the `scope` in its token response.
+A refusal never tells a credential what it can't see. To find out what a key holds, read it with [Get the current key](/api-reference/access/getCurrentKey); an app reads the `scope` in its token response.
 
-The rules behind this page are in the [keys and sign-in chapter of the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md).
+The rules behind this guide are in the [keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md) chapter of the contract.

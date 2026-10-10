@@ -1,127 +1,219 @@
 ---
 title: Pull and push
-description: Bring a vendor's records into Marfa, notice what people change there, and carry those changes back to the vendor.
+description: Write a vendor's records into Marfa as items, notice what people change there, and carry those changes back to the vendor.
 ---
 
-A two-way connector does three jobs in each run: it pulls the vendor's records into Marfa, watches for changes made in Marfa, and pushes those changes back to the vendor. This guide gives the requests for each job, in the order a run makes them. A one-way connector does only the first.
+A connector's work runs in two directions. It pulls: it reads the vendor and writes what it finds as items. A two-way connector also pushes: it notices what people change in Marfa and carries those changes back to the vendor. This guide shows the operations for each, in the order a run uses them, so you can build a connector directly on the API or see what the connector kit does for you. [Build a connector](/guides/connector) shows the kit doing it.
 
-The kit in [marfa-connectors](https://github.com/withmarfa/marfa-connectors) makes these requests for you, and [Build a connector](/guides/connector) uses it. Read on to build a connector straight on the API, or to see what the kit does for you. [Connectors](/connectors) explains the pieces the requests use, and every run starts under a hold, as [Holds and retries](/guides/connector-holds-and-retries) shows.
+The examples follow a connector for a task manager. It has a key of its own under the source `tasks`, and writes the type `tasks.task`, whose `link_field` is `task_id`. Every write to the connector's agreements happens under its hold, taken by a process named `<process>`, as [Holds and retries](/guides/connector-holds-and-retries) shows. The TypeScript examples use the [TypeScript client](/typescript-client), made with the connector's key, as `marfa`, with the registration's ID in `connectorId` and the process's name in `processName`.
 
-## Pull from the vendor
+## Write what you read
 
-A pull reads the vendor from the place the last run reached, writes what it finds as items, and moves the place forward.
+A pull reads the vendor from where the last run stopped, which the connector keeps in its state document, and writes what it read. [Upsert items in bulk](/api-reference/items/bulkUpsertItems) writes up to 5,000 records in one request:
 
-1. [Get the state document](/api-reference/connectors/getConnectorState) to find where the last run stopped. A first run finds `{}` and reads the vendor whole.
-2. Read the vendor from that place.
-3. Write what you read with [Upsert items in bulk](/api-reference/items/bulkUpsertItems).
-4. Set aside what the vendor deleted.
-5. [Replace the state document](/api-reference/connectors/replaceConnectorState) with the new place, and [report the run](/api-reference/connectors/reportConnectorRun).
-
-### Write the items
-
-One request writes up to 5,000 items:
-
-```http
+```http tab="HTTP" tab-group="client"
 POST /items/bulk
-Authorization: Bearer <credential>
+Authorization: Bearer <key>
 Content-Type: application/json
 
 {
   "items": [
     {
-      "type": "readlist.entry",
-      "source_id": "demo:3",
+      "type": "tasks.task",
+      "source_id": "acct-7:4012",
       "tier": "feed",
-      "properties": { "entry_id": "3", "title": "Designing Data-Intensive Applications", "author": "Kleppmann" },
-      "occurred_at": "2026-10-02T07:15:00Z"
+      "properties": { "task_id": "4012", "title": "Renew passport", "status": "pending" },
+      "occurred_at": "2026-10-01T08:00:00Z"
     }
   ],
   "atomic": false
 }
 ```
 
-Marfa answers each entry on its own:
+```ts tab="TypeScript"
+const { data, error } = await marfa.POST("/items/bulk", {
+  body: {
+    items: [
+      {
+        type: "tasks.task",
+        source_id: "acct-7:4012",
+        tier: "feed",
+        properties: { task_id: "4012", title: "Renew passport", status: "pending" },
+        occurred_at: "2026-10-01T08:00:00Z",
+      },
+    ],
+    atomic: false,
+  },
+});
+```
+
+Marfa answers each record on its own:
 
 ```json
 {
   "counts": { "created": 1, "updated": 0, "skipped": 0, "errored": 0 },
-  "results": [{ "index": 0, "outcome": "created", "id": "01a1218c-51fb-7d2a-b2cb-816bec224509" }]
+  "results": [{ "index": 0, "outcome": "created", "id": "01a12313-fd4a-78a1-af1e-32792c3df63b" }]
 }
 ```
 
-- **The key to a row** is the entry's `source` and `source_id`, which are the connector's source and the vendor's own ID for the record. Marfa updates the row that holds the key and creates one if none does, so a repeated pull never makes a second copy. Put the vendor account inside the `source_id`, as in `demo:3`, so two accounts under one source can't share a row.
-- **`tier: "feed"`** puts the item where a person or an app promotes it from. [Items and types](/items-and-types) explains the tiers.
-- **`occurred_at`** is when the record happened at the vendor, not when you read it.
-- **`atomic: false`** writes the entries that pass when another is refused, and reports that one as `errored`, with the error. Left at its default, one refused entry rolls the whole batch back.
+An item's natural key is its `source`, which comes from the connector's key, and its `source_id`, the vendor's own ID for the record. Marfa updates the item that holds the key, or creates one if none does, so a pull that reads the same record twice never makes a second item. Put the vendor account inside the `source_id`, as in `acct-7:4012`, so that two accounts under one source can't share an item.
 
-**Write only what changed.** A write of properties equal to what the row holds still raises the row's `version` and moves its `updated_at`, and it announces an `item.updated` event on the event stream. A pull that rewrites every row on every run makes noise for everyone who follows the stream. [Look up items](/api-reference/items/lookupItems) answers up to 500 rows by `source` and `source_ids`, so compare them with what you read and send only the entries that differ.
+`tier: "feed"` puts the item in the feed, where a person or an app decides whether to keep it. `occurred_at` is when the record happened at the vendor, not when you read it. `atomic: false` writes the records that pass when one is refused, and reports that one as `errored`; by default, one refused record rolls the whole batch back.
 
-**Leave a row a person trashed.** An entry that matches a trashed item isn't written. It comes back `skipped` with the reason `trashed`. A purge leaves a tombstone of the item's natural key and link, which the lookup also answers. When the vendor sends a purged row again, write it as a new row only if the vendor changed it after the tombstone's `settled_at`.
+## Write only what changed
 
-### Set aside what the vendor deleted
+A write of the same properties an item already holds still raises its `version` and announces an `item.updated` event, so a pull that rewrites every record on every run makes noise for everyone who follows the event stream. Before you write, [look up the items](/api-reference/items/lookupItems) you already hold under the records' keys, compare them with what you read, and send only the records that differ:
 
-When the vendor no longer has a record, [change the item's state](/api-reference/items/transitionItem) to `archived`. Don't trash it: the trash is for a person to use, and an archived row keeps its history and can be made active again.
+```http tab="HTTP" tab-group="client"
+POST /items/lookup
+Authorization: Bearer <key>
+Content-Type: application/json
 
-Be sure the vendor deleted it. Only a vendor that lists everything it has lets you read a missing row as deleted. A listing that leaves some out, such as one of open items only, says nothing about a row it doesn't show, so ask the vendor for that row before you archive it.
+{ "type": "tasks.task", "source": "tasks", "source_ids": ["acct-7:4012", "acct-7:4013"] }
+```
+
+```ts tab="TypeScript"
+const { data } = await marfa.POST("/items/lookup", {
+  body: { type: "tasks.task", source: "tasks", source_ids: ["acct-7:4012", "acct-7:4013"] },
+});
+```
+
+A record that matches an item a person trashed isn't written: it comes back `skipped`, with the reason `trashed`. A purged item leaves a tombstone, which the lookup answers beside the items. If the vendor sends a purged record again, write it as a new item only if the vendor changed it after the tombstone's `settled_at`.
+
+## Set aside what the vendor deleted
+
+When the vendor no longer has a record, [change the item's state](/api-reference/items/transitionItem) to `archived`. Don't trash it: the trash is for people, and an archived item keeps its history and can be made active again if the record comes back.
+
+```http tab="HTTP" tab-group="client"
+POST /items/01a12313-fd4e-7800-ab67-c886f1b9ef58/transition
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "state": "archived" }
+```
+
+```ts tab="TypeScript"
+await marfa.POST("/items/{id}/transition", {
+  params: { path: { id: "01a12313-fd4e-7800-ab67-c886f1b9ef58" } },
+  body: { state: "archived" },
+});
+```
+
+Be sure the vendor deleted it. Only a listing of everything the vendor has lets you read a missing record as deleted. A listing that leaves some out, such as one of open tasks only, says nothing about a record it doesn't show, so ask the vendor about that record before you archive the item.
 
 ## Watch for changes made in Marfa
 
-The rows your connector writes are ordinary items. A person or an app can edit one, tag it, archive it or trash it. To learn about it, follow the event stream for your types:
+The items a connector writes are ordinary items, and people and apps edit, archive and trash them. To learn of those changes, follow [the event stream](/api-reference/event-stream/streamEvents) for your type:
 
 ```http
-GET /events?type=readlist.entry
-Authorization: Bearer <credential>
-Last-Event-ID: 7
+GET /events?type=tasks.task
+Authorization: Bearer <key>
+Last-Event-ID: 11
 ```
 
-[Stream change events](/api-reference/event-stream/streamEvents) sends a frame for each change, and a connector sees its own writes there too. `Last-Event-ID` resumes after the last event you applied, so keep that cursor in the state document. [Keep a copy in sync](/guides/keep-in-sync) covers the stream. If the stream can't replay from your cursor, because the log no longer holds the events after it, read your rows again with [List items](/api-reference/items/listItems) and take a new cursor.
+Each change arrives as an event with the item as it now stands. `Last-Event-ID` resumes after the last event you handled, so keep that cursor in the state document. [Keep a copy in sync](/guides/keep-in-sync) explains the stream, including what to do when it can't replay from an old cursor.
 
-To tell a person's change from your own write, compare the item in a frame with the item's agreement. After every write you make or carry, [write the agreement](/api-reference/connectors/writeConnectorAgreements) with the properties as the vendor and Marfa now agree them:
+Your own writes come back on the stream too. To tell a person's change from your own, keep an agreement for each item: a record of what the connector and the vendor last agreed it holds. After every write you make or carry, [write the agreement](/api-reference/connectors/writeConnectorAgreements):
 
-```http
-POST /connectors/01a1218c-0d99-7845-8fc9-379d21db8954/agreements
-Authorization: Bearer <credential>
+```http tab="HTTP" tab-group="client"
+POST /connectors/01a12313-d219-7e92-8869-1f6546b43dbc/agreements
+Authorization: Bearer <key>
 Content-Type: application/json
 
 {
-  "process": "8f14e45f-ceea-467a-9c1b-5b3e1c3e0a2d",
+  "process": "<process>",
   "set": [
     {
-      "item_id": "01a1218c-51fb-7d2a-b2cb-816bec224509",
+      "item_id": "01a12313-fd4a-78a1-af1e-32792c3df63b",
       "waiting": false,
-      "record": { "title": "Designing Data-Intensive Applications", "author": "Kleppmann" }
+      "record": { "title": "Renew passport", "status": "pending" }
     }
   ]
 }
 ```
 
-When a frame arrives, [look up](/api-reference/connectors/lookupConnectorAgreements) the item's agreement. An item that matches its `record` is the agreed one, from you or from the vendor's last read. An item that differs was changed in Marfa since. Write the agreement again with `waiting` set to `true` and the `record` unchanged, so that it keeps what was agreed and records that a change is waiting.
-
-**Record the change before you move the cursor past it.** The agreement is on the instance, and the cursor is in your state document. If the process stops between the two, the next run reads the same frame again, finds the agreement already waiting, and loses nothing. Do it the other way and a change is gone.
-
-## Carry a change back to the vendor
-
-[List the agreements](/api-reference/connectors/listConnectorAgreements) with `waiting=true`. For each one, read the item, send the vendor what changed, and, once the vendor has taken it, write the agreement with `waiting` set to `false` and a `record` of what both sides now hold:
-
-```http
-GET /connectors/01a1218c-0d99-7845-8fc9-379d21db8954/agreements?waiting=true
-Authorization: Bearer <credential>
+```ts tab="TypeScript"
+await marfa.POST("/connectors/{id}/agreements", {
+  params: { path: { id: connectorId } },
+  body: {
+    process: processName,
+    set: [
+      {
+        item_id: "01a12313-fd4a-78a1-af1e-32792c3df63b",
+        waiting: false,
+        record: { title: "Renew passport", status: "pending" },
+      },
+    ],
+  },
+});
 ```
 
-A vendor that refuses the change, or doesn't answer, leaves the agreement waiting. Report why in the run's `error` or `summary`, and the next run tries again. Don't clear a waiting agreement to move on, or the change is forgotten.
+When an event arrives, [look up the item's agreement](/api-reference/connectors/lookupConnectorAgreements). If the item matches its `record`, the change is one you already agreed, such as your own write. If it differs, someone changed it in Marfa. Write the agreement again with `waiting` set to `true` and the `record` unchanged: it still says what was agreed, and now also says a change is waiting to go to the vendor.
 
-**Give your type a `link_field`.** It names the property that holds the vendor's own ID for a row, and it is how the connector knows a row has reached the vendor. Marfa keeps the value unique within the type and refuses a second row with the same one as `409 link_taken`. [Define a type](/guides/define-a-type) shows how to register one. A row of your type with no value there is a change that is still to be created at the vendor:
+**Record the change before you move the cursor past its event.** If the process stops between the two, the next run reads the same event again and finds the agreement already waiting, so nothing is lost. The other way round, a stop loses the change.
 
-1. Send the create to the vendor with a key that doesn't change between attempts, such as the item's `id`, as the vendor's idempotency key.
-2. [Update the item](/api-reference/items/updateItem) to set the link field to the vendor's ID, sending the `version` you read.
-3. Write the agreement.
+## Carry a change back
 
-Set the link straight after the create. A run that stops after step 1 sends the same create again, and a vendor that takes an idempotency key answers it with what the first made, so nothing is created twice. [Write safely](/guides/write-safely) covers the version.
+[List the agreements](/api-reference/connectors/listConnectorAgreements) that are waiting:
 
-When you carry a purge to a vendor that can't delete the record, your change there, such as closing an issue, counts as a change at the vendor. Call [Move tombstones' settled time](/api-reference/items/settleTombstones) afterward, naming the type, the keys and the time of that change, so it doesn't bring the row back as a new one on your next pull.
+```http tab="HTTP" tab-group="client"
+GET /connectors/01a12313-d219-7e92-8869-1f6546b43dbc/agreements?waiting=true
+Authorization: Bearer <key>
+```
 
-### Settle a conflict
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/connectors/{id}/agreements", {
+  params: { path: { id: connectorId }, query: { waiting: "true" } },
+});
+```
 
-If a person changed a field in Marfa and the vendor changed the same field since the last agreement, one side has to win. Marfa doesn't decide. Choose a rule and apply it every time. The kit decides by time: the later change wins, and a tie goes to the change made in Marfa. It compares the vendor's `changed_at` for the entry with when the edit in Marfa was first seen.
+```json
+{
+  "data": [
+    {
+      "item_id": "01a12313-fd4a-78a1-af1e-32792c3df63b",
+      "waiting": true,
+      "record": { "title": "Renew passport", "status": "pending" },
+      "updated_at": "2026-10-09T23:51:35.911Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+For each one, read the item, send the vendor what changed, and once the vendor has taken it, write the agreement with `waiting` set to `false` and a `record` of what both sides now hold. If the vendor refuses the change or doesn't answer, leave the agreement waiting, say why in the run's report, and try again on the next run. Never clear a waiting agreement to move on: the change would be forgotten.
+
+### Send a new item to the vendor
+
+A person can also make an item of your type in Marfa, and a two-way connector creates it at the vendor. The type's `link_field` is how the connector tells which items the vendor has: it names the property that holds the vendor's own ID for the record. An item with no value there is one the vendor hasn't been told about. Marfa keeps the value unique within the type, and refuses a second item with the same one as `409 link_taken`.
+
+1. Create the record at the vendor, sending the item's `id` as the vendor's idempotency key if it takes one, so that a retry can't create it twice.
+2. [Update the item](/api-reference/items/updateItem) to set the link to the vendor's ID, sending the `version` you read.
+3. Write the item's agreement.
+
+```http tab="HTTP" tab-group="client"
+PATCH /items/01a12314-5e6a-7687-b04c-d62fa7beeccb
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "version": 1, "properties": { "task_id": "4020" } }
+```
+
+```ts tab="TypeScript"
+await marfa.PATCH("/items/{id}", {
+  params: { path: { id: "01a12314-5e6a-7687-b04c-d62fa7beeccb" } },
+  body: { version: 1, properties: { task_id: "4020" } },
+});
+```
+
+Set the link straight after the vendor answers. A run that stops between the two sends the same create again, and a vendor that takes an idempotency key answers it with the record it already made. [Register a type](/api-reference/types/registerType) describes `link_field`.
+
+When you carry a purge to a vendor that can't delete the record, your change there, such as closing the task, is a change at the vendor that a later pull would read. Afterward, [move the tombstone's settled time](/api-reference/items/settleTombstones) to the time of that change, so the next pull doesn't bring the record back as a new item.
+
+## Settle a conflict
+
+Sometimes a person changes a field in Marfa while the vendor changes the same field. The agreement shows it: the item differs from the `record`, and so does what the vendor now holds. One side has to win, and Marfa doesn't decide which. Choose a rule and apply it every time.
+
+The kit decides by time. The later change wins, comparing when the vendor says it changed the record with when the change in Marfa was first seen, and a tie goes to the change made in Marfa. A field that changed on only one side is no conflict: it takes that side's value.
 
 The rules behind this page are in the [connectors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md) and [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) chapters of the contract.

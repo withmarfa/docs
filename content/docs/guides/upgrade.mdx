@@ -1,42 +1,79 @@
 ---
 title: Upgrade
-description: Move an instance to a new build before Marfa's first release, by exporting your data and restoring it into a fresh database.
+description: Move an instance to a new build of Marfa by exporting your data, starting the new build on empty storage, and restoring the archive.
 ---
 
-Marfa is before its first release, and nothing upgrades a database in place. A build refuses to start on a database whose schema differs from its own. To move to a new build, export your data with the build that holds it, start the new build on an empty database, and restore the archive.
+Before Marfa's first release, nothing upgrades a database in place. A new build may lay out its database differently, and it refuses to start on a database another build wrote rather than risk changing it. So you move to a new build the way you move to a new machine: export your data with the build that holds it, start the new build on empty storage, and restore the archive there. This guide takes you through that, and through what to do if the new build can't read your archive.
 
-## What a new build does to your database
+## What a new build does with your database
 
-The server checks the database before it changes anything. It refuses to start when:
+When the server starts, it checks the database before it changes anything. If a table, an index or a trigger differs from the build's own, or the database holds something the build retired, it refuses: it leaves the file as it found it, opens no port, and exits with status `78`. The error in its log names what it found and the file's path, and says what to do:
 
-- a table, index or trigger differs from the build's own definition;
-- a table is missing while another of the build's tables holds a row;
-- the database holds a registry table or setting the build retired, such as `custom_types`, `custom_edge_types` or `space_config`.
+```text
+RefusedDatabaseError: The type registry in /srv/marfa/data/marfa.db is still held in custom_types, which this build does not read. Nothing is upgraded in place. To carry what this file holds into this build, export it with the build that wrote it (`GET /export?format=archive`), start this build on a fresh file, and restore the archive there (`POST /restore`). Until the first public release an archive is read only by the build that wrote it, so that restore can refuse it; the file stays readable by the build that wrote it either way.
+```
 
-A refusal leaves the database file as it found it, opens no port, and exits with status `78`. The log names what the server found and the path of the file, and says that the way forward is to export with the build that wrote the file, start on a fresh file, and restore the archive there. It also says that the restore can refuse.
-
-You cannot tell from a build's version whether its database differs. Treat every new build as one that might refuse. The build that wrote the file can still read it, so starting that build again brings the instance back.
-
-In the container recipe, a refused database does not stop the container. It stays up and unhealthy with the reason in its log, so a restart policy cannot loop on it. See [Deploy](/guides/deploy#keep-it-running).
+A build's version doesn't tell you whether its database differs, so treat every new build as one that might refuse. Starting the old build again on the same file brings the instance back. In the container, a refused database doesn't stop the container: it stays up and unhealthy with the reason in its log, so a restart policy can't loop on it.
 
 ## Move to a new build
 
-Keep the old build running, and its data, until the last step.
+Keep the old build, and its data, until the last step.
 
-1. **Export with the running build.** Follow [Export an archive](/guides/back-up-and-restore#export-an-archive). Stop your clients first if the archive must hold every write, and check that the file unpacks.
-2. **Start the new build on empty storage.** Give it a new database file and an empty blob folder. In a container, that is a new volume. If you use a bucket, give the new instance a new bucket: on an empty volume the container restores the last replica from its bucket, and that replica is the old build's database, which the new build refuses.
-3. **Claim the new instance.** Follow [Run an instance](/run-an-instance). The new instance has its own `instance_id`.
-4. **Restore the archive.** [Restore it](/guides/back-up-and-restore#restore-an-archive) as the owner, either in the browser or through the private socket:
+<Steps>
+<Step>
 
-   ```bash
-   marfa --socket /data/control/marfa.sock restore marfa-archive.tar.gz
-   ```
+### Export with the running build
 
-5. **Recreate what an archive does not hold.** Mint keys, register webhooks, and set the configuration again, because an archive carries none of them. [Settings](/guides/settings) covers configuration.
-6. **Check, then retire the old build.** Read `version` from [Describe the instance](/api-reference/instance/getInstance) to confirm which build answers. Remove the old build and its data only when the restored instance holds what you expect.
+Follow [Export an archive](/guides/back-up-and-restore#export-an-archive). Stop your apps first, so the archive holds every write, and check that the file unpacks.
 
-Before the first release, only the build that wrote an archive is sure to read it. If the new build refuses the archive, it can't read this one. A refused restore writes nothing, so the new instance is unchanged, and the old build still holds your data. Keep running the old build until a build can read the archive.
+</Step>
+<Step>
 
-On Railway, template updates are opt-in and a rollback changes the deployment, not the database. The [Railway guide](https://github.com/withmarfa/marfa/blob/main/deploy/railway.md#update-the-server) applies the same procedure.
+### Start the new build on empty storage
 
-The rules behind this page are in the [upgrading section of the instance chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#upgrading) and the [restore section of the search and filters chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#restore) of the contract.
+Give the new build a new database file and an empty blob folder. In a container, that's a new volume. If you use a bucket, give the new instance a new bucket too: on an empty volume, the container restores the database from its bucket, and that is the old build's database, which the new build refuses.
+
+</Step>
+<Step>
+
+### Claim the new instance
+
+Claim it as you did the first, with `marfa --socket <path> setup open`. The new instance has an `instance_id` of its own.
+
+</Step>
+<Step>
+
+### Restore the archive
+
+Restore it as the owner, through the private socket of the new instance:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock restore marfa-archive.tar.gz
+```
+
+[Restore an archive](/guides/back-up-and-restore#restore-an-archive) explains the answer.
+
+</Step>
+<Step>
+
+### Recreate what an archive doesn't hold
+
+Make your keys again, register your webhooks again, and set the configuration again: an archive carries none of them. [Manage keys](/guides/manage-keys) and [Settings](/guides/settings) cover them.
+
+</Step>
+<Step>
+
+### Check, then retire the old build
+
+`GET /` answers the build that's running, as `version`. Remove the old build and its data only when the new instance holds what you expect.
+
+</Step>
+</Steps>
+
+## If the new build refuses the archive
+
+Before the first release, only the build that wrote an archive is sure to read it. If the new build refuses yours, it can't read it. A refused restore writes nothing, so the new instance is unchanged and the old build still holds your data: keep running the old build until a build can read the archive.
+
+On Railway, template updates are opt-in, and a rollback changes the deployment, not the database. The [Railway guide](https://github.com/withmarfa/marfa/blob/main/deploy/railway.md#update-the-server) applies the same steps.
+
+The rules behind this page are in the [upgrading](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#upgrading) section of the instance chapter and the [restore](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#restore) section of the search and filters chapter of the contract.

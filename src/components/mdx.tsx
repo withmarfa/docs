@@ -5,15 +5,6 @@ import { Step, Steps } from 'fumadocs-ui/components/steps';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import { TypeTable } from 'fumadocs-ui/components/type-table';
 import type { MDXComponents } from 'mdx/types';
-import { AccessTree } from './diagrams/access-tree';
-import { ApiMap } from './diagrams/api-map';
-import { ChangeFlow } from './diagrams/change-flow';
-import { ConnectorMap } from './diagrams/connector-map';
-import { DeviceMap } from './diagrams/device-map';
-import { FileMap } from './diagrams/file-map';
-import { InstanceMap } from './diagrams/instance-map';
-import { ItemLayers } from './diagrams/item-layers';
-import { TypeTree } from './diagrams/type-tree';
 import { ReferenceList } from './reference-list';
 import { visualComponents } from './visuals';
 
@@ -22,24 +13,15 @@ export function getMDXComponents(components?: MDXComponents) {
     ...defaultMdxComponents,
     Accordion,
     Accordions,
-    AccessTree,
-    ApiMap,
-    ChangeFlow,
-    ConnectorMap,
-    DeviceMap,
     File,
-    FileMap,
     Files,
     Folder,
-    InstanceMap,
-    ItemLayers,
     ReferenceList,
     Step,
     Steps,
     Tab,
     Tabs,
     TypeTable,
-    TypeTree,
     ...visualComponents,
     ...components,
   } satisfies MDXComponents;

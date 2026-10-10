@@ -1,40 +1,38 @@
 ---
 title: TypeScript client
-description: The typed client for the Marfa API, published to npm as @withmarfa/client.
+description: Call your instance from TypeScript or JavaScript with a client that knows every operation, its parameters and its answers.
 ---
 
-The TypeScript client is generated from Marfa's API description. Every path, parameter, request body and response is typed from it, so a path the API doesn't have, or a required parameter you leave out, doesn't compile. The server still checks ranges and formats that the API description states only in prose.
+The TypeScript client is a thin, typed layer over the API, for a script, a server or a web app. It's generated from Marfa's API description, so every path, parameter, request body and answer has a type: a path the API doesn't have, or a required parameter you leave out, doesn't compile. This page shows how to make a client, read and write items, walk a long list, upload a file and handle a refusal.
 
-The client is built on [openapi-fetch](https://openapi-ts.dev/openapi-fetch/). Each call returns `data` for a success, `error` for a refusal, and the `response` itself.
+The client sends requests and returns answers, and keeps nothing between them. An app that should keep working offline needs a [device](/devices), such as one built on the [Swift package](/swift-package).
 
 ## Install the client
 
-```sh
+The client is published to npm as `@withmarfa/client`, an ES module:
+
+```bash
 npm install @withmarfa/client
 ```
 
-The package is an ES module.
-
 ## Create a client
 
-Pass the URL your instance is served at, and a credential: a key or an access token. To get a credential, see [Keys and permissions](/access).
+Pass the URL your instance is served at, and a credential: a key, or an app's access token. [Manage keys](/guides/manage-keys) shows how to make a key, and [Authenticate](/guides/authenticate) how an app gets a token.
 
-```ts
+```ts title="client.ts"
 import { createClient } from "@withmarfa/client";
 
-const marfa = createClient({
-  baseUrl: "https://marfa.example.com",
+export const marfa = createClient({
+  baseUrl: process.env.MARFA_API_URL ?? "",
   credential: process.env.MARFA_API_KEY ?? "",
 });
 ```
 
-`baseUrl` is an `http` or `https` URL. It can include a path prefix, but not a query or a fragment. The client sends the credential as a bearer token, only to URLs under `baseUrl`, and it never follows a redirect. `createClient` throws a `TypeError` for an empty credential or one that a bearer token can't hold, and the message never repeats the credential.
-
-To send requests through another `fetch`, pass it as `fetch`.
+`baseUrl` is an `http` or `https` URL, and can include a path if the instance is served under one. The client sends the credential only to URLs under `baseUrl`, and never follows a redirect, so the credential can't leak to another server. `createClient` throws a `TypeError` for an empty credential, or a `baseUrl` it can't use.
 
 ## Write and read an item
 
-Name the operation by its method and path, as the [API reference](/api-reference) lists it. This call creates a note:
+Name an operation by its method and path, as the [API reference](/api-reference) lists it. Each call returns `data` when the server answers with success, `error` when it refuses, and the `response` itself. This creates a note and reads it back:
 
 ```ts
 const { data: created, error } = await marfa.POST("/items", {
@@ -44,21 +42,22 @@ const { data: created, error } = await marfa.POST("/items", {
   },
 });
 if (error) throw new Error(error.error.message);
-```
 
-This call reads the note back by its ID:
-
-```ts
 const { data: detail } = await marfa.GET("/items/{id}", {
   params: { path: { id: created.item.id } },
 });
+console.log(detail?.item.properties);
 ```
 
-For the request and response shapes, see [Create an item](/api-reference/items/createItem) and [Get an item](/api-reference/items/getItem).
+```text
+{ body: 'Start with the essays.', title: 'Reading list' }
+```
+
+Once you've checked `error`, TypeScript knows `created` holds the new item. [Create an item](/api-reference/items/createItem) and [Get an item](/api-reference/items/getItem) show the whole of each request and answer.
 
 ## Walk every page of a list
 
-Every list and search returns one page at a time, as `{ data, next_cursor }`. `pages` takes a function that fetches one page for a cursor, and returns every row, page by page:
+A list or a search answers one page at a time, as `{ data, next_cursor }`. `pages` takes a function that fetches the page for a cursor, and gives you every row, fetching each page as you reach it:
 
 ```ts
 import { pages } from "@withmarfa/client";
@@ -71,33 +70,50 @@ const notes = pages(async (cursor) => {
   return data;
 });
 
-for await (const row of notes) {
-  console.log(row);
+for await (const note of notes) {
+  if ("id" in note) console.log(note.id, note.properties.title);
 }
 ```
 
-`pages` follows `next_cursor` until it's `null`. A page can be short or empty and still have more after it, so the walk never stops early. If the server returns a cursor that the walk already followed, `pages` throws instead of looping.
+```text
+01a12320-ab61-75d2-b04a-aa049ec647a9 Essays
+01a12320-ab51-74c3-9894-f0c11ae03a4b Letters
+01a12320-8b5e-7282-acd7-6d2673e2f8e2 Reading list
+```
 
-## Upload bytes
+A listing's rows are items, or, when you ask for `include=metadata`, each item with its metadata, so the `"id" in note` check tells TypeScript which it has. `pages` follows `next_cursor` until it's `null`. A page can be short, or even empty, and still have more after it, so don't stop a walk early on your own.
 
-`POST /blobs` takes the bytes of a file. Pass them as a `Blob`, an `ArrayBuffer`, a typed array such as a `Buffer`, or a `ReadableStream`. The client sends them as they are, not as JSON.
+## Upload a file
+
+[Upload a blob](/api-reference/blobs/uploadBlob) takes a file's bytes, not JSON. Pass them as a `Blob`, an `ArrayBuffer`, a typed array such as a Node `Buffer`, or a `ReadableStream`, and the client sends them as they are:
 
 ```ts
 import { readFile } from "node:fs/promises";
 
-const { data: blob } = await marfa.POST("/blobs", {
+const { data: blob, error } = await marfa.POST("/blobs", {
   body: await readFile("photo.png"),
   headers: { "Content-Type": "image/png" },
 });
+if (error) throw new Error(error.error.message);
+console.log(blob);
 ```
 
-The `Content-Type` is the one you name. Without one, the client uses a `Blob`'s own type, and then `application/octet-stream`. For the response, see [Upload a blob](/api-reference/blobs/uploadBlob).
+```text
+{
+  hash: 'sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640',
+  mime_type: 'image/png',
+  size_bytes: 69
+}
+```
+
+Name the file's type in `Content-Type`, because the instance keeps the blob under it. If you don't, the client sends a `Blob`'s own type, or `application/octet-stream`. To attach the blob to an item, see [Handle files](/guides/handle-files).
 
 ## Handle errors
 
-When the server refuses a request, `error` holds the server's error envelope, `{ error: { code, message } }`, with `details` where the refusal has them. Use `code` in your logic, because `message` can change. `response` holds the status and the headers, such as `Retry-After`.
+When the server refuses a request, `error` holds its error envelope, `{ error: { code, message } }`, with `details` where the refusal has them. Write your logic against `code`, because the wording of `message` can change. `response` has the status and the headers, such as `Retry-After`:
 
 ```ts
+const id = "01a12192-a000-76e3-b129-b55027e21dcb";
 const { error, response } = await marfa.GET("/items/{id}", {
   params: { path: { id } },
 });
@@ -106,20 +122,35 @@ if (error) {
 }
 ```
 
-Each code, and what to do about it, is on [Errors](/api-reference/errors).
+```text
+404 item_not_found
+```
 
-A call throws instead of returning `error` when no answer can be read: the network fails, the URL is outside `baseUrl`, the server answers with a redirect, or the contract check fails.
+[Errors](/api-reference/errors) lists every code and what to do about it.
+
+A call throws instead of returning `error` when there's no answer to read: the network failed, the URL is outside `baseUrl`, the server answered with a redirect, or the answer failed the contract check.
 
 ## The contract check
 
-The client carries the contract version it was generated for as `CONTRACT_VERSION`, and the server sends its own on every response in the `X-Marfa-Contract` header. A response that names another contract, or a success that names none, throws `ContractMismatchError` and isn't read. An error response with no header, such as one from a proxy in front of the server, is returned as it came.
+The client was generated for one version of Marfa's contract, which it carries as `CONTRACT_VERSION`. The server names its own version on every answer, in the `X-Marfa-Contract` header. If an answer names another version, or a success names none, the client throws `ContractMismatchError` instead of reading a body it may not understand:
+
+```ts
+import { ContractMismatchError } from "@withmarfa/client";
+
+try {
+  await marfa.GET("/items", { params: { query: { type: "core.note" } } });
+} catch (thrown) {
+  if (thrown instanceof ContractMismatchError) console.log(thrown.message);
+  else throw thrown;
+}
+```
+
+```text
+The server answered with contract "1"; this client was generated for contract 0. Use a client generated for the server's contract.
+```
+
+The fix is a client generated for the server's contract: update `@withmarfa/client` to the release that matches your instance. An error answer with no header, such as one from a proxy in front of the server, comes back as `error` like any other.
 
 ## What the client doesn't do
 
-The client sends what the API description declares and returns what the server answered. It doesn't do the following:
-
-- Retry a request, even one refused with `Retry-After`.
-- Poll a bulk job.
-- Read the event stream.
-- Verify a webhook's signature.
-- Resolve a version conflict.
+The client sends what the API description declares and returns what the server answered, nothing more. It doesn't retry a request, even one refused with `Retry-After`, poll a bulk job, read the event stream, verify a webhook's signature or resolve a version conflict. [Write safely](/guides/write-safely), [Keep in sync](/guides/keep-in-sync) and [Receive webhooks](/guides/receive-webhooks) show how to do each of those with the API.

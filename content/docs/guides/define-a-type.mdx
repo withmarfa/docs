@@ -1,46 +1,68 @@
 ---
 title: Define a type
-description: Register a type for your own items, check what Marfa stored, and change or delete it later.
+description: Register a type for items no shipped type fits, then change it as your app grows, or delete it.
 ---
 
-A type declares the properties its items hold. [Items and types](/items-and-types) explains what a type is, how identifiers and namespaces work, and when to inherit from another type rather than name it in `compatible_with`. This guide registers a type for receipt photos, `app.example.receipt`, as a child of `core.file.image`.
+When none of the types Marfa ships fits what your app keeps, you register a type of your own, and Marfa checks every item of it against the properties you declare. This guide registers a type for receipt photos, `app.example.receipt`, built on the shipped `core.file.image`, then changes it and deletes it. [Items and types](/items-and-types) explains what a type is and when to build on another. The TypeScript examples use a client made as [the TypeScript client](/typescript-client) shows.
 
-## Choose an identifier
+<Steps>
+<Step>
 
-Pick the namespace for who the type is for: `user.<type>` for your own, `app.<app-name>.<type>` for an app's own, or `<publisher>.<type>` for types others will use. You can't register a type under `core`, `system` or `marfa`.
+### Choose an identifier
 
-These conventions aren't enforced, but they match the types Marfa ships:
+The identifier's namespace says who the type is for. Use `app.<app name>.<type>` for your app's own types, `user.<type>` for types you keep for yourself, and a name of your own, such as `acme.deal`, for types you publish for others. You can't register a type under `core`, `system` or `marfa`.
 
-- Name the type with a singular noun: `user.recipe`, not `user.recipes`.
-- Use `snake_case` for words within a segment and for property names, as in `blob_ref` and `mime_type`.
-- Keep the time the thing happened in the item's own `occurred_at`, not in a property, as `core.highlight` does.
+Name a type with a singular noun, `user.recipe` and not `user.recipes`, and write words within a segment and in property names in `snake_case`, as the shipped types do with `blob_ref` and `mime_type`.
 
-## Declare the properties
+</Step>
+<Step>
+
+### Declare the properties
 
 `fields` holds one entry for each property, by name. Each entry needs a `type`, and can refine it:
 
-| Attribute | What it does |
-| --- | --- |
-| `type` | `string`, `number`, `integer`, `boolean`, `url`, `email`, `datetime`, `date`, `enum`, `array`, `object` or `thumbnail`. |
-| `required` | `true` if every item of the type has to hold the property. |
-| `description` | What the property holds. |
-| `enum_values` | The values an `enum` allows. An `enum` needs it. |
-| `items_type` | The type of each element of an `array`. An `array` needs it. |
-| `format` | A refinement of a `string`, such as `url` or `bcp47`. |
-| `maxLength` | The longest value a `string` or `enum` allows. A string without one holds at most 100,000 UTF-16 code units. |
-| `maxItems` | The most elements an `array` allows. |
-| `searchable` | `false` keeps the property out of full-text search. |
+<TypeTable
+  type={{
+    type: { type: 'string', description: 'One of string, number, integer, boolean, url, email, datetime, date, enum, array, object or thumbnail.' },
+    required: { type: 'boolean', description: 'Whether every item of the type must hold the property.', default: 'false' },
+    description: { type: 'string', description: 'What the property holds.' },
+    enum_values: { type: 'string[]', description: 'The values an enum allows. An enum needs it.' },
+    items_type: { type: 'string', description: 'The type of each element of an array. An array needs it.' },
+    maxLength: { type: 'integer', description: 'The longest value a string or enum allows.' },
+    searchable: { type: 'boolean', description: 'Set to false to keep the property out of search.', default: 'true' },
+  }}
+/>
 
-[Register a type](/api-reference/types/registerType) has the full shape, including `display_hints`, `merge_policy`, `version_policy` and `link_field`.
+A property can't share a name with a field every item has, such as `source` or `version`: Marfa refuses it with `400 property_shadows_field`. Keep the time the thing happened in the item's own `occurred_at` rather than a property. [Register a type](/api-reference/types/registerType) lists everything a type can declare, such as its label, display hints, merge policy and version policy.
 
-A property can't share a name with a field every item has. Marfa refuses these names with `400 property_shadows_field`: `id`, `type`, `state`, `tier`, `properties`, `created_at`, `updated_at`, `occurred_at`, `source`, `source_id`, `version`, `schema_version`, `capture_latitude`, `capture_longitude`, `trashed_by_cascade` and `trashed_with`.
+</Step>
+<Step>
 
-## Register the type
+### Register the type
 
-Send the type to `POST /types`:
+Put the definition in a file. This one makes receipts a child of `core.file.image`, so each receipt is an image with a merchant and a total:
 
-```http
+```json title="receipt.json"
+{
+  "id": "app.example.receipt",
+  "parent": "core.file.image",
+  "fields": {
+    "merchant": { "type": "string", "required": true, "description": "Where the purchase was made" },
+    "total": { "type": "number" },
+    "currency": { "type": "string", "maxLength": 3 }
+  }
+}
+```
+
+Then register it:
+
+```bash tab="CLI" tab-group="client"
+marfa types register --file receipt.json
+```
+
+```http tab="HTTP"
 POST /types
+Authorization: Bearer <key>
 Content-Type: application/json
 
 {
@@ -54,26 +76,109 @@ Content-Type: application/json
 }
 ```
 
-Marfa answers `201` with the type as it stored it. Because the request names no `label`, the label is `Receipt`, made from the identifier's last segment. Because it names no `version`, the version is 0. The version is yours to keep: Marfa stores the number each write names and never changes it.
+```ts tab="TypeScript"
+const { data, error } = await marfa.POST("/types", {
+  body: {
+    id: "app.example.receipt",
+    parent: "core.file.image",
+    fields: {
+      merchant: { type: "string", required: true, description: "Where the purchase was made" },
+      total: { type: "number" },
+      currency: { type: "string", maxLength: 3 },
+    },
+  },
+});
+```
 
-An identifier under `core`, `system` or `marfa` answers `403 forbidden`. If the identifier is already registered, Marfa answers `409 type_already_exists`. A parent that isn't registered, or a chain of more than ten ancestors, answers `400 validation_error`.
+Marfa answers `201` with the type as it stored it. It made the label `Receipt` from the identifier, and set the type's `version` to 0. That version is yours to keep: Marfa stores the number you send and never changes it.
 
-## Check the type
+```json
+{
+  "type": {
+    "id": "app.example.receipt",
+    "label": "Receipt",
+    "version": 0,
+    "fields": {
+      "merchant": { "type": "string", "description": "Where the purchase was made", "required": true },
+      "total": { "type": "number" },
+      "currency": { "type": "string", "maxLength": 3 }
+    },
+    "parent": "core.file.image"
+  }
+}
+```
+
+An identifier someone already registered answers `409 type_already_exists`.
+
+</Step>
+<Step>
+
+### Check what Marfa stored
 
 Read the type back:
 
-```http
-GET /types/app.example.receipt
+```bash tab="CLI" tab-group="client"
+marfa types get app.example.receipt
 ```
 
-The answer holds the type's own properties and every property it inherits, so `blob_ref` and `mime_type` from `core.file` and `width` and `height` from `core.file.image` sit beside `merchant`. An item of the type has to hold every required property along the chain: `blob_ref`, `mime_type` and `merchant`.
+```http tab="HTTP"
+GET /types/app.example.receipt
+Authorization: Bearer <key>
+```
+
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/types/{id}", {
+  params: { path: { id: "app.example.receipt" } },
+});
+```
+
+The answer holds every property a receipt has: its own, and those it inherits from `core.file` and `core.file.image`, such as `blob_ref`, `mime_type`, `width` and `height`. An item of the type must hold every required property along the chain, so a receipt needs a `blob_ref`, a `mime_type` and a `merchant`. One without a `merchant` is refused with `400 invalid_properties`, naming it.
+
+</Step>
+</Steps>
+
+## Make it readable as another type
+
+A child takes every property of its parent. When your type should instead be readable as another type without taking its properties, name that type in `compatible_with`. A connector's type does this, for example, so that a person can keep one of its feed items as a library item of a core type. A recipe can be read as a note if it requires a `body`, as a note does:
+
+```json title="recipe.json"
+{
+  "id": "user.recipe",
+  "compatible_with": ["core.note"],
+  "fields": {
+    "title": { "type": "string" },
+    "body": { "type": "string", "required": true },
+    "servings": { "type": "integer" }
+  }
+}
+```
+
+Marfa checks the claim when you register or replace the type. Your type must require every property the other type requires, and each property the two share must be readable as the other's: the same type, or a narrower one, such as a `url` where the other has a `string` ([`types/compatible-with`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typescompatible-with) has the full rule). A claim that doesn't hold is refused with `422 compatible_with_violation`, naming the property and what it should be. A compatible type inherits nothing, and a listing of `core.note` leaves recipes out.
 
 ## Change the type
 
-`PUT /types/{id}` replaces the whole type, so send everything you want to keep. This request adds an optional `category` and raises the version to 1:
+`PUT /types/{id}` replaces the whole definition, so send everything you want to keep. This adds an optional `category` and sets the type's `version` to 1:
 
-```http
+```json title="receipt.json"
+{
+  "parent": "core.file.image",
+  "version": 1,
+  "fields": {
+    "merchant": { "type": "string", "required": true, "description": "Where the purchase was made" },
+    "total": { "type": "number" },
+    "currency": { "type": "string", "maxLength": 3 },
+    "category": { "type": "enum", "enum_values": ["travel", "meals", "supplies"] }
+  }
+}
+```
+
+```bash tab="CLI" tab-group="client"
+marfa types replace app.example.receipt --file receipt.json
+```
+
+```http tab="HTTP"
 PUT /types/app.example.receipt
+Authorization: Bearer <key>
 Content-Type: application/json
 
 {
@@ -88,34 +193,69 @@ Content-Type: application/json
 }
 ```
 
-What a replacement does to the items you already have:
+```ts tab="TypeScript"
+await marfa.PUT("/types/{id}", {
+  params: { path: { id: "app.example.receipt" } },
+  body: {
+    parent: "core.file.image",
+    version: 1,
+    fields: {
+      merchant: { type: "string", required: true, description: "Where the purchase was made" },
+      total: { type: "number" },
+      currency: { type: "string", maxLength: 3 },
+      category: { type: "enum", enum_values: ["travel", "meals", "supplies"] },
+    },
+  },
+});
+```
 
-- **A property you add** leaves stored items as they are. An item meets a new required property at its next write of properties.
-- **A property you leave out** is removed from the type, but items keep their values for it, and a later write isn't refused for them.
-- **A `version` you leave out** goes back to 0, so name the version on every replacement.
+A replacement changes no item you already hold. An item meets a property you made required the next time its properties are written. A property you leave out is gone from the type, but items keep their values for it, and a later write isn't refused for them. **Name the `version` on every replacement:** one that leaves it out sets it back to 0.
 
 ## Delete the type
 
-`DELETE /types/{id}` removes a type that no item holds and no other type names as its `parent`. Marfa refuses the rest:
+`DELETE /types/{id}` removes a type that no item holds and no other type names as its parent:
 
-| Answer | When |
-| --- | --- |
-| `409 type_has_subtypes` | Another type names this one as its `parent`, with `force=true` or without. `details.subtype_ids` names each one. |
-| `409 type_in_use` | An item of the type exists, in any state, the trash included. |
+```bash tab="CLI" tab-group="client"
+marfa types delete app.example.receipt
+```
 
-`DELETE /types/{id}?force=true` deletes a type that items still hold, and keeps the items. Until the type is registered again, Marfa refuses a write that sets such an item's properties, tier, time or natural key with `unknown_type`. Its tags, extensions and state can still change.
+```http tab="HTTP"
+DELETE /types/app.example.receipt
+Authorization: Bearer <key>
+```
 
-## What each action needs
+```ts tab="TypeScript"
+await marfa.DELETE("/types/{id}", {
+  params: { path: { id: "app.example.receipt" } },
+});
+```
 
-Every action needs a credential whose type map grants write on the type's identifier. Each also needs one more grant: `types` at `write` in its metadata map, written `metadata.types:write` below, or the `schema.write` permission.
+Marfa refuses to delete a type that another type names as its parent, with `409 type_has_subtypes`, and one that items still hold, in any state and the bin included, with `409 type_in_use`.
 
-| Action | Also needs |
-| --- | --- |
-| Register a type | `metadata.types:write`. Naming a `parent` that Marfa doesn't ship also takes write on the parent. |
-| Add optional properties that no item holds a value under, or change the label, the description, a property's description, the display hints or the version | `metadata.types:write` or `schema.write`. |
-| Any other replacement, such as removing a property, making one required or changing the `parent` | `schema.write`. |
-| Delete a type | `schema.write`. |
+<Callout type="warn">
+`force=true` (the CLI's `--force`) deletes a type that items still hold. The items stay, but until the type is registered again, Marfa refuses any write to their properties, tier or time, so they can't be edited. You can still tag, archive or trash them.
+</Callout>
 
-When a replacement needs `schema.write` and the credential doesn't hold it, Marfa answers `403 forbidden` with `details.required_scope` set to `schema.write` and `details.changes` listing each part of the replacement that needs it. Split those parts off, or send the replacement with a credential that holds `schema.write`. [Keys and permissions](/access) explains how maps and permissions are given to a key.
+## What your key needs
 
-The rules behind this guide are in the [types chapter of the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md).
+Registering, replacing and deleting a type each need a key whose type map grants write on the type's identifier. Each also needs a grant or a permission of its own:
+
+- Registering needs `types` at `write` in the key's metadata map, written `metadata.types:write`. Naming a parent that Marfa doesn't ship also needs write on the parent.
+- Replacing needs `metadata.types:write` when it only adds optional properties no item holds a value under, or changes the label, a description, the display hints or the version. Any other change, such as removing a property or making one required, needs the `schema.write` permission.
+- Deleting needs `schema.write`.
+
+When a replacement needs `schema.write` and the key doesn't hold it, Marfa answers `403 forbidden`, and `details.changes` lists each part of the replacement that needs it:
+
+```json
+{
+  "error": {
+    "code": "forbidden",
+    "message": "Changing fields.currency, fields.total requires schema.write. …",
+    "details": { "required_scope": "schema.write", "changes": ["fields.currency", "fields.total"] }
+  }
+}
+```
+
+Split those parts off, or send the replacement with a key that holds `schema.write`. [Manage keys](/guides/manage-keys) shows how to give a key its maps and permissions.
+
+The rules behind this guide are in the [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) chapter of the contract.

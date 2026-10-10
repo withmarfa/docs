@@ -1,116 +1,51 @@
 ---
-title: Devices and folders
-description: How a device keeps a working copy and a queue of writes, and how a folder keeps files and items in step.
+title: Devices
+description: How an app keeps a copy of your data on a phone or a Mac, works without a connection, and sends its changes when it can.
 ---
 
-An app built on the [Swift package](/swift-package) is a device, and so is the [CLI](/cli). A device reads from a copy of part of an instance and writes through a queue, so it works without a connection. A folder is a device whose face is a directory.
+An app on your phone shouldn't stop working on a train. A device is a client that keeps a working copy of part of an instance on the machine it runs on, reads from that copy, and puts its writes in a queue that it sends when it can reach the server. An app built on the [Swift package](/swift-package) is a device, and so is the [CLI](/cli) when it runs its `marfa device` commands. This page explains how a working copy stays current and what happens to a write made offline.
 
-## What a device keeps
+The instance is always the truth. A working copy is a copy, not a peer: two devices never reconcile with each other, only with the instance.
 
-A device keeps a working copy and a queue, and follows one instance. The instance is the truth: the copy is a copy, not a peer.
+## The working copy
 
-<DeviceMap />
+A device chooses the slice of the instance it keeps: a set of types, such as `core.note` and `core.task`, in the library, the feed or both. It fills its copy once, by reading every item in the slice. That's hydration. From then on it keeps the copy current from the instance's [event stream](/events), applying each change since its cursor. That's catching up.
 
-- **Instance.** A device reads its items with [List items](/api-reference/items/listItems) to hydrate, follows [Stream change events](/api-reference/event-stream/streamEvents) to catch up, and sends each queued write to the operation that makes it, such as [Update an item](/api-reference/items/updateItem).
-- **Working copy.** A local replica of a **slice** of the instance: the types it names and the types under them, a tier (`library`, `feed`, or `all` for both), and any edge types the device holds whole. Listings, searches and reads of items answer from the copy. A **pin** holds one item by ID whatever the slice says of it.
-- **Queue.** Every write the device makes shows in the copy at once and waits in the queue until the instance answers it. The queue outlives the process that made it.
-- **Directory.** A folder's files, on a Mac. [Folders](#folders) covers it.
+Reads of items, edges and types come from the copy, with no connection needed. A file's bytes are there once the device has fetched them.
 
-## How the copy stays current
+Sometimes a copy can't be kept current from where it stands: the device was away longer than the instance keeps events, the instance was restored from a backup, or what the credential may read has changed. The copy then expires, and the device hydrates again. Its queued writes survive.
 
-A copy is filled once and then kept current from the instance's event log.
+## A write made offline
 
-- **Hydrate.** The device reads the log's head, then the item listing for each type in the slice, in the slice's tier and in every state, with each item's edges, tags and extensions. It then applies the events written while it read. Hydrating replaces the copy and keeps the queue and the pins.
-- **Catch up.** The device opens the event stream at its cursor and takes each event until the stream says it has reached the head. It skips an event older than the item it holds, lets go of an item that has left the slice by type or tier, and adds one that has entered it. Every event, taken or skipped, moves the cursor past it.
-- **Follow.** A device can hold the stream open and apply events as they arrive. A stream that drops opens again from the cursor.
+Every write a device makes shows in its copy at once, and waits in the queue until the instance answers it. Sending the queue is called draining it.
 
-A copy **expires** when it can no longer be kept current from where it stands, for example when:
+<Sequence title="A note edited on a train">
 
-- The log has dropped the event after its cursor. The instance keeps events for its event log retention.
-- The log ends behind the cursor, because the instance was restored from an earlier point.
-- Another instance answers at the same address.
-- The read view the copy was certified under changed.
-- The credential has ended and can't be renewed.
+1. You edit a note in an app, offline. The app writes to its working copy, and the note shows your change at once.
+2. The write waits in the queue, with the version of the note it was based on and a key that identifies it.
+3. The app tries to drain the queue and can't reach the server. Nothing is lost: the write stays queued.
+4. Back online, the app drains the queue. Writes go in the order they were made, and if an answer is lost on the way, the retry carries the same key, so the instance never applies it twice.
+5. The instance answers with a verdict, and the device brings its copy into line with what the instance now holds.
 
-An expired copy refuses reads and writes with `hydration_incomplete` until the next hydration replaces it. The queue survives. [Staying in step](/events) explains the event stream and read views.
+</Sequence>
 
-## Working offline
+## Verdicts
 
-A copy that has hydrated answers every read of items, edges and types with no connection. A file's bytes are there only once the device has fetched them. A device that has never hydrated reads what it holds and still queues writes.
+Each write the instance answers gets one verdict:
 
-- **A write is queued the moment it is made.** The queue gives it an idempotency key then, and keeps that key on every retry until an app releases the write, so a retry whose answer was lost doesn't write twice.
-- **Writes go in order.** A drain sends the queue in the order the writes were made. A write to an item waits for the earlier unanswered writes to that item, and a write to an item the device just created waits for the create. A held write goes in the same drain once the write it waits for lands. If that write is refused or dead, the held write is refused without being sent.
-- **An unreachable instance costs nothing.** A dropped connection, a timeout or a busy instance leaves the write waiting for the next drain.
-- **An update names a version.** A device refuses to queue an update that names no version, and sends each property an edit names with the whole value its caller gave it. It resolves no collision itself: two values for one field are the instance's to reconcile.
-
-## What a verdict is
-
-A **drain** sends the queue once. Each write the instance answers gets one verdict:
-
-| Verdict | What it means |
+| Verdict | What happened |
 | --- | --- |
-| `accepted` | The instance applied the write. A write based on an older version is `accepted` too when no field it changes has changed since. |
-| `merged` | A field the write changes had also changed since, and the instance merged the two without a copy. |
-| `conflicted` | A field collided and the type keeps both copies: the item keeps its value, and the write's value goes to a new conflicted copy. |
-| `refused` | The instance refused the write, for example with `validation_error`. The device keeps the answer so an app can show it. |
-| `blocked` | Something has to change before the write can go: the credential was refused or lacks a grant, the write's idempotency key was spent on another request, the version the write was based on is gone, or the instance refused a collision it can't settle in the write, such as an update that also changes the item's type. |
-| `dead` | The write failed five times in ways that count against it. An unreachable instance never counts. |
+| `accepted` | The instance applied the write. |
+| `merged` | Another change had touched the same field, and the instance settled the two by the item type's rule, such as keeping the later title. |
+| `conflicted` | The two changes collided, and the instance kept both: the item keeps its value, and the write's value goes to a conflicted copy. |
+| `refused` | The instance refused the write, for example because it broke the item's type. The device keeps the write's content so an app can offer it back. |
+| `blocked` | Something has to change before the write can go, such as an expired credential. |
+| `dead` | The write failed five times in ways that count against it, such as the server erroring. A lost connection never counts. |
 
-After `accepted`, `merged` or `conflicted`, the device holds what the instance has and never sends the write again. Every update goes with `conflict=auto`, so the instance settles a collision in the write by the type's merge policy, and the verdict is `merged` or `conflicted`. [Write safely](/guides/write-safely) explains both.
-
-A write blocked for its credential goes again by itself at the next drain. Any other stopped write waits for an app to decide. The app can **release** a blocked or dead write to send it again under a new idempotency key, **withdraw** a write whose base version is gone or whose conflict is unresolved, **discard** a refused write, and **forget** the answered writes, which removes them from the queue. The [queue and verdicts chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) lists every reason a write can be blocked.
+Only `refused`, `blocked` and `dead` need an app's attention, and an app decides what to do with each: send it again, withdraw it, or let the person decide. [Versions](/versions) explains how the instance settles two changes to one item.
 
 ## Folders
 
-A folder has the same working copy, the same queue and the same verdicts as any device, so the rules above hold. What differs is that an item is a file on disk, and an edit made to either the item or the file reaches the other.
-
-### The settings
-
-A `system.folder` item on the instance holds a folder's settings, and every machine bound to it shares them. Each machine writes them out as `.marfa/folder.yaml` in the directory.
-
-- `search` decides which items the folder holds: `types`, `tier`, `state`, `filter` and `beneath`. A search that names no types holds every type the credential reads except `system.*`, in the `library` tier, active and archived.
-- `defaults` is what a new file takes where it leaves a blank: `type`, `tier`, `properties`, `tags` and `edges`.
-- `include` and `ignore` are lists of gitignore patterns for the paths the folder takes and leaves alone.
-- `first_placement` says, by type, which directory an item made elsewhere first appears in.
-- `removal_threshold` says when a removal waits for confirmation.
-
-Edit `.marfa/folder.yaml` and the device sends the change with [Update a folder](/api-reference/folders/updateFolder), so it reaches every machine bound to the folder. [Create a folder](/api-reference/folders/createFolder) makes the settings.
-
-### Items as files
-
-A pull writes each item the search holds as a file, and a push sends each edit to a file as a write. A note in a folder is a Markdown file:
-
-```markdown
----
-type: core.note
-tier: library
-title: Written offline
-marfa_id: 01a1218d-5ddd-77c1-a788-96a01aee5e83
-marfa_version: 2
----
-Start with the essays.
-```
-
-- `type`, `tier`, `tags`, `state` and `occurred_at` are the item's own fields.
-- `marfa_id` and `marfa_version` name the item and the version the file was written from.
-- A line named for an edge type, such as `parent-of`, is an edge.
-- Every other line between the `---` fences is a property, such as `title`, and the text after them is the body.
-
-A `.txt` file is all body. Any other file the search admits becomes a file item, with its bytes uploaded as a blob. A file that a document embeds is uploaded and kept in the folder even when the search doesn't hold its type. A new file's name comes from the item's title, and its path from the item's `in-folder` edge to the folder.
-
-### Edits in either place
-
-An edit to a file is an ordinary queued write based on the `marfa_version` its file names, so the rules of [Changes over time](/versions) apply. A file saved from an older version merges, field by field, and a collision the type settles with a conflicted copy can give a second file in the folder at the next pull. A change made on the instance reaches the file at the next pull, which edits the file in place and keeps the frontmatter's order, comments and quoting.
-
-A new Markdown file becomes an item when the device sends its create, and the device then writes the accepted `marfa_id` into the file. A renamed file stays the same item, found by its `marfa_id` line or by the file's identity on disk. A deleted file trashes its item after a five-second grace, so a rename or a save that replaces the file isn't taken for a delete.
-
-### What a folder won't do on its own
-
-- **It confirms the first pass.** A new folder reads the directory and the copy and says how many files it will write, send and place beside a file already there. Nothing is written into the directory or sent until a person confirms.
-- **It pauses a large removal.** Missing files, or files whose items left the folder, wait for confirmation when they exceed both `removal_threshold.files` and `removal_threshold.fraction` of the bound files, 10 and 0.25 by default. `marfa folders confirm` carries the removal out, and `marfa folders restore` cancels it, writing the missing files back and restoring the items that left.
-- **It keeps secrets out.** A name such as `.env`, `*.pem` or `*.key` is never admitted, and the folder's own `.marfa/` directory is never read as items.
-- **It keeps one process on a folder.** While one process works on a folder, such as a watch, other work on it is refused with `reading_handle`. A status read still answers.
-
-A folder runs on macOS, through `marfa folders` or the Swift package's `Folders`. The [CLI reference](/cli-reference) lists every folder command, and the [Swift package](/swift-package) shows how to add and watch a folder.
+On a Mac, a device's working copy can also be a directory of files: a folder. Each item the folder holds is a file, a note becomes a Markdown file, and an edit to either the file or the item reaches the other. A folder keeps a working copy and a queue like any device, so everything above holds. [Sync a folder](/guides/sync-a-folder) sets one up.
 
 The rules behind this page are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) and [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapters of the contract.
