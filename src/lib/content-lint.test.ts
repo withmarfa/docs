@@ -118,6 +118,10 @@ export function parseBannedTerms(glossary: string): string[] {
  */
 const NOT_MACHINE_CHECKABLE = new Map<string, string>([
   ['sync', 'only "sync" as a program or product is banned, and plain "sync" is an ordinary word'],
+  [
+    'the command',
+    'only "the command" as the name of the whole CLI is banned; "the command" for one command, and "the command line", are right',
+  ],
 ]);
 
 /** Phrases that contain a banned word and are fine, by the term they contain. */
