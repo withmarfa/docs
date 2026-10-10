@@ -2,7 +2,12 @@
 # Sync what the docs take from the Marfa monorepo:
 #   openapi.json                      the API description
 #   src/generated/GLOSSARY.md         the glossary, which the content lint reads
-#                                     and the Glossary page includes
+#   src/generated/glossary-words.md   the glossary's words section without its
+#                                     heading, which the Glossary page includes
+#                                     (fumadocs-mdx ends an included section at
+#                                     the next heading of any level, so a words
+#                                     section split into topic groups has to be
+#                                     a file of its own)
 #   src/generated/api-overview.md     the spec's info.description, the rules every
 #                                     operation follows, included by the API
 #                                     reference overview
@@ -90,7 +95,8 @@ EDGE_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-edge-types.XXXXXX")"
 PERMISSIONS="$(mktemp "${TMPDIR:-/tmp}/marfa-permissions.XXXXXX")"
 EVENT_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-event-types.XXXXXX")"
 INDEX="$(mktemp "${TMPDIR:-/tmp}/marfa-contract-index.XXXXXX")"
-cleanup() { rm -f "$CANDIDATE" "$OVERVIEW" "$COMMANDS" "$ERRORS" "$SETTINGS" "$TYPES" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX"; }
+WORDS="$(mktemp "${TMPDIR:-/tmp}/marfa-glossary-words.XXXXXX")"
+cleanup() { rm -f "$CANDIDATE" "$OVERVIEW" "$COMMANDS" "$ERRORS" "$SETTINGS" "$TYPES" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$WORDS"; }
 trap cleanup EXIT
 
 # The overview page includes this file under its own level-2 heading, so every
@@ -253,6 +259,41 @@ then
   exit 1
 fi
 
+# The glossary's words section runs from its `## The words` heading to the next
+# level-2 heading, and a heading-shaped line inside a fence does not count. The
+# heading itself stays out: the page has its own title.
+if ! python3 - "$MARFA_ROOT/GLOSSARY.md" "$WORDS" <<'PY'
+import re, sys
+
+try:
+    lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+except UnicodeDecodeError:
+    sys.exit(1)
+
+words, inside, fence = [], False, None
+for line in lines:
+    marker = re.match(r"\s*(`{3,}|~{3,})", line)
+    if marker and (fence is None or marker.group(1).startswith(fence)):
+        fence = None if fence else marker.group(1)
+    elif fence is None and line.startswith("## "):
+        if inside:
+            break
+        inside = line.rstrip() == "## The words"
+        continue
+    if inside:
+        words.append(line)
+
+body = "\n".join(words).strip()
+if not body:
+    sys.exit(1)
+with open(sys.argv[2], "w", encoding="utf-8") as out:
+    out.write(body + "\n")
+PY
+then
+  echo "$MARFA_ROOT/GLOSSARY.md has no words under a '## The words' heading, or is not UTF-8. Nothing has changed." >&2
+  exit 1
+fi
+
 cp "$MARFA_ROOT/openapi.json" "$CANDIDATE"
 mv "$CANDIDATE" "$SPEC"
 
@@ -266,8 +307,9 @@ mv "$EDGE_TYPES" "$GENERATED/edge-types.md"
 mv "$PERMISSIONS" "$GENERATED/permissions.md"
 mv "$EVENT_TYPES" "$GENERATED/event-types.md"
 mv "$INDEX" "$GENERATED/contract-index.json"
+mv "$WORDS" "$GENERATED/glossary-words.md"
 trap - EXIT
 cp "$MARFA_ROOT/GLOSSARY.md" "$GENERATED/GLOSSARY.md"
 printf '{"version":"%s"}\n' "$RELEASE" > "$GENERATED/marfa-release.json"
 
-echo "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index and the release ($RELEASE) synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the glossary words and the release ($RELEASE) synced from $MARFA_ROOT"

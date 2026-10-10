@@ -218,6 +218,65 @@ index_expected="$(cat <<EOF
 EOF
 )"
 
+# The glossary every fixture holds. The Glossary page shows its words section
+# and nothing else, and fumadocs-mdx ends an included section at the next
+# heading of any level, so a section split into `###` topic groups can only be
+# shown whole from a file of its own: the section without its `## The words`
+# heading line, up to the next `## ` heading. A `## ` line inside a fence does
+# not end it.
+glossary="$(cat <<'EOF'
+# Glossary
+
+Intro, which is not the words.
+
+## The words
+
+The words are grouped by topic.
+
+### Items and types
+
+| Word | What it means |
+| ---- | ------------- |
+| **item** | One record. |
+
+```text
+## not a heading
+```
+
+### Files
+
+| Word | What it means |
+| ---- | ------------- |
+| **blob** | Bytes. |
+
+## Banned
+
+| Word | Use instead |
+| ---- | ----------- |
+| record | item |
+EOF
+)"
+glossary_words_expected="$(cat <<'EOF'
+The words are grouped by topic.
+
+### Items and types
+
+| Word | What it means |
+| ---- | ------------- |
+| **item** | One record. |
+
+```text
+## not a heading
+```
+
+### Files
+
+| Word | What it means |
+| ---- | ------------- |
+| **blob** | Bytes. |
+EOF
+)"
+
 # fixture <name> <spec file>
 #
 # Builds <name>/docs, holding the script and a stale copy of everything it
@@ -230,6 +289,7 @@ fixture() {
   cp "${script}" "${dir}/docs/scripts/sync-from-marfa.sh"
   printf '{"stale":"spec"}\n' > "${dir}/docs/openapi.json"
   printf 'stale glossary\n' > "${dir}/docs/src/generated/GLOSSARY.md"
+  printf 'stale words\n' > "${dir}/docs/src/generated/glossary-words.md"
   printf 'stale overview\n' > "${dir}/docs/src/generated/api-overview.md"
   printf 'stale commands\n' > "${dir}/docs/src/generated/marfa-commands.md"
   printf 'stale codes\n' > "${dir}/docs/src/generated/error-codes.md"
@@ -242,7 +302,7 @@ fixture() {
   printf '{"version":"v0.0.0"}\n' > "${dir}/docs/src/generated/marfa-release.json"
 
   cp "$2" "${dir}/marfa/openapi.json"
-  printf 'new glossary\n' > "${dir}/marfa/GLOSSARY.md"
+  printf '%s\n' "${glossary}" > "${dir}/marfa/GLOSSARY.md"
   mkdir -p "${dir}/marfa/core/marfa-cli"
   printf '%s\n' "${commands}" > "${dir}/marfa/core/marfa-cli/COMMANDS.md"
   mkdir -p "${dir}/marfa/conformance/spec"
@@ -348,13 +408,16 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index and the release (v1.2.3) synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the glossary words and the release (v1.2.3) synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
 check "the spec is copied byte for byte" \
   "$(cat "${work}/good.json")" "$(cat "${work}/good/docs/openapi.json")"
-check "the glossary is copied" "new glossary" "$(cat "${work}/good/docs/src/generated/GLOSSARY.md")"
+check "the glossary is copied" "${glossary}" "$(cat "${work}/good/docs/src/generated/GLOSSARY.md")"
+check "the words are the section between its heading and the next, and nothing else" \
+  "${glossary_words_expected}" "$(cat "${work}/good/docs/src/generated/glossary-words.md")"
+check "the words end with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/glossary-words.md" | tr -d '\n')"
 check "the command reference loses its comment and title, and nothing else" \
   "${commands_expected}" "$(cat "${work}/good/docs/src/generated/marfa-commands.md")"
 check "the command reference ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/marfa-commands.md" | tr -d '\n')"
@@ -374,7 +437,7 @@ check "the contract index groups each rule's hash under its chapter, in file ord
   "${index_expected}" "$(cat "${work}/good/docs/src/generated/contract-index.json")"
 check "the release is the latest version tag" '{"version":"v1.2.3"}' "$(cat "${work}/good/docs/src/generated/marfa-release.json")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md contract-index.json core-types.md edge-types.md error-codes.md event-types.md marfa-commands.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md contract-index.json core-types.md edge-types.md error-codes.md event-types.md glossary-words.md marfa-commands.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 # ----------------------------------------------------------------- every refusal
 
@@ -546,6 +609,29 @@ refuse_contract "no rules in any chapter" '# Blobs\n\nNo rules here.\n' alone
 refuse_contract "a rule ID that repeats" '### `blobs/a`\n\nThe server MUST.\n\n### `blobs/a`\n\nThe server MUST again.\n'
 refuse_contract "a rule ID that names another chapter" '### `items/a`\n\nThe server MUST.\n'
 refuse_contract "a chapter that is not UTF-8" '### `blobs/a`\n\nThe server MUST \xff.\n'
+
+# refuse_glossary <label> <glossary text>: the rest of the checkout is good,
+# and still nothing is written.
+g=0
+refuse_glossary() {
+  g=$((g+1))
+  local name="glossary-${g}"
+  fixture "${name}" "${work}/untagged.json"
+  printf '%b' "$2" > "${work}/${name}/marfa/GLOSSARY.md"
+  local before; before="$(everything "${name}")"
+  sync "${name}"
+  check "${1}: exits 1" 1 "${status}"
+  check "${1}: says so in one line" \
+    "${work}/${name}/marfa/GLOSSARY.md has no words under a '## The words' heading, or is not UTF-8. Nothing has changed." "${out}"
+  check "${1}: shows no traceback" 0 "$(printf '%s' "${out}" | grep -c 'Traceback\|File "' || true)"
+  check "${1}: changes nothing" "${before}" "$(everything "${name}")"
+}
+echo "a glossary the script refuses"
+refuse_glossary "no words section" '# Glossary\n\n## Banned\n\n| Word | Use |\n'
+refuse_glossary "an empty words section" '# Glossary\n\n## The words\n\n\n## Banned\n\n| Word | Use |\n'
+refuse_glossary "a words heading only inside a fence" '# Glossary\n\n```text\n## The words\n| a | b |\n```\n'
+refuse_glossary "a words heading of another level" '# Glossary\n\n### The words\n\n| a | b |\n'
+refuse_glossary "a glossary that is not UTF-8" '# Glossary\n\n## The words\n\n| \xff | b |\n'
 
 echo "the workflow"
 check "CI runs this test" 1 "$(grep -cF 'run: bash .github/scripts/sync-from-marfa.test.sh' "${here}/../workflows/ci.yml")"
