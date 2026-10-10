@@ -230,7 +230,7 @@ export function checkFrontmatter(file: string, text: string): Violation[] {
 }
 
 /** Pages that may still say "coming soon", relative to content/docs. */
-const COMING_SOON_ALLOWED = new Set(['get-started/index.mdx', 'get-started/run-an-instance.mdx']);
+const COMING_SOON_ALLOWED = new Set(['(overview)/overview.mdx']);
 
 export function checkComingSoon(file: string, text: string): Violation[] {
   if (COMING_SOON_ALLOWED.has(file)) return [];
@@ -240,7 +240,7 @@ export function checkComingSoon(file: string, text: string): Violation[] {
       file,
       line: lineOf(text, match.index),
       rule: 'coming-soon',
-      detail: '"coming soon" is allowed only on the two pages that open Get started',
+      detail: '"coming soon" is allowed only on the Overview page',
     });
   }
   return out;
@@ -282,7 +282,7 @@ export function checkLinks(file: string, text: string, pageUrls: Set<string>): V
       } else if (dest.startsWith('//') || dest.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(dest)) {
         continue;
       } else if (!dest.startsWith('/')) {
-        fail(`${dest} is a relative link; use a path from the site root, such as /get-started/files`);
+        fail(`${dest} is a relative link; use a path from the site root, such as /files`);
       } else {
         const target = normalizeLink(dest);
         const page = target.replace(/\.md$/, '');
@@ -469,7 +469,7 @@ describe('content lint: the corpus', () => {
   it('finds the pages and the glossary it lints against', () => {
     expect(FILES.length).toBeGreaterThan(10);
     expect(BANNED.length).toBeGreaterThan(0);
-    expect(PAGE_URLS.has('/get-started')).toBe(true);
+    expect(PAGE_URLS.has('/overview')).toBe(true);
     // Generated pages are in the set, so links into the API reference resolve.
     expect([...PAGE_URLS].some((url) => url.startsWith('/api-reference/') && url.split('/').length > 3)).toBe(true);
   });
@@ -486,7 +486,7 @@ describe('content lint: the corpus', () => {
   it('resolves every include to text it can read', () => {
     expect(RESOLVED.flatMap((resolved) => resolved.violations).map(format)).toEqual([]);
     const files = INCLUDED.map((included) => included.file);
-    expect(files).toContain('src/generated/GLOSSARY.md (included by get-started/glossary.mdx)');
+    expect(files).toContain('src/generated/GLOSSARY.md (included by (overview)/glossary.mdx)');
     expect(files).toContain('src/generated/api-overview.md (included by api-reference/index.mdx)');
     for (const { text } of INCLUDED) expect(text.trim().length).toBeGreaterThan(0);
   });
@@ -618,12 +618,12 @@ describe('content lint: each rule fires on a bad sample', () => {
 
   it('coming-soon', () => {
     expect(rules(checkComingSoon('guides/x.mdx', 'This is Coming Soon.'))).toEqual(['coming-soon']);
-    expect(checkComingSoon('get-started/index.mdx', 'Coming soon.')).toEqual([]);
-    expect(checkComingSoon('get-started/run-an-instance.mdx', 'Coming soon.')).toEqual([]);
+    expect(checkComingSoon('(overview)/overview.mdx', 'Coming soon.')).toEqual([]);
+    expect(rules(checkComingSoon('(overview)/run-an-instance.mdx', 'Coming soon.'))).toEqual(['coming-soon']);
   });
 
   describe('link', () => {
-    const urls = new Set(['/get-started', '/api-reference/items/createItem']);
+    const urls = new Set(['/overview', '/api-reference/items/createItem']);
 
     it('fires on a link that reaches no page', () => {
       const found = checkLinks('x.mdx', 'Ok.\nSee [it](/learn/files).', urls);
@@ -634,10 +634,10 @@ describe('content lint: each rule fires on a bad sample', () => {
 
     it('accepts pages, anchors, generated pages and the .md copy', () => {
       const text = [
-        '[a](/get-started)',
-        '[b](/get-started#heading)',
+        '[a](/overview)',
+        '[b](/overview#heading)',
         '[c](/api-reference/items/createItem)',
-        '[d](/get-started.md)',
+        '[d](/overview.md)',
         '[e](/llms.txt)',
         '[f](https://example.com/learn)',
       ].join('\n');
@@ -654,7 +654,7 @@ describe('content lint: each rule fires on a bad sample', () => {
     });
 
     it('fires on an absolute link to this site', () => {
-      for (const dest of ['https://docs.marfa.so/get-started', 'http://docs.marfa.so', 'https://docs.marfa.so/x#y']) {
+      for (const dest of ['https://docs.marfa.so/overview', 'http://docs.marfa.so', 'https://docs.marfa.so/x#y']) {
         expect(rules(checkLinks('x.mdx', `[a](${dest})`, urls))).toEqual(['link']);
       }
     });
@@ -676,7 +676,7 @@ describe('content lint: each rule fires on a bad sample', () => {
   });
 
   describe('included text', () => {
-    const urls = new Set(['/get-started']);
+    const urls = new Set(['/overview']);
     const cwd = '/repo';
     const files = new Map<string, string>([
       ['/repo/src/generated/rules.md', '# Rules\n\nIntro.\n\n## One\nFirst — dash.\n### Two\nSecond.\n## One\nThird.\n'],
@@ -766,12 +766,12 @@ describe('content lint: each rule fires on a bad sample', () => {
     });
 
     it('an included file with a bad internal link fails', () => {
-      for (const link of ['[a](/nowhere)', '[a](files)', '[a](https://docs.marfa.so/get-started)', '<a href="./x">a</a>']) {
+      for (const link of ['[a](/nowhere)', '[a](files)', '[a](https://docs.marfa.so/overview)', '<a href="./x">a</a>']) {
         const found = checkIncluded('x.md (included by y.mdx)', `Ok.\nSee ${link}.\n`, urls);
         expect(rules(found)).toEqual(['link']);
         expect(found[0].line).toBe(2);
       }
-      expect(checkIncluded('x.md', 'See [a](/get-started) and [b](https://example.com).', urls)).toEqual([]);
+      expect(checkIncluded('x.md', 'See [a](/overview) and [b](https://example.com).', urls)).toEqual([]);
     });
 
     it('an included file that names a banned or avoided term passes', () => {

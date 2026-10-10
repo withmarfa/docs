@@ -67,7 +67,7 @@ export function createDocsServer(): McpServer {
     'docs_fetch',
     {
       description:
-        'Fetch the markdown body of a single docs page by its URL path (e.g. "/get-started/properties-metadata-and-edges"). Returns the same markdown the `<path>.md` copy returns: a heading with the page title and path, then the full prose with code blocks preserved.',
+        'Fetch the markdown body of a single docs page by its URL path (e.g. "/properties-metadata-and-edges"). Returns the same markdown the `<path>.md` copy returns: a heading with the page title and path, then the full prose with code blocks preserved.',
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.object({
         path: z
