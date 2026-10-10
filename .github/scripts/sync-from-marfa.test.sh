@@ -126,7 +126,7 @@ EOF
 )"
 
 # The four catalogue chapters every fixture holds, and the table the script
-# takes from each. <chapter> <marker> <output file> <noun> <header line>.
+# takes from each.
 catalogue_chapter() { # catalogue_chapter <marker> <header> <row>
   printf '# Chapter\n\n<!-- %s-table:start -->\n\n%s\n| --- | --- |\n%s\n\n<!-- %s-table:end -->\n' "$1" "$2" "$3" "$1"
 }

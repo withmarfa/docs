@@ -53,14 +53,14 @@ MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh
 - `src/generated/error-codes.md`, the code table between the `errors-table` markers of the monorepo's `conformance/spec/errors.md`, which the monorepo generates from the server's own list of codes, included by the Errors page.
 - `src/generated/settings.md`, the settings table between the `settings-table` markers of the monorepo's `conformance/spec/instance.md`, which the monorepo holds to the server's own settings schema, included by the Settings guide.
 - `src/generated/core-types.md`, the table between the `types-table` markers of the monorepo's `conformance/spec/types.md`: every type an instance ships, `core.*` and `system.*`, with its family, parent, required properties and description. The monorepo generates it from the shipped type registry.
-- `src/generated/edge-types.md`, the table between the `edge-types-table` markers of `conformance/spec/edges.md`: each shipped edge type with its reverse name, cardinality, what a delete does to the other end (`cascade`, `orphan` or `block`) and the item types its ends may be. Generated from the shipped edge type definitions.
+- `src/generated/edge-types.md`, the table between the `edge-types-table` markers of `conformance/spec/edges.md`: each shipped edge type with its reverse name, cardinality, what a delete does to the other end (`cascade`, `orphan` or `block`) and the type constraints it declares on each end. Generated from the shipped edge type definitions.
 - `src/generated/permissions.md`, the table between the `permissions-table` markers of `conformance/spec/keys-and-oauth.md`: the twelve permissions and what each lets a credential do. Generated from the server's permission list, with wording from the monorepo's `GLOSSARY.md`.
 - `src/generated/event-types.md`, the table between the `event-types-table` markers of `conformance/spec/events.md`: every event and stream frame, whether a webhook can name it, and when it is sent. Generated from the server's webhook event list and the stream's frame schema.
 - `src/generated/marfa-release.json`, the latest `v` version tag, shown as "Marfa vX.Y.Z" in the sidebar.
 
 `.github/scripts/sync-from-marfa.test.sh` runs it against throwaway checkouts and pins the overview, the command reference and every table it writes and every input it refuses. Run it after an API, glossary, command, error code, setting, type, edge type, permission, event type or release change lands in the monorepo.
 
-The script takes only what the monorepo generates and commits as Markdown between markers or as a file of its own. Every list of types, edge types, permissions and events comes from one of the files above. A page includes a generated table and never copies one by hand; a list the monorepo does not generate gets a source there first.
+The script takes only what the monorepo generates and commits as Markdown between markers or as a file of its own. A page that lists types, edge types, permissions or events includes the generated table and never copies one by hand; a list the monorepo does not generate gets a source there first.
 
 The `OpenAPI spec` workflow checks that the committed `openapi.json` parses and declares paths.
 
