@@ -1,63 +1,36 @@
 ---
-title: Changes over time
-description: How an item's version counts its changes, how a write avoids overwriting someone else's, what history Marfa keeps, and how an item leaves and comes back.
+title: Versions
+description: How an item's version counts its changes, so that two apps writing the same item never silently overwrite each other.
 ---
 
-## What moves the version
+Many apps write to the same instance, often to the same item, and devices write from copies made hours earlier. Marfa keeps that safe with a version on every item. A write names the version it read; Marfa compares it with what has changed since, and either applies the write or refuses it. This page explains what the version counts, what happens to a write based on an older version, and the history Marfa keeps.
 
-Every item has a `version`, a whole number that starts at 1 when the item is created. Each write to the item's own fields raises it by one, and nothing else moves it:
+## What the version counts
 
-| Write | Moves the version |
-| --- | --- |
-| Properties, even ones equal to what the item holds | Yes |
-| `type`, `tier`, `occurred_at` or `source_id` | Yes |
-| Tags, metadata and extensions | No |
-| An update that carries only `edges` | No |
-| A move to the type the item already has | No |
-| Archiving, trashing or restoring the item | No |
+An item's `version` starts at 1 and goes up by one with each change to the item itself: its properties, its type, its tier, its `occurred_at` or its `source_id`. Writing the same value again still counts as a change.
 
-The version counts changes to the item itself, so a write that leaves the version alone never makes another writer's update stale: a title changed in one app and a tag added in another both land. A tag, metadata or extension write and a change of state still move the item's `updated_at`. An edge has a version of its own, as [Properties, metadata and edges](/properties-metadata-and-edges#edges) explains.
+Everything else leaves the version alone. Tags and extensions, edges, and moves between active, archived and trashed don't count, so a tag added in one app never makes another app's edit stale. Tag, extension and state changes still move the item's `updated_at`; an edge write doesn't, because an edge has a version of its own.
 
-## Writing at the version you read
+## When two apps write the same item
 
-An update names the `version` it read. Say you read a note at version 3 and change its body, while another app changes its title, so the note is now at version 4:
+An update names the version it read. If the item has moved on since, the write is stale, but Marfa doesn't refuse it for that alone. It compares the fields your write changes with the fields that changed since your version, using the snapshot it kept of that version:
 
-```http
-PATCH /items/{id}
-Content-Type: application/json
+<Sequence title="Two apps edit the same note">
 
-{ "version": 3, "properties": { "body": "Start with the essays, then the letters." } }
-```
+1. You read a note at version 3, and start changing its body.
+2. Meanwhile, another app changes the note's title. The note is now at version 4.
+3. You send your new body, naming version 3, the version you read.
+4. Your write changes only the body, and only the title changed since version 3, so nothing collides. Marfa applies your body over the note as it is now. The note is at version 5, with both changes.
+5. Had the other app changed the body too, the two changes would collide. Marfa then refuses your write with `409 version_conflict` and sends back the note as it is now, so you can combine the two bodies and send the result, naming version 4.
 
-Your write is stale, but that alone doesn't refuse it. Marfa compares your change with what changed since version 3, using the snapshot it kept of the note at that version:
+</Sequence>
 
-- **Nothing collides.** You changed the body and the other app changed the title, so Marfa applies your change over the note as it is now. The note comes back at version 5, with both changes.
-- **A field collides.** If the other app changed the body too, Marfa refuses the write with `409 version_conflict` and sends back the note as it is now, so you can combine the two and send the result at version 4.
-
-A write can instead let the item's type settle a collision, field by field. `core.note` takes the last writer's `title`, and keeps both values of a `body` by writing yours to a conflicted copy, a new note linked to the original, so neither writer's text is lost. [Write safely](/guides/write-safely) shows how to ask for that and how to handle each answer, and [Update an item](/api-reference/items/updateItem) has the full request.
+A write can instead ask Marfa to settle a collision for it, field by field, by the rules of the item's type. `core.note` keeps the last writer's title, and keeps both bodies by putting yours in a conflicted copy: a new note, linked to the original, so neither writer's text is lost. Devices always write this way. [Write safely](/guides/write-safely) shows both ways and how to handle each answer.
 
 ## History
 
-Each time an item's version moves, Marfa keeps a snapshot of the item as it stood at the version it left: its properties, `type`, `tier`, `occurred_at` and `source_id`. The snapshots are what a stale write is merged against. [List item versions](/api-reference/items/listItemVersions) reads them, oldest first, and an item still at version 1 has none.
+Each time an item's version moves, Marfa keeps a snapshot of the item as it was: its properties, type, tier, `occurred_at` and `source_id`. The snapshots are what a stale write is compared against, and [List item versions](/api-reference/items/listItemVersions) reads them, oldest first.
 
-Marfa doesn't keep every snapshot forever. The `version-thinning` housekeeping job keeps every recent snapshot and fewer as they age, by the `version_policy` of the item's type or the instance's defaults. A type sets its policy when you [register it](/api-reference/types/registerType). [Housekeeping](/guides/housekeeping) covers the job.
+Marfa doesn't keep every snapshot forever. A housekeeping job keeps every recent one and fewer as they age, by a policy the item's type can set. A write based on a version whose snapshot is gone can't be compared, so Marfa refuses it with `409 ancestor_unavailable`, and the app reads the item again before it writes. An app that holds an edit for a long time does well to read first.
 
-A write based on a version Marfa holds no snapshot of, because it was thinned or never existed, can't be merged, so Marfa refuses it with `409 ancestor_unavailable`. An app that holds an edit for a long time reads the item again before it sends it.
-
-## Leaving and coming back
-
-An item's `state` is where it sits in its lifecycle: `active`, `archived` or `trashed`, and an item in the bin is `trashed`. A `system.*` item, such as a folder, is `active` or `revoked` instead, and a revoke is final.
-
-No move between `active`, `archived` and `trashed` changes the item's version or its history, so an edit based on the version you read before a trash still lands after a restore.
-
-<ItemLifecycle />
-
-- **Archive**: [Change an item's state](/api-reference/items/transitionItem) to `archived` sets the item aside. A listing leaves it out unless it names `archived` or `any`, and a read by its ID still returns it.
-- **Unarchive**: [Change an item's state](/api-reference/items/transitionItem) to `active` brings it back into listings.
-- **Trash**: [Trash an item](/api-reference/items/deleteItem) moves an active or archived item to the bin, with every item a cascading edge such as `parent-of` reaches from it. Until it's restored, a read or write of the item is refused, and only a listing that names `trashed` or `any` returns it.
-- **Restore**: [Restore an item](/api-reference/items/restoreItem) brings it back to `active`, with every item its trash took and nothing that was in the bin before.
-- **Purge**: [Purge an item](/api-reference/items/purgeItem) deletes an item in the bin for good, with its history and its edges. A credential needs the `items.purge` permission for it. The `trash-purge` housekeeping job purges every item that has been in the bin longer than the instance's trash retention, 60 days by default. A retention of 0 keeps everything. Marfa keeps a tombstone of the item's link and natural key, if it held them, so a connector that meets the item again at its source can tell it was purged.
-
-[Apply a bulk action](/api-reference/bulk-actions/applyBulkAction) makes any of these moves for every item that matches a filter.
-
-The rules behind this page are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md), [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) and [housekeeping](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md) chapters of the contract.
+The rules behind this page are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md) chapter of the contract.

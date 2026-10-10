@@ -21,7 +21,7 @@ describe('buildDocsMap', () => {
       '### SDKs and CLI',
       '### Resources',
     ]);
-    expect(overview.some((line) => line.startsWith('- [What Marfa is](/overview)'))).toBe(true);
+    expect(overview.some((line) => line.startsWith('- [Overview](/overview)'))).toBe(true);
     expect(overview.some((line) => line.startsWith('- [CLI reference](/cli-reference)'))).toBe(true);
     expect(overview.some((line) => line.startsWith('- [The contract](https://github.com/'))).toBe(true);
   });

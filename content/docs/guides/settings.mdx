@@ -1,40 +1,44 @@
 ---
 title: Settings
-description: Set an instance's environment settings, and change the settings that take effect while it runs.
+description: Set the environment settings an instance reads when it starts, and change its enforcement levers and retentions while it runs.
 ---
 
-An instance has two kinds of settings. The server reads its environment settings once, when it starts. The settings in `/config` change while the server runs, and the retention ones among them override an environment setting.
-
-| | Environment settings | `/config` |
-| --- | --- | --- |
-| Set by | An environment variable of the server process | `PUT /config` |
-| Takes effect | When the server starts | At once |
-| What it covers | Everything in [the table below](#every-environment-setting) | Three enforcement levers and five retentions |
-| Who may change it | Whoever starts the server | The owner, or a credential holding `config.manage` |
+An instance has two kinds of settings. Environment settings are read once, when the server starts, and cover everything from where the database lives to how often each housekeeping job runs. The configuration at `/config` changes while the server runs: it holds three enforcement levers, which hold chosen types to stricter rules, and the retentions you're most likely to adjust. This guide shows how to set each kind, and which settings to check before you rely on an instance.
 
 ## Set an environment setting
 
-Set the setting as an environment variable of the server process, and start the server:
+Set the setting as an environment variable of the server process, then start the server, or restart it to change a setting:
 
 ```bash
-export MARFA_AUTH_SECRET="<at least 32 characters>"
 export TRASH_RETENTION_DAYS=30
+node dist/index.js
 ```
 
-The server reads each variable once, when it starts, and a blank value counts as unset. To change a setting, change the variable and restart the server.
+In the container, change its environment file and create the container again with `docker run`, because a restart keeps the environment the container was created with. A blank value counts as unset. If any setting is outside its allowed values, the server opens no port and creates no file. It exits with status `1` and names every wrong setting at once, with the value it was given, so you can fix them all before you start again:
 
-A setting outside its allowed values stops the server before it opens its port or creates its database file. The server exits with status 1, and its message names every setting that is wrong, each on a line of its own, with the value it was given. A setting that holds a secret is named and its value is never printed. Fix them all, then start again.
+```text
+The server cannot start; fix these settings:
+  PORT must be a whole number, from 1 to 65535 (got "99999")
+  MARFA_AUTH_SECRET must be at least 32 characters; generate one with `openssl rand -hex 32`
+  TRASH_RETENTION_DAYS must be a whole number, from 0 to 36500 (got "forever")
+```
 
-### Settings to check before you run an instance
+A setting that holds a secret is named, and its value is never printed.
 
-- **`NODE_ENV`:** `production` makes `API_KEY_SALT`, `MARFA_AUTH_SECRET` and `MARFA_AUTH_BASE_URL` mandatory. Outside production, the server falls back to a built-in salt, a random secret for each start, and a localhost URL, so sign-in cookies stop working at every restart. Changing `API_KEY_SALT` later invalidates every existing key and token.
-- **`SQLITE_PATH` and `BLOB_PATH`:** where the database file and the disk store's files live. [Back up and restore](/guides/back-up-and-restore) covers protecting them.
-- **`TRUSTED_PROXY_CIDRS` and `TRUSTED_PROXY_HEADER`:** which proxy's client address the server believes. Without either, the server ignores the `X-Forwarded-For` header.
-- **`CORS_ORIGINS`:** the browser origins that may call the API from a page.
+## The settings to check first
 
-### Every environment setting
+Most settings have defaults that suit any instance. Check these before you keep one:
 
-The table is written from the server's own list of settings, in the [instance chapter of the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md). The settings that set how often a [housekeeping job](/guides/housekeeping) runs, and its retention, are in it too.
+- `NODE_ENV=production` makes the server refuse to start without `API_KEY_SALT`, `MARFA_AUTH_SECRET` and `MARFA_AUTH_BASE_URL`. Outside production, it falls back to a built-in salt and a new secret at each start, which signs every browser out at each restart.
+- `SQLITE_PATH` and `BLOB_PATH` say where your data lives. [Back up and restore](/guides/back-up-and-restore) covers protecting it.
+- `TRUSTED_PROXY_CIDRS` or `TRUSTED_PROXY_HEADER` tells the server which client address to believe behind a proxy or tunnel. [Deploy](/guides/deploy#the-address) explains when you need one.
+- `CORS_ORIGINS` names the browser origins whose pages may call the API.
+
+[Deploy](/guides/deploy#what-the-server-needs) shows a complete set for an instance you keep.
+
+## Every environment setting
+
+The list comes from the server's own definition of its settings. The intervals and retentions of the [housekeeping jobs](/guides/housekeeping) are here too.
 
 <ReferenceList description={3}>
 
@@ -42,43 +46,55 @@ The table is written from the server's own list of settings, in the [instance ch
 
 </ReferenceList>
 
-## Change settings while the instance runs
+## Change settings while it runs
 
-`GET /config` reads the instance configuration and `PUT /config` replaces it. A key or an access token needs the `config.manage` permission for both, and `instance.read` doesn't imply it. The owner, signed in to the browser or through the private socket, needs no key. Neither operation reads or writes any item. [Keys and permissions](/access) explains how a credential gets a permission.
+The configuration at `/config` takes effect at once, with no restart. Reading or replacing it needs the `config.manage` permission; the owner, signed in or through the private socket, needs no key. It holds these fields, and a field you haven't set is left out of the answer:
 
-The configuration holds these settings:
+<TypeTable
+  type={{
+    'enforcement.strict_mode': { type: '{ types }', description: 'The types that refuse a property their type doesn\'t declare.' },
+    'enforcement.source_allowlist': { type: '{ types, sources }', description: 'The types that take new items only from the listed sources.' },
+    'enforcement.source_filter': { type: '{ types, sources }', description: 'The types whose listings, searches and exports show only items from the listed sources.' },
+    trash_retention_days: { type: 'integer', description: 'Days an item stays in the trash before Marfa purges it. Overrides TRASH_RETENTION_DAYS.' },
+    audit_retention_days: { type: 'integer', description: 'Days Marfa keeps audit log entries and the history of outbound webhook deliveries. Overrides AUDIT_RETENTION_DAYS.' },
+    event_log_retention_hours: { type: 'integer', description: 'Hours Marfa keeps events for a stream to replay. Overrides MARFA_EVENT_LOG_RETENTION_HOURS.' },
+    inbound_handled_retention_days: { type: 'integer', description: 'Days Marfa keeps an inbound webhook delivery a connector has marked handled. Overrides MARFA_INBOUND_HANDLED_RETENTION_DAYS.' },
+    inbound_pending_retention_days: { type: 'integer', description: 'Days Marfa keeps an inbound webhook delivery no connector has handled. Overrides MARFA_INBOUND_PENDING_RETENTION_DAYS.' },
+  }}
+/>
 
-| Field | What it sets | Environment setting it overrides |
-| --- | --- | --- |
-| `enforcement.strict_mode` | The types that refuse a property their type doesn't declare. | None |
-| `enforcement.source_allowlist` | The types that take new items only from the listed sources. | None |
-| `enforcement.source_filter` | The types whose listings, searches and exports show only items from the listed sources. | None |
-| `trash_retention_days` | Days an item stays in the trash before Marfa purges it. | `TRASH_RETENTION_DAYS` |
-| `audit_retention_days` | Days Marfa keeps audit log entries and webhook delivery history. | `AUDIT_RETENTION_DAYS` |
-| `event_log_retention_hours` | Hours Marfa keeps events, which a stream can replay from a cursor. | `MARFA_EVENT_LOG_RETENTION_HOURS` |
-| `inbound_handled_retention_days` | Days Marfa keeps inbound webhook deliveries a connector has marked handled. | `MARFA_INBOUND_HANDLED_RETENTION_DAYS` |
-| `inbound_pending_retention_days` | Days Marfa keeps inbound webhook deliveries no connector has marked handled. | `MARFA_INBOUND_PENDING_RETENTION_DAYS` |
-
-A retention is a whole number from 0 to 36500 days, or to 876000 hours for the event log. At 0, Marfa keeps those records with no age limit. A retention you haven't set takes the environment setting's value, or its default.
-
-`MARFA_REVOKED_GRANT_RETENTION_DAYS` and `MARFA_GRANT_INACTIVITY_DAYS` are retentions too, but `/config` doesn't override them.
+A retention of `0` keeps those records with no age limit. A retention you leave unset takes the environment setting's value.
 
 ### Read the configuration
 
-```http
-GET /config
-Authorization: Bearer <credential>
+```bash tab="CLI" tab-group="client"
+marfa config get
 ```
 
-The answer holds the `instance_id` and each setting that has been set. A setting nobody has set is left out, so an instance that has set nothing answers its `instance_id` alone. The full shape is in [Get the configuration](/api-reference/instance/getConfig).
+```http tab="HTTP"
+GET /config
+Authorization: Bearer <key>
+```
+
+An instance that has set nothing answers its `instance_id` alone:
+
+```json
+{
+  "instance_id": "01a12311-6155-71e2-aec5-7c532fdb4d3d"
+}
+```
 
 ### Replace the configuration
 
-`PUT /config` replaces the whole configuration. A setting you leave out goes back to its default, so read the configuration, change what you need, and send all of it back. This request keeps the trash for 30 days and makes `core.note` refuse a property it doesn't declare:
+**A replace sets the whole configuration: a field you leave out goes back to its default.** Read the configuration first, change what you need, and send all of it back. This keeps the trash for 30 days and makes `core.note` refuse a property it doesn't declare:
 
-```http
+```bash tab="CLI" tab-group="client"
+marfa config replace --body '{"enforcement": {"strict_mode": {"types": ["core.note"]}}, "trash_retention_days": 30}'
+```
+
+```http tab="HTTP"
 PUT /config
-Authorization: Bearer <credential>
+Authorization: Bearer <key>
 Content-Type: application/json
 
 {
@@ -87,42 +103,20 @@ Content-Type: application/json
 }
 ```
 
-The `instance_id` that `GET /config` answered may stay in the body you send back. It sets nothing, and the server refuses `400 validation_error` if it names another instance. Sending `{}` clears every setting.
+The answer is the configuration as it now stands. `marfa config replace --file config.json` reads the body from a file, and `--file -` from standard input. Sending `{}` clears every field.
 
-The server refuses the whole request, and keeps the configuration as it was, in these cases:
+The server refuses a body with a field it doesn't know or a retention out of range, and keeps the configuration as it was. Each accepted replace is recorded in the [audit log](/guides/audit-log) as `config.update`. [Replace the configuration](/api-reference/instance/replaceConfig) has every refusal.
 
-| Answer | When |
-| --- | --- |
-| `400 validation_error` | The body names a key the server doesn't know, a retention is out of range or isn't a whole number, or `instance_id` names another instance. |
-| `400 missing_required_field` | A lever lacks `types`, or `sources` where it needs them. `details.field` names the missing member. |
-| `403 forbidden` | The credential doesn't hold `config.manage`. |
-| `413 request_too_large` | The body is larger than `MARFA_MAX_REQUEST_BYTES`. |
+## What the enforcement levers do
 
-Each accepted `PUT` adds an audit log entry with the action `config.update`, as [Audit log](/guides/audit-log) describes. The full shape is in [Replace the configuration](/api-reference/instance/replaceConfig), and the error body is in [Errors](/api-reference/errors).
+Each lever names types. `strict_mode` and `source_allowlist` hold for exactly those types, not the types that inherit from them, so list each type you mean.
 
-### What the enforcement levers do
+`strict_mode` refuses a write that names a property neither the item's type nor an ancestor declares. Without it, Marfa keeps an undeclared property and serves it back. With `core.note` listed, a note with a `colour` property is refused `400 invalid_properties`, with `details.code` set to `unknown_property`.
 
-Each lever names types, and a lever with `sources` names the sources that count.
+`source_allowlist` lets only the listed sources create items of a type. Use it when one app should own a type, such as a notes app that alone writes notes. Any other key that creates a note is refused `403 forbidden`, with the type, its source and the allowed sources in `details`.
 
-| Lever | What it does |
-| --- | --- |
-| `strict_mode` | A write of an item of a listed type is refused `400 invalid_properties`, with `details.code` set to `unknown_property`, if it names a property that neither the type nor an ancestor declares. |
-| `source_allowlist` | Creating an item of a listed type under a source not in `sources` is refused `403 forbidden`. The refusal names the type, the source and the allowed sources in `details`. |
-| `source_filter` | A listing, search, export, count or tag count leaves out the items of a listed type, and the types under it, whose source isn't in `sources`. Reading an item by ID isn't narrowed. |
+`source_filter` hides the items of a type, and of the types under it, whose source isn't listed, from every read that returns a set: listings, searches, counts and exports. Reading an item by its ID isn't filtered.
 
-`strict_mode` and `source_allowlist` hold for the exact type listed, not for a type that inherits from it. List each type you mean.
+A key can carry levers of its own in `enforcement_override`, which replace the instance's for that key, looser or stricter. A key minted with `--enforcement-override '{"source_filter": {"types": ["core.note"], "sources": ["notes-app"]}}'` lists only the notes the notes app wrote. Setting a key's levers needs `config.manage`, or the owner's own authority.
 
-A key can carry levers of its own in `enforcement_override`, which replace the instance's lever for that key, looser or stricter. Setting them needs `config.manage`, or the owner's own authority. [Keys and permissions](/access) covers keys.
-
-## Use the CLI
-
-The `marfa` command sends the same two operations:
-
-```bash
-marfa config get
-marfa config replace --body '{"trash_retention_days": 30}'
-```
-
-`marfa config replace` also takes `--file <path>`, and `--file -` reads the body from standard input. It uses the credential from `--key`, then `MARFA_API_KEY`, then the keychain. Add `--json` to print the answer as JSON.
-
-The rules behind this page are in the [instance](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md), [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) and [housekeeping](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md) chapters of the contract.
+The rules behind this page are in the [instance](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#settings) chapter, the [enforcement levers](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#enforcement-levers) in the types chapter, and the [retention](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md#retention) rules in the housekeeping chapter of the contract.

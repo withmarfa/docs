@@ -1,131 +1,230 @@
 ---
 title: List, filter and search
-description: List items a page at a time, narrow a listing by type, state, tags, time and properties, search their text, count them, and read the occurrences of a calendar.
+description: Read the items you need from an instance, a page at a time, narrowed by type, tags and properties, or found by the words they hold.
 ---
 
-A listing, a search and a count read the items your credential can read. This guide covers each and how to narrow it. Every example needs a credential whose type map reaches the types you ask for.
+Most of what an app reads, it reads as a listing: the notes tagged `reading`, the tasks due this week, everything changed since it last looked. This guide shows how to list items a page at a time, narrow and sort a listing, find what changed, search items' text, count them, and read a calendar. Each operation reads only the items your key or token can read, and [List items](/api-reference/items/listItems) in the API reference describes every parameter. The TypeScript examples use a client made as [the TypeScript client](/typescript-client) shows.
 
-## List items
+## List a page at a time
 
-[List items](/api-reference/items/listItems) answers one page at a time.
+[List items](/api-reference/items/listItems) answers one page. Name the type, and narrow it further as the next section shows:
 
-```http
-GET /items?type=core.note&tags=reading&limit=20
-Authorization: Bearer <credential>
+```bash tab="CLI" tab-group="client"
+marfa items list --type core.note --tag reading --limit 20
 ```
 
-The answer holds the page in `data` and the cursor for the next in `next_cursor`. Send `next_cursor` back as `cursor` with the same query to get the next page, and stop only when it is `null`: a page can be short, or empty, and still have more. A cursor belongs to the listing and the ordering that issued it, so one sent to another listing answers `400 validation_error`. `limit` is 1 to 200 and defaults to 50.
+```http tab="HTTP"
+GET /items?type=core.note&tags=reading&limit=20
+Authorization: Bearer <key>
+```
 
-The TypeScript client's `pages` follows the cursor for you, as [the TypeScript client](/typescript-client#walk-every-page-of-a-list) shows. From the command line:
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/items", {
+  params: { query: { type: "core.note", tags: "reading", limit: 20 } },
+});
+```
 
-```bash
-marfa items list --type core.note --tag reading --limit 20
+The answer holds the page in `data` and a cursor in `next_cursor`. Send the cursor back as `cursor`, with the same query, for the next page. **Stop only when `next_cursor` is `null`:** a page can be short, or even empty, and still have more after it. The CLI prints the cursor to send as `more: --cursor <cursor>`.
+
+The TypeScript client's `pages` follows the cursor for you:
+
+```ts
+import { pages } from "@withmarfa/client";
+
+const notes = pages(async (cursor) => {
+  const { data, error } = await marfa.GET("/items", {
+    params: { query: { type: "core.note", tags: "reading", cursor } },
+  });
+  if (error) throw new Error(error.error.message);
+  return data;
+});
+
+for await (const row of notes) {
+  // The row type also covers listings that answer { item, metadata } rows.
+  const note = "item" in row ? row.item : row;
+  console.log(note.properties.title);
+}
 ```
 
 ## Narrow a listing
 
-Without a filter, a listing returns the `active` items of every type you can read, in both tiers, and leaves out the `system.*` items. Each parameter below narrows it, and a listing carries all of them together.
+With no parameters, a listing returns the active items of every type you can read, in both tiers. Each parameter narrows it, and you can combine them:
 
-| Parameter | Narrows to |
-| --- | --- |
-| `type` | A type and every type under it. A wildcard such as `core.*` matches every type under that prefix. |
-| `state` | One lifecycle state, or `any` for all of them. See [Changes over time](/versions#leaving-and-coming-back). |
-| `source` | The items written under that source. |
-| `tier` | `library` or `feed`. `all` or no value returns both. |
-| `tags` | Items that carry every tag in a comma-separated list. |
-| `occurred_after`, `occurred_before` | Items whose own time, their `occurred_at` or else their `created_at`, falls after or before the time. Both bounds leave out an item that sits exactly on them. |
-| `updated_after`, `updated_before` | Items whose `updated_at` is at or after, or before, the time. |
-| `edge[<edge type>]`, `backref[<edge type>]` | The items with an outbound edge of that type to the item you name, or the items an edge of that type from the item you name points to. `backref[parent-of]=<id>` lists the children of an item. |
-| `filter` | An expression over properties, tags and fields. See the next section. |
+- `type` keeps a type and every type beneath it, so `core.file` includes images. A pattern such as `core.*` matches every type under the prefix.
+- `tags` keeps the items that carry every tag in a comma-separated list.
+- `state` keeps one state, such as `archived`, or `any`.
+- `tier` keeps `library` or `feed` items.
+- `source` keeps the items one writer created.
+- `occurred_after` and `occurred_before` keep the items whose `occurred_at` falls between two times.
+- `backref[<edge type>]` keeps the items an edge from another item points to: `backref[parent-of]=<id>` lists a task's subtasks.
 
-`include` adds to each item what it names: `edges`, `metadata` or `extensions`. `include=system` also returns `system.*` items, and so does a `type` in the `system.` namespace.
-
-`GET /items/stats` and `GET /search` take most of the same parameters, and each refuses the ones it doesn't declare. A search takes no `source`, `sort`, `direction`, `updated_after`, `updated_before` or `edge[<edge type>]` shorthand, and a count takes no paging or sorting.
+`include=metadata` or `include=edges` adds each item's tags and extensions, or its edges, to the answer.
 
 ## Filter by properties
 
-A `filter` is one or more conditions of the form `<field> <operator> <value>`, joined by `AND` or by `OR` but not both. It holds at most 10 conditions and 2,048 characters. URL-encode it:
+A `filter` narrows by the values items hold. It's one or more conditions of the form `<field> <operator> <value>`, joined by `AND` or by `OR` (not both), and it can name a property as `properties.<name>`. This finds the tasks of high or urgent priority:
 
-```bash
-curl -G "$MARFA_API_URL/items" \
-  -H "Authorization: Bearer $MARFA_API_KEY" \
-  --data-urlencode 'type=core.note' \
-  --data-urlencode 'filter=properties.language eq "en" AND tags contains "reading"'
+```bash tab="CLI" tab-group="client"
+marfa items list --type core.task \
+  --filter 'properties.priority eq "high" OR properties.priority eq "urgent"'
 ```
 
-| Field | Operators |
-| --- | --- |
-| `properties.<name>`, one level deep | `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `starts_with`, `exists`, `not_exists` |
-| `tags` | `contains`, `exists`, `not_exists` |
-| `state`, `type`, `source`, `source_id`, `tier`, `version`, `id`, `occurred_at`, `created_at`, `updated_at` | Every operator but `exists` and `not_exists`, which a field every item holds can't use |
-| `edge[<edge type>]`, `backref[<edge type>]` | `eq`, `neq`, `exists`, `not_exists` |
+```http tab="HTTP"
+GET /items?type=core.task&filter=properties.priority%20eq%20%22high%22%20OR%20properties.priority%20eq%20%22urgent%22
+Authorization: Bearer <key>
+```
 
-A value is a double-quoted string, a number, `true` or `false`. `exists` and `not_exists` take none. Marfa compares numbers as numbers, and compares a time field with a time as the instant it names, however it is written. To ask for a property that is absent or `null`, use `not_exists`: a comparison with `null` never matches, so Marfa refuses it with `400 validation_error`. An edge term in a filter needs read on that edge type, or Marfa answers `403 edge_permission_denied`.
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/items", {
+  params: {
+    query: {
+      type: "core.task",
+      filter: 'properties.priority eq "high" OR properties.priority eq "urgent"',
+    },
+  },
+});
+```
+
+Strings go in double quotes, and the whole filter is URL-encoded in a query string. The operators include `eq`, `neq`, `gt`, `lt`, `contains`, `starts_with`, `exists` and `not_exists`, and a filter can test tags and an item's own fields too. To find items where a property is missing or `null`, use `not_exists`: Marfa refuses a comparison with `null`, because it would never match. The [search and filters](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md) chapter of the contract has the whole grammar.
 
 ## Sort
 
-`sort` takes `created_at`, `updated_at`, `occurred_at` or `properties.<field>`, with a field name of lowercase letters, digits and underscores, and `direction` takes `asc` or `desc`. A property sorts by its stored value. Numbers and booleans come first, in numeric order, with `false` equal to `0` and `true` equal to `1`, then strings in plain byte order, so an enum sorts alphabetically and not by meaning. Items that lack the property, or hold `null`, an object or an array, come last in either direction. Equal values order by item ID.
+A listing comes newest first by default. `sort` orders it by `created_at`, `updated_at`, `occurred_at` or a property, and `direction` takes `asc` or `desc`. This lists tasks due before October 21, soonest first:
+
+```http tab="HTTP" tab-group="client"
+GET /items?type=core.task&filter=properties.due_at%20lt%20%222026-10-21T00%3A00%3A00Z%22&sort=properties.due_at&direction=asc
+Authorization: Bearer <key>
+```
+
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/items", {
+  params: {
+    query: {
+      type: "core.task",
+      filter: 'properties.due_at lt "2026-10-21T00:00:00Z"',
+      sort: "properties.due_at",
+      direction: "asc",
+    },
+  },
+});
+```
+
+The CLI's `--sort` takes the three times but not a property. Items that lack the property come last, whichever the direction.
 
 ## Find what changed
 
-`updated_after` lists the items changed at or after a time. Send the latest `updated_at` you hold and skip the items you already have by ID, because items written together share an instant. The listing is ordered by `updated_at`, then ID, ascending, so leave out `sort` and `direction`, or Marfa answers `400 validation_error`. A purge isn't reported. To hear of every change, including purges, follow the stream as [Keep a copy in sync](/guides/keep-in-sync) shows.
+To catch up with what changed since you last read, list with `updated_after` set to the latest `updated_at` you hold:
 
-## Search text
-
-[Search items](/api-reference/search/searchItems) takes the words to look for in `q`, and answers the matches best first.
-
-```http
-GET /search?q=tides&type=core.note&limit=10
-Authorization: Bearer <credential>
+```bash tab="CLI" tab-group="client"
+marfa items list --updated-after 2026-10-09T23:50:54.460Z
 ```
 
-Each entry of `data` holds the `item`, its `metadata`, a `relevance_score`, and a `snippet_html` when the item's text matches. The score compares hits only within one search. The snippet is an excerpt of at most 32 words with `...` where the text is cut, written as HTML in which each matched word is wrapped in `<mark>` and everything else from the item is escaped, so it is safe to show as HTML.
+```http tab="HTTP"
+GET /items?updated_after=2026-10-09T23:50:54.460Z
+Authorization: Bearer <key>
+```
 
-How Marfa matches `q`:
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/items", {
+  params: { query: { updated_after: "2026-10-09T23:50:54.460Z" } },
+});
+```
 
-- **Every word has to match**, in any order and in any text field. A word matches by its stem, so `run` matches `running` and `runs`, ignoring case and accents.
-- **The last word matches as the start of a word**, because the person may still be typing it. The earlier words match whole.
-- **A query inside double quotes is a phrase.** Its words have to be adjacent and in order, and the last one matches whole.
-- **Anything else is a word to match**, never search syntax. An operator word, a `*`, a `-` or a `:` in `q` is just text, and a `q` with no word in it answers an empty page.
+The bound includes items changed at that instant, so skip the ones you already hold by `id`: items written together share an `updated_at`. This listing is always ordered oldest change first, and Marfa refuses it with any other `sort` or `direction`. A listing can't report an item that was purged; to hear of every change, purges included, follow the event stream as [Keep a copy in sync](/guides/keep-in-sync) shows.
 
-Marfa searches an item's `title`, `body`, `description` and `name`, every other string property its type declares unless the type marks it `searchable: false`, and its tags. It doesn't match an item on its ID alone, and it doesn't search properties the type doesn't declare. A search answers `active` items unless you name a `state`, and `any` still leaves out the bin: a trashed item is never searchable. `limit` is 1 to 100 and defaults to 20. Marfa reads a ranking at most 10,000 rows deep and answers `null` as the `next_cursor` of the page that reaches it, so narrow a broad search instead of paging through it. A missing `q` answers `400 missing_required_field`, and an empty one `400 validation_error`.
+## Search
+
+[Search items](/api-reference/search/searchItems) finds items by the words they hold, best match first:
+
+```bash tab="CLI" tab-group="client"
+marfa search tide --type core.note
+```
+
+```http tab="HTTP"
+GET /search?q=tide&type=core.note
+Authorization: Bearer <key>
+```
+
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/search", {
+  params: { query: { q: "tide", type: "core.note" } },
+});
+```
+
+Each entry in `data` holds the `item`, its `metadata`, a `relevance_score`, and a `snippet_html` showing where the text matched. The snippet escapes the item's text and marks each match, so it's safe to show as HTML:
+
+```json
+{
+  "relevance_score": 3.1940676173824336,
+  "snippet_html": "High <mark>tide</mark> at six, low <mark>tide</mark> at noon."
+}
+```
+
+Every word in `q` must match, in any order, in the item's text properties or its tags. Words match by their stem, so `tides` finds `tide`, and the last word matches as the start of a word, so a search as the person types finds results. Put a query in double quotes to match it as a phrase. A search takes most of a listing's parameters too, such as `type`, `tags` and `filter`.
 
 ## Count items
 
-[Get item counts](/api-reference/items/getItemStats) counts the items a listing with the same filters would match, grouped by state, or by type with `by=type`. Unlike a listing, it counts every state when you name none, the bin included, and it takes no `limit`, `cursor`, `sort` or `direction`.
+[Get item counts](/api-reference/items/getItemStats) counts the items a listing would match, by state or, with `by=type`, by type:
 
-```http
-GET /items/stats?by=type&tags=reading
-Authorization: Bearer <credential>
+```bash tab="CLI" tab-group="client"
+marfa items stats --by type
 ```
+
+```http tab="HTTP"
+GET /items/stats?by=type
+Authorization: Bearer <key>
+```
+
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/items/stats", {
+  params: { query: { by: "type" } },
+});
+```
+
+```json
+{ "core.event": 2, "core.note": 10, "core.task": 5 }
+```
+
+Over HTTP and in the TypeScript client, a count takes the same narrowing parameters as a listing, such as `tags=reading`. Unlike a listing, it includes every state unless you name one, the bin included.
 
 ## Read a calendar
 
-[List occurrences](/api-reference/items/listOccurrences) answers the `core.event` items that overlap a window of time, with each recurring event unfolded into one entry per occurrence. A recurring event is one item, a series, whose `recurrence` holds RFC 5545 rule lines. Marfa unfolds it when you read, and stores no occurrences.
+[List occurrences](/api-reference/items/listOccurrences) answers the events that fall in a window of time, with each recurring event unfolded into one entry for each time it happens:
 
-```http
-GET /occurrences?from=2026-10-01&to=2026-11-01
-Authorization: Bearer <credential>
+```bash tab="CLI" tab-group="client"
+marfa items occurrences --from 2026-10-12 --to 2026-10-26
 ```
 
-- **The window** is `from` and `to`, ISO 8601, with `to` after `from` and at most 400 days apart. A date with no time is its midnight in UTC. An event is in the window if it starts before `to` and ends after `from`. An event that ends exactly at `from` isn't, and an event with no length is, if it starts at or after `from` and before `to`.
-- **A window holds at most 5,000 occurrences.** Marfa refuses a larger one with `400 validation_error` and `details.max_occurrences`, and never trims it, so narrow the window.
-- **One page holds the whole window.** `next_cursor` is always `null`, and `data` is ordered by `starts_at`.
-- **Each entry** has `starts_at`, `ends_at` when it has an end, the `item`, and, for an occurrence of a series, a `series_id`. A stored exception replaces the occurrence it moved, shows at its own time, and carries `replaces`, the start of the occurrence it took the place of.
-- **`type`** narrows the events to a type and its subtypes, as in a listing.
+```http tab="HTTP"
+GET /occurrences?from=2026-10-12&to=2026-10-26
+Authorization: Bearer <key>
+```
 
-Marfa leaves out a series it can't unfold within its bounds and counts it in `scan.series_unexpanded`. `series_errors` names each series whose rule failed. When `scan.series_unexpanded` is above `0`, `expansion_incomplete` is `true`, and the calendar is missing something. `scan` also tells you how close the window is to its limits.
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/occurrences", {
+  params: { query: { from: "2026-10-12", to: "2026-10-26" } },
+});
+```
+
+Each entry has a `starts_at`, an `ends_at` where the event has one, and the `item`. An occurrence of a recurring event also carries a `series_id`, the `id` of the one `core.event` whose `recurrence` rule made it:
+
+```json
+{
+  "starts_at": "2026-10-13T07:00:00.000Z",
+  "ends_at": "2026-10-13T08:00:00.000Z",
+  "series_id": "01a12313-ad0e-71cd-99b4-7a176c5a9f18"
+}
+```
+
+The whole window comes in one page, in order of `starts_at`. A window spans at most 400 days, and Marfa refuses one that holds too many occurrences rather than trim it, so narrow the window. If the answer carries `expansion_incomplete: true`, a series couldn't be unfolded and the calendar is missing something: `series_errors` names the series.
 
 ## When a query is refused
 
 Marfa refuses a query it can't answer exactly, rather than answer a different one:
 
-| Answer | When |
-| --- | --- |
-| `400 validation_error` with `details.unknown_parameters` | The request has a query key the operation doesn't declare, such as a misspelled one. Marfa ignores a key that starts with `_`, so use that prefix for your own. |
-| `400 validation_error` with `details.empty_parameters` | `type`, `source`, `tags` or `filter` is present and empty, so a query built from a variable you never filled in doesn't read everything. |
-| `400 unknown_type` | `type` names a type nothing registers. A wildcard is never refused for this: it can match nothing. |
-| `403 type_not_permitted` | `type` names a registered type you can't read and can't read any type under, with `details.grant` naming the type. A credential whose type map reaches no type gets it whatever the filter names. |
-| `400 validation_error` | A `state` or `tier` that isn't one of the values, a time that isn't an instant, a `filter` that breaks the grammar, or a cursor another listing issued. |
+- A parameter the operation doesn't take, such as `tag` for `tags`, answers `400 validation_error` and lists it in `details.unknown_parameters`. Marfa ignores any parameter that starts with `_`, so use that prefix for your own.
+- A `type`, `tags`, `source` or `filter` sent empty answers `400 validation_error`, so a query built from a variable you never set doesn't read everything.
+- A `type` nothing registers answers `400 unknown_type`.
+- A `type` you can't read answers `403 type_not_permitted`.
 
 The rules behind this guide are in the [search and filters](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md) and [occurrences](https://github.com/withmarfa/marfa/blob/main/conformance/spec/occurrences.md) chapters of the contract.

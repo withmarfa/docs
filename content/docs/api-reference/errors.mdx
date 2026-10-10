@@ -3,51 +3,53 @@ title: Errors
 description: The shape of a refusal, what it tells you, which refusals to retry, and every code Marfa answers.
 ---
 
+When Marfa refuses a request, it says why in a form a program can act on: a stable code, a message for people, and details that name what went wrong. Your program branches on the code, never the message, and sends a request again only when the refusal says it can succeed later. Each operation's page lists the codes that operation can return.
+
 ## The shape of a refusal
 
-A refusal is a JSON body with one `error` object, except in answer to `HEAD`, which has no body. Here a key that may read `core.note` but not write it updates a note:
+A refusal is a JSON body holding one `error` object. Here a key that may read `core.note` but not write it tries to update a note:
 
 ```http
 HTTP/1.1 403 Forbidden
 Content-Type: application/json
 X-Error-Code: type_not_permitted
-X-Request-ID: 0199b3f2-5c1e-7a40-8d2b-6f1e3a9c4d70
+X-Request-ID: 01a1231c-f6ce-711f-af73-58881f6de58c
 
 { "error": { "code": "type_not_permitted", "message": "Write access to type \"core.note\" denied", "details": { "grant": { "kind": "type", "name": "core.note", "level": "write" } } } }
 ```
 
-- **`code`** is one of the codes below. Branch on it, not on `message`.
-- **`message`** is for people, and can change.
-- **`details`**, when it's there, is an object whose members depend on the refusal.
-- **`X-Error-Code`** repeats the code, so a client or a proxy can read it without parsing the body.
-- **`X-Request-ID`** is on every answer to a path outside `/auth/` and `/.well-known/`, and to `POST /auth/oauth2/register`, refusals included. Send your own there, 1 to 128 letters, digits, underscores and hyphens, and Marfa answers with it; otherwise Marfa makes one. Quote it when you report a problem.
+The `code` is one of the codes below, and it's what your program should branch on. The `message` is for people and can change. `details`, when it's there, is an object whose members depend on the refusal. The `X-Error-Code` header repeats the code, so a client or a proxy can read it without parsing the body.
 
-`409 version_conflict` and `409 ancestor_unavailable` also carry `error.status`, and `current` beside `error`; [Update an item](/api-reference/items/updateItem) shows both. Some answers under `/auth/` come in the sign-in library's own shapes instead, or as plain text or an HTML page. A request whose `Accept` header names `text/html` with no `application/json` before it gets an HTML page of the refusal's status in place of the JSON body, still with `X-Error-Code`, except for `409 version_conflict`, `409 ancestor_unavailable` and an answer replayed for an `Idempotency-Key`.
+Almost every answer carries `X-Request-ID`, which identifies the request. Quote it when you report a problem. To match a request with the server's logs, send your own `X-Request-ID` of 1 to 128 letters, digits, underscores and hyphens, and Marfa answers with it.
+
+A few answers differ from this shape. A `HEAD` request gets the status and headers with no body. `409 version_conflict` and `409 ancestor_unavailable` also carry the item as it is now, in `current` beside `error`; [Update an item](/api-reference/items/updateItem) shows both. Some answers under `/auth/` come from the sign-in library in its own shapes. A browser that asks for HTML gets an HTML page of the refusal's status, still with `X-Error-Code`; the [`errors/html-page`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/errors.md#errorshtml-page) rule says when.
 
 ## What a refusal tells you
 
-- **A grant you lack.** A `403` for a grant the key could be given names it in `details.grant`: its `kind` (`type`, `edge_type` or `extension`), its `name`, and the `level` the operation asked for, `read` or `write`. A `403` that no grant could lift, such as a write to a `system.*` type through the item operations, names none. Neither does `403 type_not_permitted` for a natural key that an item of a type you can't read already holds, so the answer says nothing of that item.
-- **Something you may not see.** An item named by its ID whose type you can't read answers `404 item_not_found`, exactly as a missing one does, so the answer says nothing of whether it exists. Creating, changing or revoking a folder is the exception: a key without write on `system.folder` is refused `403 type_not_permitted` before Marfa looks up any folder.
-- **An item in the bin.** An update or delete of an item in the bin, or a change to its metadata, tags or extensions, answers `404 item_not_found` with `details` of `{ "trashed": true }` when you may read the item's type, so you can tell an item someone trashed from one that never existed. Reading the item, its metadata, versions or extensions answers `404 item_not_found` with no `details`.
+A `403` caused by a grant the credential lacks names that grant in `details.grant`: its `kind` (`type`, `edge_type` or `extension`), its `name`, and the `level` the operation needed, `read` or `write`. That tells you what to add to the key. A `403` that no grant could lift, such as a write to a `system.*` type through the item operations, names none.
+
+A refusal never tells a credential about data it can't read. An item whose type the credential can't read answers `404 item_not_found`, exactly as an item that doesn't exist does. A key learns its own reach from [Get the current key](/api-reference/access/getCurrentKey), never from a refusal. [Access](/access) explains why.
+
+A change to an item in the trash also answers `404 item_not_found`, but with `"details": { "trashed": true }` when the credential may read the item's type, so you can tell an item someone trashed from one that never existed. Restore it before you change it.
 
 ## Retrying
 
 These codes mean the same request can succeed later:
 
-| Code | What to do |
-| --- | --- |
-| `write_contention` | Send the same request again. Another write held the store's lock for longer than the instance waits, and `details.budget_ms` says how long that was. On a bulk page under `atomic: false`, an entry reported `errored` with this code is the one to send again, not the page: entries before it may have been written. |
-| `idempotency_key_in_flight` | Send the same request with the same `Idempotency-Key` again. The first request with the key hasn't answered yet. |
-| `rate_limited` | Wait the seconds `Retry-After` names, then send it again. |
-| `housekeeping_job_running` | Run the job again once its current run has ended. |
-| `stream_capacity_exhausted` | Open the stream again later. The instance is serving as many live event streams as it allows. |
-| `inbound_unavailable` | For the sender of an inbound webhook: send the delivery again after `Retry-After`. |
+- `write_contention` (`503`): another write held the store's lock for longer than the instance waits. Send the same request again.
+- `idempotency_key_in_flight` (`409`): the first request with this `Idempotency-Key` hasn't answered yet. Send the same request with the same key again.
+- `rate_limited` (`429`): the credential is past its request limit. Wait the seconds that `Retry-After` names, then send it again.
+- `housekeeping_job_running` (`409`): the job is in the middle of a run. Run it again once that run has ended.
+- `stream_capacity_exhausted` (`503`): the instance is serving as many live event streams as it allows. Open the stream again later.
+- `inbound_unavailable` (`503`): an inbound webhook endpoint can't take a delivery now. The sender sends it again after `Retry-After`.
 
-`500 internal_error` names a fault and says nothing of what failed. Read what the request changed before you send a write again, and quote its `X-Request-ID` when you report the fault.
+With `Idempotency-Key`, a retried write is safe: Marfa answers a repeat with the first answer and doesn't write again. Without one, read what the first request changed before you send a write again.
+
+`500 internal_error` is a fault in the server, and the answer says nothing of what failed. Read what the request changed before you retry, and quote its `X-Request-ID` when you report it.
 
 ## Codes
 
-Every code Marfa answers in the `error` object, by status. The table comes from the [errors chapter of the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/errors.md), which is written from the server's own list of codes.
+Every code Marfa answers in the `error` object, by status. The list comes from the [errors chapter of the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/errors.md), which is written from the server's own list of codes.
 
 <ReferenceList description={2}>
 
