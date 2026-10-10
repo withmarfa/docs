@@ -13,13 +13,19 @@ type Element = ReactElement<{ children?: ReactNode; className?: string }>;
 
 /**
  * The ordered list a `Sequence` wraps and its items, or `null` when its
- * children hold no list, in which case the sequence shows them as they are.
+ * children are anything but one ordered list, in which case the sequence shows
+ * them as they are.
  */
 export function findSteps(children: ReactNode): { list: Element; steps: Element[] } | null {
-  const list = Children.toArray(children).find(isValidElement) as Element | undefined;
-  if (!list) return null;
-  const steps = Children.toArray(list.props.children).filter(isValidElement) as Element[];
-  return steps.length > 1 ? { list, steps } : null;
+  const nodes = Children.toArray(children).filter(
+    (node) => typeof node !== 'string' || node.trim() !== '',
+  );
+  const [list] = nodes;
+  if (nodes.length !== 1 || !isValidElement(list) || list.type !== 'ol') return null;
+  const steps = Children.toArray((list as Element).props.children).filter(
+    isValidElement,
+  ) as Element[];
+  return steps.length > 1 ? { list: list as Element, steps } : null;
 }
 
 /**

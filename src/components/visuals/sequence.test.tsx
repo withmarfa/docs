@@ -50,4 +50,17 @@ describe('Sequence', () => {
     );
     expect(html).toBe('<div class="marfa-seq-plain"><p>Only a paragraph.</p></div>');
   });
+  it('shows children with anything beside the list as they are', () => {
+    const html = renderToStaticMarkup(
+      <Sequence title="Writing">
+        <p>
+          Read <code>a</code> and <code>b</code> first.
+        </p>
+        {list}
+      </Sequence>,
+    );
+    expect(html).toContain('Read <code>a</code> and <code>b</code> first.');
+    expect(html.match(/<li/g)).toHaveLength(3);
+    expect(html).not.toContain('marfa-seq-controls');
+  });
 });
