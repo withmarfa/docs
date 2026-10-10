@@ -117,3 +117,47 @@ jobs:
       # specification rather than against whatever the current clients tolerate,
       # which is the gap that let four defects ship unnoticed.
       - run: pnpm test
+
+  # Two reports on a pull request that read the change and never block it. They
+  # sit in a job of their own, not in the required build, so a bug in either
+  # cannot turn the required check red, and the workflow still carries no
+  # `paths` filter: the step decides whether a report is due. Neither needs
+  # dependencies, so nothing is installed.
+  reports:
+    name: Docs reports
+    if: ${{ github.event_name == 'pull_request' }}
+    timeout-minutes: 10
+    runs-on: ${{ inputs.runner || vars.CI_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      # Which hand-written pages cite a rule or an operation that this change
+      # altered or removed. A list to read, never a request to write: a page it
+      # names may need no change (STYLE.md, "Keeping pages current").
+      - name: Staleness report
+        continue-on-error: true
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          base="$(git merge-base "$BASE" "$HEAD")"
+          if git diff --quiet "$base" "$HEAD" -- openapi.json src/generated/contract-index.json; then
+            echo "Neither openapi.json nor the contract index changed, so there is no staleness report."
+            exit 0
+          fi
+          node --experimental-strip-types scripts/staleness-report.ts "$base" "$HEAD" | tee -a "$GITHUB_STEP_SUMMARY"
+      # A page that grew by more than 30% and 2,000 characters.
+      - name: Page growth
+        continue-on-error: true
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          base="$(git merge-base "$BASE" "$HEAD")"
+          node --experimental-strip-types scripts/page-growth.ts "$base" "$HEAD"
