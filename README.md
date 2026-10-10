@@ -106,7 +106,7 @@ The status page publishes its own two: `/api/data` for the current state and
 Expects the server monorepo at `../marfa`; override with `MARFA_ROOT`. Besides
 `openapi.json`, it copies the monorepo's `GLOSSARY.md` and its latest release
 tag into `src/generated/`, writes the spec's general rules there as
-`api-overview.md`, writes the `marfa` command's reference there as
+`api-overview.md`, writes the CLI's reference there as
 `marfa-commands.md`, and takes the contract's generated tables there: the error
 codes, the settings, the shipped types, the shipped edge types, the twelve
 permissions and the event types. Run it by hand after an API, glossary,
