@@ -12,10 +12,10 @@ import { ConnectorMap } from './diagrams/connector-map';
 import { DeviceMap } from './diagrams/device-map';
 import { FileMap } from './diagrams/file-map';
 import { InstanceMap } from './diagrams/instance-map';
-import { ItemLifecycle } from './diagrams/item-lifecycle';
 import { ItemLayers } from './diagrams/item-layers';
 import { TypeTree } from './diagrams/type-tree';
 import { ReferenceList } from './reference-list';
+import { visualComponents } from './visuals';
 
 export function getMDXComponents(components?: MDXComponents) {
   return {
@@ -32,7 +32,6 @@ export function getMDXComponents(components?: MDXComponents) {
     Files,
     Folder,
     InstanceMap,
-    ItemLifecycle,
     ItemLayers,
     ReferenceList,
     Step,
@@ -41,6 +40,7 @@ export function getMDXComponents(components?: MDXComponents) {
     Tabs,
     TypeTable,
     TypeTree,
+    ...visualComponents,
     ...components,
   } satisfies MDXComponents;
 }
