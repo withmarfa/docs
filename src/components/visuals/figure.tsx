@@ -5,7 +5,7 @@ import { cn } from '@/lib/cn';
 /**
  * A static figure: boxes, groups and the lines between them, laid out by flex
  * and grid on the theme's tokens. Everything renders on the server and needs no
- * script. Below `--marfa-fig-wide` of figure width, every horizontal layout
+ * script. Below 34rem of figure width, every horizontal layout
  * turns into a column, so a figure fits a phone without scrolling sideways.
  */
 export function Figure({

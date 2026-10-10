@@ -8,10 +8,7 @@ import { MarfaAtAGlance } from './marfa-at-a-glance';
 import { Sequence } from './sequence';
 import { TypeInheritance } from './type-inheritance';
 
-/**
- * Everything a page can write from src/components/visuals/. `ItemLifecycle`
- * replaces the interactive diagram of that name.
- */
+/** Everything a page can write from src/components/visuals/. */
 export const visualComponents = {
   Arrow,
   Box,
