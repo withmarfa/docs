@@ -88,7 +88,7 @@ Don't restate what the API reference says. A page explains what the reference ca
 ## Examples
 
 - **Show the smallest real request that makes the point,** with real field names and values a reader could send, and show what comes back when the answer teaches something.
-- **One example in every client that has it.** Where the same task exists in more than one client, write it as a group of code tabs in this order: CLI, HTTP, TypeScript, Swift. Give every group `tab-group="client"`, so a reader's choice follows them through the site. Include only the clients where the operation exists; never a tab with a stub.
+- **One example in each client the page's reader uses.** Where the same task exists in more than one client, write it as a group of code tabs in this order: CLI, HTTP, TypeScript, Swift. Give every group `tab-group="client"`, so a reader's choice follows them through the site. Include only the clients where the operation exists; never a tab with a stub. Choose for the reader: a guide to running an instance shows the CLI and HTTP, a connector guide shows TypeScript and HTTP, the Quickstart shows what runs in a terminal, and a concept page may show one HTTP request when the request is the idea.
 
   ````mdx
   ```bash tab="CLI" tab-group="client"
