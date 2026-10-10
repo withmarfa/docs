@@ -70,7 +70,7 @@ export function ConnectorParts({ caption }: { caption?: ReactNode }) {
         {/* Vendor to endpoint, past the connector: down from the vendor, a turn, then a run to the endpoint. */}
         <span className="marfa-cp-bypass marfa-cp-bypass-start" aria-hidden="true" />
         <span className="marfa-cp-bypass marfa-cp-bypass-run" aria-hidden="true">
-          <span className="marfa-cp-bypass-label">posts webhooks</span>
+          <span className="marfa-cp-bypass-label">posts inbound webhooks</span>
           <ArrowHead />
         </span>
         <span className="marfa-cp-bypass marfa-cp-bypass-turn" aria-hidden="true">
