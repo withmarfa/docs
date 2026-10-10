@@ -8,13 +8,15 @@
 # command reference into src/generated/marfa-commands.md, dropping its
 # generated-file comment and its title, and it takes the code table from the
 # errors chapter into src/generated/error-codes.md and the settings table from
-# the instance chapter into src/generated/settings.md, and the tables of the
+# the instance chapter into src/generated/settings.md, the tables of the
 # shipped types, edge types, permissions and event types from their chapters
 # into src/generated/core-types.md, edge-types.md, permissions.md and
-# event-types.md. A description that is missing, blank or
+# event-types.md, and it hashes every rule of the contract's chapters into
+# src/generated/contract-index.json. A description that is missing, blank or
 # the wrong type, a spec whose top level or `info` is not an object, or a
 # command reference that is missing, empty, not UTF-8 or holds nothing past its
-# title, or a chapter with no table between its markers, must stop the
+# title, or a chapter with no table between its markers, or a contract with no
+# rules, a repeated rule ID or an ID under another chapter, must stop the
 # script before it changes anything, with one line saying
 # so, never a Python traceback. The script is copied into each fixture so that
 # its docs root is the fixture, and the real tree is never touched.
@@ -142,6 +144,80 @@ permissions_expected="$(catalogue_expected '| Permission | Lets |' '| `keys.mint
 events_chapter="$(catalogue_chapter event-types '| Event | Sent to |' '| `item.created` | Streams |')"
 events_expected="$(catalogue_expected '| Event | Sent to |' '| `item.created` | Streams |')"
 
+# The contract chapters that hold rules, and the standard that only shows how a
+# rule is written. The index takes a hash of each rule's sentence and reason
+# from the chapters, never from the standard and never from a Tests line, and
+# a heading-shaped line inside a fence is not a rule.
+blobs_chapter="$(cat <<'EOF'
+# Blobs
+
+Intro that states no rule.
+
+## Uploading
+
+### `blobs/upload-created`
+
+When a credential that may upload sends `POST /blobs`,
+the server   MUST answer `201`.
+
+**Reason:** the bytes are stored.
+
+**Tests:** `correctness/blob.test.ts › one`.
+
+### `blobs/upload-hash`
+
+The server MUST answer the `hash`.
+
+```text
+### `blobs/not-a-rule`
+```
+
+**Tests:** waiting on #1.
+
+## Reading
+
+Intro to reading.
+
+### `blobs/read-range`
+
+The server MUST answer a range.
+EOF
+)"
+housekeeping_chapter="$(cat <<'EOF'
+# Housekeeping
+
+### `housekeeping/run-unknown-name`
+
+The server MUST answer `404`.
+
+**Tests:** `compliance/housekeeping.test.ts › one`.
+EOF
+)"
+standard="$(cat <<'EOF'
+# The contract
+
+### `housekeeping/run-unknown-name`
+
+An example in the standard, which is not a rule.
+EOF
+)"
+rule_hash() { printf '%s' "$1" | shasum -a 256 | cut -c1-16; }
+index_expected="$(cat <<EOF
+{
+  "chapters": {
+    "blobs": {
+      "blobs/upload-created": "$(rule_hash 'When a credential that may upload sends `POST /blobs`, the server MUST answer `201`. **Reason:** the bytes are stored.')",
+      "blobs/upload-hash": "$(rule_hash 'The server MUST answer the `hash`. ```text ### `blobs/not-a-rule` ```')",
+      "blobs/read-range": "$(rule_hash 'The server MUST answer a range.')"
+    },
+    "housekeeping": {
+      "housekeeping/run-unknown-name": "$(rule_hash 'The server MUST answer `404`.')"
+    }
+  }
+}
+EOF
+)"
+
 # fixture <name> <spec file>
 #
 # Builds <name>/docs, holding the script and a stale copy of everything it
@@ -162,6 +238,7 @@ fixture() {
   printf 'stale edge types\n' > "${dir}/docs/src/generated/edge-types.md"
   printf 'stale permissions\n' > "${dir}/docs/src/generated/permissions.md"
   printf 'stale events\n' > "${dir}/docs/src/generated/event-types.md"
+  printf 'stale index\n' > "${dir}/docs/src/generated/contract-index.json"
   printf '{"version":"v0.0.0"}\n' > "${dir}/docs/src/generated/marfa-release.json"
 
   cp "$2" "${dir}/marfa/openapi.json"
@@ -175,6 +252,9 @@ fixture() {
   printf '%s\n' "${edges_chapter}" > "${dir}/marfa/conformance/spec/edges.md"
   printf '%s\n' "${permissions_chapter}" > "${dir}/marfa/conformance/spec/keys-and-oauth.md"
   printf '%s\n' "${events_chapter}" > "${dir}/marfa/conformance/spec/events.md"
+  printf '%s\n' "${blobs_chapter}" > "${dir}/marfa/conformance/spec/blobs.md"
+  printf '%s\n' "${housekeeping_chapter}" > "${dir}/marfa/conformance/spec/housekeeping.md"
+  printf '%s\n' "${standard}" > "${dir}/marfa/conformance/spec/README.md"
   : > "${dir}/marfa/pnpm-workspace.yaml"
   git -C "${dir}/marfa" init -q
   git -C "${dir}/marfa" add -A
@@ -268,7 +348,7 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings, the type, edge type, permission and event type catalogues and the release (v1.2.3) synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index and the release (v1.2.3) synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -290,9 +370,11 @@ check "the permissions are the rows between the markers, and nothing else" \
   "${permissions_expected}" "$(cat "${work}/good/docs/src/generated/permissions.md")"
 check "the event types are the rows between the markers, and nothing else" \
   "${events_expected}" "$(cat "${work}/good/docs/src/generated/event-types.md")"
+check "the contract index groups each rule's hash under its chapter, in file order" \
+  "${index_expected}" "$(cat "${work}/good/docs/src/generated/contract-index.json")"
 check "the release is the latest version tag" '{"version":"v1.2.3"}' "$(cat "${work}/good/docs/src/generated/marfa-release.json")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md core-types.md edge-types.md error-codes.md event-types.md marfa-commands.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md contract-index.json core-types.md edge-types.md error-codes.md event-types.md marfa-commands.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 # ----------------------------------------------------------------- every refusal
 
@@ -418,6 +500,52 @@ refuse_table_cases types.md types types Type
 refuse_table_cases edges.md edge-types "edge types" "Edge type"
 refuse_table_cases keys-and-oauth.md permissions permissions Permission
 refuse_table_cases events.md event-types "event types" Event
+
+# The hash covers the rule and its reason and nothing else: a new Tests line, a
+# reflowed paragraph and an edited intro leave every hash alone, and an edited
+# rule changes only its own.
+echo "what the contract index hashes"
+fixture hashed "${work}/untagged.json"
+spec_dir="${work}/hashed/marfa/conformance/spec"
+python3 - "${spec_dir}/blobs.md" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t = t.replace("**Tests:** waiting on #1.", "**Tests:** `correctness/renamed.test.ts › renamed`,\n`› and another`.")
+t = t.replace("Intro to reading.", "A different intro to reading.")
+t = t.replace("When a credential that may upload sends `POST /blobs`,\nthe server   MUST", "When a credential that may upload\nsends `POST /blobs`, the server MUST")
+t = t.replace("The server MUST answer a range.", "The server MUST answer a byte range.")
+open(p, "w").write(t)
+PY
+git -C "${work}/hashed/marfa" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false commit -q -am edit
+sync hashed
+check "an edit to a Tests line, an intro or the wrapping: the script succeeds" 0 "${status}"
+check "an edit to a rule changes its hash only" \
+  "$(printf '%s\n' "${index_expected}" | sed "s/$(rule_hash 'The server MUST answer a range.')/$(rule_hash 'The server MUST answer a byte range.')/")" \
+  "$(cat "${work}/hashed/docs/src/generated/contract-index.json")"
+
+# refuse_contract <label> <text for the blobs chapter> [alone: no other chapter]
+c=0
+refuse_contract() {
+  c=$((c+1))
+  local name="contract-${c}"
+  fixture "${name}" "${work}/untagged.json"
+  local dir="${work}/${name}/marfa/conformance/spec"
+  printf '%b' "$2" > "${dir}/blobs.md"
+  if [ "${3:-}" = alone ]; then rm "${dir}/housekeeping.md"; fi
+  local before; before="$(everything "${name}")"
+  sync "${name}"
+  check "${1}: exits 1" 1 "${status}"
+  check "${1}: says so in one line" \
+    "The contract in ${work}/${name}/marfa/conformance/spec has no rules, a rule ID that repeats or names another chapter, or a chapter that is not UTF-8. Nothing has changed." "${out}"
+  check "${1}: shows no traceback" 0 "$(printf '%s' "${out}" | grep -c 'Traceback\|File "' || true)"
+  check "${1}: changes nothing" "${before}" "$(everything "${name}")"
+}
+echo "a contract the script refuses"
+refuse_contract "no rules in any chapter" '# Blobs\n\nNo rules here.\n' alone
+refuse_contract "a rule ID that repeats" '### `blobs/a`\n\nThe server MUST.\n\n### `blobs/a`\n\nThe server MUST again.\n'
+refuse_contract "a rule ID that names another chapter" '### `items/a`\n\nThe server MUST.\n'
+refuse_contract "a chapter that is not UTF-8" '### `blobs/a`\n\nThe server MUST \xff.\n'
 
 echo "the workflow"
 check "CI runs this test" 1 "$(grep -cF 'run: bash .github/scripts/sync-from-marfa.test.sh' "${here}/../workflows/ci.yml")"
