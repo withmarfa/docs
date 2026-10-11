@@ -2,20 +2,20 @@
 
 The source of the public documentation site at `docs.marfa.so` and of the status page at `status.marfa.so`. Fumadocs on TanStack Start, deployed to Cloudflare Workers with `@cloudflare/vite-plugin`.
 
-The docs follow the API description and the contract in `withmarfa/marfa`, and those are the source of truth. This repository is where published docs live: code repositories open a pull request here when they change a public surface. Check any Marfa name, field, error code or rule on a page against them before it ships.
+The docs follow the API description and the contract in `withmarfa/marfa`, and those are the source of truth. Check any Marfa name, field, error code or rule on a page against them before it ships. Generated reference reaches this repository through the sync script; hand-written pages are rewritten in a docs pass at each release, never patched for each code change (`STYLE.md`, "Keeping pages current").
 
 Writing follows `STYLE.md`.
 
 ## Layout
 
-- **Content** is under `content/docs/`, one folder per tab: `get-started/`, `guides/`, `tools/` and `api-reference/`. `changelog.mdx` sits at the root and is served at `/changelog`, outside every tab.
-- **Pages** are `.mdx` files that start with YAML frontmatter holding a `title` and a `description`. Quote a description that begins with `@`, `:`, `>`, `|`, `*`, `&`, `?` or `%`. `Card`, `Cards` and `Callout` are available in every page; import anything else from `fumadocs-ui/components/`.
-- **Tabs and groups** are declared in `meta.json` files. A folder with `"root": true` is a tab, `"pages"` orders its entries, `"---Group---"` starts a labeled sidebar group and `"..."` stands for every page not listed. `content/docs/meta.json` orders the tabs. Adding a page means adding the file and listing it in its folder's `meta.json`.
+- **Content** is under `content/docs/`, one folder per tab, and there are three tabs: Overview, Guides and API reference. `(overview)/` is a folder group, so its name is not part of any URL and its pages sit at the site root (`/overview`, `/files`, `/cli`, `/changelog`); `guides/` and `api-reference/` keep their names in their URLs. The Overview holds the concepts, the CLI and the SDKs, and the Resources (Glossary, Changelog, Docs for agents and a link to the contract). Because the Overview's pages share the root with each other, a new slug there must not repeat another page's slug or the name of a Worker route (`mcp`, `api`, `version.json`, `llms.txt`, `llms-full.txt`, `docs-map.md`).
+- **Pages** are `.mdx` files that start with YAML frontmatter holding a `title` and a `description`. Quote a description that begins with `@`, `:`, `>`, `|`, `*`, `&`, `?` or `%`. An optional `tocDepth` (2 to 6) limits the page's "On this page" list to headings at that level and above, for a page that includes a long generated reference (`source.config.ts`, applied in `src/routes/$.tsx`). Every page can use, without importing it, what `src/components/mdx.tsx` registers: Fumadocs's defaults (such as `Card`, `Cards` and `Callout`), `Tabs` and `Tab`, `Steps` and `Step`, `TypeTable`, `Accordions` and `Accordion`, `Files`, `Folder` and `File`, `ReferenceList`, and the visuals in `src/components/visuals/`. Import anything else from `fumadocs-ui/components/`.
+- **Tabs and groups** are declared in `meta.json` files. A folder with `"root": true` is a tab, `"pages"` orders its entries, `"---Group---"` starts a labeled sidebar group, `"external:[Text](url)"` adds a link to another site and `"..."` stands for every page not listed. `content/docs/meta.json` orders the tabs. Adding a page means adding the file and listing it in its folder's `meta.json`.
 - **`api-reference/`** holds only the hand-written index and Errors pages. Every operation page is generated from `openapi.json` by `src/lib/source.ts` and `src/lib/openapi.ts`, grouped by tag.
-- **`src/components/section-nav.tsx`** draws the tabs as pills in the header. Its `SECTIONS` list is separate from the `meta.json` files, so a new tab or a renamed landing page needs both.
+- **`src/components/section-nav.tsx`** draws the tabs as pills in the header. Its `SECTIONS` list is separate from the `meta.json` files, so a new tab or a renamed landing page needs both. The header holds the tab pills, the status dot, the npm and GitHub icons, search and the theme switch, and no text links.
 - **`src/lib/api-reference-tree.ts`** finds the API reference folder by its title in `meta.json` (`API reference`), then orders its tag groups as the API description lists them. Rename the folder's title and you must change `API_REFERENCE_TITLE` there.
-- **`src/lib/layout.shared.tsx`** holds the header links, including Changelog and Contract. **`src/routes/$.tsx`** renders every page, and **`src/components/release-label.tsx`** is the release label in the sidebar footer.
-- **`src/generated/`** is committed and written only by the sync script. Do not edit it by hand.
+- **`src/lib/layout.shared.tsx`** holds the header links. The Changelog and the contract are in the Overview's Resources group, not the header. **`src/routes/$.tsx`** renders every page, and **`src/components/release-label.tsx`** is the release label in the sidebar footer.
+- **`src/generated/`** is committed and written only by the sync script. Do not edit it by hand. A page shows a generated Markdown file with fumadocs-mdx's `<include cwd>src/generated/<file>.md</include>` (add `#<heading-id>` for one section, which ends at the next heading of any level), never with a component, so the page's Markdown copy and the docs MCP tools carry the same text as the HTML.
 
 ## Commands
 
@@ -34,7 +34,9 @@ pnpm mcp:stdio        # the docs MCP stdio bridge
 
 Run `pnpm build` and `pnpm build:status` before `pnpm types:check`. Each build generates a route tree, and the two trees register their paths in one global interface, so type-checking without both builds leaves the other target's route types `undefined`. CI runs them in that order.
 
-`pnpm test` includes the content lint, `src/lib/content-lint.test.ts`. It checks every page for em dashes (including `&mdash;`), the glossary's banned terms, a short docs-only list of avoided terms ("door"), cited contract statement numbers, a title and description, "coming soon" outside the two pages that may use it, and internal links that are not site-root paths or reach no page (a relative link or a `docs.marfa.so` link fails). Each rule has a test that proves it fires on a bad sample.
+`pnpm test` includes the content lint, `src/lib/content-lint.test.ts`. It checks every page for em dashes (including `&mdash;`), the glossary's banned terms, a short docs-only list of avoided terms ("door"), cited contract statement numbers, a title and description, "coming soon" outside the Overview page, and internal links that are not site-root paths or reach no page (a relative link or a `docs.marfa.so` link fails). Each rule has a test that proves it fires on a bad sample.
+
+The lint also reads the text a page pulls in with `<include>`, resolved the way fumadocs-mdx resolves it (relative to the page, or to the repository root with `cwd`, and `#id` for one section), and reports a line in the included file's own numbering. Only two rules reach included text: em dashes (and their entities) and internal links. No other rule does: the banned and avoided terms in particular stay out of it, because the glossary names those words on purpose. An include the lint cannot resolve fails too.
 
 ## Syncing from marfa
 
@@ -42,13 +44,45 @@ Run `pnpm build` and `pnpm build:status` before `pnpm types:check`. Each build g
 MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh
 ```
 
-`MARFA_ROOT` defaults to `../marfa`. Use a checkout on an up-to-date `main` with its tags fetched: the script copies committed files and runs nothing. It stops before it changes anything if the checkout has no spec, glossary or release tag, or if the spec is not valid JSON. It copies three things:
+`MARFA_ROOT` defaults to `../marfa`. Use a checkout on an up-to-date `main` with its tags fetched: the script copies committed files and runs nothing. It stops before it changes anything if the checkout has no spec, glossary, command reference, errors chapter or release tag, if the spec is not valid JSON or has no `info.description`, if the command reference holds nothing after its title, if the errors chapter has no code table between its markers, if the instance chapter has no settings table between its markers, if the types, edges, keys and sign-in or events chapter has no table between its markers, or if the glossary has no words section, if the contract's chapters hold no rules, repeat a rule ID or name a rule under another chapter's ID. It writes thirteen things:
 
 - `openapi.json`, which the monorepo's CI keeps current. Fix a gap in the monorepo's generator, never in this file.
+- `src/generated/api-overview.md`, the spec's `info.description` (the rules every operation follows) with each heading one level lower, included by the API reference overview under its own heading.
 - `src/generated/GLOSSARY.md`, which the content lint reads its banned terms from.
+- `src/generated/glossary-words.md`, the `## The words` section of that glossary without its heading, up to the next `##` heading, which the Glossary page includes. It is a file of its own because fumadocs-mdx ends an included section at the next heading of any level, and the section is split into `###` topic groups. The page's `tocDepth` of 3 lists the groups.
+- `src/generated/marfa-commands.md`, the monorepo's `core/marfa-cli/COMMANDS.md` (the CLI's reference, generated from its own help) without its generated-file comment and its title, included by the CLI reference page.
+- `src/generated/error-codes.md`, the code table between the `errors-table` markers of the monorepo's `conformance/spec/errors.md`, which the monorepo generates from the server's own list of codes, included by the Errors page.
+- `src/generated/settings.md`, the settings table between the `settings-table` markers of the monorepo's `conformance/spec/instance.md`, which the monorepo holds to the server's own settings schema, included by the Settings guide.
+- `src/generated/core-types.md`, the table between the `types-table` markers of the monorepo's `conformance/spec/types.md`: every type an instance ships, `core.*` and `system.*`, with its family, parent, required properties and description. The monorepo generates it from the shipped type registry.
+- `src/generated/edge-types.md`, the table between the `edge-types-table` markers of `conformance/spec/edges.md`: each shipped edge type with its reverse name, cardinality, what a delete does to the other end (`cascade`, `orphan` or `block`) and the type constraints it declares on each end. Generated from the shipped edge type definitions.
+- `src/generated/permissions.md`, the table between the `permissions-table` markers of `conformance/spec/keys-and-oauth.md`: the twelve permissions and what each lets a credential do. Generated from the server's permission list, with wording from the monorepo's `GLOSSARY.md`.
+- `src/generated/event-types.md`, the table between the `event-types-table` markers of `conformance/spec/events.md`: every event and stream frame, whether a webhook can name it, and when it is sent. Generated from the server's webhook event list and the stream's frame schema.
+- `src/generated/contract-index.json`, every rule ID in the chapters of the monorepo's `conformance/spec/` (the `###` headings, not the standard in `README.md`), grouped by chapter, each with a hash of its rule and reason. The hash leaves out the Tests line and collapses whitespace, so a renamed fixture or a rewrapped paragraph changes nothing. The staleness report compares it between two commits (see "Keeping pages current").
 - `src/generated/marfa-release.json`, the latest `v` version tag, shown as "Marfa vX.Y.Z" in the sidebar.
 
-Run it after an API, glossary or release change lands in the monorepo. The `OpenAPI spec` workflow checks that the committed `openapi.json` parses and declares paths.
+`.github/scripts/sync-from-marfa.test.sh` runs it against throwaway checkouts and pins the overview, the command reference, every table and the contract index it writes and every input it refuses. Run it after an API, glossary, command, error code, setting, type, edge type, permission, event type or release change lands in the monorepo.
+
+The script takes only what the monorepo generates and commits as Markdown between markers or as a file of its own. A page that lists types, edge types, permissions or events includes the generated table and never copies one by hand; a list the monorepo does not generate gets a source there first.
+
+The `OpenAPI spec` workflow checks that the committed `openapi.json` parses and declares paths.
+
+## Keeping pages current
+
+Generated reference is synced, and hand-written pages are rewritten whole in a docs pass at each release. Nothing here asks an agent to write: the reports below name pages to read again, and "no change needed" is a normal answer.
+
+- **After a marfa change,** run the sync (above) and open the sync pull request. Do not open a docs pull request for a code change, and do not patch a page for one.
+- **On a sync pull request,** the `Docs reports` job in `ci.yml` writes the staleness report to the job summary whenever `openapi.json` or `src/generated/contract-index.json` changed. It lists each hand-written page under `content/docs/` that cites a rule whose statement changed or went away, or an operation that changed or went away, and below them each page that cites a chapter in which a rule changed, went away or was added ("chapter changed"). It reads a page's links: a rule by its heading in `conformance/spec/<chapter>.md`, a chapter by the same link without a heading or with a heading that is not a rule, an operation by `/api-reference/<tag>/<operationId>`. An operation counts as changed when its method, path or operation object changed, or anything it reaches through `$ref`. The same job warns on a page that grew by more than 30% and 2,000 characters. Neither report can fail the job, and the job is separate from the required build.
+- **At each release,** run the docs pass. If no docs commit has synced the new tag yet, run the sync and merge its pull request first. Find the docs commit that synced the previous release and the one that synced the new tag from the history of `src/generated/marfa-release.json`, then run the report between them:
+
+  ```bash
+  git log --format='%h %ad %s' --date=short -- src/generated/marfa-release.json
+  git show <commit>:src/generated/marfa-release.json   # which release a commit synced
+  node --experimental-strip-types scripts/staleness-report.ts <previous-release-commit> <new-release-commit>
+  ```
+
+  Read each page it lists against the contract and the API description, and rewrite the page whole to `STYLE.md` if it is out of date. Do the pages under "chapter changed" last. When a page is still right, leave it alone.
+
+`scripts/staleness-report.ts` and `scripts/page-growth.ts` use only Node built-ins, and `src/lib/staleness-report.test.ts` and `src/lib/page-growth.test.ts` test them.
 
 ## Two Workers
 
@@ -58,17 +92,19 @@ The docs site is the default target. The status page in `src/status/` is the sec
 
 ## CI and publishing
 
-`CI` runs on every pull request and every push to `main`. A `Classify changes` job skips the build only for a change that touches nothing but agent instructions, the root README or LICENSE, `.agents/`, `.claude/`, `.codex/`, `.githooks/` or the issue and pull request templates (`.github/scripts/ci-changes.sh`). The `Build and type-check` job runs `pnpm build`, `pnpm build:status`, `pnpm types:check`, the shell tests in `.github/scripts/` and `pnpm test`. It is a required check, so never add `paths` filters to `ci.yml`: a filtered-out workflow leaves the check pending. `OpenAPI spec` is not required and runs only when `openapi.json` changes.
+`CI` runs on every pull request and every push to `main`. A `Classify changes` job skips the build only for a change that touches nothing but agent instructions, the root README or LICENSE, `.agents/`, `.claude/`, `.codex/`, `.githooks/` or the issue and pull request templates (`.github/scripts/ci-changes.sh`). The `Build and type-check` job runs `pnpm build`, `pnpm build:status`, `pnpm types:check`, the shell tests in `.github/scripts/` and `pnpm test`. It is a required check, so never add `paths` filters to `ci.yml`: a filtered-out workflow leaves the check pending. `Docs reports` runs on pull requests only and is not required (see "Keeping pages current"). `OpenAPI spec` is not required and runs only when `openapi.json` changes.
 
 **Merging to `main` publishes.** `Publish` runs when `CI` completes successfully on `main`. Separate jobs build and deploy the docs site and the status page, each only if something its target builds from has changed since the commit it serves (`.github/scripts/read-live-commit.sh`; any uncertain case publishes). Each job then fetches `/version.json` from its live site and fails unless it reports the deployed commit. A build from a modified tree reports `<sha>-dirty`. Deploying needs the `CLOUDFLARE_API_TOKEN` secret and the `CLOUDFLARE_ACCOUNT_ID` variable.
 
-`Publish` has no schedule. Run it by hand from the Actions tab with `mode` set to `check` to compare each live commit against `main`, or to `publish` to deploy; `target` limits it to `docs` or `status`. The status check also fails if the checker's store has not been written for three of its write intervals (`.github/scripts/check-store-freshness.sh`). When `ALERT_WEBHOOK_URL` is set, each target reports to the alerting service under its own key, so one target's green run cannot resolve the other's open alert. `pnpm run deploy` from an authenticated shell is the fallback.
+`Publish` has no schedule. Run it by hand from the Actions tab with `mode` set to `check` to compare each live commit against `main`, or to `publish` to deploy; `target` limits it to `docs` or `status`. The status check also fails if the checker's store has not been written for three of its write intervals (`.github/scripts/check-store-freshness.sh`). Nothing reports a failure outside GitHub: a red run is the signal, whether a deploy did not take or a check found a site behind `main` or a stale store. `pnpm run deploy` from an authenticated shell is the fallback.
 
 ## Agent access
 
-- **Markdown copy of each page.** Append `.md` to a page URL (`src/routes/{$}[.]md.ts`). Pages are prerendered and served as static assets, so the `.md` URL is the only way to ask for Markdown. A missing page answers 404. `/` redirects to `/get-started`.
-- **`/llms.txt`, `/llms-full.txt` and `/docs-map.md`.** An index, the whole corpus, and a map grouped by tab, from `src/routes/llms[.]txt.ts`, `llms-full[.]txt.ts` and `docs-map[.]md.ts`. The map orders the tabs in its `sectionOrder`.
-- **The docs MCP server at `/mcp`.** `src/routes/mcp.ts` passes requests to `server.ts` in `src/lib/mcp/`, and `tools.ts` defines the tools once: `docs_search`, `docs_fetch` and `docs_list_topics`. `stdio.ts` is a bridge that forwards a stdio client to the HTTP endpoint (`MARFA_DOCS_URL`), so it cannot differ from it. `server.test.ts` checks the server against the MCP specification; add a case there before changing protocol-visible behavior.
+- **Markdown copy of each page.** Append `.md` to a page URL (`src/routes/{$}[.]md.ts`). Pages are prerendered and served as static assets, so the `.md` URL is the only way to ask for Markdown. A missing page answers 404. A page in the `(overview)/` group answers at its root slug, such as `/files.md`. `/` is not prerendered: the Worker answers it with a 307 to `/overview`, the Overview page, whose copy is `/overview.md`. Prerender must never save `/` as `/index.html`, so `vite.config.ts` starts it at `/overview` and its filter drops `/`. There is no `/index.md`. A page in `(overview)/` can't take a slug the Worker already answers at the root (`api`, `mcp`, `llms`, `llms-full`, `docs-map`, `version`), or `docs`, which the docs tools strip as a prefix.
+- **`/llms.txt`, `/llms-full.txt` and `/docs-map.md`.** An index, the whole corpus, and a map grouped by tab and sidebar group, from `src/routes/llms[.]txt.ts`, `llms-full[.]txt.ts` and `docs-map[.]md.ts`. The map is built from the page tree by `src/lib/docs-map.ts`, so it has the sidebar's tabs, groups and order.
+- **One implementation of the docs tools.** `src/lib/docs-tools.ts` holds the search server, `searchDocs`, `fetchDocsPage`, `listTopics` and `pathToSlugs`, with no MCP types. The MCP server, the JSON addresses and the site's search box (`/api/search`) all use it, so change behavior there.
+- **The docs MCP server at `/mcp`.** `src/routes/mcp.ts` passes requests to `server.ts` in `src/lib/mcp/`, and `tools.ts` adapts the three tools over `docs-tools.ts`: `docs_search`, `docs_fetch` and `docs_list_topics`. `stdio.ts` is a bridge that forwards a stdio client to the HTTP endpoint (`MARFA_DOCS_URL`), so it cannot differ from it. `server.test.ts` checks the server against the MCP specification; add a case there before changing protocol-visible behavior.
+- **JSON addresses for clients with no MCP.** `GET /api/docs/search?q=<query>&limit=<1 to 50, default 10>` answers `{ "hits": [{ "title", "url", "snippets" }] }` with one hit per page and no highlight markup (a snippet keeps the page's inline code backticks), and a blank `q` or a bad `limit` answers 400 `{ "error", "message" }`. `GET /api/docs/topics` answers `{ "pages": [{ "title", "url", "description", "breadcrumbs" }] }`. The handlers are in `src/lib/docs-api.ts`, called by `src/routes/api/docs/`. There is no page route: fetch `/<path>.md`. The `marfa docs` command in withmarfa/marfa reads these two addresses and the `.md` copies, so a change to their shapes or status codes needs a matching change there.
 
 When a page's path or title changes, check what these surfaces say about it, including the example paths in the `docs_fetch` description.
 

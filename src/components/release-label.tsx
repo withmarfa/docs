@@ -23,7 +23,7 @@ export function ReleaseLabel() {
 export function SidebarFooter(props: ComponentProps<'div'>) {
   return (
     <>
-      <div className="flex border-t px-4 py-2.5">
+      <div className="flex px-6 py-2.5">
         <ReleaseLabel />
       </div>
       <div {...props} />

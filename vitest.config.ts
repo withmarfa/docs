@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   plugins: [mdx()],
   test: {
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     testTimeout: 30000,
   },
   resolve: {

@@ -1,0 +1,164 @@
+---
+title: Swift package
+description: Give an iOS or macOS app a working copy of your instance that reads offline, queues its writes and keeps itself current.
+---
+
+The Swift package, Marfa, is how an app on iPhone, iPad or Mac works with an instance. An app built on it is a [device](/devices): it keeps a working copy of the slice of the instance it needs, reads from that copy with or without a connection, and queues its writes until it can send them. The package embeds Marfa's core, the engine every native client shares, so your app gets the same working copy and queue as the [CLI](/cli). This page shows the main tasks; [Build an app with Swift](/guides/swift-app) puts them together into a working app.
+
+## Add the package
+
+The package supports iOS 27 and macOS 27, and builds with Xcode 27 on a Mac with Apple silicon. In Xcode, choose File > Add Package Dependencies, enter `https://github.com/withmarfa/marfa-swift`, and add the `Marfa` product to your app's target. In a `Package.swift`, add the package and the product:
+
+```swift title="Package.swift"
+.package(url: "https://github.com/withmarfa/marfa-swift", exact: "0.0.11"),
+```
+
+```swift title="Package.swift"
+.product(name: "Marfa", package: "marfa-swift"),
+```
+
+Use the version of the [latest release](https://github.com/withmarfa/marfa-swift/releases/latest). Every release adds 0.0.1 to the version, whatever it changes, so pin one version and move to the next on purpose.
+
+Each release carries the core already built, so your app needs no Rust toolchain. The core is built for Apple silicon only, so in your app target's build settings, set Excluded Architectures for Any iOS Simulator SDK to `x86_64`. Without it, some simulator builds fail to link.
+
+## Open a working copy
+
+A working copy keeps its data in a SQLite file, which it makes the first time you open it. Give it a URL for that file, and the server's URL with a credential, a key or an app's access token:
+
+```swift
+import Marfa
+
+let copy = try await WorkingCopy.open(store: storeURL, server: Server(url: serverURL, key: key))
+```
+
+Opening reads nothing from the instance. The copy holds the credential in memory and never writes it to its store, so keep it in the keychain between launches. `Keychain.system` does that:
+
+```swift
+try Keychain.system.save(key: key, service: "com.example.readinglist", account: serverURL.absoluteString)
+let saved = try Keychain.system.key(service: "com.example.readinglist", account: serverURL.absoluteString)
+```
+
+When the credential changes, give the open copy the new one with `useKey(_:)`. [Manage keys](/guides/manage-keys) shows how to make a key that reaches only the types your app needs.
+
+## Declare an app type
+
+An app can bring its own types, under its own namespace, such as `app.readinglist.entry`. Declare them when you open the copy, each as a JSON type definition:
+
+```swift
+try await copy.declareTypes([
+    #"{"id":"app.readinglist.entry","fields":{"title":{"type":"string","required":true}}}"#
+])
+```
+
+`declareTypes(_:)` replaces the app's whole set, so pass every type on each call. Until the copy first hydrates, it checks a queued create against these declarations and the types Marfa ships, so an app can work offline from its first launch. When it hydrates, it registers each declared type the instance doesn't have yet, if the credential may register types, and lists them in the report's `registeredTypes`. [Define a type](/guides/define-a-type) explains what a type definition holds.
+
+## Read and edit items
+
+A new copy is empty. `hydrate(types:tier:)` chooses the slice the copy keeps, the types it names in the library, the feed or both (`.all`), and fills the copy with it. Reads then come from the copy:
+
+```swift
+_ = try await copy.hydrate(types: ["core.note"], tier: .library)
+
+for note in try await copy.items.list(ListFilters(type: "core.note")) {
+    print(note.title ?? "Untitled")
+}
+```
+
+An item's `title` and `body` read the properties its type uses for a title and a body, whatever they're called, so prefer them to reading `properties`.
+
+To make an item, pass a `Draft`. To change one, pass an `Edit` with the version you read, so the instance can tell whether someone else changed the item in between:
+
+```swift
+let created = try await copy.items.create(
+    Draft(type: "core.note", properties: ["title": "Reading list", "body": "Start with the essays."]))
+
+guard let id = created.itemId, let note = try await copy.items.get(id) else { return }
+_ = try await copy.items.update(id, Edit(.merge(["title": "Books to read"]), baseVersion: note.version))
+```
+
+Each write shows in the copy at once, with or without a connection, and waits in the queue. `.merge` changes the properties it names and keeps the rest. `.replace` makes its properties the item's whole set, so it's how you remove a property.
+
+## Keep the copy in step
+
+Nothing runs on its own: your app decides when the copy talks to the instance. Four moments matter:
+
+- On first launch, or when `status().hydration` is anything but `.complete`, call `hydrate(types:tier:)`. It replaces what the copy holds and keeps the queue.
+- When the app starts or comes to the front, call `catchUp()` to apply what changed while it was away, then `queue.drain()` to send what it queued.
+- While a screen shows data, hold a `changes()` stream, which follows the instance's events as they happen.
+- After each write, call `queue.drain()`. A drain that can't reach the server leaves the writes queued.
+
+The stream also tells your app when the server goes away and comes back, and when following it needs the app's help:
+
+```swift
+for await change in copy.changes() {
+    switch change.origin {
+    case .serverUnreachable(let error):
+        showOffline(error)
+    case .serverReachable:
+        showOnline()
+        _ = try? await copy.queue.drain()
+    case .stopped(.copyExpired):
+        _ = try? await copy.hydrate(types: ["core.note"], tier: .library)
+    case .stopped(.unauthorized), .stopped(.signedOut):
+        askForANewCredential()
+    default:
+        refresh(change.itemId)
+    }
+}
+```
+
+`.copyExpired` means the copy can't be kept current from where it stands, for example because the device was away longer than the instance keeps events, and has to hydrate again. Its queue survives.
+
+A drain returns the instance's verdict on each write it sent. Answered writes stay in the queue, with their verdicts, until you call `queue.forgetAnswered()`:
+
+```swift
+let report = try await copy.queue.drain()
+for answer in report.verdicts {
+    print(answer.kind, answer.verdict.map { "\($0)" } ?? "no answer")
+}
+_ = try await copy.queue.forgetAnswered()
+```
+
+```text
+createItem accepted
+updateItem accepted
+```
+
+A refused write that carried content stays even then, so your app can offer the content back, until you call `queue.discard(_:)`. [Devices](/devices#verdicts) explains each verdict.
+
+## Conflicted copies
+
+When two devices change the same text, such as a note's body, the instance keeps one version on the item and puts the other in a conflicted copy: a new item tagged `conflicted-copy`, linked to the original, so neither text is lost. The drain's verdict for the write is `.conflicted(siblingId:fields:)`, and the conflicted copy reaches the working copy with the next catch-up. Find the copies of an item, or the original of a copy, like this:
+
+```swift
+for conflicted in try await copy.items.conflictedCopies(of: note.id) {
+    print("Also edited elsewhere:", conflicted.body ?? "")
+}
+if let original = try await copy.items.original(ofConflictedCopy: item.id) {
+    showBeside(original)
+}
+```
+
+`original(ofConflictedCopy:)` returns an ID, because the working copy might not hold the original. To settle on one text, edit the original and delete the conflicted copy.
+
+## Folders on a Mac
+
+On macOS, `Folders` keeps a directory of files in step with a folder's settings on the instance, as `marfa folders` does. Both use the same list of folders on the Mac, so a folder your app adds shows in `marfa folders list`, and the other way around. Nothing is written into the directory or sent until the first sync is confirmed:
+
+```swift
+let folder = try await copy.createFolder(
+    FolderSettings(title: "Notes", search: FolderSearch(types: ["core.note"])))
+
+let folders = Folders(server: Server(url: serverURL, key: key))
+_ = try await folders.add(notesDirectory, following: folder.id)
+
+if case .awaitingConfirmation(let plan) = try await folders.sync(notesDirectory) {
+    print("Writes \(plan.write) files here and sends \(plan.send) to the server.")
+    _ = try await folders.confirmFirstSync(in: notesDirectory)
+    _ = try await folders.sync(notesDirectory)
+}
+```
+
+Call `sync(_:)` to sync once, or iterate `watch(_:)` to keep the folder in step while the app runs. A sandboxed app has its own home directory, and so its own list of folders. [Sync a folder](/guides/sync-a-folder) explains what a folder does with each file.
+
+The full API is in the [marfa-swift repository](https://github.com/withmarfa/marfa-swift), and the rules a device follows are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) and [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) chapters of the contract.

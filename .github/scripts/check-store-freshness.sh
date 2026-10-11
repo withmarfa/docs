@@ -5,7 +5,7 @@
 # leaves the page green, plausible and frozen: every monitor still says
 # operational, the uptime bar is still full, and the only tell is the
 # "last checked" line, which needs a person to read it and notice. Nothing
-# alerts, because nothing is failing — the page is serving exactly what it was
+# reports it, because nothing is failing — the page is serving exactly what it was
 # built to serve.
 #
 # This is the one check that runs outside Cloudflare entirely. The checker, the

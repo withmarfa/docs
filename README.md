@@ -28,8 +28,9 @@ script passes the config its own build emitted, which is why it is the safe one.
 
 ## Structure
 
-- **`content/docs/`**: the MDX content tree, mapping one to one onto URLs. Each
-  folder's `meta.json` sets its navigation order and titles.
+- **`content/docs/`**: the MDX content tree, mapping one to one onto URLs,
+  except that a folder in parentheses, such as `(overview)/`, adds nothing to
+  the URL. Each folder's `meta.json` sets its navigation order and titles.
 - **`source.config.ts`**: Fumadocs MDX collections.
 - **`src/routes/`**: documentation routes: `$.tsx` renders a page, `{$}[.]md.ts`
   serves its Markdown twin, and the rest are the machine-readable surfaces below.
@@ -78,8 +79,8 @@ returning zero is not that proof.
 
 Each Worker publishes in its own job against its own hostname, and only when
 something its target builds from has changed. A manual run with `mode` set to
-`check` compares both live commits against `main` and reports anything left
-behind.
+`check` compares both live commits against `main` and fails the run if either
+is behind.
 
 `pnpm run deploy` and `pnpm run deploy:status` still work and are the fallback if
 the CI credential is ever missing. Use `run`: `pnpm deploy` is pnpm's own
@@ -104,8 +105,12 @@ The status page publishes its own two: `/api/data` for the current state and
 
 Expects the server monorepo at `../marfa`; override with `MARFA_ROOT`. Besides
 `openapi.json`, it copies the monorepo's `GLOSSARY.md` and its latest release
-tag into `src/generated/`. Run it by hand after an API, glossary or release
-change lands in the monorepo; nothing runs it for you.
+tag into `src/generated/`, writes the spec's general rules there as
+`api-overview.md`, writes the CLI's reference there as
+`marfa-commands.md`, and takes the contract's generated tables there: the error
+codes, the settings, the shipped types, the shipped edge types, the twelve
+permissions and the event types. Run it by hand after an API, glossary,
+command, table or release change lands in the monorepo; nothing runs it for you.
 
 Close a gap in the spec in the monorepo's generator, never by editing
 `openapi.json` here.

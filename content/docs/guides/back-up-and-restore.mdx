@@ -1,12 +1,130 @@
 ---
 title: Back up and restore
-description: Keep a copy of everything and bring it back.
+description: Copy an instance so you can bring it back after a failure, and export your data to an archive you can restore into another instance.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+Your instance holds data you can't get back from anywhere else, so keep a copy somewhere the instance isn't. There are two kinds of copy, and they do different jobs. A copy of the data directory brings the same instance back after a failed disk or a lost machine, with everything in it: items, keys, configuration and sign-ins. An archive carries your items, edges, types and files into another instance, such as a new build when you [upgrade](/guides/upgrade). This guide shows how to make and restore each.
 
-Planned topics:
+## Back up the instance
 
-- Exporting.
-- Restoring an archive.
-- What a restore keeps and skips.
+Copy two things: the data directory, and the two secrets.
+
+The data directory holds the database file, the log beside it named `marfa.db-wal`, and the blob folder, as [Deploy](/guides/deploy#the-data-directory) shows. In the container, it's the volume at `/data`. The secrets, `API_KEY_SALT` and `MARFA_AUTH_SECRET`, aren't in it. **Without the original `API_KEY_SALT`, a restored instance holds every key and accepts none.**
+
+How you copy the directory decides whether the copy restores. Each of these keeps every write the instance had acknowledged before the copy began:
+
+- A snapshot of the volume or the filesystem, such as Time Machine on an APFS volume or a host's disk snapshot. It's an image of the directory at one instant, which SQLite recovers from as it does from a crash.
+- Stop the server, copy the directory, and start it again. Stopping moves every write into the database file.
+- Copy the files one after another while the server runs, holding a read transaction on the database for the whole copy: the database file, then the log, then the blob folder.
+
+**Copying the files one after another with no read transaction held can leave a database that won't open, or has lost writes.** With the `sqlite3` program on the instance's machine, the third way looks like this:
+
+```bash
+sqlite3 /srv/marfa/data/marfa.db "BEGIN; SELECT count(*) FROM sqlite_master;" \
+  ".shell cp /srv/marfa/data/marfa.db /srv/marfa/data/marfa.db-wal /backup/" \
+  ".shell cp -R /srv/marfa/data/blobs /backup/" \
+  "COMMIT;"
+```
+
+To restore, stop the server, put the copied files where `SQLITE_PATH` and `BLOB_PATH` name, leaving out any `marfa.db-shm`, and start it with the same two secrets. `GET /health` answers `200` when it's back, and your keys work as before.
+
+### With a bucket
+
+When `S3_BUCKET` is set, the container copies for you. It streams each committed database write to the bucket within a second and keeps a day of hourly snapshots, and the `blob-replicate` housekeeping job copies each blob there. A new volume started with the same bucket and secrets restores the database as it starts, and brings the blobs back as replication runs.
+
+The database reaches the bucket before a blob does, so a restore to a moment between the two can name a blob the bucket doesn't hold yet. The [deployment guide](https://github.com/withmarfa/marfa/blob/main/deploy/README.md#restoring-by-hand) has the commands to restore to the latest state or to a point in time.
+
+## Export an archive
+
+An archive holds what the key that exports it can read, so make a key that reads everything, and use it only for exports.
+
+<Steps>
+<Step>
+
+### Make an export key
+
+On the instance's machine, under the account that runs the server:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock keys create --label backup --source backup \
+  --type-permission '*=read' --edge-permission '*=read' --extension-permission '*=read'
+```
+
+The CLI shows the key once. Set it as `MARFA_API_KEY` wherever you export from.
+
+</Step>
+<Step>
+
+### Export
+
+```bash tab="CLI" tab-group="client"
+marfa export --format archive --state any --output marfa-archive.tar.gz
+```
+
+```http tab="HTTP"
+GET /export?format=archive&state=any
+Authorization: Bearer <key>
+```
+
+The answer is a `.tar.gz` file. It holds the items the key can read, with their tags, extensions and earlier versions, the edges between them, the blobs they name, and every type and edge type registered on the instance. `--state any` includes the trash, which an export otherwise leaves out.
+
+</Step>
+<Step>
+
+### Check the file
+
+```bash
+tar -tzf marfa-archive.tar.gz
+```
+
+```text
+manifest.json
+items.ndjson
+edges.ndjson
+types.ndjson
+blobs/sha256:a0feecd7233d9f5f3ec784c6bdb36587c651e2ec60437c27b4bf135de39149d7
+```
+
+If the server fails partway through an export, it ends the connection early, and the file doesn't unpack.
+
+</Step>
+</Steps>
+
+An export isn't taken at one instant: an item created while it runs may not be in it. Stop your apps first if the archive must hold every write. The server prepares the whole archive before it sends the first byte, in a folder inside the blob folder, so leave room on that disk for about as much as the archive's text takes uncompressed.
+
+A [source filter](/guides/settings#what-the-enforcement-levers-do) leaves items out of an export as it does out of a listing, so check that neither the instance nor the export key carries one that hides what you want kept.
+
+## Restore an archive
+
+Only the owner can restore, through the private socket or signed in to the instance with a password entered in the last five minutes. A key is refused `403 forbidden`, whatever it holds. The target can be a new instance or the one the archive came from:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock restore marfa-archive.tar.gz
+```
+
+The answer counts what the restore did. Into a fresh instance:
+
+```json
+{
+  "imported": 5,
+  "duplicates": 0,
+  "edges_imported": 1,
+  "edges_skipped": 0,
+  "edges_skipped_reasons": {},
+  "blobs_imported": 1,
+  "types_registered": 0,
+  "types_skipped": 0,
+  "edge_types_registered": 0,
+  "edge_types_skipped": 0
+}
+```
+
+Items keep their IDs, versions, dates, states and sources, with every earlier version the archive carries, and edges keep their IDs and versions. An item the instance already holds is counted in `duplicates` and left as it is, so replaying an archive never overwrites work done since. Restoring the same archive again into the same instance answers `"imported": 0` and `"duplicates": 5`.
+
+A restore writes in one transaction. If it's refused, fails or is interrupted, it leaves nothing behind, so you can run it again. While it runs, other writes wait for it, so let it answer before you start your apps.
+
+An archive never holds keys, webhooks, the configuration or the audit log: make keys, register webhooks and set the configuration again on the new instance.
+
+Before Marfa's first release, only the build that wrote an archive is sure to read it, so an archive isn't a long-term backup. A restore refuses the whole archive, and writes nothing, if it can't read it, or if a type it carries is registered differently on the instance. [Restore from an archive](/api-reference/export-and-restore/restoreArchive) lists each refusal.
+
+The rules behind this page are in the [backing up](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#backing-up) section of the instance chapter, and the [export](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#export) and [restore](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#restore) sections of the search and filters chapter of the contract.

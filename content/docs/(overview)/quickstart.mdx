@@ -1,0 +1,208 @@
+---
+title: Quickstart
+description: Start Marfa on your own machine, claim it, make a key, and write and read your first note.
+---
+
+In this quickstart you run a Marfa instance on your own machine, become its owner, and write a note to it, read it back and change it. It takes one terminal for the server and one for everything else. The instance is for trying Marfa: [Deploy](/guides/deploy) covers one you keep.
+
+You need macOS or Linux with Git, [Node.js](https://nodejs.org) 22.12 or later, [pnpm](https://pnpm.io/installation) and [Rust](https://www.rust-lang.org/tools/install). On Linux, also install the `acl` package, which the server uses to check who may reach its private socket.
+
+<Steps>
+<Step>
+
+### Get Marfa and the CLI
+
+Clone Marfa into a short path, such as your home directory, and build it. The server keeps a private socket inside the clone, and a socket's full path can be at most 103 bytes. The last command builds the CLI, the `marfa` program, which claims the instance and makes your first key in the steps below:
+
+```bash
+cd ~
+git clone https://github.com/withmarfa/marfa.git
+cd marfa
+pnpm install
+pnpm build
+cargo install --locked --path core/marfa-cli
+marfa --version
+```
+
+</Step>
+<Step>
+
+### Start the server
+
+Start the server with a secret of its own:
+
+```bash
+cd packages/server
+export MARFA_AUTH_SECRET="$(openssl rand -hex 32)"
+pnpm dev
+```
+
+The server listens on `http://localhost:8600` and keeps its data in `packages/server/data`. Leave it running, and open a second terminal in the same `packages/server` directory for the rest.
+
+</Step>
+<Step>
+
+### Claim the instance
+
+A new instance has no owner. Claiming it makes you the owner, once and for good: a second claim is refused.
+
+<Tabs items={["In the terminal", "In the browser"]}>
+<Tab value="In the terminal">
+
+```bash
+marfa --socket "$(pwd -P)/data/control/marfa.sock" \
+  setup claim --email you@example.com
+```
+
+The CLI asks for a password without showing it.
+
+</Tab>
+<Tab value="In the browser">
+
+```bash
+marfa --socket "$(pwd -P)/data/control/marfa.sock" \
+  setup open
+```
+
+The CLI opens a single-use link in your browser, where you choose the owner's email and a password. The link works for five minutes.
+
+</Tab>
+</Tabs>
+
+`--socket` makes the CLI act with the machine's own authority, through a private socket that only the account running the server can reach. That's how the owner manages an instance from its own machine, with no key yet.
+
+</Step>
+<Step>
+
+### Make a key
+
+The owner manages the instance but reads and writes no items itself. Programs that work with your data, the CLI included, use a key. Make one:
+
+```bash
+marfa --socket "$(pwd -P)/data/control/marfa.sock" \
+  keys create --label laptop --source laptop
+```
+
+The CLI prints the key, which begins `marfa_k1_`, once, on the first line of its answer. A key made this way can do everything the owner can grant, which suits a trial. Give an app or a script a narrower one: [Manage keys](/guides/manage-keys) shows how.
+
+Point the CLI and the examples below at the instance, with the key you just made:
+
+```bash
+export MARFA_API_URL=http://localhost:8600
+export MARFA_API_KEY=<the key>
+marfa status
+```
+
+`marfa status` names the instance and shows `health ok`. While these two are set, the CLI refuses `--socket`; `unset MARFA_API_URL MARFA_API_KEY` to use the socket again.
+
+</Step>
+<Step>
+
+### Write a note
+
+A note is an item of the type `core.note`, which requires a `body`. Create one:
+
+```bash tab="CLI" tab-group="client"
+marfa items create --type core.note \
+  --prop title="Reading list" --prop body="Start with the essays." --json
+```
+
+```bash tab="HTTP"
+curl -s http://localhost:8600/items \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "type": "core.note", "properties": { "title": "Reading list", "body": "Start with the essays." } }'
+```
+
+```js tab="TypeScript" title="note.mjs"
+// npm install @withmarfa/client
+import { createClient } from "@withmarfa/client";
+
+const marfa = createClient({
+  baseUrl: process.env.MARFA_API_URL,
+  credential: process.env.MARFA_API_KEY,
+});
+
+const { data, error } = await marfa.POST("/items", {
+  body: {
+    type: "core.note",
+    properties: { title: "Reading list", body: "Start with the essays." },
+  },
+});
+if (error) throw new Error(error.error.message);
+console.log(data.item.id, data.item.version);
+```
+
+Marfa answers with the new item. It has an `id` Marfa made, the properties you sent, and a `version` of 1. Copy the `id`: the next step uses it.
+
+```json
+{
+  "item": {
+    "id": "01a12192-a000-76e3-b129-b55027e21dcb",
+    "type": "core.note",
+    "state": "active",
+    "properties": { "body": "Start with the essays.", "title": "Reading list" },
+    "version": 1,
+    "source": "laptop"
+  }
+}
+```
+
+The answer has more fields than this; [Items and types](/items-and-types) explains them.
+
+</Step>
+<Step>
+
+### Read it back and change it
+
+Read the note by its `id`:
+
+```bash tab="CLI" tab-group="client"
+marfa items get <id> --json
+```
+
+```bash tab="HTTP"
+curl -s http://localhost:8600/items/<id> -H "Authorization: Bearer $MARFA_API_KEY"
+```
+
+```js tab="TypeScript"
+const id = "<id>";
+const { data: note } = await marfa.GET("/items/{id}", { params: { path: { id } } });
+```
+
+Now change its body. An update names the version it read, so Marfa can tell whether someone else changed the note in between:
+
+```bash tab="CLI" tab-group="client"
+marfa items update <id> --version 1 \
+  --prop body="Start with the essays, then the letters." --json
+```
+
+```bash tab="HTTP"
+curl -s -X PATCH http://localhost:8600/items/<id> \
+  -H "Authorization: Bearer $MARFA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "version": 1, "properties": { "body": "Start with the essays, then the letters." } }'
+```
+
+```js tab="TypeScript"
+await marfa.PATCH("/items/{id}", {
+  params: { path: { id } },
+  body: { version: 1, properties: { body: "Start with the essays, then the letters." } },
+});
+```
+
+The note comes back at version 2 with the new body, and its title unchanged. Had another app changed the body since version 1, Marfa would have refused your write instead of overwriting theirs. [Versions](/versions) explains how.
+
+</Step>
+</Steps>
+
+## Next steps
+
+You have an instance with an owner, a key, and a note. From here:
+
+<Cards>
+  <Card title="Items and types" href="/items-and-types">What an item is, and what its type gives it.</Card>
+  <Card title="Build an app with Swift" href="/guides/swift-app">An iOS and macOS app that lists notes and works offline.</Card>
+  <Card title="Manage keys" href="/guides/manage-keys">Give an app or a script a key that reaches only what it needs.</Card>
+  <Card title="Deploy" href="/guides/deploy">Run an instance you keep.</Card>
+</Cards>

@@ -1,0 +1,118 @@
+---
+title: Docs for agents
+description: Give an AI agent these docs to search and read, over MCP, from the CLI, as JSON or as Markdown.
+---
+
+An agent that builds on Marfa does better when it reads the current docs than when it works from memory. This site serves the same pages four ways for that: an MCP server, the `marfa docs` command, two JSON addresses, and a Markdown copy of every page. None of them needs a credential or a Marfa instance, so you can set them up before you have either.
+
+## Connect the MCP server
+
+Most agents want the MCP server. It runs at `https://docs.marfa.so/mcp` over the Streamable HTTP transport, and needs no credential. Add it to your agent as a remote HTTP server:
+
+<Tabs items={["Claude Code", "Codex"]}>
+<Tab value="Claude Code">
+
+Add it to a project's `.mcp.json`, so everyone who works in the project has it:
+
+```json title=".mcp.json"
+{
+  "mcpServers": {
+    "marfa-docs": {
+      "type": "http",
+      "url": "https://docs.marfa.so/mcp"
+    }
+  }
+}
+```
+
+Or add it from a terminal with `claude mcp add --transport http marfa-docs https://docs.marfa.so/mcp`.
+
+</Tab>
+<Tab value="Codex">
+
+Add it to `~/.codex/config.toml`, or to a project's `.codex/config.toml`:
+
+```toml title="config.toml"
+[mcp_servers.marfa-docs]
+url = "https://docs.marfa.so/mcp"
+```
+
+Or add it from a terminal with `codex mcp add marfa-docs --url https://docs.marfa.so/mcp`.
+
+</Tab>
+</Tabs>
+
+The server gives the agent three read-only tools:
+
+| Tool | Input | Answer |
+| --- | --- | --- |
+| `docs_search` | `query`, and an optional `limit` from 1 to 50 | The pages that match, best first, each with its title, path and snippets |
+| `docs_fetch` | `path`, such as `/files` | The page as Markdown |
+| `docs_list_topics` | None | Every page, with its title, path and description |
+
+When `docs_fetch` finds no page at the path, it answers with an error result whose `error` is `not_found`.
+
+## Read the docs from a terminal
+
+`marfa docs` reads this site from the CLI. It needs no instance or key, and it refuses `--url`, `--key` and `--socket`, so it can't send a credential anywhere. It suits an agent that runs shell commands and has no MCP:
+
+```bash
+marfa docs search "trash an item" --limit 1
+```
+
+```text
+Trash an item  /api-reference/items/deleteItem
+  Moves the item, and every item a cascading edge such as `parent-of` reaches, to the trash. You can restore them until the retention window ends. Marfa then purges them.
+```
+
+`marfa docs topics` lists every page, and `marfa docs <page>` prints one as Markdown. Name a page by its path, such as `files` or `/files`, or by its full address. With `--json`, `search` and `topics` print the same JSON as the [JSON addresses](#search-and-list-pages-as-json), a page prints its `path`, `url` and `markdown`, and a refusal is one JSON object on stderr.
+
+An agent can tell from the exit code what went wrong:
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | The command printed its answer. |
+| `1` | There's no page at that path, or the path isn't one the command reads. Search or list the pages to find the right one. |
+| `2` | The command line is wrong. |
+| `3` | The site can't be read. Try again later. |
+
+To read another copy of the site, such as one you run locally, set `MARFA_DOCS_URL` to its `http` or `https` address; the command refuses anything else with exit code `1`. The [CLI reference](/cli-reference) has every option.
+
+## Search and list pages as JSON
+
+For a program with neither MCP nor the CLI, two addresses answer the same searches and lists as JSON.
+
+`GET /api/docs/search?q=<query>&limit=<n>` searches the pages. `q` is required, and `limit` is optional, from 1 to 50:
+
+```http
+GET /api/docs/search?q=trash%20an%20item&limit=1 HTTP/1.1
+Host: docs.marfa.so
+```
+
+```json
+{
+  "hits": [
+    {
+      "title": "Trash an item",
+      "url": "/api-reference/items/deleteItem",
+      "snippets": [
+        "Moves the item, and every item a cascading edge such as `parent-of` reaches, to the trash. You can restore them until the retention window ends. Marfa then purges them."
+      ]
+    }
+  ]
+}
+```
+
+A blank `q` or a `limit` out of range answers `400`, with `invalid_query` or `invalid_limit` in `error`.
+
+`GET /api/docs/topics` lists every page as `{ "pages": [...] }`, each with its `title`, its path in `url`, its `description` and its `breadcrumbs`. Neither address serves a page itself: for that, read its Markdown copy.
+
+## Read pages as Markdown
+
+Add `.md` to a page's path for its Markdown, such as `/files.md`. The copy holds the page's title and path, then its text, including anything the page draws in from the reference. A path with no page answers `404`.
+
+Three files cover the whole site:
+
+- [`/llms.txt`](/llms.txt) is an index: every page as a link with its description, grouped as the sidebar groups them.
+- [`/llms-full.txt`](/llms-full.txt) holds every page's Markdown in one file.
+- [`/docs-map.md`](/docs-map.md) is a map: every page as a link with its description, grouped by tab.

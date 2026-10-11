@@ -1,12 +1,206 @@
 ---
 title: Write safely
-description: Change items without losing someone else's change.
+description: Change an item without overwriting someone else's change, handle a conflict when one happens, and retry a write without making it twice.
 ---
 
-<Callout title="Placeholder">This page isn't written yet.</Callout>
+When your app changes an item, another app or device may have changed it since you read it. This guide shows how to write so that Marfa can tell: you send the version you read, handle the conflict Marfa returns when two changes collide, and retry a write whose answer you never got without applying it twice. [Versions](/versions) explains what the version counts and why Marfa works this way. The TypeScript examples use a client made as [the TypeScript client](/typescript-client) shows.
 
-Planned topics:
+## Send the version you read
 
-- Sending the version you read.
-- Handling a conflict.
-- Retrying with an Idempotency-Key.
+Read the item, change what you need, and send back the `version` you read with the properties you changed:
+
+```bash tab="CLI" tab-group="client"
+marfa items update <id> --version 3 --prop body="Start with the essays, then the letters."
+```
+
+```http tab="HTTP"
+PATCH /items/<id>
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "version": 3, "properties": { "body": "Start with the essays, then the letters." } }
+```
+
+```ts tab="TypeScript"
+const { data, error } = await marfa.PATCH("/items/{id}", {
+  params: { path: { id } },
+  body: { version: 3, properties: { body: "Start with the essays, then the letters." } },
+});
+```
+
+An update must name a version: Marfa refuses one without it with `400 missing_required_field`, because it can't tell such a write from a blind overwrite. The properties you send are laid over the item's own, so send only what you changed. [Update an item](/api-reference/items/updateItem) lists the other fields an update takes.
+
+Marfa answers in one of three ways:
+
+- `200` with the item at the next version, when nobody changed it since you read it.
+- `200` with the item further along, when someone changed it but not the fields you changed. Marfa applied your change over theirs, so replace your copy with the item in the answer: it holds both.
+- `409 version_conflict`, when a field you changed was also changed since. The next two sections handle it.
+
+## Resolve a conflict yourself
+
+A conflict leaves the choice with you. The refusal carries what you need to make it: the item as it is now in `current`, the item as it was at the version you read in `ancestor`, and the fields both writes changed in `conflicting_fields`.
+
+<Steps>
+<Step>
+
+### Read the refusal
+
+Here another app changed the note's body after you read version 3:
+
+```json
+{
+  "error": {
+    "code": "version_conflict",
+    "status": 409,
+    "message": "Version 3 is stale; current version is 4. Conflicting fields: body."
+  },
+  "current": {
+    "version": 4,
+    "properties": { "title": "Reading list", "body": "Start with the letters." }
+  },
+  "ancestor": {
+    "version": 3,
+    "properties": { "title": "Reading list", "body": "Start with the essays." }
+  },
+  "conflicting_fields": ["body"]
+}
+```
+
+The answer has more fields than this, including the type's `merge_policy`. In the TypeScript client, the refusal comes back as `error`, with `error.error.code` set to `version_conflict`. The CLI prints the conflicting fields and exits with status 1; read the item again with `marfa items get` to see what it holds now.
+
+</Step>
+<Step>
+
+### Decide each value
+
+For each field in `conflicting_fields`, compare your value with the one in `ancestor` and the one in `current`, and choose what to keep. You might combine the two, keep one, or show both to the person. A conflict can name `tier`, `occurred_at`, `source_id` or `type` as well as properties.
+
+</Step>
+<Step>
+
+### Send it again at the current version
+
+Send the value you chose, naming the version in `current`:
+
+```bash tab="CLI" tab-group="client"
+marfa items update <id> --version 4 --prop body="Start with the letters, then the essays."
+```
+
+```http tab="HTTP"
+PATCH /items/<id>
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "version": 4, "properties": { "body": "Start with the letters, then the essays." } }
+```
+
+```ts tab="TypeScript"
+await marfa.PATCH("/items/{id}", {
+  params: { path: { id } },
+  body: { version: 4, properties: { body: "Start with the letters, then the essays." } },
+});
+```
+
+Someone may write again before you do, and Marfa answers the same way. Retry a few times, then show the person the conflict.
+
+</Step>
+</Steps>
+
+## Let Marfa resolve it
+
+Add `conflict=auto`, and Marfa settles each colliding field by the merge policy of the item's type instead of refusing the write:
+
+```bash tab="CLI" tab-group="client"
+marfa items update <id> --version 3 --conflict auto --prop body="Start with the essays, then the letters."
+```
+
+```http tab="HTTP"
+PATCH /items/<id>?conflict=auto
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "version": 3, "properties": { "body": "Start with the essays, then the letters." } }
+```
+
+```ts tab="TypeScript"
+const { data } = await marfa.PATCH("/items/{id}", {
+  params: { path: { id }, query: { conflict: "auto" } },
+  body: { version: 3, properties: { body: "Start with the essays, then the letters." } },
+});
+```
+
+A merge policy gives each field one of two strategies. `last_writer_wins` takes your value. `keep_both_copies` keeps the value the item holds now and writes yours to a conflicted copy: a new item of the same type, tagged `conflicted-copy`, with a `derived-from` edge to the original. `core.note` keeps both copies of its `body` and `notes`, and takes the last writer for everything else.
+
+The answer is `200` with the item, and beside it `conflict_resolution` says what Marfa did:
+
+```json
+{
+  "fields": ["body"],
+  "strategy": { "body": "keep_both_copies" },
+  "conflicted_copy_id": "01a12312-394e-75d2-acdd-d19c6d58a423"
+}
+```
+
+**`conflicted_copy_id` is the only place the copy's `id` appears,** so show the copy to the person or keep the `id`. A write that collides on nothing carries no `conflict_resolution`. Marfa doesn't resolve a write that collides and also moves the item to another type: it answers `409 version_conflict`, and you resolve it yourself.
+
+Apps built with the Swift package, and the CLI's `device` commands, write through a working copy that always asks Marfa to resolve. [Devices](/devices) explains how a device writes.
+
+## When Marfa no longer holds your version
+
+Marfa compares a stale write against the snapshot it kept of the version you read. Snapshots are thinned as they age, so an edit held for a long time can name a version Marfa no longer has. Marfa then answers `409 ancestor_unavailable`, whatever `conflict` the write names:
+
+```json
+{
+  "error": {
+    "code": "ancestor_unavailable",
+    "status": 409,
+    "message": "No snapshot of version 9 is available to this write, so it cannot be merged. Re-read the item at version 4 and re-apply the change."
+  },
+  "current": {
+    "version": 4,
+    "properties": { "title": "Reading list", "body": "Start with the letters." }
+  },
+  "requested_version": 9
+}
+```
+
+`current` carries the same fields as in a conflict; this one is trimmed.
+
+Make your change again on top of `current`, and send it at the version `current` holds. Don't send your old values at the new version unchanged: that overwrites whatever arrived since. An app that holds an edit for a long time does well to read the item again before it writes.
+
+## Retry with an Idempotency-Key
+
+When you don't know whether a write landed, because the connection dropped or Marfa answered `503 write_contention` or `429 rate_limited`, send the same request again. Give each write an `Idempotency-Key` header holding a fresh unique value, such as a UUID, and use the same key when you retry it:
+
+```bash tab="CLI" tab-group="client"
+marfa items update <id> --version 3 --idempotency-key 0199a9d1-4e5f-7a6b-9c7d-8e9f0a1b2c3d \
+  --prop body="Start with the essays, then the letters."
+```
+
+```http tab="HTTP"
+PATCH /items/<id>
+Authorization: Bearer <key>
+Idempotency-Key: 0199a9d1-4e5f-7a6b-9c7d-8e9f0a1b2c3d
+Content-Type: application/json
+
+{ "version": 3, "properties": { "body": "Start with the essays, then the letters." } }
+```
+
+```ts tab="TypeScript"
+import { randomUUID } from "node:crypto";
+
+const key = randomUUID();
+const send = () =>
+  marfa.PATCH("/items/{id}", {
+    params: { path: { id }, header: { "Idempotency-Key": key } },
+    body: { version: 3, properties: { body: "Start with the essays, then the letters." } },
+  });
+```
+
+If Marfa already answered that request, it returns the first answer again, with the header `Idempotency-Replayed: true`, and writes nothing. A repeat of a request refused `409 version_conflict` gets the same `409`. A repeat of one that failed with a `5xx` runs again.
+
+A key names one request. The same key on a different request, such as the resolved write after a conflict, answers `422 idempotency_key_reused` and writes nothing, so send each new write under a new key. A repeat that arrives while the first is still running answers `409 idempotency_key_in_flight`: wait, then send it again.
+
+The item operations that write one item, the edge and folder operations, and [Apply a bulk action](/api-reference/bulk-actions/applyBulkAction) take a key. [Errors](/api-reference/errors#retrying) says which refusals to retry.
+
+The rules behind this guide are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md) and [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#idempotency-keys) chapters of the contract.
