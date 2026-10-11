@@ -529,6 +529,40 @@
             ],
             "description": "The item's `source_id` at this version, or `null` if it had none."
           },
+          "writer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "browser",
+                  "app",
+                  "key",
+                  "local"
+                ],
+                "description": "What wrote the version. `browser`: the owner's browser. `app`: an app the owner approved. `key`: an API key. `local`: the local command on the server's machine."
+              },
+              "id": {
+                "type": "string",
+                "description": "The ID the sign-in has in `GET /owner/sign-ins`, `local` for the local command, or an app's client ID if its sign-in was already gone. It stays the same after the sign-in ends.",
+                "example": "Q2xYvR8mKp4TnW6aBc0dEf1gHi3jKl5M"
+              },
+              "name": {
+                "type": "string",
+                "description": "The sign-in's name when it wrote the version, as `GET /owner/sign-ins` showed it. At most 200 characters.",
+                "example": "Safari on macOS"
+              }
+            },
+            "required": [
+              "kind",
+              "id",
+              "name"
+            ],
+            "description": "The sign-in that wrote this version, named as it was then, even after it ends. Whoever can read the snapshot sees it, such as another app's name or a key's label. `null` if no sign-in wrote it, such as when Marfa reads a file's text."
+          },
           "created_at": {
             "type": "string",
             "description": "When Marfa recorded the snapshot, in UTC."
@@ -543,6 +577,7 @@
           "tier",
           "occurred_at",
           "source_id",
+          "writer",
           "created_at"
         ],
         "description": "A snapshot of an item as it stood at one version, which Marfa records when the item is updated past it."
@@ -673,6 +708,7 @@
             "description": "The field that holds an item's body for display."
           }
         },
+        "additionalProperties": {},
         "description": "Which fields of a type clients show as an item's title and body."
       },
       "VersionPolicy": {
@@ -697,6 +733,14 @@
         },
         "additionalProperties": {},
         "description": "How long Marfa keeps the versions of a type's items. A field you leave out comes from the parent type, then from the instance defaults."
+      },
+      "ConnectorProblems": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "description": "The source's current problems, by opaque key. Each message is at most 500 UTF-16 code units. The map has at most 200 entries and 512 KiB serialized as UTF-8. An empty map means no current problems."
       },
       "BulkActionJobStatus": {
         "type": "string",
@@ -3190,7 +3234,7 @@
         ],
         "description": "An error response."
       },
-      "TypeResponse": {
+      "NormalizedType": {
         "type": "object",
         "properties": {
           "type": {
@@ -3199,15 +3243,39 @@
                 "$ref": "#/components/schemas/TypeDefinition"
               },
               {
-                "description": "The type."
+                "description": "The normalized candidate's declared definition, including its label and defaults."
               }
             ]
+          },
+          "registered_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TypeDefinition"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The canonical registered type's declared definition; `null` if its identifier is not registered."
+          },
+          "resolved_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TypeDefinition"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The canonical registered definition, with inherited fields, policies and roles resolved as on `GET /types/{id}`; `null` if its identifier is not registered."
           }
         },
         "required": [
-          "type"
+          "type",
+          "registered_type",
+          "resolved_type"
         ],
-        "description": "One type."
+        "description": "Canonical definitions from one registry view, with field defaults made explicit as `required: false` and `searchable: true`."
       },
       "InheritanceViolationOrInvalidSchemaOrMissingRequiredFieldOrPropertyShadowsFieldOrValidationErrorRefusal": {
         "type": "object",
@@ -3223,42 +3291,6 @@
                   "missing_required_field",
                   "property_shadows_field",
                   "validation_error"
-                ],
-                "description": "A machine-readable code for the error. Use it in your logic."
-              },
-              "message": {
-                "type": "string",
-                "description": "A description of the error for a person to read. It can change, so don't match on it."
-              },
-              "details": {
-                "type": "object",
-                "additionalProperties": {},
-                "description": "More about the error, such as the field it concerns. Each code defines its own details."
-              }
-            },
-            "required": [
-              "code",
-              "message"
-            ],
-            "description": "What went wrong."
-          }
-        },
-        "required": [
-          "error"
-        ],
-        "description": "An error response."
-      },
-      "LinkTakenOrTypeAlreadyExistsRefusal": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "link_taken",
-                  "type_already_exists"
                 ],
                 "description": "A machine-readable code for the error. Use it in your logic."
               },
@@ -3418,7 +3450,62 @@
           "id"
         ],
         "additionalProperties": {},
-        "description": "A type to register."
+        "description": "A declared item type."
+      },
+      "TypeResponse": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TypeDefinition"
+              },
+              {
+                "description": "The type."
+              }
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "description": "One type."
+      },
+      "LinkTakenOrTypeAlreadyExistsRefusal": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "link_taken",
+                  "type_already_exists"
+                ],
+                "description": "A machine-readable code for the error. Use it in your logic."
+              },
+              "message": {
+                "type": "string",
+                "description": "A description of the error for a person to read. It can change, so don't match on it."
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "More about the error, such as the field it concerns. Each code defines its own details."
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "description": "What went wrong."
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "description": "An error response."
       },
       "CoreTypeImmutableOrForbiddenOrTypeNotPermittedRefusal": {
         "type": "object",
@@ -4529,6 +4616,16 @@
             ],
             "description": "The connector's most recently reported run; `null` if it has reported none."
           },
+          "problems": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorProblems"
+              },
+              {
+                "description": "The source's current problems, by opaque key; `{}` if there are none."
+              }
+            ]
+          },
           "hold_expires_at": {
             "type": [
               "string",
@@ -4547,6 +4644,7 @@
           "updated_at",
           "last_heartbeat_at",
           "last_run",
+          "problems",
           "hold_expires_at"
         ],
         "description": "A connector is a process outside Marfa that registers under an API key, sends heartbeats and reports its runs."
@@ -5050,6 +5148,16 @@
       "ConnectorState": {
         "type": "object",
         "properties": {
+          "problems": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorProblems"
+              },
+              {
+                "description": "The source's current problems, by opaque key; `{}` if there are none."
+              }
+            ]
+          },
           "state": {
             "type": "object",
             "additionalProperties": {},
@@ -5064,6 +5172,7 @@
           }
         },
         "required": [
+          "problems",
           "state",
           "updated_at"
         ],
@@ -5699,7 +5808,7 @@
         ],
         "description": "The instance configuration: its enforcement levers and retention settings, with the instance's ID."
       },
-      "InvalidPropertiesOrValidationErrorRefusal": {
+      "InvalidPropertiesOrInvalidSchemaOrValidationErrorRefusal": {
         "type": "object",
         "properties": {
           "error": {
@@ -5709,6 +5818,7 @@
                 "type": "string",
                 "enum": [
                   "invalid_properties",
+                  "invalid_schema",
                   "validation_error"
                 ],
                 "description": "A machine-readable code for the error. Use it in your logic."
@@ -5935,6 +6045,149 @@
                 "type": "string",
                 "enum": [
                   "owner_not_found"
+                ],
+                "description": "A machine-readable code for the error. Use it in your logic."
+              },
+              "message": {
+                "type": "string",
+                "description": "A description of the error for a person to read. It can change, so don't match on it."
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "More about the error, such as the field it concerns. Each code defines its own details."
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "description": "What went wrong."
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "description": "An error response."
+      },
+      "SignInList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignIn"
+            },
+            "description": "The owner's live sign-ins, oldest first."
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Always `null`: Marfa returns every sign-in in one page."
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "description": "Every live sign-in of the owner."
+      },
+      "SignIn": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the sign-in.",
+            "example": "Q2xYvR8mKp4TnW6aBc0dEf1gHi3jKl5M"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "browser",
+              "app",
+              "key"
+            ],
+            "description": "What signed in. `browser`: a browser signed in with the owner's password. `app`: an app the owner approved, for every device it signs in on with that approval. `key`: an API key."
+          },
+          "name": {
+            "type": "string",
+            "description": "A readable name: a browser's from its `user_agent`, an app's the owner's name for it or else its registered name, a key's its `label`. A name with a control or bidirectional character, or over 200 characters, gives way to the ID.",
+            "example": "Safari on macOS"
+          },
+          "current": {
+            "type": "boolean",
+            "description": "`true` if this sign-in sent the request."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "When the sign-in was made, in UTC. For an app, when the owner last approved it.",
+            "example": "2026-10-03T09:30:00.000Z"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the sign-in last made a request, in UTC, or `null` if it hasn't. Marfa records a browser's use at most once a minute and an app's or key's at most once an hour.",
+            "example": "2026-10-05T14:12:08.000Z"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the sign-in ends unless something changes, in UTC. A browser's is seven days and one minute after `last_used_at`. `null` for an app, and for a key that doesn't expire.",
+            "example": "2026-10-12T14:13:08.000Z"
+          },
+          "ip_address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The address a browser signed in from, or `null` for an app, a key, or a browser whose address Marfa could not tell.",
+            "example": "203.0.113.24"
+          },
+          "user_agent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The `User-Agent` a browser sent when it signed in, or `null` for an app, a key, or a browser that sent none."
+          },
+          "minted_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a key an app minted, the ID of that app's sign-in while the app is signed in. `null` for a browser, an app, any other key, and a key whose app has ended."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "current",
+          "created_at",
+          "last_used_at",
+          "expires_at",
+          "ip_address",
+          "user_agent",
+          "minted_by"
+        ],
+        "description": "A sign-in is one way the owner's Marfa can be reached."
+      },
+      "SignInNotFoundRefusal": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "sign_in_not_found"
                 ],
                 "description": "A machine-readable code for the error. Use it in your logic."
               },
@@ -20276,7 +20529,7 @@
             }
           },
           "400": {
-            "description": "- `validation_error`: a field is invalid, such as an `id` or `reverse_name` that isn't a valid edge type identifier, a `role:` constraint naming no role, or `written_at: target` with no `reverse_name`; or the body names `extends`.\n- `missing_required_field`: `id` or `cardinality` is missing.\n- `invalid_schema`: a property's `type` isn't a field type.",
+            "description": "- `validation_error`: a field is invalid, such as a bad `id` or `reverse_name`, a `role:` naming no role, or `written_at: target` with no `reverse_name`, or `extends` is set.\n- `missing_required_field`: `id` or `cardinality` is missing.\n- `invalid_schema`: a property's `type` isn't a field type, or the body has a key the schema doesn't define (`details.errors` names each path).",
             "content": {
               "application/json": {
                 "schema": {
@@ -21502,7 +21755,7 @@
             }
           },
           "400": {
-            "description": "- `missing_required_field`: `fields` is missing.\n- `validation_error`: `id` is malformed, or `parent` isn't registered or makes too deep a chain.\n- `invalid_schema`: the schema is invalid, such as a `link_field` that isn't a string field.\n- `property_shadows_field`: a field is named like one every item has, such as `source_id`.\n- `inheritance_violation`: the type reshapes an inherited field.",
+            "description": "- `missing_required_field`: `fields` is missing.\n- `validation_error`: `id` is malformed, or `parent` isn't registered or makes too deep a chain.\n- `invalid_schema`: the schema is invalid or has a key it doesn't define (`details.errors` names each path).\n- `property_shadows_field`: a field is named like one every item has.\n- `inheritance_violation`: the type reshapes an inherited field.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22159,7 +22412,7 @@
             }
           },
           "400": {
-            "description": "- `missing_required_field`: `fields` is missing.\n- `validation_error`: `id` is malformed, or `parent` isn't registered or makes a circular or too deep chain.\n- `invalid_schema`: the schema is invalid, such as a `link_field` that isn't a string field.\n- `property_shadows_field`: a field has the name of one every item has.\n- `inheritance_violation`: a field's shape differs in a parent or subtype.",
+            "description": "- `missing_required_field`: `fields` is missing.\n- `validation_error`: `id` is malformed, or `parent` isn't registered or makes a bad chain.\n- `invalid_schema`: the schema is invalid or has a key it doesn't define (`details.errors` names each path).\n- `property_shadows_field`: a field has the name of one every item has.\n- `inheritance_violation`: a field's shape differs in a parent or subtype.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22715,6 +22968,324 @@
               },
               "X-Request-ID": {
                 "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`: you sent too many requests. Wait for the number of seconds in `Retry-After`, then try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: Marfa failed in a way it didn't expect, and the request may not have completed. Read what you changed before you repeat a write.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalErrorRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "503": {
+            "description": "`write_contention`: the database was busy, and Marfa couldn't complete the request in time. Nothing changed. Try the request again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteContentionRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "507": {
+            "description": "`insufficient_storage`: the disk that holds the instance's data has no room for the request, or the request would leave less free than the instance keeps in reserve. Nothing changed, unless `details.write_outcome` is `unknown`, which means the write may have landed: read what you changed before you repeat it. Free space on the disk, then try the request again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsufficientStorageRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/types/normalize": {
+      "post": {
+        "operationId": "normalizeType",
+        "tags": [
+          "Types"
+        ],
+        "summary": "Normalize a type",
+        "description": "Normalizes a candidate definition and returns its declared form, the registered declared definition and the registered resolved definition. It does not register or replace a type.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TypeDefinitionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the normalized candidate and the registered definitions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NormalizedType"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              }
+            }
+          },
+          "400": {
+            "description": "- `missing_required_field`: `fields` is missing.\n- `validation_error`: `id` is malformed, or `parent` isn't registered or makes too deep a chain.\n- `invalid_schema`: the schema is invalid or has a key it doesn't define (`details.errors` names each path).\n- `property_shadows_field`: a field is named like one every item has.\n- `inheritance_violation`: the type reshapes an inherited field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InheritanceViolationOrInvalidSchemaOrMissingRequiredFieldOrPropertyShadowsFieldOrValidationErrorRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthorized`: the request has no credential, or its credential is not valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "409": {
+            "description": "`type_chain_unresolvable`: the type's parent chain is circular or too deep to resolve. `PUT /types/{id}` can correct it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeChainUnresolvableRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "413": {
+            "description": "`request_too_large`: the request body is larger than this instance accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestTooLargeRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "422": {
+            "description": "`compatible_with_violation`: `compatible_with` names a type this instance doesn't hold, or one the type doesn't satisfy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompatibleWithViolationRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
               },
               "X-Error-Code": {
                 "$ref": "#/components/headers/X-Error-Code"
@@ -31768,6 +32339,16 @@
                     "maxLength": 100,
                     "description": "The name the process took the connector's hold under."
                   },
+                  "problems": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/ConnectorProblems"
+                      },
+                      {
+                        "description": "The source's current problems. Leave it out to preserve the current map; send `{}` to clear it."
+                      }
+                    ]
+                  },
                   "state": {
                     "type": "object",
                     "additionalProperties": {},
@@ -31790,6 +32371,16 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "problems": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/ConnectorProblems"
+                        },
+                        {
+                          "description": "The source's current problems, by opaque key; `{}` if there are none."
+                        }
+                      ]
+                    },
                     "state": {
                       "type": "object",
                       "additionalProperties": {},
@@ -31801,6 +32392,7 @@
                     }
                   },
                   "required": [
+                    "problems",
                     "state",
                     "updated_at"
                   ]
@@ -31826,7 +32418,7 @@
             }
           },
           "400": {
-            "description": "- `missing_required_field`: `process` or `state` is missing.\n- `validation_error`: `process` isn't 1 to 100 characters, `state` isn't a JSON object or is over 512 KiB serialized, or the body has a top-level field this endpoint doesn't take.",
+            "description": "- `missing_required_field`: `process` or `state` is missing.\n- `validation_error`: `process` isn't 1 to 100 characters, `state` isn't a JSON object or is over 512 KiB serialized, a problems map is over its entry, message or serialized size limits, or the body has a top-level field this endpoint doesn't take.",
             "content": {
               "application/json": {
                 "schema": {
@@ -32127,7 +32719,7 @@
           "Connectors"
         ],
         "summary": "Delete the state document",
-        "description": "Deletes the state document and every agreement of the connector's source, which every registration of that source reads. No hold is needed.",
+        "description": "Deletes the state document, current problems and every agreement of the connector's source, which every registration of that source reads. No hold is needed.",
         "security": [
           {
             "bearerAuth": []
@@ -37363,11 +37955,11 @@
             }
           },
           "400": {
-            "description": "- `validation_error`: the body isn't a valid archive, or the archive is at another format version, carries an entry twice, has an invalid row, or has a `manifest.json`, `types.ndjson` or line of `items.ndjson` or `edges.ndjson` larger than 64 MiB.\n- `invalid_properties`: an item sets a property its type doesn't declare, and `strict_mode` names that type.",
+            "description": "- `validation_error`: the body isn't a valid archive, or is at another format version, repeats an entry, has an invalid row, or has a file over 64 MiB.\n- `invalid_properties`: an item sets a property its type doesn't declare, and `strict_mode` names that type.\n- `invalid_schema`: an archived type is invalid or carries a key the schema doesn't define.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InvalidPropertiesOrValidationErrorRefusal"
+                  "$ref": "#/components/schemas/InvalidPropertiesOrInvalidSchemaOrValidationErrorRefusal"
                 }
               }
             },
@@ -38742,6 +39334,938 @@
               },
               "X-Request-ID": {
                 "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/owner/sign-ins": {
+      "get": {
+        "operationId": "listSignIns",
+        "tags": [
+          "Access"
+        ],
+        "summary": "List sign-ins",
+        "security": [
+          {
+            "ownerSession": []
+          }
+        ],
+        "description": "Returns every browser, app and key that can reach Marfa, marking the browser that sent the request. Requires the owner's browser session or the local command.",
+        "responses": {
+          "200": {
+            "description": "Returns every live sign-in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInList"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              }
+            }
+          },
+          "400": {
+            "description": "- `validation_error`: the query has a parameter this endpoint doesn't take.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthorized`: the request has no credential, or its credential is not valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "403": {
+            "description": "- `forbidden`: the request carries a key or an app's token rather than the owner's browser session or the local command's authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`: you sent too many requests. Wait for the number of seconds in `Retry-After`, then try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: Marfa failed in a way it didn't expect, and the request may not have completed. Read what you changed before you repeat a write.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalErrorRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "503": {
+            "description": "`write_contention`: the database was busy, and Marfa couldn't complete the request in time. Nothing changed. Try the request again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteContentionRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "507": {
+            "description": "`insufficient_storage`: the disk that holds the instance's data has no room for the request, or the request would leave less free than the instance keeps in reserve. Nothing changed, unless `details.write_outcome` is `unknown`, which means the write may have landed: read what you changed before you repeat it. Free space on the disk, then try the request again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsufficientStorageRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/owner/sign-ins/{id}": {
+      "patch": {
+        "operationId": "updateSignIn",
+        "tags": [
+          "Access"
+        ],
+        "summary": "Update a sign-in",
+        "security": [
+          {
+            "ownerSession": []
+          }
+        ],
+        "description": "Gives an app or a key a new name and returns the sign-in. A key's name is its `label`. Requires the owner's browser session, signed in within the last five minutes, or the local command.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The ID of the sign-in."
+            },
+            "required": true,
+            "description": "The ID of the sign-in.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "The sign-in's new name. Marfa trims spaces from each end.",
+                    "example": "Marfa app on the studio laptop"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the renamed sign-in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignIn"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              }
+            }
+          },
+          "400": {
+            "description": "- `missing_required_field`: `name` is missing.\n- `validation_error`: `name` is empty, too long or holds a control or bidirectional formatting character, the body has another field, or the ID names a browser, whose name comes from the browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MissingRequiredFieldOrValidationErrorRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthorized`: the request has no credential, or its credential is not valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "403": {
+            "description": "- `forbidden`: the request carries a key or an app's token rather than the owner's browser session or the local command's authority, or the browser signed in more than five minutes ago.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "404": {
+            "description": "- `sign_in_not_found`: no live sign-in of the owner has this ID. It may have ended or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInNotFoundRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "413": {
+            "description": "`request_too_large`: the request body is larger than this instance accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestTooLargeRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`: you sent too many requests. Wait for the number of seconds in `Retry-After`, then try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: Marfa failed in a way it didn't expect, and the request may not have completed. Read what you changed before you repeat a write.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalErrorRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "503": {
+            "description": "`write_contention`: the database was busy, and Marfa couldn't complete the request in time. Nothing changed. Try the request again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteContentionRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "507": {
+            "description": "`insufficient_storage`: the disk that holds the instance's data has no room for the request, or the request would leave less free than the instance keeps in reserve. Nothing changed, unless `details.write_outcome` is `unknown`, which means the write may have landed: read what you changed before you repeat it. Free space on the disk, then try the request again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsufficientStorageRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "endSignIn",
+        "tags": [
+          "Access"
+        ],
+        "summary": "End a sign-in",
+        "security": [
+          {
+            "ownerSession": []
+          }
+        ],
+        "description": "Ends a sign-in at once: it can't make another request, and an app can't refresh its tokens. The keys an app minted stay unless `revoke_keys` is `true`. Requires the owner's browser session, signed in within five minutes, or the local command.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The ID of the sign-in."
+            },
+            "required": true,
+            "description": "The ID of the sign-in.",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "For an app, also revoke every key it minted, as its `minted_by` rows show. Only an app takes it."
+            },
+            "required": false,
+            "description": "For an app, also revoke every key it minted, as its `minted_by` rows show. Only an app takes it.",
+            "name": "revoke_keys",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns `ok: true`. The sign-in has ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              }
+            }
+          },
+          "400": {
+            "description": "- `validation_error`: `revoke_keys` is `true` and the ID names a browser or a key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthorized`: the request has no credential, or its credential is not valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "403": {
+            "description": "- `forbidden`: the request carries a key or an app's token rather than the owner's browser session or the local command's authority, or the browser signed in more than five minutes ago.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "404": {
+            "description": "- `sign_in_not_found`: no live sign-in of the owner has this ID. It may have ended or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInNotFoundRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "413": {
+            "description": "`request_too_large`: the request body is larger than this instance accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestTooLargeRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`: you sent too many requests. Wait for the number of seconds in `Retry-After`, then try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: Marfa failed in a way it didn't expect, and the request may not have completed. Read what you changed before you repeat a write.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalErrorRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "503": {
+            "description": "`write_contention`: the database was busy, and Marfa couldn't complete the request in time. Nothing changed. Try the request again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteContentionRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "507": {
+            "description": "`insufficient_storage`: the disk that holds the instance's data has no room for the request, or the request would leave less free than the instance keeps in reserve. Nothing changed, unless `details.write_outcome` is `unknown`, which means the write may have landed: read what you changed before you repeat it. Free space on the disk, then try the request again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsufficientStorageRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
               },
               "X-Error-Code": {
                 "$ref": "#/components/headers/X-Error-Code"

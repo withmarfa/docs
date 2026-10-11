@@ -196,6 +196,11 @@ Options:
           The client id an earlier sign-in registered, where no keychain remembers it; without one
           the binary registers again
 
+      --name <NAME>
+          The name this sign-in registers under, which is sent to the server and shown to its owner
+          among their sign-ins. Defaults to `marfa on` and this machine's host name without its
+          domain. Giving it registers the binary again
+
   -h, --help
           Print help
 
@@ -534,6 +539,173 @@ Usage: marfa owner recover [OPTIONS]
 Options:
       --stdin
           Read a JSON object containing password from standard input instead of a hidden prompt
+
+  -h, --help
+          Print help
+
+Server:
+      --url <URL>
+          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
+          made current
+
+      --key <KEY>
+          A key or a token for that server. Prefer MARFA_API_KEY or the keychain: a command line is
+          readable by other users of the machine and stays in shell history. Falls back to
+          MARFA_API_KEY, then to the keychain: the file MARFA_KEYCHAIN names, where it names one
+
+      --allow-http
+          Send a credential over plain http to a host that is not this machine without the warning,
+          for a network that is private. MARFA_ALLOW_HTTP=1 does the same
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
+Output:
+      --json
+          Print the answer as JSON, and a refusal as one JSON object on stderr, after any warning,
+          which is one plain line
+```
+
+## sign-ins
+
+### marfa sign-ins
+
+```text
+Sign-ins: every browser, app and key that can reach the server. A key or an app's token is refused;
+use --socket
+
+Usage: marfa sign-ins [OPTIONS] <COMMAND>
+
+Commands:
+  list    List every browser, app and key that can reach the server, each with its name, its kind
+          and when it was last used. Needs direct local authority (--socket)
+  rename  Give an app or a key a new name. A key's name is its label; a browser's comes from the
+          browser and can't be changed. Needs direct local authority (--socket)
+  end     End a sign-in at once: its next request is refused, and an app can't refresh its tokens.
+          What it wrote stays, and so do the keys an app minted unless --revoke-keys is given. Needs
+          direct local authority (--socket)
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help
+          Print help
+
+Server:
+      --url <URL>
+          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
+          made current
+
+      --key <KEY>
+          A key or a token for that server. Prefer MARFA_API_KEY or the keychain: a command line is
+          readable by other users of the machine and stays in shell history. Falls back to
+          MARFA_API_KEY, then to the keychain: the file MARFA_KEYCHAIN names, where it names one
+
+      --allow-http
+          Send a credential over plain http to a host that is not this machine without the warning,
+          for a network that is private. MARFA_ALLOW_HTTP=1 does the same
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
+Output:
+      --json
+          Print the answer as JSON, and a refusal as one JSON object on stderr, after any warning,
+          which is one plain line
+```
+
+### marfa sign-ins list
+
+```text
+List every browser, app and key that can reach the server, each with its name, its kind and when it
+was last used. Needs direct local authority (--socket)
+
+Usage: marfa sign-ins list [OPTIONS]
+
+Options:
+  -h, --help
+          Print help
+
+Server:
+      --url <URL>
+          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
+          made current
+
+      --key <KEY>
+          A key or a token for that server. Prefer MARFA_API_KEY or the keychain: a command line is
+          readable by other users of the machine and stays in shell history. Falls back to
+          MARFA_API_KEY, then to the keychain: the file MARFA_KEYCHAIN names, where it names one
+
+      --allow-http
+          Send a credential over plain http to a host that is not this machine without the warning,
+          for a network that is private. MARFA_ALLOW_HTTP=1 does the same
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
+Output:
+      --json
+          Print the answer as JSON, and a refusal as one JSON object on stderr, after any warning,
+          which is one plain line
+```
+
+### marfa sign-ins rename
+
+```text
+Give an app or a key a new name. A key's name is its label; a browser's comes from the browser and
+can't be changed. Needs direct local authority (--socket)
+
+Usage: marfa sign-ins rename [OPTIONS] <ID> <NAME>
+
+Arguments:
+  <ID>
+          The sign-in's id
+
+  <NAME>
+          The new name, which may start with `-`
+
+Options:
+  -h, --help
+          Print help
+
+Server:
+      --url <URL>
+          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
+          made current
+
+      --key <KEY>
+          A key or a token for that server. Prefer MARFA_API_KEY or the keychain: a command line is
+          readable by other users of the machine and stays in shell history. Falls back to
+          MARFA_API_KEY, then to the keychain: the file MARFA_KEYCHAIN names, where it names one
+
+      --allow-http
+          Send a credential over plain http to a host that is not this machine without the warning,
+          for a network that is private. MARFA_ALLOW_HTTP=1 does the same
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
+Output:
+      --json
+          Print the answer as JSON, and a refusal as one JSON object on stderr, after any warning,
+          which is one plain line
+```
+
+### marfa sign-ins end
+
+```text
+End a sign-in at once: its next request is refused, and an app can't refresh its tokens. What it
+wrote stays, and so do the keys an app minted unless --revoke-keys is given. Needs direct local
+authority (--socket)
+
+Usage: marfa sign-ins end [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          The sign-in's id
+
+Options:
+      --revoke-keys
+          For an app, also revoke every key it minted. Refused for a browser or a key
 
   -h, --help
           Print help
@@ -2759,18 +2931,20 @@ The types an instance holds, and the shipped ones it has outgrown
 Usage: marfa types [OPTIONS] <COMMAND>
 
 Commands:
-  list      Every type the instance holds
-  get       One type by id, with its schema
-  register  Register a type from its definition. Needs `metadata.types:write` and write on the type
-            in the key's type map
-  replace   Replace a registered type's definition. Needs write on the type in the key's type map
-            and `schema.write` or `metadata.types:write`
-  delete    Remove a registered type. Needs `schema.write` and write on the type in the key's type
-            map
-  drift     Shipped types this instance carries that the build no longer does. Requires
-            `instance.read`
-  prune     Remove one shipped type the build no longer carries. Requires `instance.maintain`
-  help      Print this message or the help of the given subcommand(s)
+  list       Every type the instance holds
+  get        One type by id, with its schema
+  register   Register a type from its definition. Needs `metadata.types:write` and write on the type
+             in the key's type map
+  normalize  Normalize a definition and compare it with the registered type. Any authenticated key
+             can use this command
+  replace    Replace a registered type's definition. Needs write on the type in the key's type map
+             and `schema.write` or `metadata.types:write`
+  delete     Remove a registered type. Needs `schema.write` and write on the type in the key's type
+             map
+  drift      Shipped types this instance carries that the build no longer does. Requires
+             `instance.read`
+  prune      Remove one shipped type the build no longer carries. Requires `instance.maintain`
+  help       Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help
@@ -2878,6 +3052,47 @@ Register a type from its definition. Needs `metadata.types:write` and write on t
 type map
 
 Usage: marfa types register [OPTIONS]
+
+Options:
+      --file <PATH>
+          A file holding the JSON body; `-` reads stdin
+
+      --body <JSON>
+          The JSON body inline
+
+  -h, --help
+          Print help
+
+Server:
+      --url <URL>
+          The server's base URL. Falls back to MARFA_API_URL, then to the server a kept credential
+          made current
+
+      --key <KEY>
+          A key or a token for that server. Prefer MARFA_API_KEY or the keychain: a command line is
+          readable by other users of the machine and stays in shell history. Falls back to
+          MARFA_API_KEY, then to the keychain: the file MARFA_KEYCHAIN names, where it names one
+
+      --allow-http
+          Send a credential over plain http to a host that is not this machine without the warning,
+          for a network that is private. MARFA_ALLOW_HTTP=1 does the same
+
+      --socket <PATH>
+          Use private local process authority through this Unix socket, without a keychain
+
+Output:
+      --json
+          Print the answer as JSON, and a refusal as one JSON object on stderr, after any warning,
+          which is one plain line
+```
+
+### marfa types normalize
+
+```text
+Normalize a definition and compare it with the registered type. Any authenticated key can use this
+command
+
+Usage: marfa types normalize [OPTIONS]
 
 Options:
       --file <PATH>
@@ -5882,8 +6097,8 @@ Usage: marfa connectors state [OPTIONS] <COMMAND>
 Commands:
   get     The state document, `{}` until one is written. Its own key only
   put     Replace the state document with a JSON object. Its own key only
-  delete  Remove the state document and every agreement. The connector's own key, or
-          `connectors.manage`
+  delete  Remove the state document, current problems and every agreement. The connector's own key,
+          or `connectors.manage`
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -5966,6 +6181,9 @@ Options:
       --process <PROCESS>
           The process writing, which must hold the registration
 
+      --problems <JSON>
+          Current problems as a JSON object of messages. Omit to preserve them; `{}` clears them
+
       --file <PATH>
           A file holding the JSON body; `-` reads stdin
 
@@ -6001,7 +6219,8 @@ Output:
 ### marfa connectors state delete
 
 ```text
-Remove the state document and every agreement. The connector's own key, or `connectors.manage`
+Remove the state document, current problems and every agreement. The connector's own key, or
+`connectors.manage`
 
 Usage: marfa connectors state delete [OPTIONS] <ID>
 
@@ -9632,8 +9851,9 @@ Commands:
   list     List the folders on this machine, as its registry holds them. The registry is the file
            MARFA_FOLDER_REGISTRY names, where it names one
   remove   Take a folder off this machine: its own state under `.marfa` goes, and its files stay as
-           plain files. Refused while writes wait, except for a first sync still waiting to be
-           confirmed, which this cancels. A folder whose directory is gone is taken off the list
+           plain files. Empty administrative directories remain. Refused while writes wait, except
+           for a first sync still waiting to be confirmed, which this cancels. A folder whose
+           directory is gone is taken off the list
   status   Say where every file in the folder stands, from its own store, asking the server nothing
   confirm  Let a folder's first sync go, or a paused large removal: its deletes are queued, and
            files whose items left elsewhere are taken away
@@ -9763,8 +9983,9 @@ Output:
 
 ```text
 Take a folder off this machine: its own state under `.marfa` goes, and its files stay as plain
-files. Refused while writes wait, except for a first sync still waiting to be confirmed, which this
-cancels. A folder whose directory is gone is taken off the list
+files. Empty administrative directories remain. Refused while writes wait, except for a first sync
+still waiting to be confirmed, which this cancels. A folder whose directory is gone is taken off the
+list
 
 Usage: marfa folders remove [OPTIONS] <DIR>
 

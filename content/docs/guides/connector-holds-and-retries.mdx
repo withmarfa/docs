@@ -73,7 +73,7 @@ Marfa answers `{ "ok": true }` whether or not that process held the hold, and ne
 
 ## Keep your place in the state document
 
-The state document is where a connector keeps its place at the vendor, such as a sync token or a cursor, so that a restart, even on another machine, resumes instead of reading everything again. [Get the state document](/api-reference/connectors/getConnectorState) answers `{ "state": {}, "updated_at": null }` until one is written. [Replace the state document](/api-reference/connectors/replaceConnectorState) under the hold:
+The state document is where a connector keeps its place at the vendor, such as a sync token or a cursor, so that a restart, even on another machine, resumes instead of reading everything again. [Get the state document](/api-reference/connectors/getConnectorState) answers an empty `state`, empty `problems` and `updated_at: null` until state is written. [Replace the state document](/api-reference/connectors/replaceConnectorState) under the hold:
 
 ```http tab="HTTP" tab-group="client"
 PUT /connectors/01a12313-d219-7e92-8869-1f6546b43dbc/state
@@ -91,14 +91,18 @@ await marfa.PUT("/connectors/{id}/state", {
 ```
 
 ```json
-{ "state": { "sync_token": "abc123" }, "updated_at": "2026-10-09T23:51:10.032Z" }
+{ "state": { "sync_token": "abc123" }, "problems": {}, "updated_at": "2026-10-09T23:51:10.032Z" }
 ```
 
 The request replaces the whole document; it doesn't merge into it. To change one value, read the document, change the value, and send it all. A process without a live hold is refused `409 connector_held`, and the document stays as it was.
 
+The same state write can carry a `problems` map: opaque keys with messages about work that remains unresolved. It replaces that map together with the state, under the live hold. Omit `problems` to keep the existing messages, or send `problems: {}` to clear them. A refused write changes neither.
+
+Problems are visible in the connector's registration, but the private state document is not. A heartbeat or a succeeded run never clears them, so explicitly remove a problem when it is resolved. They survive a registration change, a key replacement and a restart.
+
 **Save the state last.** Write the new place only after everything it covers has landed in Marfa. A run that stops before the save leaves the old place, so the next run reads that part of the vendor again and writes it again, which the natural key makes harmless. A place saved first would skip what the run never wrote.
 
-Expect to find the document empty. The owner, or a key that holds `connectors.manage`, can [delete it](/api-reference/connectors/deleteConnectorState), and the agreements go with it. A connector that finds no state reads the vendor whole. The document belongs to the key's source, not to one key, so a new key under the same source carries on from it.
+Expect to find the document empty. The owner, or a key that holds `connectors.manage`, can [delete it](/api-reference/connectors/deleteConnectorState), and the agreements and current problems go with it. A connector that finds no state reads the vendor whole. The document belongs to the key's source, not to one key, so a new key under the same source carries on from it.
 
 ## Record agreements
 

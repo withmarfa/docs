@@ -9,7 +9,7 @@ Many apps write to the same instance, often to the same item, and devices write 
 
 An item's `version` starts at 1 and goes up by one with each change to the item itself: its properties, its type, its tier, its `occurred_at` or its `source_id`. Writing the same value again still counts as a change.
 
-Everything else leaves the version alone. Tags and extensions, edges, and moves between active, archived and trashed don't count, so a tag added in one app never makes another app's edit stale. Tag, extension and state changes still move the item's `updated_at`; an edge write doesn't, because an edge has a version of its own.
+Everything else leaves the version alone. Tags, metadata and extensions, edges, and moves between active, archived and trashed don't count, so a tag added in one app never makes another app's edit stale. Tag, extension and state changes still move the item's `updated_at`; an edge write doesn't, because an edge has a version of its own.
 
 ## When two apps write the same item
 
@@ -29,8 +29,16 @@ A write can instead ask Marfa to settle a collision for it, field by field, by t
 
 ## History
 
-Each time an item's version moves, Marfa keeps a snapshot of the item as it was: its properties, type, tier, `occurred_at` and `source_id`. The snapshots are what a stale write is compared against, and [List item versions](/api-reference/items/listItemVersions) reads them, oldest first.
+Each time an item's version moves, Marfa keeps a snapshot of the item as it was: its properties, type, tier, `occurred_at` and `source_id`. The snapshots are what a stale write is compared against, and [List item versions](/api-reference/items/listItemVersions) reads them, oldest first. The answer is a page with `data` and `next_cursor`: follow that cursor until it is `null`. Reading an item with `include=versions` carries the first page in `versions`, and its cursor continues through the same listing.
+
+You see only snapshots whose type your credential can read, as well as needing read access to the item's current type. If the item moved between types, its readable history can therefore leave some versions out.
 
 Marfa doesn't keep every snapshot forever. A housekeeping job keeps every recent one and fewer as they age, by a policy the item's type can set. A write based on a version whose snapshot is gone can't be compared, so Marfa refuses it with `409 ancestor_unavailable`, and the app reads the item again before it writes. An app that holds an edit for a long time does well to read first.
+
+## Who wrote a version
+
+Each snapshot carries a `writer`: the sign-in that wrote that version, with its `kind`, `id` and `name`, or `null` for work such as enrichment that no request asked for. The kind distinguishes a browser, an app, a key and a local command. The name is kept as it was when the version was written, even if the sign-in is renamed or ended later.
+
+For an edit made offline, the writer is the sign-in that sends the queued write. It does not identify who typed the edit. An archive keeps these writers when restored, so its history names the original writers rather than the person restoring it.
 
 The rules behind this page are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md) chapter of the contract.
