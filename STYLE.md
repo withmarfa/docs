@@ -35,7 +35,7 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 - A **how-to guide** does one task for a reader who already knows the concepts.
 - A **reference** page states facts and never teaches. Generated reference is shown as tables, never as raw help text.
 
-The Overview and Tools folders are groups, so their pages sit at the site root (`/files`, `/cli`). A Tools page is placed by listing it in `content/docs/(tools)/meta.json`; the header tabs read that list.
+`content/AGENTS.md` says how to add a page to its tab and wire it into the site.
 
 ## Writing
 
@@ -83,7 +83,6 @@ Don't restate what the API reference says. A page explains what the reference ca
 - Inline code is for text a reader would type or copy: type IDs, field names, paths, header names, flags, values. A product name in prose is plain text (the TypeScript client, not `@withmarfa/client`).
 - Internal links are paths from the site root, such as `/files`, so the Markdown copy of each page resolves them. Link text says where the link goes.
 - No filler: "simply", "just", "easy", "basically", "really", "actually", "very".
-- No personal infrastructure: no internal hostnames, private IP addresses, or personal paths.
 
 ## Examples
 
@@ -110,7 +109,7 @@ Examples are not runnable on the page: the API reference has a request builder f
 
 ## Components
 
-Use a component for what it's for, and only where it helps the reader. `Card`, `Cards` and `Callout` are available on every page; the others are registered in `src/components/mdx.tsx`.
+Use a component for what it's for, and only where it helps the reader.
 
 | Component | Use it for |
 | --- | --- |
@@ -154,7 +153,7 @@ The docs stay right by being rewritten whole, not by being added to.
 - **A docs pass runs at each release.** It reads every page whose contract rules or operations changed since the last release and rewrites each one whole, to this file. "No change needed" is a normal answer.
 - **A page that grows is a warning.** When a change makes a page much longer, check whether the new text belongs in the reference instead, or replaces something.
 
-`scripts/staleness-report.ts` lists the pages to read for a docs pass; `AGENTS.md`, "Keeping pages current", says how to run it.
+`scripts/staleness-report.ts` lists the pages to read for a docs pass; `AGENTS.md`, "Docs pass at each release", says how to run it.
 
 ## Frontmatter
 
