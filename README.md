@@ -7,7 +7,8 @@ deployed to [Cloudflare Workers](https://workers.cloudflare.com) via
 `@cloudflare/vite-plugin`.
 
 This README is for contributors to the sites. Readers should read the published
-docs.
+docs. Pages are written to [`STYLE.md`](STYLE.md), and [`AGENTS.md`](AGENTS.md)
+holds the rules for working in this repository.
 
 ## Two Workers, one repository
 
