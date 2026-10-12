@@ -14,7 +14,7 @@ The source of the public documentation site at `docs.marfa.so` and the status pa
 - American English in code, comments and commits. Pages follow `STYLE.md`.
 - Conventional Commits with a scope, such as `docs(guides):` or `fix(mcp):`. Work reaches `main` only through a pull request, one logical change each.
 - Once a branch is merged, remove its worktree with `git worktree remove`, run `git worktree prune`, and run `git pull --ff-only` on `main`. If git refuses to remove a worktree, report it rather than forcing it.
-- TypeScript and ESM. pnpm with the committed lockfile, on Node 22 or later.
+- TypeScript and ESM. pnpm with the committed lockfile, on Node 22.12 or later, which TanStack Start, Vite and Vitest require. CI uses Node 22.
 - This repository is public. Commit no internal hostname, private IP address, personal path, key or token, in a page or anywhere else.
 - A comment says only what the code cannot: the reason, the constraint or the trade-off. It never names a tracker, ticket number or project phase.
 
