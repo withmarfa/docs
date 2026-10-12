@@ -25,8 +25,9 @@ const SITE = 'https://docs.marfa.so';
 
 /**
  * `/llms.txt` in the llmstxt.org shape: the project's name, a one-line summary,
- * how to read the docs, then every page by tab and sidebar group, each linked
- * to its Markdown copy.
+ * how to read the docs, then every page by tab and sidebar group. A written
+ * page links to its Markdown copy. An API operation links to its HTML page,
+ * because its Markdown copy holds only its title and description.
  */
 export function buildLlmsTxt(): string {
   return buildIndex(
@@ -35,14 +36,19 @@ export function buildLlmsTxt(): string {
       '',
       "> Marfa is a server you run yourself that holds one person's data in one place, in types every app understands, so the apps, scripts and AI agents they allow can read and write it through one HTTP API.",
       '',
-      `These docs cover what Marfa is, running an instance, building apps, connectors and agents on it, and the API. Every page below links to its Markdown copy; the same page without \`.md\` is the HTML. \`${SITE}/docs-map.md\` is this index with HTML links, \`${SITE}/llms-full.txt\` holds every page in one file, and the docs MCP server at \`${SITE}/mcp\` searches them.`,
+      `These docs cover what Marfa is, running an instance, building apps, connectors and agents on it, and the API. Every page below links to its Markdown copy, and the same address without \`.md\` is the HTML. API operations link to their HTML page, which holds the full request and response. \`${SITE}/docs-map.md\` is this index with HTML links, \`${SITE}/llms-full.txt\` holds every page in one file, and the docs MCP server at \`${SITE}/mcp\` searches them.`,
       '',
     ],
-    (url) => (url.startsWith('/') ? `${SITE}${url}.md` : url),
+    (url, page) => {
+      if (!url.startsWith('/')) return url;
+      return page && 'getText' in page.data ? `${SITE}${url}.md` : `${SITE}${url}`;
+    },
   );
 }
 
-function buildIndex(header: string[], link: (url: string) => string): string {
+type Page = ReturnType<typeof source.getPages>[number];
+
+function buildIndex(header: string[], link: (url: string, page: Page | undefined) => string): string {
   const pages = new Map(source.getPages().map((page) => [page.url, page]));
   const lines: string[] = [...header];
 
@@ -52,7 +58,7 @@ function buildIndex(header: string[], link: (url: string) => string): string {
     const page = pages.get(node.url);
     const title = page?.data.title ?? text(node.name);
     const description = page?.data.description;
-    return `- [${title}](${link(node.url)})${description ? `: ${description}` : ''}`;
+    return `- [${title}](${link(node.url, page)})${description ? `: ${description}` : ''}`;
   };
 
   // Pages under a heading. A folder with a landing page, such as the CLI and

@@ -35,6 +35,8 @@
 #                                     chapter, which the staleness report
 #                                     compares between two releases
 #   src/generated/marfa-release.json  the latest release tag, shown in the sidebar
+#   src/generated/cli-download.md     the macOS install of that release's CLI,
+#                                     included by the Quickstart and the CLI page
 #
 # Reads committed files from a checkout of the monorepo, by default the sibling
 # at ../marfa. Set MARFA_ROOT to use another. Nothing is generated: the
@@ -342,5 +344,15 @@ mv "$INDEX" "$GENERATED/contract-index.json"
 trap - EXIT
 cp "$MARFA_ROOT/GLOSSARY.md" "$GENERATED/GLOSSARY.md"
 printf '{"version":"%s"}\n' "$RELEASE" > "$GENERATED/marfa-release.json"
+# The macOS install the Quickstart and the CLI page include, for the release
+# the CLI archive is published with. A release sync changes it with no page edit.
+cat > "$GENERATED/cli-download.md" <<DOWNLOAD
+\`\`\`bash
+curl -fsSL https://github.com/withmarfa/marfa/releases/download/${RELEASE}/marfa-${RELEASE#v}-darwin-arm64.tar.gz | tar -xz
+sudo mkdir -p /usr/local/bin
+sudo mv marfa /usr/local/bin/
+marfa --version
+\`\`\`
+DOWNLOAD
 
-echo "openapi.json, the API overview, GLOSSARY.md, the command reference in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index and the release ($RELEASE) synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the command reference in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the release ($RELEASE) and its CLI download synced from $MARFA_ROOT"

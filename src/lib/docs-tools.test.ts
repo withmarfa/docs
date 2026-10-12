@@ -101,6 +101,10 @@ describe('fetchDocsPage', () => {
     expect(page).toMatch(/^# Files \(\/files\)\n/);
     expect(await fetchDocsPage('/overview.md')).toMatch(/^# Overview \(\/overview\)\n/);
     expect(await fetchDocsPage('/cli/items')).toContain('marfa items list');
+    // Code tabs keep their examples, under each tab's label.
+    const quickstart = await fetchDocsPage('/quickstart');
+    expect(quickstart).toContain('marfa items create --type core.note');
+    expect(quickstart).toContain('**TypeScript**');
     expect(await fetchDocsPage('/cli-reference')).toBeNull();
     expect(await fetchDocsPage('/docs-for-agents')).toBeNull();
     expect(await fetchDocsPage('/get-started/files')).toBeNull();

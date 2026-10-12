@@ -486,7 +486,7 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the command reference in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index and the release (v1.2.3) synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the command reference in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the release (v1.2.3) and its CLI download synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -527,8 +527,12 @@ check "the event types are the rows between the markers, and nothing else" \
 check "the contract index groups each rule's hash under its chapter, in file order" \
   "${index_expected}" "$(cat "${work}/good/docs/src/generated/contract-index.json")"
 check "the release is the latest version tag" '{"version":"v1.2.3"}' "$(cat "${work}/good/docs/src/generated/marfa-release.json")"
+check "the CLI download names that release and its archive" \
+  'curl -fsSL https://github.com/withmarfa/marfa/releases/download/v1.2.3/marfa-1.2.3-darwin-arm64.tar.gz | tar -xz' \
+  "$(sed -n 2p "${work}/good/docs/src/generated/cli-download.md")"
+check "the CLI download is one bash block" '```bash|```' "$(head -1 "${work}/good/docs/src/generated/cli-download.md")|$(tail -1 "${work}/good/docs/src/generated/cli-download.md")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md cli contract-index.json core-types.md edge-types.md error-codes.md event-types.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md cli cli-download.md contract-index.json core-types.md edge-types.md error-codes.md event-types.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 # The split must not depend on the folder being there already, or on how the
 # reference's lines end.

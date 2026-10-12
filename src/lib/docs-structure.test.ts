@@ -44,20 +44,19 @@ describe('the CLI reference pages', () => {
 });
 
 describe('the CLI download', () => {
-  it('names the latest release wherever a page links to it', () => {
+  it('comes from the generated snippet, so a release sync updates it', () => {
+    const hardCoded = ALL_PAGES.filter(({ text }) => text.includes('releases/download/')).map(({ file }) => file);
+    expect(hardCoded).toEqual([]);
+    const including = ALL_PAGES.filter(({ text }) =>
+      text.includes('<include cwd>src/generated/cli-download.md</include>'),
+    ).map(({ file }) => file);
+    expect(including.sort()).toEqual([path.join('(overview)', 'quickstart.mdx'), path.join('(tools)', 'cli', 'index.mdx')]);
+  });
+
+  it('names the latest release', () => {
     const { version } = JSON.parse(readFileSync(path.join(ROOT, 'src/generated/marfa-release.json'), 'utf8'));
-    const links = ALL_PAGES.flatMap(({ file, text }) =>
-      [...text.matchAll(/releases\/download\/(v[0-9][^/]*)\/marfa-([^-]+)-darwin-arm64/g)].map((match) => ({
-        file,
-        tag: match[1],
-        name: `v${match[2]}`,
-      })),
-    );
-    expect(links.length).toBeGreaterThan(0);
-    for (const link of links) {
-      expect(link.tag, `${link.file} links to ${link.tag}; the latest release is ${version}`).toBe(version);
-      expect(link.name, `${link.file} names the archive of ${link.name}`).toBe(version);
-    }
+    const snippet = readFileSync(path.join(ROOT, 'src/generated/cli-download.md'), 'utf8');
+    expect(snippet).toContain(`/releases/download/${version}/marfa-${version.slice(1)}-darwin-arm64.tar.gz`);
   });
 });
 

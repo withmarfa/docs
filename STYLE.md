@@ -124,7 +124,7 @@ Use a component for what it's for, and only where it helps the reader. `Card`, `
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
 
-The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, `Sequence` and `Files` as plain Markdown, and leaves the visuals out (`source.config.ts`). A component outside those lists is left out of the copy too, so add it there before a page relies on it.
+The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence` and `Files` as plain Markdown, and leaves the visuals out (`source.config.ts`). A component outside those lists is left out of the copy too, so add it there before a page relies on it.
 
 ## Visuals
 

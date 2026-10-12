@@ -12,10 +12,10 @@ type JsxElement = {
 };
 
 /** Components that only arrange their content: the Markdown copy keeps the content. */
-const WRAPPERS = new Set(['Tabs', 'Steps', 'Step', 'Accordions', 'Cards', 'ReferenceList']);
+const WRAPPERS = new Set(['Tabs', 'CodeBlockTabs', 'Steps', 'Step', 'Accordions', 'Cards', 'ReferenceList']);
 
 /** Components the Markdown copy writes in a Markdown form of its own. */
-const REWRITTEN = new Set(['Tab', 'Accordion', 'Card', 'Callout', 'Sequence', 'Files', 'Folder', 'File']);
+const REWRITTEN = new Set(['Tab', 'CodeBlockTab', 'Accordion', 'Card', 'Callout', 'Sequence', 'Files', 'Folder', 'File']);
 
 /** Node types that start a block, as opposed to text within one. */
 const FLOW = new Set([
@@ -87,6 +87,7 @@ const llms: LLMsOptions = {
       ).trim();
     switch (node.name) {
       case 'Tab':
+      case 'CodeBlockTab':
         return `**${attribute(node, 'value') ?? ''}**\n\n${inner()}`;
       case 'Accordion':
         return `**${attribute(node, 'title') ?? ''}**\n\n${inner()}`;

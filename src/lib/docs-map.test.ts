@@ -56,9 +56,14 @@ describe('buildLlmsTxt', () => {
     expect(summary.startsWith('> Marfa is ')).toBe(true);
   });
 
-  it('links each page to its Markdown copy at a full address', () => {
+  it('links each written page to its Markdown copy at a full address', () => {
     expect(text).toContain('- [Overview](https://docs.marfa.so/overview.md)');
-    expect(text).toContain('(https://docs.marfa.so/api-reference/items/createItem.md)');
+    expect(text).toContain('(https://docs.marfa.so/cli/items.md)');
     expect(text).not.toMatch(/\]\(\/[a-z]/);
+  });
+
+  it('links an API operation to its HTML page, which holds the request and answers', () => {
+    expect(text).toContain('(https://docs.marfa.so/api-reference/items/createItem)');
+    expect(text).not.toContain('createItem.md');
   });
 });
