@@ -1,13 +1,4 @@
-import {
-  Children,
-  cloneElement,
-  isValidElement,
-  useState,
-  type KeyboardEvent,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Children, cloneElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 
 type Element = ReactElement<{ children?: ReactNode; className?: string }>;
 
@@ -29,76 +20,26 @@ export function findSteps(children: ReactNode): { list: Element; steps: Element[
 }
 
 /**
- * An ordered list shown one step at a time, with Previous and Next. The MDX
- * holds a plain `1.` list, so the page's Markdown copy keeps every step.
- *
- * Every step sits in one grid cell and only the current one is visible, so the
- * box keeps the height of the tallest step and nothing moves between steps.
- * Without scripting, the stylesheet shows the whole list and hides the
- * controls; with scripting, it shows the first step from the server render
- * on, so the page doesn't jump when it hydrates.
+ * An ordered list shown as a numbered timeline, every step visible at once, so
+ * a reader sees the whole story and order in time is the shape. The MDX holds
+ * a plain `1.` list, so the page's Markdown copy keeps every step.
  */
 export function Sequence({ title, children }: { title: string; children: ReactNode }) {
   const found = findSteps(children);
-  const [step, setStep] = useState(0);
-
   if (!found) return <div className="marfa-seq-plain">{children}</div>;
 
   const { list, steps } = found;
-  const last = steps.length - 1;
-  const go = (to: number) => setStep(Math.min(Math.max(to, 0), last));
-
-  function onKeyDown(event: KeyboardEvent) {
-    if (event.key === 'ArrowRight') go(step + 1);
-    else if (event.key === 'ArrowLeft') go(step - 1);
-    else if (event.key === 'Home') go(0);
-    else if (event.key === 'End') go(last);
-    else return;
-    event.preventDefault();
-  }
-
   return (
     <section className="marfa-seq" aria-label={title}>
       <header className="marfa-seq-head">
         <span className="marfa-seq-title">{title}</span>
-        <span className="marfa-seq-count" aria-live="polite">
-          Step {step + 1} of {steps.length}
-        </span>
       </header>
       {cloneElement(list, {
         className: 'marfa-seq-list',
         children: steps.map((item, index) =>
-          cloneElement(item as ReactElement<Record<string, unknown>>, {
-            key: index,
-            'data-current': index === step ? '' : undefined,
-          }),
+          cloneElement(item as ReactElement<Record<string, unknown>>, { key: index }),
         ),
       })}
-      <div className="marfa-seq-controls" role="group" aria-label={`${title}: steps`} onKeyDown={onKeyDown}>
-        <button
-          type="button"
-          className="marfa-seq-button"
-          aria-disabled={step === 0}
-          onClick={() => go(step - 1)}
-        >
-          <ChevronLeft aria-hidden="true" />
-          Previous
-        </button>
-        <span className="marfa-seq-progress" aria-hidden="true">
-          {steps.map((_, index) => (
-            <span key={index} data-done={index <= step || undefined} />
-          ))}
-        </span>
-        <button
-          type="button"
-          className="marfa-seq-button"
-          aria-disabled={step === last}
-          onClick={() => go(step + 1)}
-        >
-          Next
-          <ChevronRight aria-hidden="true" />
-        </button>
-      </div>
     </section>
   );
 }

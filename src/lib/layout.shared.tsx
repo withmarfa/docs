@@ -39,5 +39,8 @@ export function baseOptions(): BaseLayoutProps {
       },
     ],
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
+    // The default two-way switch saves light or dark and offers no way back to
+    // following the system appearance.
+    themeSwitch: { mode: 'light-dark-system' },
   };
 }

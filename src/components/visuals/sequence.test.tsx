@@ -26,20 +26,19 @@ describe('Sequence', () => {
     expect(found?.steps).toHaveLength(3);
   });
 
-  it('renders every step in the server render, the first marked current', () => {
+  it('renders every step at once, in order, on a timeline', () => {
     const html = renderToStaticMarkup(<Sequence title="Writing">{list}</Sequence>);
     expect(html.match(/<li/g)).toHaveLength(3);
-    expect(html.match(/data-current=""/g)).toHaveLength(1);
-    expect(html).toMatch(/<li data-current="">Read the note at <code>version<\/code> 3\.<\/li>/);
+    expect(html).toMatch(/<li>Read the note at <code>version<\/code> 3\.<\/li>/);
     expect(html).toContain('<a href="/get-started/items-and-types">the version</a>');
-    expect(html).toContain('Step 1 of 3');
     expect(html).toContain('<ol class="marfa-seq-list">');
+    expect(html).toContain('<span class="marfa-seq-title">Writing</span>');
   });
 
-  it('starts with Previous unavailable and Next available', () => {
+  it('has no controls to step through', () => {
     const html = renderToStaticMarkup(<Sequence title="Writing">{list}</Sequence>);
-    expect(html).toMatch(/aria-disabled="true"[^>]*>.*Previous/);
-    expect(html).toMatch(/aria-disabled="false"[^>]*>Next/);
+    expect(html).not.toContain('button');
+    expect(html).not.toContain('data-current');
   });
 
   it('shows children that hold no list of steps as they are, with no controls', () => {

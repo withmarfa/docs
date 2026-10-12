@@ -3,42 +3,37 @@ title: Versions
 description: How an item's version counts its changes, so that two apps writing the same item never silently overwrite each other.
 ---
 
-Many apps write to the same instance, often to the same item, and devices write from copies made hours earlier. Marfa keeps that safe with a version on every item. A write names the version it read; Marfa compares it with what has changed since, and either applies the write or refuses it. This page explains what the version counts, what happens to a write based on an older version, and the history Marfa keeps.
+Many apps write to the same instance, often to the same item, and a device may send a write it made offline hours earlier. **Marfa keeps that safe with a version on every item.** A write names the version it read, and Marfa compares it with what has changed since before it applies anything.
 
 ## What the version counts
 
-An item's `version` starts at 1 and goes up by one with each change to the item itself: its properties, its type, its tier, its `occurred_at` or its `source_id`. Writing the same value again still counts as a change.
+An item's `version` starts at 1 and goes up by one with each change to the item itself: its properties, its type, its tier, its `occurred_at` or its `source_id`.
 
-Everything else leaves the version alone. Tags, metadata and extensions, edges, and moves between active, archived and trashed don't count, so a tag added in one app never makes another app's edit stale. Tag, extension and state changes still move the item's `updated_at`; an edge write doesn't, because an edge has a version of its own.
+**Everything else leaves the version alone**: tags, extensions, edges, and moves between active, archived and trashed. So a tag added in one app never makes another app's edit stale.
 
 ## When two apps write the same item
 
-An update names the version it read. If the item has moved on since, the write is stale, but Marfa doesn't refuse it for that alone. It compares the fields your write changes with the fields that changed since your version, using the snapshot it kept of that version:
+A write based on an older version isn't refused for that alone. Marfa looks at which fields your write changes and which fields changed since the version you read. **If they don't overlap, both changes stand.**
 
 <Sequence title="Two apps edit the same note">
 
 1. You read a note at version 3, and start changing its body.
 2. Meanwhile, another app changes the note's title. The note is now at version 4.
 3. You send your new body, naming version 3, the version you read.
-4. Your write changes only the body, and only the title changed since version 3, so nothing collides. Marfa applies your body over the note as it is now. The note is at version 5, with both changes.
-5. Had the other app changed the body too, the two changes would collide. Marfa then refuses your write with `409 version_conflict` and sends back the note as it is now, so you can combine the two bodies and send the result, naming version 4.
+4. Only the title changed since version 3, and you changed only the body, so nothing collides. Marfa applies your body. The note is at version 5, with both changes.
 
 </Sequence>
 
-A write can instead ask Marfa to settle a collision for it, field by field, by the rules of the item's type. `core.note` keeps the last writer's title, and keeps both bodies by putting yours in a conflicted copy: a new note, linked to the original, so neither writer's text is lost. Devices always write this way. [Write safely](/guides/write-safely) shows both ways and how to handle each answer.
+Had the other app changed the body too, the two changes would collide. Marfa then refuses your write with `409 version_conflict` and sends back the note as it is now, so you can combine the two and try again.
+
+A write can also ask Marfa to settle a collision for it, by the rules of the item's type. For a note, the last writer's title wins, and **both bodies are kept**: yours goes into a conflicted copy, a new note linked to the original, so neither writer's text is lost.
+
+Devices always write this way. [Write safely](/guides/write-safely) shows both ways.
 
 ## History
 
-Each time an item's version moves, Marfa keeps a snapshot of the item as it was: its properties, type, tier, `occurred_at` and `source_id`. The snapshots are what a stale write is compared against, and [List item versions](/api-reference/items/listItemVersions) reads them, oldest first. The answer is a page with `data` and `next_cursor`: follow that cursor until it is `null`. Reading an item with `include=versions` carries the first page in `versions`, and its cursor continues through the same listing.
+Each time an item's version moves, Marfa keeps a snapshot of the item as it was. The snapshots are what a stale write is compared against, and [List item versions](/api-reference/items/listItemVersions) reads them, oldest first. Each snapshot records which sign-in wrote it, such as an app, a key or a browser.
 
-You see only snapshots whose type your credential can read, as well as needing read access to the item's current type. If the item moved between types, its readable history can therefore leave some versions out.
-
-Marfa doesn't keep every snapshot forever. A housekeeping job keeps every recent one and fewer as they age, by a policy the item's type can set. A write based on a version whose snapshot is gone can't be compared, so Marfa refuses it with `409 ancestor_unavailable`, and the app reads the item again before it writes. An app that holds an edit for a long time does well to read first.
-
-## Who wrote a version
-
-Each snapshot carries a `writer`: the sign-in that wrote that version, with its `kind`, `id` and `name`, or `null` for work such as enrichment that no request asked for. The kind distinguishes a browser, an app, a key and a local command. The name is kept as it was when the version was written, even if the sign-in is renamed or ended later.
-
-For an edit made offline, the writer is the sign-in that sends the queued write. It does not identify who typed the edit. An archive keeps these writers when restored, so its history names the original writers rather than the person restoring it.
+**Marfa doesn't keep every snapshot forever.** It keeps every recent one and fewer as they age. A write based on a version whose snapshot is gone can't be compared, so it's refused, and the app reads the item again before it writes.
 
 The rules behind this page are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md) chapter of the contract.

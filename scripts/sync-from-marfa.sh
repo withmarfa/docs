@@ -2,17 +2,21 @@
 # Sync what the docs take from the Marfa monorepo:
 #   openapi.json                      the API description
 #   src/generated/GLOSSARY.md         the glossary, which the content lint reads
-#   src/generated/glossary-words.md   the glossary's words section without its
-#                                     heading, which the Glossary page includes
-#                                     (fumadocs-mdx ends an included section at
-#                                     the next heading of any level, so a words
-#                                     section split into topic groups has to be
-#                                     a file of its own)
 #   src/generated/api-overview.md     the spec's info.description, the rules every
 #                                     operation follows, included by the API
 #                                     reference overview
-#   src/generated/marfa-commands.md   the CLI's reference, from its own
-#                                     help, included by the CLI reference page
+#   src/generated/cli/                the CLI's reference, from its own help, split
+#                                     into one file per section of
+#                                     core/marfa-cli/COMMANDS.md without its
+#                                     heading: global-options.md, exit-codes.md and
+#                                     <command>.md for each top-level command. A
+#                                     command's first section, when it is named for
+#                                     the command (`### marfa items`), also loses
+#                                     its heading, which the page that includes the
+#                                     file already says. Each CLI page includes the
+#                                     files it shows under a heading of its own.
+#                                     The directory is replaced whole, so a command
+#                                     that no longer exists loses its file.
 #   src/generated/error-codes.md      the contract's table of error codes,
 #                                     written from the server's own code list,
 #                                     included by the Errors page
@@ -31,6 +35,8 @@
 #                                     chapter, which the staleness report
 #                                     compares between two releases
 #   src/generated/marfa-release.json  the latest release tag, shown in the sidebar
+#   src/generated/cli-download.md     the macOS install of that release's CLI,
+#                                     included by the Quickstart and the CLI page
 #
 # Reads committed files from a checkout of the monorepo, by default the sibling
 # at ../marfa. Set MARFA_ROOT to use another. Nothing is generated: the
@@ -87,7 +93,7 @@ fi
 
 CANDIDATE="$(mktemp "${TMPDIR:-/tmp}/marfa-openapi.XXXXXX")"
 OVERVIEW="$(mktemp "${TMPDIR:-/tmp}/marfa-overview.XXXXXX")"
-COMMANDS="$(mktemp "${TMPDIR:-/tmp}/marfa-commands.XXXXXX")"
+COMMANDS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marfa-cli.XXXXXX")"
 ERRORS="$(mktemp "${TMPDIR:-/tmp}/marfa-errors.XXXXXX")"
 SETTINGS="$(mktemp "${TMPDIR:-/tmp}/marfa-settings.XXXXXX")"
 TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-types.XXXXXX")"
@@ -95,8 +101,7 @@ EDGE_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-edge-types.XXXXXX")"
 PERMISSIONS="$(mktemp "${TMPDIR:-/tmp}/marfa-permissions.XXXXXX")"
 EVENT_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-event-types.XXXXXX")"
 INDEX="$(mktemp "${TMPDIR:-/tmp}/marfa-contract-index.XXXXXX")"
-WORDS="$(mktemp "${TMPDIR:-/tmp}/marfa-glossary-words.XXXXXX")"
-cleanup() { rm -f "$CANDIDATE" "$OVERVIEW" "$COMMANDS" "$ERRORS" "$SETTINGS" "$TYPES" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$WORDS"; }
+cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$ERRORS" "$SETTINGS" "$TYPES" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX"; }
 trap cleanup EXIT
 
 # The overview page includes this file under its own level-2 heading, so every
@@ -128,36 +133,99 @@ then
   exit 1
 fi
 
-# The command page has its own title, so the reference loses its generated-file
-# comment and its level-1 title. Nothing else changes: its headings already sit
-# below the page's.
-if ! python3 - "$MARFA_ROOT/core/marfa-cli/COMMANDS.md" "$COMMANDS" <<'PY'
-import re, sys
+# The CLI pages show the reference a section at a time, each file included under
+# a heading the page writes itself, so the reference is split at its level-2
+# headings: `## Global options` and `## Exit codes`, then one `## <command>`
+# for each top-level command. A file is its section without that heading line,
+# trimmed, and a heading-shaped line inside a fence is not a heading. A command's
+# first `###` section, when it is named for the command (`### marfa items` under
+# `## items`), also loses that heading and the blank line after it, because the
+# page's own heading already names the command; its usage and tables stay, and
+# so do the sections of its subcommands. The generated-file comment, the title
+# and the intro before the first section are left out. The files go into a
+# temporary directory that replaces src/generated/cli only once every other check
+# has passed, so a command that no longer exists loses its file.
+#
+# The script says what is wrong itself, because only it knows which section
+# failed.
+if ! python3 - "$MARFA_ROOT/core/marfa-cli/COMMANDS.md" "$COMMANDS_DIR" <<'PY'
+import os, re, sys
+
+source, out_dir = sys.argv[1], sys.argv[2]
+FENCE = re.compile(r"\s*(`{3,}|~{3,})")
+FIXED = {"Global options": "global-options", "Exit codes": "exit-codes"}
+
+
+def refuse(reason):
+    sys.exit(f"{source} {reason}. Nothing has changed.")
+
+
+def prose(lines):
+    """Yield (index, line) for every line outside a fenced block."""
+    fence = None
+    for i, line in enumerate(lines):
+        marker = FENCE.match(line)
+        if marker and (fence is None or marker.group(1).startswith(fence)):
+            fence = None if fence else marker.group(1)
+        elif fence is None:
+            yield i, line
+
 
 try:
-    lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+    lines = open(source, encoding="utf-8").read().split("\n")
 except UnicodeDecodeError:
-    sys.exit(1)
+    refuse("is not UTF-8")
+
 i = 0
+while i < len(lines) and not lines[i].strip():
+    i += 1
 if i < len(lines) and lines[i].lstrip().startswith("<!--"):
     while i < len(lines) and "-->" not in lines[i]:
         i += 1
+    if i == len(lines):
+        refuse("opens a comment that never closes")
     i += 1
-while i < len(lines) and not lines[i].strip():
-    i += 1
-if i < len(lines) and re.match(r"# ", lines[i]):
-    i += 1
-body = "\n".join(lines[i:]).strip()
-if not body:
-    sys.exit(1)
+lines = lines[i:]
 
-with open(sys.argv[2], "w", encoding="utf-8") as out:
-    out.write(body + "\n")
+heads = [(i, line[3:].strip()) for i, line in prose(lines) if line.startswith("## ")]
+files, commands = {}, 0
+for n, (start, name) in enumerate(heads):
+    stem = FIXED.get(name)
+    if stem is None:
+        if not re.fullmatch(r"[a-z][a-z0-9-]*", name):
+            refuse(f"has the section '## {name}', which is not a command name (lowercase letters, digits and hyphens)")
+        stem, commands = name, commands + 1
+    if stem in files:
+        refuse(f"repeats the section '## {name}'")
+
+    body = lines[start + 1 : heads[n + 1][0] if n + 1 < len(heads) else len(lines)]
+    subs = [j for j, line in prose(body) if line.startswith("### ")]
+    if stem == name and subs and body[subs[0]].rstrip() == f"### marfa {name}":
+        del body[subs[0]]
+        if subs[0] < len(body) and not body[subs[0]].strip():
+            del body[subs[0]]
+    while body and not body[0].strip():
+        del body[0]
+    while body and not body[-1].strip():
+        del body[-1]
+    if not body:
+        refuse(f"has nothing under '## {name}'")
+    files[stem] = "\n".join(body) + "\n"
+
+for stem, heading in (("global-options", "Global options"), ("exit-codes", "Exit codes")):
+    if stem not in files:
+        refuse(f"has no '## {heading}' section")
+if not commands:
+    refuse("has no section for any command (a '## <command>' heading)")
+
+for stem, text in files.items():
+    with open(os.path.join(out_dir, stem + ".md"), "w", encoding="utf-8") as out:
+        out.write(text)
 PY
 then
-  echo "$MARFA_ROOT/core/marfa-cli/COMMANDS.md is not UTF-8 or holds nothing after its title. Nothing has changed." >&2
   exit 1
 fi
+chmod 755 "$COMMANDS_DIR"
 
 # Each table is the part of a contract chapter between its two markers, which
 # the monorepo's CI holds to what the server defines: the code table to the
@@ -259,47 +327,13 @@ then
   exit 1
 fi
 
-# The glossary's words section runs from its `## The words` heading to the next
-# level-2 heading, and a heading-shaped line inside a fence does not count. The
-# heading itself stays out: the page has its own title.
-if ! python3 - "$MARFA_ROOT/GLOSSARY.md" "$WORDS" <<'PY'
-import re, sys
-
-try:
-    lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
-except UnicodeDecodeError:
-    sys.exit(1)
-
-words, inside, fence = [], False, None
-for line in lines:
-    marker = re.match(r"\s*(`{3,}|~{3,})", line)
-    if marker and (fence is None or marker.group(1).startswith(fence)):
-        fence = None if fence else marker.group(1)
-    elif fence is None and line.startswith("## "):
-        if inside:
-            break
-        inside = line.rstrip() == "## The words"
-        continue
-    if inside:
-        words.append(line)
-
-body = "\n".join(words).strip()
-if not body:
-    sys.exit(1)
-with open(sys.argv[2], "w", encoding="utf-8") as out:
-    out.write(body + "\n")
-PY
-then
-  echo "$MARFA_ROOT/GLOSSARY.md has no words under a '## The words' heading, or is not UTF-8. Nothing has changed." >&2
-  exit 1
-fi
-
 cp "$MARFA_ROOT/openapi.json" "$CANDIDATE"
 mv "$CANDIDATE" "$SPEC"
 
 mkdir -p "$GENERATED"
 mv "$OVERVIEW" "$GENERATED/api-overview.md"
-mv "$COMMANDS" "$GENERATED/marfa-commands.md"
+rm -rf "$GENERATED/cli"
+mv "$COMMANDS_DIR" "$GENERATED/cli"
 mv "$ERRORS" "$GENERATED/error-codes.md"
 mv "$SETTINGS" "$GENERATED/settings.md"
 mv "$TYPES" "$GENERATED/core-types.md"
@@ -307,9 +341,18 @@ mv "$EDGE_TYPES" "$GENERATED/edge-types.md"
 mv "$PERMISSIONS" "$GENERATED/permissions.md"
 mv "$EVENT_TYPES" "$GENERATED/event-types.md"
 mv "$INDEX" "$GENERATED/contract-index.json"
-mv "$WORDS" "$GENERATED/glossary-words.md"
 trap - EXIT
 cp "$MARFA_ROOT/GLOSSARY.md" "$GENERATED/GLOSSARY.md"
 printf '{"version":"%s"}\n' "$RELEASE" > "$GENERATED/marfa-release.json"
+# The macOS install the Quickstart and the CLI page include, for the release
+# the CLI archive is published with. A release sync changes it with no page edit.
+cat > "$GENERATED/cli-download.md" <<DOWNLOAD
+\`\`\`bash
+curl -fsSL https://github.com/withmarfa/marfa/releases/download/${RELEASE}/marfa-${RELEASE#v}-darwin-arm64.tar.gz | tar -xz
+sudo mkdir -p /usr/local/bin
+sudo mv marfa /usr/local/bin/
+marfa --version
+\`\`\`
+DOWNLOAD
 
-echo "openapi.json, the API overview, GLOSSARY.md, the command reference, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the glossary words and the release ($RELEASE) synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the command reference in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the release ($RELEASE) and its CLI download synced from $MARFA_ROOT"

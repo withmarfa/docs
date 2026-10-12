@@ -72,7 +72,7 @@ export function baseOptions(): BaseLayoutProps {
         external: true,
         secondary: true,
       },
-      { type: 'custom', secondary: true, children: <ThemeSwitch /> },
+      { type: 'custom', secondary: true, children: <ThemeSwitch mode="light-dark-system" /> },
     ],
     // Disabled so it can be placed above instead. The layout otherwise renders
     // it ahead of every icon, and it belongs at the far edge.

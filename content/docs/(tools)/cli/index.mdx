@@ -1,0 +1,147 @@
+---
+title: CLI
+description: Install the marfa program, connect it to your instance, and use it from a terminal, a script or an AI agent.
+---
+
+The CLI is the `marfa` program, Marfa's command-line tool. **Everything the API does has a command**, such as `marfa items list` for listing items, so anything you can build, you can also do from a terminal. It's also how most AI agents work with Marfa.
+
+The CLI does more than send requests. `marfa device` keeps a [working copy](/devices) of part of an instance, `marfa folders` keeps part of it as files in a directory, and `marfa docs` searches these docs from the terminal.
+
+## Install
+
+Each release of Marfa carries the CLI for macOS on Apple silicon. On Linux, build it from source.
+
+<Tabs items={["macOS", "Linux"]}>
+<Tab value="macOS">
+
+Download it from the terminal, as below. A copy downloaded in a browser is blocked by macOS.
+
+<include cwd>src/generated/cli-download.md</include>
+
+</Tab>
+<Tab value="Linux">
+
+You need Git and a current Rust toolchain from [rustup](https://rustup.rs). Clone Marfa and install the CLI from the clone:
+
+```bash
+git clone https://github.com/withmarfa/marfa.git
+cd marfa
+cargo install --locked --path core/marfa-cli
+marfa --version
+```
+
+Cargo puts `marfa` in `~/.cargo/bin`, which rustup adds to your `PATH`.
+
+</Tab>
+</Tabs>
+
+These docs follow Marfa's `main` branch, which can be ahead of the latest release. If the CLI says a command doesn't exist, build it from source to get it.
+
+## Connect to a server
+
+A command that talks to an instance needs the server's address and a credential. **The CLI can keep both for you**, so a bare command such as `marfa status` knows where to go. There are two ways to give it a credential.
+
+**Sign in as an app** with `marfa login`. The CLI shows a code and opens a page on the server, where you sign in as the owner and approve what it asks for. It then keeps the app's token in the keychain:
+
+```bash
+marfa login --url https://marfa.example.com
+```
+
+```text
+Open https://marfa.example.com/auth/device?user_code=V3Z5RBBC and enter the code V3Z5RBBC
+Waiting for the approval...
+```
+
+The token holds only the scopes you approve. The CLI asks for everything an owner can grant except `instance.read`, `instance.maintain`, `connectors.manage`, `blobs.manage` and `keys.manage`, so the commands that need one of those need a key instead. `marfa logout` revokes the token and forgets it.
+
+Or **keep a key** you already have with `marfa keys keep`. It reads the key from `MARFA_API_KEY`, or, if that isn't set, from standard input, so you can paste it and press Return. It checks the key with the server, then keeps it in the keychain:
+
+```bash
+marfa keys keep --url https://marfa.example.com
+```
+
+[Manage keys](/guides/manage-keys) shows how to make a key that reaches only what you need.
+
+Either way, the server you sign in to or keep a key for becomes the current server, which a command uses when nothing names another. The keychain holds one credential for each server. For each command, the CLI takes the first server and the first credential that's set, in this order:
+
+| What it needs | First | Then | Then |
+| --- | --- | --- | --- |
+| A server | `--url` | `MARFA_API_URL` | The current server |
+| A credential | `--key` | `MARFA_API_KEY` | What the keychain holds for that server |
+
+So `MARFA_API_URL` and `MARFA_API_KEY` override what the keychain holds, which suits a script. Prefer them to `--key`: other users of the machine can read a command line, and it stays in your shell history. On macOS, `MARFA_KEYCHAIN` names a keychain file to use instead of your own, for a run with nobody there to answer a prompt.
+
+## Check what a command will use
+
+`marfa whoami` asks the server a command would reach, and says which instance answered and where the credential came from:
+
+```bash
+marfa whoami
+```
+
+```text
+server https://marfa.example.com
+instance 01a12312-7e62-70f2-a656-1c9eef418991 (marfa dev)
+a key from the keychain
+```
+
+When a command reaches the wrong instance, or is refused, start here.
+
+## On the instance's own machine
+
+On the computer that runs the instance, logged in as the account that runs the server, the CLI can act with the machine's own authority instead of a credential. Pass `--socket` with the path of the server's private socket, which is `control/marfa.sock` in the server's data directory:
+
+```bash
+marfa --socket /path/to/data/control/marfa.sock setup status
+```
+
+```json
+{
+  "claimed": true,
+  "owner_id": "pBOgdR5hPFLKrgGqkgKcIsRXxFtBNS6o",
+  "generation": null
+}
+```
+
+That's how the owner makes the first key, as in the [Quickstart](/quickstart), and recovers a lost password. A few commands work only this way: `marfa setup status`, `marfa setup code`, `marfa setup open`, `marfa owner recover` and the `marfa sign-ins` commands.
+
+**The socket carries no key.** A command given `--socket` refuses to run while `MARFA_API_URL` or `MARFA_API_KEY` is set, and an operation that needs a key, such as `marfa events` or `marfa export`, is refused. Run those without `--socket`, with a key.
+
+## Use it in a script
+
+`--json` prints the answer as JSON on standard output. When a command fails, it prints one JSON object on standard error instead, with the CLI's own error code, the server's status and code where the server refused, and the exit code:
+
+```bash
+marfa items get 01a12192-a000-76e3-b129-b55027e21dcb --json
+```
+
+```json
+{"error":{"code":"not_found","message":"the server refused (404 item_not_found): Item 01a12192-a000-76e3-b129-b55027e21dcb not found","server":{"status":404,"code":"item_not_found","details":null},"retry_after_seconds":null},"exit":1}
+```
+
+## Exit codes
+
+The exit code says what to do next:
+
+<include cwd>src/generated/cli/exit-codes.md</include>
+
+## Global options
+
+<include cwd>src/generated/cli/global-options.md</include>
+
+## Commands
+
+The commands are grouped by what they work on, and each page lists its commands with their options. They're generated from the CLI itself; `marfa <command> --help` prints the help of the build you have.
+
+| Page | What its commands do |
+| --- | --- |
+| [Sign-in and access](/cli/sign-in-and-access) | Sign in, claim an instance, and make and change keys |
+| [Instance](/cli/instance) | Check an instance, change its configuration, read its audit log, export and restore |
+| [Items](/cli/items) | Create, read, change and search items, with their tags and extensions |
+| [Types and edges](/cli/types-and-edges) | Register types and edge types, and link items |
+| [Files](/cli/files) | Upload and download a file's bytes |
+| [Events and webhooks](/cli/events-and-webhooks) | Follow the event stream, and manage webhooks |
+| [Connectors](/cli/connectors) | Register a connector and keep its state |
+| [Working copy](/cli/working-copy) | Keep a working copy that works offline, and send its queue |
+| [Folders](/cli/folders) | Keep part of an instance as files in a directory |
+| [Docs and operations](/cli/docs-and-operations) | Read these docs, and find the command for an API operation |

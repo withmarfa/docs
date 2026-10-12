@@ -3,30 +3,28 @@ title: Items and types
 description: An item is one record, such as a note or a task, and its type says what the item holds. Everything else in Marfa builds on these two ideas.
 ---
 
-Everything in an instance is an item: one note, one task, one bookmark, one photo. Each item has a type, which declares the properties the item carries and which of them are required, so that every app reading a `core.note` knows what it will find. This page explains what every item has, how types are named and built on each other, and the stages an item moves through.
+Everything in an instance is an item: one note, one task, one bookmark, one photo. Every item has a type, and **the type is a promise**: every app that reads a `core.note` knows it will find a `body`, because Marfa refused any note without one.
 
 ## What every item has
 
-Whatever its type, every item has the same fixed fields beside its properties:
+Whatever its type, every item has the same fixed fields beside its content:
 
-<TypeTable
-  type={{
-    id: { type: 'UUIDv7', description: 'The item\'s identifier. Marfa makes one, or keeps the one a client sends.' },
-    type: { type: 'string', description: 'What the item is, such as core.note.' },
-    properties: { type: 'object', description: 'The item\'s content, as named values its type checks.' },
-    state: { type: 'active | archived | trashed', description: 'Where the item is in its life.' },
-    tier: { type: 'library | feed', description: 'Whether a person chose to keep it, or it arrived from elsewhere.' },
-    occurred_at: { type: 'timestamp', description: 'When the thing the item records happened. Defaults to when the item was created.' },
-    version: { type: 'integer', description: 'Starts at 1 and goes up by one with each change to the item itself.' },
-    source: { type: 'string', description: 'Which writer the item came from. With source_id, it identifies the item at that writer.' },
-  }}
-/>
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `UUIDv7` | The item's identifier. Marfa makes one, or keeps the one a client sends. |
+| `type` | `string` | What the item is, such as `core.note`. |
+| `properties` | `object` | The item's content, as named values its type checks. |
+| `state` | `active \| archived \| trashed` | Where the item is in its life. |
+| `tier` | `library \| feed` | Whether a person chose to keep it, or it arrived from elsewhere. |
+| `occurred_at` | `timestamp` | When the thing the item records happened. Defaults to when the item was created. |
+| `version` | `integer` | Starts at 1 and goes up by one with each change to the item itself. |
+| `source` | `string` | Which writer the item came from, such as `laptop` or `todoist`. |
 
-[Get an item](/api-reference/items/getItem) lists the rest, such as `created_at` and `updated_at`. [Versions](/versions) explains the version.
+[Get an item](/api-reference/items/getItem) lists the rest, such as `created_at` and `updated_at`.
 
 ## What a type does
 
-A type is the schema for an item's properties. It names each property, gives its shape, and says which are required, and Marfa checks every write against it. `core.note` requires a `body`, so a note without one is refused with `400 invalid_properties`, and the error names the missing property:
+A type is the schema for an item's properties. It names each property, gives its shape, and says which ones are required. **Marfa checks every write against it**, so a note without a `body` is refused with `400 invalid_properties`:
 
 ```http
 POST /items
@@ -35,7 +33,7 @@ Content-Type: application/json
 { "type": "core.note", "properties": { "title": "Reading list" } }
 ```
 
-Marfa ships types for the things people keep most: notes, tasks, bookmarks, highlights, messages, events, people, places, media and files. They're in the `core` namespace, such as `core.note` and `core.task`, and you can't change them. When none fits, register a type of your own: [Define a type](/guides/define-a-type) shows how.
+Marfa ships types for what people keep most: notes, tasks, bookmarks, highlights, messages, events, people, places, media and files. When none fits, register a type of your own, as [Define a type](/guides/define-a-type) shows.
 
 <Accordions>
 <Accordion title="Every type Marfa ships">
@@ -50,38 +48,41 @@ A type's identifier is two or more lowercase segments separated by dots. The fir
 | Namespace | Example | Who adds types |
 | --- | --- | --- |
 | `core` | `core.note` | Marfa. No one can change them. |
-| `system` | `system.folder` | Marfa, for its own records, written only through their own operations. |
-| `app` | `app.readinglist.entry` | An app, for its own types: always three segments. |
+| `system` | `system.folder` | Marfa, for its own records. |
+| `app` | `app.readinglist.entry` | An app, for its own types. Always three segments. |
 | `user` | `user.recipe` | You, for your own types. |
 | A publisher's name | `acme.deal` | Anyone publishing types for others, such as a connector for the service it reads. |
-| `marfa` | None | Reserved. No one can register a type here. |
 
-A type is also what access is granted to: a key or an app names the types it can read and the types it can write. [Access](/access) explains how.
+**A type is also what access is given to.** A key or an app names the types it can read and the types it can write, as [Access](/access) explains.
 
 ## Building on another type
 
-A type can name another type as its parent. It then has every property the parent declares, keeps the parent's required properties required, and adds properties of its own. `core.file.image` is a child of `core.file`: it has a file's `blob_ref` and `mime_type`, and adds `width` and `height`. An app can register a child of its own, such as a receipt that is an image with a total.
+A type can name a parent. It then has every property the parent has, and adds its own.
+
+`core.file.image` is a child of `core.file`: it has a file's `blob_ref` and `mime_type`, and adds `width` and `height`. An app can go further, with a receipt that is an image plus a total.
 
 <TypeInheritance />
 
-A listing of a type returns the items of every type beneath it, so `GET /items?type=core.file` returns images and receipts too. A child can't change the shape of a property it inherits, so inherit only when every property of the parent means what it should for your type.
+**A listing of a type includes every type beneath it**, so `GET /items?type=core.file` returns images and receipts too. A child can't change a property it inherits, so inherit only when every property of the parent fits your type.
 
-When your type should be readable as another type without taking all of its properties, name the other type in `compatible_with` instead. Marfa checks the claim when you register the type: your type must require everything the other requires, in shapes the other can read. A compatible type inherits nothing, and a listing of the other type leaves it out.
+When your type should be readable as another type without taking on all of its properties, name the other type in `compatible_with` instead. Marfa checks that your type requires everything the other one does, in shapes it can read.
 
 ## Library and feed
 
-An item sits in one of two tiers. The library holds what a person chose to keep. The feed holds what arrives in volume from elsewhere, such as a connector's records, kept as it came until someone keeps it or sets it aside.
+Items sit in one of two tiers. **The library holds what a person chose to keep.** **The feed holds what arrives in volume from elsewhere**, such as the tasks a connector copies from Todoist, kept as it came.
 
-A write names the tier, or the item lands in the tier its credential defaults to, which is the library unless the credential says otherwise. A listing returns both tiers unless it names one. To keep a feed item, an app makes a library item from it, in a core type, linked back to the original with a `derived-from` edge.
+A feed item stays in the feed until someone acts on it. To keep one, an app makes a library item from it, in a core type, linked back to the original with a `derived-from` edge. A listing returns both tiers unless it names one.
 
 ## An item's life
 
-An item starts `active`. (A `system` item, such as a folder's settings, is `active` or `revoked` instead.) It can be archived, which sets it aside without deleting it, and trashed, which moves it to the bin. From the bin it can be restored, or purged for good.
+An item starts `active`. It can be archived, which sets it aside without deleting it, or trashed, which moves it to the trash. From the trash it can be restored, or purged for good.
 
 <ItemLifecycle />
 
-Archiving keeps an item readable: a listing leaves it out unless it asks for archived items, and a read by its `id` still returns it. Trashing takes along every item a cascading edge reaches, such as a task's subtasks under `parent-of`, and restoring brings back everything that trash took, and nothing that was in the bin before. None of these moves changes an item's version, so an edit made before a trash still lands after a restore.
+- **Archived** items stay readable by their `id`, but listings leave them out unless they ask for them.
+- **Trashing** an item also trashes the items under it, such as a task's subtasks, and restoring it brings them back.
+- **Purging** deletes an item and its history. Marfa also purges what has been in the trash longer than the trash retention, 60 days by default.
 
-Purging deletes an item and its history. It needs the `items.purge` permission, and Marfa also purges every item that has been in the bin longer than the instance's trash retention, 60 days by default. [Change an item's state](/api-reference/items/transitionItem), [Trash an item](/api-reference/items/deleteItem), [Restore an item](/api-reference/items/restoreItem) and [Purge an item](/api-reference/items/purgeItem) are the operations.
+None of these moves changes an item's version, so an edit made before a trash still lands after a restore. [Change an item's state](/api-reference/items/transitionItem) and [Purge an item](/api-reference/items/purgeItem) are the operations.
 
 The rules behind this page are in the [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) and [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) chapters of the contract.

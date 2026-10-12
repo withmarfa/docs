@@ -3,13 +3,13 @@ title: Holds and retries
 description: Keep one process of a connector writing at a time, keep its place between runs, and send a failed request again without harm.
 ---
 
-A connector can be started twice by mistake, lose the network in the middle of a write, or crash between two requests. This guide shows how to keep one process writing at a time, what to keep on the instance so that a restart picks up where the last run stopped, and which requests are safe to send again. The connector kit does all of this for you; the operations are here for a connector built on the API, and to show what the kit relies on.
+A connector can be started twice by mistake, lose the network in the middle of a write, or crash between two requests. **The connector kit does all of this for you.** The operations below are for a connector built directly on the API, and show what the kit relies on.
 
 The examples follow a connector for a task manager, and every request is made with the connector's own key. The TypeScript examples use the [TypeScript client](/typescript-client), made with that key, as `marfa`, with the registration's ID in `connectorId` and the process's name in `processName`.
 
 ## Take the hold
 
-The hold lets one process at a time write the connector's state document and agreements. Before it writes either, a process [takes the hold](/api-reference/connectors/holdConnector) under a name of its own:
+The hold lets **one process at a time** write the connector's state document and agreements. Before it writes either, a process [takes the hold](/api-reference/connectors/holdConnector) under a name of its own:
 
 ```http tab="HTTP" tab-group="client"
 POST /connectors/01a12313-d219-7e92-8869-1f6546b43dbc/hold
@@ -32,7 +32,7 @@ const { data, error } = await marfa.POST("/connectors/{id}/hold", {
 { "expires_at": "2026-10-09T23:54:09.991Z", "ttl_ms": 180000, "renewed": false }
 ```
 
-Make the name unique to the process, such as a UUID made when it starts. Two processes that share a name look like one process to Marfa. The hold lasts `ttl_ms` from each take or renewal, three minutes unless the instance sets another window.
+**Make the name unique to the process**, such as a UUID made when it starts. Two processes that share a name look like one process to Marfa. The hold lasts `ttl_ms` from each take or renewal, three minutes unless the instance sets another window.
 
 If another process holds a live hold, Marfa answers `409 connector_held` and leaves that hold alone. `details.expires_at` says when it ends:
 
@@ -50,11 +50,13 @@ Wait until then and try again. Once a hold lapses, any process can take it, so a
 
 ## Renew it while the process runs
 
-Renew the hold by sending the same request, under the same name, well before `expires_at`. Marfa moves `expires_at` a full window on and answers `renewed: true`. Use `ttl_ms` to time the next renewal, rather than comparing your clock with Marfa's: the kit renews every third of a window.
+Renew the hold by sending the same request, under the same name, **well before `expires_at`**. Marfa moves `expires_at` a full window on and answers `renewed: true`. Use `ttl_ms` to time the next renewal, rather than comparing your clock with Marfa's: the kit renews every third of a window.
 
-`renewed` tells you whether anything could have happened in between. `true` means your hold was live when the request arrived, so no other process wrote. `false` is expected on a first take. But `false` when you believed you held the hold means it lapsed, and another process may have written since: read the state document and the agreements again before you write anything.
+`renewed` tells you whether anything could have happened in between. `true` means your hold was live when the request arrived, so no other process wrote. `false` is expected on a first take.
 
-If a renewal doesn't land, because the network is down or Marfa is busy, you can't know whether the hold is still yours once `expires_at` passes. Stop writing until a renewal succeeds. Marfa refuses a state or agreement write from a process without a live hold, but it can't stop that process changing the vendor, so stop it yourself.
+But `false` when you believed you held the hold means it lapsed, and another process may have written since: **read the state document and the agreements again** before you write anything.
+
+If a renewal doesn't land, because the network is down or Marfa is busy, you can't know whether the hold is still yours once `expires_at` passes. **Stop writing until a renewal succeeds.** Marfa refuses a state or agreement write from a process without a live hold, but it can't stop that process changing the vendor, so stop it yourself.
 
 When the process ends cleanly, [release the hold](/api-reference/connectors/releaseConnectorHold), so that the next process can start at once:
 
@@ -94,15 +96,21 @@ await marfa.PUT("/connectors/{id}/state", {
 { "state": { "sync_token": "abc123" }, "problems": {}, "updated_at": "2026-10-09T23:51:10.032Z" }
 ```
 
-The request replaces the whole document; it doesn't merge into it. To change one value, read the document, change the value, and send it all. A process without a live hold is refused `409 connector_held`, and the document stays as it was.
+**The request replaces the whole document**; it doesn't merge into it. To change one value, read the document, change the value, and send it all. A process without a live hold is refused `409 connector_held`, and the document stays as it was.
 
-The same state write can carry a `problems` map: opaque keys with messages about work that remains unresolved. It replaces that map together with the state, under the live hold. Omit `problems` to keep the existing messages, or send `problems: {}` to clear them. A refused write changes neither.
+The same state write can carry a `problems` map: opaque keys with messages about work that remains unresolved. It replaces that map together with the state, under the live hold.
 
-Problems are visible in the connector's registration, but the private state document is not. A heartbeat or a succeeded run never clears them, so explicitly remove a problem when it is resolved. They survive a registration change, a key replacement and a restart.
+Omit `problems` to keep the existing messages, or send `problems: {}` to clear them. A refused write changes neither.
 
-**Save the state last.** Write the new place only after everything it covers has landed in Marfa. A run that stops before the save leaves the old place, so the next run reads that part of the vendor again and writes it again, which the natural key makes harmless. A place saved first would skip what the run never wrote.
+Problems are visible in the connector's registration, but the private state document is not. A heartbeat or a succeeded run **never clears them**, so explicitly remove a problem when it is resolved. They survive a registration change, a key replacement and a restart.
 
-Expect to find the document empty. The owner, or a key that holds `connectors.manage`, can [delete it](/api-reference/connectors/deleteConnectorState), and the agreements and current problems go with it. A connector that finds no state reads the vendor whole. The document belongs to the key's source, not to one key, so a new key under the same source carries on from it.
+**Save the state last.** Write the new place only after everything it covers has landed in Marfa.
+
+A run that stops before the save leaves the old place, so the next run reads that part of the vendor again and writes it again, which the natural key makes harmless. A place saved first would skip what the run never wrote.
+
+Expect to find the document empty. The owner, or a key that holds `connectors.manage`, can [delete it](/api-reference/connectors/deleteConnectorState), and the agreements and current problems go with it. A connector that finds no state reads the vendor whole.
+
+The document belongs to the key's source, not to one key, so a new key under the same source carries on from it.
 
 ## Record agreements
 
@@ -147,7 +155,9 @@ await marfa.POST("/connectors/{id}/agreements", {
 { "written": 1, "cleared": 0, "skipped": ["01a12313-fd4a-78a1-af1e-32792c3df63b"] }
 ```
 
-Each entry of `set` replaces the item's agreement, and `record` holds whatever you need to tell later what the two sides agreed. An ID is `skipped`, and the rest of the request goes through, when no item has it or its type is one the key can't read. Here the item to clear had been purged, which removed its agreement already. A trashed item keeps its agreement.
+Each entry of `set` replaces the item's agreement, and `record` holds whatever you need to tell later what the two sides agreed.
+
+An ID is `skipped`, and **the rest of the request goes through**, when no item has it or its type is one the key can't read. Here the item to clear had been purged, which removed its agreement already. A trashed item keeps its agreement.
 
 ## Send a request again
 
@@ -160,7 +170,11 @@ Each failure has a safe response:
 | `503 write_contention` | The database was busy. Nothing changed. | Send the same request again. |
 | `500 internal_error` | The request may or may not have completed. | Read what you changed before you send a write again. |
 
-A write whose answer you never saw is the hard case, and a connector's writes differ in how they take a repeat. The state document and agreements replace what's there, so sending one again under the hold leaves the same result. Items written by natural key land on the same items when repeated, and can't make a second one, though each repeat raises the items' `version`. A create without a natural key can make a second item unless it carries an `Idempotency-Key`, which makes Marfa answer a repeat with the first answer and write nothing:
+A write whose answer you never saw is the hard case, and a connector's writes differ in how they take a repeat:
+
+- **The state document and agreements replace what's there**, so sending one again under the hold leaves the same result.
+- **Items written by natural key land on the same items when repeated**, and can't make a second one, though each repeat raises the items' `version`.
+- **A create without a natural key can make a second item** unless it carries an `Idempotency-Key`, which makes Marfa answer a repeat with the first answer and write nothing:
 
 ```http tab="HTTP" tab-group="client"
 POST /items
@@ -178,7 +192,9 @@ await marfa.POST("/items", {
 });
 ```
 
-A write to the vendor is yours to make safe. Send the vendor an idempotency key, if it takes one, made from something that doesn't change between attempts, such as the item's ID. Record the vendor's ID for a record you just made as soon as you have it, in the type's `link_field`, so a retry updates that record instead of making another. [Write safely](/guides/write-safely) covers versions and idempotency keys in full.
+**A write to the vendor is yours to make safe.** Send the vendor an idempotency key, if it takes one, made from something that doesn't change between attempts, such as the item's ID. Record the vendor's ID for a record you made as soon as you have it, in the type's `link_field`, so a retry updates that record instead of making another.
+
+[Write safely](/guides/write-safely) covers versions and idempotency keys in full.
 
 ## Put a run in order
 
@@ -216,6 +232,6 @@ await marfa.POST("/connectors/{id}/runs", {
 });
 ```
 
-A run that fails reports `failed` with its `error`, and the next run starts from the last state document that was saved. Reporting needs no hold, and the registration keeps the last 100 runs, which `marfa connectors runs <connector-id>` lists, newest first.
+A run that fails reports `failed` with its `error`, and the next run starts from the last state document that was saved. **Reporting needs no hold**, and the registration keeps the last 100 runs, which `marfa connectors runs <connector-id>` lists, newest first.
 
 The rules behind this page are in the [connectors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md) chapter of the contract, which holds the rule for [a take after a lapse](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md#connectorshold-lapsed-not-renewed).
