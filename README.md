@@ -52,10 +52,9 @@ pnpm dev                            # the docs site, http://localhost:3000
 pnpm exec vite dev -c vite.status.config.ts   # the status page, port 3001
 ```
 
-The status page reads a Cloudflare D1 binding, so a local run without that
-database renders its empty state. That is the correct behavior rather than a
-broken one: the page reports what the checker last wrote, and nothing written
-means nothing to report.
+The status page reads a Cloudflare D1 binding that the checker in
+withmarfa/status writes. A local run starts with an empty database that has no
+table, so the page answers with its error page and a 500 status.
 
 ## Checks
 
@@ -103,15 +102,10 @@ The status page publishes its own two: `/api/data` for the current state and
 ./scripts/sync-from-marfa.sh
 ```
 
-Expects the server monorepo at `../marfa`; override with `MARFA_ROOT`. Besides
-`openapi.json`, it copies the monorepo's `GLOSSARY.md` and its latest release
-tag into `src/generated/`, writes the spec's general rules there as
-`api-overview.md`, splits the CLI's reference there into `cli/`, one file
-for the global options, one for the exit codes and one for each top-level
-command, and takes the contract's generated tables there: the error codes, the
-settings, the shipped types, the shipped edge types, the twelve permissions and
-the event types. Run it by hand after an API, glossary,
-command, table or release change lands in the monorepo; nothing runs it for you.
+Expects the server monorepo at `../marfa`; override with `MARFA_ROOT`. It
+writes `openapi.json` and the files under `src/generated/`, and its header lists
+each one. Run it by hand after an API, glossary, command, table or release
+change lands in the monorepo; nothing runs it for you.
 
 Close a gap in the spec in the monorepo's generator, never by editing
 `openapi.json` here.
