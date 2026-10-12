@@ -25,13 +25,11 @@ The code of the docs site and the status page. The root `AGENTS.md` still applie
 ## Tests
 
 - Tests sit beside the code as `*.test.ts` or `*.test.tsx`. Each content lint rule has a test that proves it fires on a bad sample; give a new rule one.
-- `scripts/staleness-report.ts` and `scripts/page-growth.ts` use only Node built-ins, because CI runs them without installing anything. Their tests are in `src/lib/`.
 
 ## Code Review Rules
 
 - **Second implementation.** Flag docs search, fetch or topic logic outside `src/lib/docs-tools.ts`.
 - **`marfa docs` broken.** Flag a change to the JSON addresses' shapes or status codes, or to the `.md` copies, without the matching change in withmarfa/marfa.
 - **Protocol change untested.** Flag a change to what an MCP client sees without a case in `src/lib/mcp/server.test.ts`.
-- **Worker route frozen.** Flag a prerender change that saves `/` or freezes `/version.json`, `/mcp` or anything under `/api/`.
 - **Analytics grown.** Flag a value import of `posthog-js` outside `src/components/analytics.tsx`, or an option that turns on capture, replay, flags or storage.
 - **Alias in the status build.** Flag an `@/` import that code under `src/status/` can reach.

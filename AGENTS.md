@@ -24,8 +24,8 @@ The source of the public documentation site at `docs.marfa.so` and the status pa
 - `src/routes/`, `src/lib/` and `src/components/`: the docs site, including the Markdown copies, `llms.txt`, the docs MCP server at `/mcp` and the JSON addresses under `/api/docs/`.
 - `src/status/`: the status page, a second Vite target built by `vite.status.config.ts` into `dist-status/` and deployed from `wrangler.status.jsonc`.
 - `src/generated/` and `openapi.json`: written only by the sync script. Never edit them by hand.
-- `scripts/`: the sync from marfa, the staleness report and the page-growth report.
-- `.github/scripts/`: the CI change classifier and the publish checks, each with a `.test.sh` beside it.
+- `scripts/`: the sync from marfa, the staleness report and the page-growth report. The two reports use only Node built-ins, because CI runs them without installing anything. Their tests are in `src/lib/`, the only place Vitest looks.
+- `.github/scripts/`: the CI change classifier and the publish checks, each with a `.test.sh` beside it, and the sync script's test.
 - `public/`: static files for both targets.
 
 ## Commands
@@ -75,7 +75,7 @@ On a pull request, the `Docs reports` job writes the same report to the job summ
 
 ## CI and publishing
 
-- `CI` runs on every pull request and every push to `main`. `Build and type-check` is a required check, so never add `paths` filters to `ci.yml`: a filtered-out run leaves the check pending. `.github/scripts/ci-changes.sh` skips the build only for root `AGENTS.md`, `CLAUDE.md`, `README.md` and `LICENSE`, the agent directories and the GitHub templates.
+- `CI` runs on every pull request and every push to `main`. `Build and type-check` is a required check, so never add `paths` filters to `ci.yml`: a filtered-out run leaves the check pending. `.github/scripts/ci-changes.sh` skips the build only for root `AGENTS.md`, `CLAUDE.md`, `README.md` and `LICENSE`, the agent directories, `.githooks/` and the GitHub templates.
 - Every workflow runs on GitHub-hosted `ubuntu-latest`. The `CodeQL` workflow owns code scanning, so GitHub's default CodeQL setup stays off.
 - **Merging to `main` publishes.** `Publish` runs when `CI` succeeds on `main`. Each Worker has its own job, which deploys only when something that target builds from changed since the commit the site serves, then fails unless the site's `/version.json` reports the deployed commit.
 - **Never build both targets and then deploy in one tree.** The Cloudflare plugin writes one deploy pointer per project root and every build rewrites it, so a bare `wrangler deploy` deploys whichever target built last. `deploy:status` passes the config its own build emitted.
@@ -89,5 +89,6 @@ Report only a problem you can show: name the page, input or step, and what goes 
 - **Untrue against marfa.** Flag a Marfa name, field, error code, rule or example that marfa's contract, `openapi.json` or code contradicts. Safe path: check it there and link the rule's heading.
 - **Generated file edited.** Flag a hand edit under `src/generated/` or to `openapi.json`. Safe path: fix the source in marfa and run the sync.
 - **Publishing weakened.** Flag a `paths` filter on `ci.yml`, a deploy that can run where both targets were built, a self-hosted runner, or a publish job that no longer checks `/version.json`.
+- **Worker route frozen.** Flag a change to the prerender filter in `vite.config.ts` that saves `/` or freezes `/version.json`, `/mcp` or anything under `/api/` as a static file.
 - **Private detail committed.** Flag a token, key, account ID, internal hostname or personal path in a tracked file.
 - **Stale instructions.** Flag a change that leaves an `AGENTS.md`, `STYLE.md`, the README or a comment untrue, and fix it in the same pull request.
