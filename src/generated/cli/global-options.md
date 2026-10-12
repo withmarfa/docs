@@ -7,3 +7,9 @@ Every command accepts these.
 | `--allow-http` | Send a credential over plain http to a host that is not this machine without the warning, for a network that is private. MARFA_ALLOW_HTTP=1 does the same. |
 | `--socket <PATH>` | Use private local process authority through this Unix socket, without a keychain. |
 | `--json` | Print the answer as JSON, and a refusal as one JSON object on stderr, after any warning, which is one plain line. |
+
+`marfa` itself also accepts these.
+
+| Option | Description |
+| --- | --- |
+| `-V, --version` | Print version. |
