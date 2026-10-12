@@ -3,35 +3,29 @@ title: Devices
 description: How an app keeps a copy of your data on a phone or a Mac, works without a connection, and sends its changes when it can.
 ---
 
-An app on your phone shouldn't stop working on a train. A device is a client that keeps a working copy of part of an instance on the machine it runs on, reads from that copy, and puts its writes in a queue that it sends when it can reach the server. An app built on the [Swift package](/swift-package) is a device, and so is the [CLI](/cli) when it runs its `marfa device` commands. This page explains how a working copy stays current and what happens to a write made offline.
+An app on your phone shouldn't stop working on a train. **A device is a client that keeps a working copy of part of an instance** on the machine it runs on. It reads from that copy, and puts its writes in a queue that it sends when it can reach the server. An app built on the [Swift package](/swift-package) is a device, and so is the [CLI](/cli) when it runs its `marfa device` commands.
 
-The instance is always the truth. A working copy is a copy, not a peer: two devices never reconcile with each other, only with the instance.
+**The instance is always the source of truth.** A working copy is a copy, not a peer: two devices never sync with each other, only with the instance.
 
 ## The working copy
 
-A device chooses the slice of the instance it keeps: a set of types, such as `core.note` and `core.task`, in the library, the feed or both. It fills its copy once, by reading every item in the slice. That's hydration. From then on it keeps the copy current from the instance's [event stream](/events), applying each change since its cursor. That's catching up.
+A device chooses the slice of the instance it keeps, such as every `core.note` and `core.task` in the library. It fills its copy once by reading every item in the slice, then keeps it current from the instance's [event stream](/events).
 
-Reads of items, edges and types come from the copy, with no connection needed. A file's bytes are there once the device has fetched them.
+Reads come from the copy, with no connection needed. A file's bytes are there once the device has fetched them.
 
-Sometimes a copy can't be kept current from where it stands: the device was away longer than the instance keeps events, the instance was restored from a backup, or what the credential may read has changed. The copy then expires, and the device hydrates again. Its queued writes survive.
-
-## The instance a copy belongs to
-
-A working copy records the instance it belongs to and the address it used. Opening it at a changed address still works offline. Before sending a credential, renewing one, reading data or draining writes there, the device makes an anonymous identity read and checks that the address serves the same instance.
-
-If it serves another instance, the device refuses `wrong_server`, naming both addresses, and leaves the copy and queued writes intact. If the identity read cannot finish, they also remain intact. A changed credential at the recorded address uses the same copy.
+Sometimes a copy can't be brought up to date, for example after the device was away longer than the instance keeps events. **The device then fills its copy again from scratch, and its queued writes survive.**
 
 ## A write made offline
 
-Every write a device makes shows in its copy at once, and waits in the queue until the instance answers it. Sending the queue is called draining it.
+Every write a device makes shows in its copy at once, and waits in the queue until the instance answers it.
 
 <Sequence title="A note edited on a train">
 
 1. You edit a note in an app, offline. The app writes to its working copy, and the note shows your change at once.
-2. The write waits in the queue, with the version of the note it was based on and a key that identifies it.
-3. The app tries to drain the queue and can't reach the server. Nothing is lost: the write stays queued.
-4. Back online, the app drains the queue. Writes go in the order they were made, and if an answer is lost on the way, the retry carries the same key, so the instance never applies it twice.
-5. The instance answers with a verdict, and the device brings its copy into line with what the instance now holds.
+2. The write waits in the queue, with the version of the note it was based on.
+3. The app tries to send the queue and can't reach the server. Nothing is lost: the write stays queued.
+4. Back online, the app sends its queued writes in the order they were made. If an answer is lost on the way, the retry is recognized, so the instance never applies a write twice.
+5. The instance answers each write with a verdict, and the device brings its copy into line with what the instance now holds.
 
 </Sequence>
 
@@ -42,16 +36,16 @@ Each write the instance answers gets one verdict:
 | Verdict | What happened |
 | --- | --- |
 | `accepted` | The instance applied the write. |
-| `merged` | Another change had touched the same field, and the instance settled the two by the item type's rule, such as keeping the later title. |
+| `merged` | Another change had touched the same field, and the instance settled the two by the type's rule, such as keeping the later title. |
 | `conflicted` | The two changes collided, and the instance kept both: the item keeps its value, and the write's value goes to a conflicted copy. |
-| `refused` | The instance refused the write, for example because it broke the item's type. The device keeps the write's content so an app can offer it back. |
+| `refused` | The instance refused the write, for example because it broke the item's type. The device keeps its content so an app can offer it back. |
 | `blocked` | Something has to change before the write can go, such as an expired credential. |
 | `dead` | The write failed five times in ways that count against it, such as an answer the device couldn't read. A lost connection or a server error never counts. |
 
-Only `refused`, `blocked` and `dead` need an app's attention, and an app decides what to do with each: send it again, withdraw it, or let the person decide. [Versions](/versions) explains how the instance settles two changes to one item.
+**Only `refused`, `blocked` and `dead` need an app's attention.** An app decides what to do with each: send it again, withdraw it, or let the person decide. [Versions](/versions) explains how the instance settles two changes to one item.
 
 ## Folders
 
-A device's working copy can also be a directory of files on your computer: a folder. Each item the folder holds is a file, a note becomes a Markdown file, and an edit to either the file or the item reaches the other. A folder keeps a working copy and a queue like any device, so everything above holds. [Sync a folder](/guides/sync-a-folder) sets one up.
+A device's working copy can also be a directory of files on your computer: **a folder**. Each item the folder holds is a file, a note becomes a Markdown file, and an edit to either the file or the item reaches the other. A folder keeps a working copy and a queue like any device. [Sync a folder](/guides/sync-a-folder) sets one up.
 
 The rules behind this page are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) and [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapters of the contract.
