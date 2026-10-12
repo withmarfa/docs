@@ -10,46 +10,46 @@ How every page on this site is written. This file is the one place the writing r
 
 ## Who reads the docs
 
-Write for a reader who is new to Marfa but not to software. Four readers come most often, and each needs something different first:
+Write for a reader who is new to Marfa. Most know software; some don't, and more of them will as apps built on Marfa reach people. The Overview and the concepts must make sense to both. Five readers come most often, and each needs something different first:
 
-- **Someone deciding whether Marfa is for them** needs to know what it is and to see it work: the Overview, then the Quickstart.
-- **An app builder** needs a credential, then reading and writing items, then the model: the concepts, then the Build apps guides.
+- **Someone deciding whether Marfa is for them** needs to know what it is, what it's for and what it isn't: the Overview, then How Marfa works.
+- **An app builder** needs a credential, then reading and writing items, then the model: the Quickstart, the concepts, then the Build apps guides.
 - **Someone running an instance** needs to start it, claim it and keep it safe: the Quickstart, then the Run Marfa guides.
 - **A connector author** needs what the instance keeps for a connector, then the tutorial and the connector guides.
+- **An AI agent**, working for any of them, reads the same pages as Markdown, through the docs MCP server or `marfa docs`.
 
-AI agents read the same pages as Markdown. A page that a newcomer can follow serves an agent too.
+A page that a newcomer can follow serves an agent too. Never write that Marfa is only for technical people.
 
 ## Where a page goes
 
-| Tab | Sidebar group | Kind of page |
+| Tab | Sidebar groups | Kind of page |
 | --- | --- | --- |
 | Overview | Get started: Overview, Quickstart | Explanation, then a tutorial |
-| Overview | Concepts | Explanation: one idea per page |
-| Overview | SDKs and CLI | How-to for each client, and the CLI reference |
-| Overview | Resources: Troubleshooting, Glossary, Changelog, Docs for agents | How-to and reference |
+| Overview | Concepts: How Marfa works, then one page per idea | Explanation |
+| Tools | SDKs and CLI, AI agents, Resources | How-to for each client, generated reference, and Troubleshooting, Glossary and Changelog |
 | Guides | Tutorials, Build apps, Build connectors, Run Marfa | Tutorial, how-to |
 | API reference | The overview, Errors, and the operations generated from the API description | Reference |
 
 - A **concept** page explains one idea: what it is, why it works the way it does, and the rules a reader meets in normal use.
 - A **tutorial** takes a newcomer through one complete piece of work, start to finish, and every step works.
 - A **how-to guide** does one task for a reader who already knows the concepts.
-- A **reference** page states facts and never teaches.
+- A **reference** page states facts and never teaches. Generated reference is shown as tables, never as raw help text.
+
+The Overview and Tools folders are groups, so their pages sit at the site root (`/files`, `/cli`). A Tools page is placed by listing it in `content/docs/(tools)/meta.json`; the header tabs read that list.
 
 ## Writing
 
-**A page is prose first.** Explain in sentences and paragraphs: they carry reasons, order and connection, which lists can't. Lists, tables and bold are welcome where they help, and the balance is a choice made on purpose for each page.
+**Clear, short and direct.** A reader should get the point of a page from its first screen, and the point of a section from its first sentence. Prose carries reasons and order; lists, tables and bold make a page easy to scan. Use each where it helps.
 
-- **Open with what the page covers and why it matters.** The `description` shows as the lead under the title. The page's first paragraph, before any heading, list or figure, then says in a few sentences what the reader will understand or do, and why it matters to them. Never repeat the description.
-- **A list carries items that are truly parallel**: steps of one kind, options of one kind, things a reader checks off. A list never stands in for an explanation, and a page never opens with one.
-- **A table compares things on more than one attribute.** A list of names and one-line meanings is a list.
-- **Bold marks what a reader must not miss**, a few times a page at most. Never bold the start of every list item.
-- **Less is clearer.** Explain the idea and the rules a reader meets in normal use. Leave rare cases, limits and exact numbers to the API reference and the contract, and link to them. If a page is hard going, cut before you add.
-- **One idea per section.** Say the idea, then show a small example.
+- **Answer first.** The `description` shows as the lead under the title. The first paragraph adds what the description can't: the idea, the reason it matters, or what the reader will have at the end. Never restate the description, and never open with "This page explains" or "This guide shows".
+- **Short paragraphs.** One to three sentences, about 20 to 30 words each on average. One idea per paragraph.
+- **Bold the key fact.** In each section, bold the few words a skimming reader must not miss. In a list a reader scans, bold the lead-in of each item, then explain it after a full stop or a colon. Never bold whole sentences.
+- **A list carries items that are parallel**: steps, options, things to check. A page never opens with a list, and a list never stands in for an explanation of why.
+- **A table compares things or holds what a reader looks up**: fields, settings, commands, options, a choice between two ways. Keep cells short.
+- **Explain, then point.** A concept page explains the idea and the rules a reader meets in normal use, with one small example. Rare cases, limits, exact numbers and error codes go in a guide, the API reference or the contract, with a link.
+- **Less is clearer.** If a page is hard going, cut before you add. A concept page is usually 400 to 900 words and a guide under 1,500. A page past that is usually two pages, or holds detail that belongs in the reference.
 - **Describe the present.** No history, no "now", no "new", nothing about what changed.
 - **Replace, don't append.** When something changes, rewrite the sentence or section it changes. Never add a paragraph that qualifies an older one.
-- **Short paragraphs.** Two to four sentences each.
-
-Most pages need no more than 1,200 words. A page that grows past that is usually two pages, or holds detail that belongs in the reference.
 
 ## Vocabulary
 
@@ -117,18 +117,23 @@ Use a component for what it's for, and only where it helps the reader. `Card`, `
 | `Steps` | An ordered procedure: the Quickstart, the tutorials, a how-to with an order |
 | Code tabs | The same example in more than one client (see Examples) |
 | `Tabs` | Alternatives that aren't code, such as two ways to claim an instance |
-| `TypeTable` | The fields of an object, where a reader needs each name, type and meaning |
 | `Accordion` | Content a reader looks up, not reads through: troubleshooting entries, long catalogues |
 | `Files` | A directory a reader will see on disk |
 | `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data |
 | `Cards` | Where to go next, at the end of a tutorial and on the Overview |
 
+Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
+
+The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, `Sequence` and `Files` as plain Markdown, and leaves the visuals out (`source.config.ts`). A component outside those lists is left out of the copy too, so add it there before a page relies on it.
+
 ## Visuals
 
 A visual earns its place by showing what prose can't, in the form that suits the idea. Before adding one, write down what it shows, why a visual helps there and why that form; if you can't, leave it out. Most pages need none.
 
+**Draw a real example, not a category.** A figure of "your notes app on your iPhone" and "a Todoist connector" teaches more than boxes named "Apps" and "Connectors".
+
 - **A static figure** shows a shape: what connects to what, what holds what, which way things flow. Build it with `Figure` in `src/components/visuals/`.
-- **A sequence** shows order in time: two writers editing one item, a write going from queue to verdict. Build it with `Sequence`, which takes an ordered list in the MDX and shows one step at a time, so the page's Markdown copy keeps every step.
+- **A sequence** shows order in time: two writers editing one item, a write going from queue to verdict. Build it with `Sequence`, which takes an ordered list in the MDX and shows every step at once on a numbered timeline, so the reader sees the whole story and the Markdown copy keeps every step.
 - **An interactive diagram** shows cause and effect a reader explores, such as which writes move an item's version. Use one only when the interaction is the point.
 - **A table** is often the right visual for a comparison.
 
