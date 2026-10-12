@@ -96,18 +96,21 @@ describe('fetchDocsPage', () => {
     expect(await fetchDocsPage('/definitely/not/a/page')).toBeNull();
   });
 
-  it('serves a page in the Overview group at the site root, and nothing at the old paths', async () => {
+  it('serves the Overview and Tools pages at the site root, and nothing at the old paths', async () => {
     const page = await fetchDocsPage('/files');
     expect(page).toMatch(/^# Files \(\/files\)\n/);
     expect(await fetchDocsPage('/overview.md')).toMatch(/^# Overview \(\/overview\)\n/);
-    expect(await fetchDocsPage('/cli-reference')).toContain('marfa items');
+    expect(await fetchDocsPage('/cli/items')).toContain('marfa items list');
+    expect(await fetchDocsPage('/cli-reference')).toBeNull();
+    expect(await fetchDocsPage('/docs-for-agents')).toBeNull();
     expect(await fetchDocsPage('/get-started/files')).toBeNull();
     expect(await fetchDocsPage('/tools/marfa-command')).toBeNull();
   });
 
   it('returns every page the topics list, including one whose name starts with docs', async () => {
     const { pages } = listTopics();
-    expect(pages.map((p) => p.url)).toContain('/docs-for-agents');
+    expect(pages.map((p) => p.url)).toContain('/docs-mcp-server');
+    expect(pages.map((p) => p.url)).toContain('/docs-as-markdown');
     for (const { url } of pages) {
       expect(await fetchDocsPage(url), url).not.toBeNull();
     }

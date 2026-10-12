@@ -1,37 +1,42 @@
-import { AppWindow, Database, Globe, Laptop, Plug, type LucideIcon } from 'lucide-react';
+import { Bot, Database, Globe, Plug, Smartphone, SquareTerminal, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Arrow, Box, Branches, Chip, Figure, Flow } from './figure';
 
 type Thing = { title: string; subtitle: string; icon: LucideIcon };
 
-/** What one instance holds, by the glossary's names. A file is an item; its bytes are a blob. */
-export const holds = ['Items', 'Types', 'Edges', 'Blobs'] as const;
+/** Examples of what one instance holds: one person's data, in shared types. */
+export const holds = ['Notes', 'Tasks', 'Bookmarks', 'Files'] as const;
 
-/** The things of your own that reach the instance, drawn above it. */
+/** Real examples of what reaches the instance from your own devices, drawn above it. */
 export const yours: readonly Thing[] = [
-  { title: 'Apps and scripts', subtitle: 'Read and write over the HTTP API', icon: AppWindow },
-  { title: 'Devices', subtitle: 'Keep a working copy, even offline', icon: Laptop },
+  { title: 'A notes app', subtitle: 'On your iPhone, works offline', icon: Smartphone },
+  { title: 'An AI agent', subtitle: 'Uses the CLI with its own key', icon: Bot },
+  { title: 'A script you wrote', subtitle: 'Calls the HTTP API', icon: SquareTerminal },
 ];
 
-/** What reaches the instance from outside, drawn below it, in order of distance. */
+/** A connector and the service it reads, drawn below the instance. */
 export const outside: readonly [Thing, Thing] = [
-  { title: 'Connectors', subtitle: 'Read and write on your behalf', icon: Plug },
-  { title: 'Other services', subtitle: 'Where the connectors reach', icon: Globe },
+  { title: 'A Todoist connector', subtitle: 'Runs where you choose', icon: Plug },
+  { title: 'Todoist', subtitle: 'Where your tasks started', icon: Globe },
 ];
 
 /**
- * The whole of Marfa on one screen: one instance in the middle, holding one
- * owner's data. Your own apps and devices reach it from above; connectors
- * reach it from below, and other services lie beyond them.
+ * Marfa on one screen, drawn with real examples: one instance in the middle,
+ * holding one person's data. Your own apps, agents and scripts reach it from
+ * above; a connector reaches it from below, bringing in a service's records.
  */
 export function MarfaAtAGlance({ caption }: { caption?: ReactNode }) {
-  const [connectors, services] = outside;
+  const [connector, service] = outside;
   return (
-    <Figure label="Marfa at a glance: one instance and what reaches it" caption={caption} className="marfa-glance">
+    <Figure
+      label="Marfa at a glance: your apps, agents and scripts above one instance, and a connector below it"
+      caption={caption}
+      className="marfa-glance"
+    >
       <Branches
         rootAt="bottom"
         root={
-          <Box tone="accent" icon={Database} title="Your instance" subtitle="Belongs to one owner">
+          <Box tone="accent" icon={Database} title="Your instance" subtitle="On your Mac, or a host you choose">
             {holds.map((name) => (
               <Chip key={name}>{name}</Chip>
             ))}
@@ -44,9 +49,9 @@ export function MarfaAtAGlance({ caption }: { caption?: ReactNode }) {
       </Branches>
       <Flow axis="down" className="marfa-glance-outside">
         <Arrow direction="none" />
-        <Box icon={connectors.icon} title={connectors.title} subtitle={connectors.subtitle} />
+        <Box icon={connector.icon} title={connector.title} subtitle={connector.subtitle} />
         <Arrow direction="none" />
-        <Box tone="dashed" icon={services.icon} title={services.title} subtitle={services.subtitle} />
+        <Box tone="dashed" icon={service.icon} title={service.title} subtitle={service.subtitle} />
       </Flow>
     </Figure>
   );

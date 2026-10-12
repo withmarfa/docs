@@ -10,13 +10,41 @@ import { source } from '@/lib/source';
  * with every page and its address.
  */
 export function buildDocsMap(): string {
+  return buildIndex(
+    [
+      '# Marfa documentation map',
+      '',
+      'Hierarchical index of every page on docs.marfa.so. Each link resolves to the human-readable HTML page; append `.md` for the markdown twin (e.g. `/items-and-types.md`).',
+      '',
+    ],
+    (url) => url,
+  );
+}
+
+const SITE = 'https://docs.marfa.so';
+
+/**
+ * `/llms.txt` in the llmstxt.org shape: the project's name, a one-line summary,
+ * how to read the docs, then every page by tab and sidebar group, each linked
+ * to its Markdown copy.
+ */
+export function buildLlmsTxt(): string {
+  return buildIndex(
+    [
+      '# Marfa',
+      '',
+      "> Marfa is a server you run yourself that holds one person's data in one place, in types every app understands, so the apps, scripts and AI agents they allow can read and write it through one HTTP API.",
+      '',
+      `These docs cover what Marfa is, running an instance, building apps, connectors and agents on it, and the API. Every page below links to its Markdown copy; the same page without \`.md\` is the HTML. \`${SITE}/docs-map.md\` is this index with HTML links, \`${SITE}/llms-full.txt\` holds every page in one file, and the docs MCP server at \`${SITE}/mcp\` searches them.`,
+      '',
+    ],
+    (url) => (url.startsWith('/') ? `${SITE}${url}.md` : url),
+  );
+}
+
+function buildIndex(header: string[], link: (url: string) => string): string {
   const pages = new Map(source.getPages().map((page) => [page.url, page]));
-  const lines: string[] = [
-    '# Marfa documentation map',
-    '',
-    'Hierarchical index of every page on docs.marfa.so. Each link resolves to the human-readable HTML page; append `.md` for the markdown twin (e.g. `/items-and-types.md`).',
-    '',
-  ];
+  const lines: string[] = [...header];
 
   const text = (name: PageTree.Node['name']) => (typeof name === 'string' ? name : '');
 
@@ -24,16 +52,21 @@ export function buildDocsMap(): string {
     const page = pages.get(node.url);
     const title = page?.data.title ?? text(node.name);
     const description = page?.data.description;
-    return `- [${title}](${node.url})${description ? `: ${description}` : ''}`;
+    return `- [${title}](${link(node.url)})${description ? `: ${description}` : ''}`;
   };
 
-  // Pages under a heading; a nested folder adds its pages to the same list.
-  const walk = (nodes: PageTree.Node[], out: string[]) => {
+  // Pages under a heading. A folder with a landing page, such as the CLI and
+  // its command pages, is that page with the folder's pages nested under it.
+  const walk = (nodes: PageTree.Node[], out: string[], indent = '') => {
     for (const node of nodes) {
-      if (node.type === 'page') out.push(pageLine(node));
+      if (node.type === 'page') out.push(indent + pageLine(node));
       else if (node.type === 'folder') {
-        if (node.index) out.push(pageLine(node.index));
-        walk(node.children, out);
+        if (node.index) {
+          out.push(indent + pageLine(node.index));
+          walk(node.children, out, `${indent}  `);
+        } else {
+          walk(node.children, out, indent);
+        }
       }
     }
   };
@@ -52,7 +85,7 @@ export function buildDocsMap(): string {
       if (node.type === 'separator') {
         flush();
         if (node.name) lines.push(`### ${text(node.name)}`, '');
-      } else if (node.type === 'folder') {
+      } else if (node.type === 'folder' && !node.index) {
         flush();
         lines.push(`### ${text(node.name)}`, '');
         walk([node], group);
