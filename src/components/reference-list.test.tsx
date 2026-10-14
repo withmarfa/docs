@@ -61,6 +61,41 @@ describe('ReferenceList', () => {
     expect(html).toContain('<dd class="marfa-ref-description"><code>No such path.</code></dd>');
   });
 
+  it('leaves out a detail whose cell is empty, and keeps it where the cell has a value', () => {
+    const html = renderToStaticMarkup(
+      <ReferenceList description={2}>
+        <table>
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Type</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>title</td>
+              <td>string</td>
+              <td>The name.</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>required</td>
+              <td>boolean</td>
+              <td>Whether it must be set.</td>
+              <td>false</td>
+            </tr>
+          </tbody>
+        </table>
+      </ReferenceList>,
+    );
+    const [title, required] = html.split('class="marfa-ref-entry"').slice(1);
+    expect(title).toContain('<span class="marfa-ref-label">Type</span> string');
+    expect(title).not.toContain('Default');
+    expect(required).toContain('<span class="marfa-ref-label">Default</span> false');
+  });
+
   it('leaves its children alone when they hold no table with rows', () => {
     const html = renderToStaticMarkup(
       <ReferenceList>

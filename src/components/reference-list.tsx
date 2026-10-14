@@ -6,6 +6,11 @@ function elements(node: ReactNode): WithChildren[] {
   return Children.toArray(node).filter((child): child is WithChildren => isValidElement(child));
 }
 
+// A blank Markdown cell, such as a field with no default, gets no label.
+function isEmpty(cell: ReactNode): boolean {
+  return Children.toArray(cell).every((child) => typeof child === 'string' && child.trim() === '');
+}
+
 /** Every table row under `node`, in order, as the contents of its cells. A second table's rows, its header included, follow the first's. */
 export function tableRows(node: ReactNode): ReactNode[][] {
   const rows: ReactNode[][] = [];
@@ -46,11 +51,13 @@ export function ReferenceList({
       {entries.map((cells, row) => (
         <div key={row} className="marfa-ref-entry">
           <dt className="marfa-ref-name">{cells[0]}</dt>
-          {details.map((index) => (
-            <dd key={index} className="marfa-ref-detail">
-              <span className="marfa-ref-label">{header[index]}</span> {cells[index]}
-            </dd>
-          ))}
+          {details
+            .filter((index) => !isEmpty(cells[index]))
+            .map((index) => (
+              <dd key={index} className="marfa-ref-detail">
+                <span className="marfa-ref-label">{header[index]}</span> {cells[index]}
+              </dd>
+            ))}
           <dd className="marfa-ref-description">{cells[description]}</dd>
         </div>
       ))}
