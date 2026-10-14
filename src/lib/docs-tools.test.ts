@@ -72,6 +72,7 @@ describe('pathToSlugs', () => {
     ['/x/y.md', ['x', 'y']],
     ['/x/y/', ['x', 'y']],
     ['/docs/x/y', ['x', 'y']],
+    ['/docs-x/y', ['docs-x', 'y']],
     ['  /x/y  ', ['x', 'y']],
     ['/', []],
     ['', []],
