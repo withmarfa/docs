@@ -38,8 +38,8 @@ script passes the config its own build emitted, which is why it is the safe one.
 - **`src/lib/mcp/`**: the docs MCP server, mounted at `/mcp` by
   `src/routes/mcp.ts` and over stdio by `pnpm mcp:stdio`.
 - **`src/status/`**: the status page: its own routes, components and store
-  reader. It reads a D1 database written by a separate checker (see
-  [withmarfa/status](https://github.com/withmarfa/status)) and never writes to it.
+  reader. It reads a D1 database written by a separate checker and never
+  writes to it.
 - **`openapi.json`**: drives the API reference; synced from the monorepo rather
   than edited here.
 
@@ -53,9 +53,9 @@ pnpm dev                            # the docs site, http://localhost:3000
 pnpm exec vite dev -c vite.status.config.ts   # the status page, port 3001
 ```
 
-The status page reads a Cloudflare D1 binding that the checker in
-withmarfa/status writes. A local run starts with an empty database that has no
-table, so the page answers with its error page and a 500 status.
+The status page reads a Cloudflare D1 binding that a separate checker writes.
+A local run starts with an empty database that has no table, so the page
+answers with its error page and a 500 status.
 
 ## Checks
 
