@@ -61,8 +61,8 @@ function buildIndex(header: string[], link: (url: string, page: Page | undefined
     return `- [${title}](${link(node.url, page)})${description ? `: ${description}` : ''}`;
   };
 
-  // Pages under a heading. A folder with a landing page, such as the CLI and
-  // its command pages, is that page with the folder's pages nested under it.
+  // Pages under a heading. A folder with a landing page is that page with the
+  // folder's pages nested under it.
   const walk = (nodes: PageTree.Node[], out: string[], indent = '') => {
     for (const node of nodes) {
       if (node.type === 'page') out.push(indent + pageLine(node));

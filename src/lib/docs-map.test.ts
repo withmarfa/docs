@@ -5,42 +5,42 @@ describe('buildDocsMap', () => {
   const map = buildDocsMap();
   const lines = map.split('\n');
 
-  it('lists the four tabs in order, as H2 headings', () => {
-    expect(lines.filter((line) => line.startsWith('## '))).toEqual([
-      '## Overview',
-      '## Tools',
-      '## Guides',
-      '## API reference',
-    ]);
+  it('lists the three tabs in order, as H2 headings', () => {
+    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Overview', '## Guides', '## Reference']);
   });
 
-  it('groups the Overview and Tools as the sidebar does, with pages at the site root', () => {
-    const overview = lines.slice(lines.indexOf('## Overview'), lines.indexOf('## Tools'));
+  it('groups each tab as the sidebar does', () => {
+    const overview = lines.slice(lines.indexOf('## Overview'), lines.indexOf('## Guides'));
     expect(overview.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Concepts']);
     expect(overview.some((line) => line.startsWith('- [Overview](/overview)'))).toBe(true);
+    expect(overview.some((line) => line.startsWith('- [Glossary](/glossary)'))).toBe(true);
 
-    const tools = lines.slice(lines.indexOf('## Tools'), lines.indexOf('## Guides'));
-    expect(tools.filter((line) => line.startsWith('### '))).toEqual([
-      '### SDKs and CLI',
-      '### AI agents',
-      '### Resources',
-    ]);
-    expect(tools.some((line) => line.startsWith('- [CLI](/cli)'))).toBe(true);
-    expect(tools.some((line) => line.startsWith('- [Docs MCP server](/docs-mcp-server)'))).toBe(true);
-    expect(tools.some((line) => line.startsWith('- [The contract](https://github.com/'))).toBe(true);
+    const guides = lines.slice(lines.indexOf('## Guides'), lines.indexOf('## Reference'));
+    expect(guides).toContain('### AI agents');
+    expect(guides.some((line) => line.startsWith('- [Docs MCP server](/guides/docs-mcp-server)'))).toBe(true);
+    expect(guides.some((line) => line.startsWith('- [Troubleshooting](/guides/troubleshooting)'))).toBe(true);
+
+    const reference = lines.slice(lines.indexOf('## Reference'));
+    const groups = reference.filter((line) => line.startsWith('### '));
+    expect(groups.slice(0, 2)).toEqual(['### SDKs and CLI', '### HTTP API']);
+    expect(groups.at(-1)).toBe('### Resources');
+    expect(reference.some((line) => line.startsWith('- [TypeScript SDK](/typescript-sdk)'))).toBe(true);
+    expect(reference.some((line) => line.startsWith('- [The contract](https://github.com/'))).toBe(true);
   });
 
-  it('nests the CLI command pages under the CLI page', () => {
+  it('lists the CLI as one page, with nothing nested under it', () => {
     const cli = lines.findIndex((line) => line.startsWith('- [CLI](/cli)'));
-    expect(lines[cli + 1]).toMatch(/^ {2}- \[.+\]\(\/cli\/[a-z-]+\)/);
+    expect(cli).toBeGreaterThan(-1);
+    expect(lines[cli + 1]).not.toMatch(/^ {2}- /);
+    expect(map).not.toContain('](/cli/');
   });
 
   it('names no page under a path prefix the site does not use', () => {
-    expect(map).not.toMatch(/\]\(\/(get-started|tools)[/)]/);
+    expect(map).not.toMatch(/\]\(\/(get-started|tools|reference)[/)]/);
   });
 
   it('lists every API reference operation under its tag', () => {
-    const api = lines.slice(lines.indexOf('## API reference'));
+    const api = lines.slice(lines.indexOf('## Reference'));
     expect(api.some((line) => line.startsWith('### Items'))).toBe(true);
     expect(api.some((line) => line.startsWith('- [Create an item](/api-reference/items/createItem)'))).toBe(true);
   });
@@ -58,7 +58,7 @@ describe('buildLlmsTxt', () => {
 
   it('links each written page to its Markdown copy at a full address', () => {
     expect(text).toContain('- [Overview](https://docs.marfa.so/overview.md)');
-    expect(text).toContain('(https://docs.marfa.so/cli/items.md)');
+    expect(text).toContain('(https://docs.marfa.so/cli.md)');
     expect(text).not.toMatch(/\]\(\/[a-z]/);
   });
 

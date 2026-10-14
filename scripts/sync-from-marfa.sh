@@ -5,18 +5,12 @@
 #   src/generated/api-overview.md     the spec's info.description, the rules every
 #                                     operation follows, included by the API
 #                                     reference overview
-#   src/generated/cli/                the CLI's reference, from its own help, split
-#                                     into one file per section of
-#                                     core/marfa-cli/COMMANDS.md without its
-#                                     heading: global-options.md, exit-codes.md and
-#                                     <command>.md for each top-level command. A
-#                                     command's first section, when it is named for
-#                                     the command (`### marfa items`), also loses
-#                                     its heading, which the page that includes the
-#                                     file already says. Each CLI page includes the
-#                                     files it shows under a heading of its own.
-#                                     The directory is replaced whole, so a command
-#                                     that no longer exists loses its file.
+#   src/generated/cli/                the CLI's global options and exit codes, from
+#                                     core/marfa-cli/COMMANDS.md, each section
+#                                     without its heading: global-options.md and
+#                                     exit-codes.md, which the CLI page includes.
+#                                     The directory is replaced whole, so a file
+#                                     that is no longer written disappears.
 #   src/generated/error-codes.md      the contract's table of error codes,
 #                                     written from the server's own code list,
 #                                     included by the Errors page
@@ -133,18 +127,13 @@ then
   exit 1
 fi
 
-# The CLI pages show the reference a section at a time, each file included under
-# a heading the page writes itself, so the reference is split at its level-2
-# headings: `## Global options` and `## Exit codes`, then one `## <command>`
-# for each top-level command. A file is its section without that heading line,
-# trimmed, and a heading-shaped line inside a fence is not a heading. A command's
-# first `###` section, when it is named for the command (`### marfa items` under
-# `## items`), also loses that heading and the blank line after it, because the
-# page's own heading already names the command; its usage and tables stay, and
-# so do the sections of its subcommands. The generated-file comment, the title
-# and the intro before the first section are left out. The files go into a
-# temporary directory that replaces src/generated/cli only once every other check
-# has passed, so a command that no longer exists loses its file.
+# The CLI page includes two sections of the command reference, each under a
+# heading of its own, so only `## Global options` and `## Exit codes` are
+# written, each without its heading line and trimmed. A heading-shaped line inside
+# a fence is not a heading. The generated-file comment, the title, the intro and
+# every command section are left out. The files go into a temporary directory
+# that replaces src/generated/cli only once every other check has passed, so a
+# file that is no longer written disappears.
 #
 # The script says what is wrong itself, because only it knows which section
 # failed.
@@ -153,7 +142,7 @@ import os, re, sys
 
 source, out_dir = sys.argv[1], sys.argv[2]
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
-FIXED = {"Global options": "global-options", "Exit codes": "exit-codes"}
+SECTIONS = {"Global options": "global-options", "Exit codes": "exit-codes"}
 
 
 def refuse(reason):
@@ -188,22 +177,15 @@ if i < len(lines) and lines[i].lstrip().startswith("<!--"):
 lines = lines[i:]
 
 heads = [(i, line[3:].strip()) for i, line in prose(lines) if line.startswith("## ")]
-files, commands = {}, 0
+files = {}
 for n, (start, name) in enumerate(heads):
-    stem = FIXED.get(name)
+    stem = SECTIONS.get(name)
     if stem is None:
-        if not re.fullmatch(r"[a-z][a-z0-9-]*", name):
-            refuse(f"has the section '## {name}', which is not a command name (lowercase letters, digits and hyphens)")
-        stem, commands = name, commands + 1
+        continue
     if stem in files:
         refuse(f"repeats the section '## {name}'")
 
     body = lines[start + 1 : heads[n + 1][0] if n + 1 < len(heads) else len(lines)]
-    subs = [j for j, line in prose(body) if line.startswith("### ")]
-    if stem == name and subs and body[subs[0]].rstrip() == f"### marfa {name}":
-        del body[subs[0]]
-        if subs[0] < len(body) and not body[subs[0]].strip():
-            del body[subs[0]]
     while body and not body[0].strip():
         del body[0]
     while body and not body[-1].strip():
@@ -212,11 +194,9 @@ for n, (start, name) in enumerate(heads):
         refuse(f"has nothing under '## {name}'")
     files[stem] = "\n".join(body) + "\n"
 
-for stem, heading in (("global-options", "Global options"), ("exit-codes", "Exit codes")):
+for name, stem in SECTIONS.items():
     if stem not in files:
-        refuse(f"has no '## {heading}' section")
-if not commands:
-    refuse("has no section for any command (a '## <command>' heading)")
+        refuse(f"has no '## {name}' section")
 
 for stem, text in files.items():
     with open(os.path.join(out_dir, stem + ".md"), "w", encoding="utf-8") as out:
@@ -355,4 +335,4 @@ marfa --version
 \`\`\`
 DOWNLOAD
 
-echo "openapi.json, the API overview, GLOSSARY.md, the command reference in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the release ($RELEASE) and its CLI download synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the release ($RELEASE) and its CLI download synced from $MARFA_ROOT"

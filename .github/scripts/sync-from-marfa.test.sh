@@ -4,25 +4,23 @@
 #
 # The parts that need a test are the files the script rewrites rather than
 # copies. It turns the spec's info.description into
-# src/generated/api-overview.md, moving each heading down a level, and splits the
-# command reference into src/generated/cli/, one file per section of the
-# reference without its heading (global-options.md, exit-codes.md and a file for
-# each command, which loses its own `### marfa <command>` heading when that is
-# its first section), and it takes the code table from the errors
-# chapter into src/generated/error-codes.md and the settings table from the
-# instance chapter into src/generated/settings.md, the tables of the shipped
-# types, edge types, permissions and event types from their chapters into
-# src/generated/core-types.md, edge-types.md, permissions.md and event-types.md,
-# and it hashes every rule of the contract's chapters into
-# src/generated/contract-index.json. A description that is missing, blank or the
-# wrong type, a spec whose top level or `info` is not an object, or a command
-# reference that is missing, empty, not UTF-8, without its global options or exit
-# codes or any command, with a command name that is not a plain lowercase name,
-# a section that repeats or holds nothing, or a chapter with no table between its
-# markers, or a contract with no rules, a repeated rule ID or an ID under another
-# chapter, must stop the script before it changes anything, with one line saying
-# so, never a Python traceback. The script is copied into each fixture so that
-# its docs root is the fixture, and the real tree is never touched.
+# src/generated/api-overview.md, moving each heading down a level, and takes the
+# command reference's global options and exit codes, each without its heading,
+# into src/generated/cli/global-options.md and exit-codes.md and nothing else
+# from it, and it takes the code table from the errors chapter into
+# src/generated/error-codes.md and the settings table from the instance chapter
+# into src/generated/settings.md, the tables of the shipped types, edge types,
+# permissions and event types from their chapters into src/generated/core-types.md,
+# edge-types.md, permissions.md and event-types.md, and it hashes every rule of
+# the contract's chapters into src/generated/contract-index.json. A description
+# that is missing, blank or the wrong type, a spec whose top level or `info` is
+# not an object, or a command reference that is missing, empty, not UTF-8, with a
+# comment that never closes, without its global options or exit codes, or with
+# either repeated or empty, or a chapter with no table between its markers, or a
+# contract with no rules, a repeated rule ID or an ID under another chapter, must
+# stop the script before it changes anything, with one line saying so, never a
+# Python traceback. The script is copied into each fixture so that its docs root
+# is the fixture, and the real tree is never touched.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,10 +40,9 @@ mkdir "${work}/tmp"
 
 # The command reference every fixture holds: the generated-file comment, the
 # title, the intro, the global options, the exit codes with a fenced block whose
-# lines look like headings, a command with one section named for it (status), a
-# command with a section named for it and two commands under it (owner) and a
-# command with one section that is not named for it (search). The files the
-# script writes from it follow.
+# lines look like headings, and three commands (status, owner and search). A real
+# reference has the commands, and the script must write nothing from them. The
+# two files it writes follow.
 commands="$(cat <<'EOF'
 <!-- Generated from the command tree. Do not edit by hand. -->
 
@@ -147,53 +144,6 @@ With --json a refusal is one JSON object on stderr:
 # not a heading
 ## not a section
 {"exit":N}
-```
-EOF
-)"
-cli_status_expected="$(cat <<'EOF'
-What the instance says about itself.
-
-```text
-# not a heading either
-marfa status [OPTIONS]
-```
-EOF
-)"
-cli_owner_expected="$(cat <<'EOF'
-The owner, the one account behind the sign-in surface.
-
-```text
-marfa owner [OPTIONS] <COMMAND>
-```
-
-### marfa owner show
-
-Show the owner.
-
-```text
-marfa owner show [OPTIONS]
-```
-
-### marfa owner recover
-
-Recover the password.
-
-```text
-marfa owner recover [OPTIONS]
-```
-
-| Option | Description |
-| --- | --- |
-| `--stdin` | Read the password from standard input. |
-EOF
-)"
-cli_search_expected="$(cat <<'EOF'
-Search the instance.
-
-### marfa search items
-
-```text
-marfa search items [OPTIONS] <QUERY>
 ```
 EOF
 )"
@@ -486,7 +436,7 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the command reference in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the release (v1.2.3) and its CLI download synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the release (v1.2.3) and its CLI download synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -498,18 +448,12 @@ check "the global options are their section without its heading" \
   "${cli_global_expected}" "$(cat "${cli}/global-options.md")"
 check "the exit codes are their section without its heading, and a fenced line is no heading" \
   "${cli_exit_expected}" "$(cat "${cli}/exit-codes.md")"
-check "a command with one section named for it loses that heading and keeps its usage" \
-  "${cli_status_expected}" "$(cat "${cli}/status.md")"
-check "a command with a section named for it and two commands loses that heading, keeps its usage and both commands" \
-  "${cli_owner_expected}" "$(cat "${cli}/owner.md")"
-check "a command with one section not named for it keeps that heading" \
-  "${cli_search_expected}" "$(cat "${cli}/search.md")"
 for file in "${cli}"/*.md; do
   check "$(basename "${file}") starts with text and ends with exactly one newline" True \
     "$(python3 -c 'import sys; t = open(sys.argv[1]).read(); print(t.endswith("\n") and not t.endswith("\n\n") and not t[0].isspace())' "${file}")"
 done
-check "the old command file is gone and the others are the reference's sections" \
-  "exit-codes.md global-options.md owner.md search.md status.md" "$(ls "${cli}" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+check "only the two sections are written, and the stale command files are gone" \
+  "exit-codes.md global-options.md" "$(ls "${cli}" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 check "the folder can be read by anyone who can read the checkout" \
   755 "$(python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "${cli}")"
 check "the error codes are the rows between the markers, and nothing else" \
@@ -542,7 +486,7 @@ rm -r "${work}/first/docs/src/generated/cli"
 sync first
 check "no cli folder yet: the script succeeds" 0 "${status}"
 check "no cli folder yet: the folder is written" \
-  "exit-codes.md global-options.md owner.md search.md status.md" "$(ls "${work}/first/docs/src/generated/cli" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "exit-codes.md global-options.md" "$(ls "${work}/first/docs/src/generated/cli" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 fixture crlf "${work}/good.json"
 awk '{ printf "%s\r\n", $0 }' "${work}/crlf/marfa/core/marfa-cli/COMMANDS.md" > "${work}/crlf.md"
@@ -550,8 +494,8 @@ cp "${work}/crlf.md" "${work}/crlf/marfa/core/marfa-cli/COMMANDS.md"
 sync crlf
 check "Windows line endings: the script succeeds" 0 "${status}"
 check "Windows line endings: the files are the same" \
-  "$(cat "${cli}/exit-codes.md" "${cli}/owner.md" "${cli}/status.md")" \
-  "$(cat "${work}/crlf/docs/src/generated/cli/exit-codes.md" "${work}/crlf/docs/src/generated/cli/owner.md" "${work}/crlf/docs/src/generated/cli/status.md")"
+  "$(cat "${cli}/global-options.md" "${cli}/exit-codes.md")" \
+  "$(cat "${work}/crlf/docs/src/generated/cli/global-options.md" "${work}/crlf/docs/src/generated/cli/exit-codes.md")"
 
 # ----------------------------------------------------------------- every refusal
 
@@ -645,32 +589,36 @@ refuse_commands "global options of another level" \
   "${cli_file} has no '## Global options' section. Nothing has changed." "${cli_head}### Global options\n\nEvery command accepts these.\n\n${cli_exit}${cli_status}"
 refuse_commands "no exit codes" \
   "${cli_file} has no '## Exit codes' section. Nothing has changed." "${cli_head}${cli_global}${cli_status}"
-refuse_commands "no command" \
-  "${cli_file} has no section for any command (a '## <command>' heading). Nothing has changed." "${cli_head}${cli_global}${cli_exit}"
-refuse_commands "a command name with a capital" \
-  "${cli_file} has the section '## Status', which is not a command name (lowercase letters, digits and hyphens). Nothing has changed." \
-  "${cli_head}${cli_global}${cli_exit}## Status\n\nAbout.\n"
-refuse_commands "a command name with an underscore" \
-  "${cli_file} has the section '## sign_ins', which is not a command name (lowercase letters, digits and hyphens). Nothing has changed." \
-  "${cli_head}${cli_global}${cli_exit}${cli_status}## sign_ins\n\nAbout.\n"
-refuse_commands "a command name that starts with a digit" \
-  "${cli_file} has the section '## 2fa', which is not a command name (lowercase letters, digits and hyphens). Nothing has changed." \
-  "${cli_head}${cli_global}${cli_exit}${cli_status}## 2fa\n\nAbout.\n"
-refuse_commands "a command name of two words" \
-  "${cli_file} has the section '## sign ins', which is not a command name (lowercase letters, digits and hyphens). Nothing has changed." \
-  "${cli_head}${cli_global}${cli_exit}${cli_status}## sign ins\n\nAbout.\n"
-refuse_commands "a command that repeats" \
-  "${cli_file} repeats the section '## status'. Nothing has changed." "${cli_head}${cli_global}${cli_exit}${cli_status}${cli_status}"
+refuse_commands "exit codes only inside a fence" \
+  "${cli_file} has no '## Exit codes' section. Nothing has changed." "${cli_head}${cli_global}"'```text\n## Exit codes\n```\n\n'"${cli_status}"
 refuse_commands "global options that repeat" \
   "${cli_file} repeats the section '## Global options'. Nothing has changed." "${cli_head}${cli_global}${cli_exit}${cli_global}${cli_status}"
-refuse_commands "a command named for a file of the split" \
-  "${cli_file} repeats the section '## exit-codes'. Nothing has changed." "${cli_head}${cli_global}${cli_exit}## exit-codes\n\nAbout.\n"
-refuse_commands "a command with nothing under it" \
-  "${cli_file} has nothing under '## status'. Nothing has changed." "${cli_head}${cli_global}${cli_exit}## status\n\n## owner\n\nAbout.\n"
-refuse_commands "a command with only its own heading under it" \
-  "${cli_file} has nothing under '## status'. Nothing has changed." "${cli_head}${cli_global}${cli_exit}## status\n\n### marfa status\n\n"
+refuse_commands "exit codes that repeat" \
+  "${cli_file} repeats the section '## Exit codes'. Nothing has changed." "${cli_head}${cli_global}${cli_exit}${cli_status}${cli_exit}"
 refuse_commands "global options with nothing under them" \
   "${cli_file} has nothing under '## Global options'. Nothing has changed." "${cli_head}## Global options\n\n${cli_exit}${cli_status}"
+refuse_commands "exit codes with only blank lines under them" \
+  "${cli_file} has nothing under '## Exit codes'. Nothing has changed." "${cli_head}${cli_global}## Exit codes\n\n\n\n${cli_status}"
+
+# What is not the two sections is not read: a command section can be called
+# anything, repeat, hold nothing or be absent, and the script still writes the
+# two files and nothing else.
+echo "a command reference with odd or no command sections"
+fixture odd "${work}/untagged.json"
+printf '%b' "${cli_head}${cli_global}${cli_exit}## Status\n\n## sign_ins\n\nAbout.\n\n## 2fa\n\n## sign ins\n\n## exit-codes\n\nAbout.\n\n${cli_status}${cli_status}" \
+  > "${work}/odd/marfa/core/marfa-cli/COMMANDS.md"
+fixture bare "${work}/untagged.json"
+printf '%b' "${cli_head}${cli_global}${cli_exit}" > "${work}/bare/marfa/core/marfa-cli/COMMANDS.md"
+for name in odd bare; do
+  sync "${name}"
+  check "${name} command sections: the script succeeds" 0 "${status}"
+  check "${name} command sections: the global options are written" \
+    "Every command accepts these." "$(cat "${work}/${name}/docs/src/generated/cli/global-options.md")"
+  check "${name} command sections: the exit codes are written" \
+    "$(printf '%b' '| Code | Meaning |\n| --- | --- |\n| 0 | Done. |')" "$(cat "${work}/${name}/docs/src/generated/cli/exit-codes.md")"
+  check "${name} command sections: no other file is written" \
+    "exit-codes.md global-options.md" "$(ls "${work}/${name}/docs/src/generated/cli" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+done
 
 # refuse_table <heading> <chapter file> <marker> <noun> <label> <chapter text, or
 # "absent" for no file>: the spec, the tag, the command reference and every

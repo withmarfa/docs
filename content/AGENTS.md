@@ -6,21 +6,21 @@ This file sits above `content/docs/` on purpose: the docs collection publishes e
 
 ## Placing a page
 
-- Each folder under `content/docs/` is a tab. `(overview)/` and `(tools)/` are folder groups, so their pages sit at the site root (`/files`, `/cli/items`). `guides/` and `api-reference/` keep their names in the URL.
+- Each folder directly under `content/docs/` is a tab. `(overview)/` and `(reference)/` are folder groups, so their pages sit at the site root (`/files`, `/cli`). `guides/` keeps its name in the URL, and so does `(reference)/api-reference/`.
 - A new page needs its file and an entry in its folder's `meta.json`. `content/docs/meta.json` orders the tabs.
-- A slug in `(overview)/` or `(tools)/` must not repeat a slug in either group. It must not be a name the Worker answers at the root (`api`, `mcp`, `llms`, `llms-full`, `docs-map`, `version`), or `docs`, which the docs tools strip as a prefix.
-- The header tabs come from `SECTIONS` in `src/components/section-nav.tsx`, not from `meta.json`. A new tab or a renamed landing page needs both. A new Tools page needs only its entry in `(tools)/meta.json`, which the header reads.
-- The header holds no text links. The Changelog and the contract sit in the Tools tab's Resources group, so a new destination goes in a sidebar group, not in `links` in `src/lib/layout.shared.tsx`.
-- `src/lib/api-reference-tree.ts` finds the API reference tab by its `meta.json` title. Renaming that title needs `API_REFERENCE_TITLE` changed there.
-- `api-reference/` holds only the hand-written overview and Errors pages. Every operation page is generated from `openapi.json`.
+- A slug in `(overview)/` or `(reference)/` must not repeat a slug in either group. It must not be a name the Worker answers at the root (`api`, `mcp`, `llms`, `llms-full`, `docs-map`, `version`), or `docs`, which the docs tools strip as a prefix.
+- The header tabs come from `SECTIONS` in `src/components/section-nav.tsx`, not from `meta.json`. A new tab or a renamed landing page needs both. A new Reference page needs only its entry in `(reference)/meta.json`, which the header reads.
+- The header holds no text links. The Changelog and the contract sit in the Reference tab's Resources group, so a new destination goes in a sidebar group, not in `links` in `src/lib/layout.shared.tsx`.
+- The Reference tab's `meta.json` lifts the API pages into its own sidebar with `...api-reference`, and `src/lib/api-reference-tree.ts` finds the tab by that `meta.json` title. Renaming the title needs `REFERENCE_TITLE` changed there.
+- `(reference)/api-reference/` holds only the hand-written overview and Errors pages. Every operation page is generated from `openapi.json`, into the folder `src/lib/source.ts` names.
 - When a page's path or title changes, check what the agent surfaces say about it, including the example path in the `docs_fetch` description in `src/lib/mcp/tools.ts`.
 
 ## Wiring a page
 
-- Frontmatter holds a `title` and a `description` (`STYLE.md`, "Frontmatter"). An optional `tocDepth` from 2 to 6 limits the "On this page" list, for a page that includes a long generated reference.
+- Frontmatter holds a `title` and a `description` (`STYLE.md`, "Frontmatter").
 - A page uses what `src/components/mdx.tsx` registers without importing it. Import anything else from `fumadocs-ui/components/`.
 - Show a generated file with `<include cwd>src/generated/<file>.md</include>`, and add `#<heading-id>` for one section, which ends at the next heading of any level. Never copy generated text into a page or show it through a component: the include keeps the Markdown copy and the docs tools in step with the HTML.
-- `pnpm test` runs the content lint (`src/lib/content-lint.test.ts`) over every page and the text it includes, and a test that each file in `src/generated/cli/` is on exactly one page. Passing them is not the same as following `STYLE.md`.
+- `pnpm test` runs the content lint (`src/lib/content-lint.test.ts`) over every page and the text it includes, and a test that the CLI page is the one page that includes `src/generated/cli/`. Passing them is not the same as following `STYLE.md`.
 
 ## Code Review Rules
 

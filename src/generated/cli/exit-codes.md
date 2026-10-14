@@ -9,6 +9,8 @@
 
 A device drain prints its complete report on stdout: 0 for a completed pass (including refused writes), 3 for undelivered writes or an unavailable pass, and 5 for a credential-stopped pass. A report exit prints no additional refusal on stderr. Refused verdicts have a separate plain-text count.
 
+A device catch-up that fails says whether it had changed the catalog the copy holds, which the copy keeps; with --json, as "catalog_changed" beside "exit".
+
 With --json a refusal is one JSON object on stderr:
 
 ```text

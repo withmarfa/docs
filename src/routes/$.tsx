@@ -107,8 +107,6 @@ const clientLoader = browserCollections.docs.createClientLoader({
       path: string;
     },
   ) {
-    const depth = frontmatter.tocDepth;
-    const items = depth === undefined ? toc : toc.filter((item) => item.depth <= depth);
     return (
       // Keep the TOC column reserved on every narrative page (so the centred
       // body sits in the same place whether or not a page has a TOC), but only
@@ -117,13 +115,13 @@ const clientLoader = browserCollections.docs.createClientLoader({
       // popover that reveals nothing. Passing an empty toc renders fumadocs'
       // hidden placeholder, which reserves the column without showing anything.
       <DocsPage
-        toc={items.length > 1 ? items : []}
+        toc={toc.length > 1 ? toc : []}
         tableOfContent={{
           enabled: true,
           component: <PageTableOfContents />,
         }}
         tableOfContentPopover={{
-          enabled: items.length > 1,
+          enabled: toc.length > 1,
           component: <PageTableOfContentsPopover />,
         }}
         footer={{ component: <PageFooter className="mt-12" /> }}
