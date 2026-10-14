@@ -9,8 +9,9 @@ import {
 import { ApiMethod, parseApiMethod } from '@/components/api-method';
 import spec from '../../openapi.json';
 
-// The title of the API reference folder, from its meta.json, lowercased.
-const API_REFERENCE_TITLE = 'api reference';
+// The title of the Reference tab's folder, from its meta.json, lowercased. The
+// API's tag folders are the only folders in that tab.
+const REFERENCE_TITLE = 'reference';
 
 // The groups in the order the API description lists them, not alphabetically.
 const TAG_ORDER = new Map(spec.tags.map((tag, index) => [tag.name, index]));
@@ -97,7 +98,7 @@ function decorateOperation(node: PageTree.Node): PageTree.Node {
 }
 
 /**
- * Return a copy of the page tree where each tag folder in the API reference is
+ * Return a copy of the page tree where each tag folder in the Reference tab is
  * collapsed by default, ordered as the description lists its tags, lists its
  * webhooks first, and shows a method badge beside every operation.
  */
@@ -106,7 +107,7 @@ export function regroupApiReference(tree: PageTree.Root): PageTree.Root {
     ...tree,
     children: tree.children.map((node) =>
       node.type === 'folder' &&
-      nodeName(node.name).trim().toLowerCase() === API_REFERENCE_TITLE
+      nodeName(node.name).trim().toLowerCase() === REFERENCE_TITLE
         ? {
             ...node,
             children: sortFoldersInPlace(node.children, tagRank).map((child) =>

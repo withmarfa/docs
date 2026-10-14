@@ -96,25 +96,29 @@ describe('fetchDocsPage', () => {
     expect(await fetchDocsPage('/definitely/not/a/page')).toBeNull();
   });
 
-  it('serves the Overview and Tools pages at the site root, and nothing at the old paths', async () => {
+  it('serves the Overview and Reference pages at the site root, and nothing at the old paths', async () => {
     const page = await fetchDocsPage('/files');
     expect(page).toMatch(/^# Files \(\/files\)\n/);
     expect(await fetchDocsPage('/overview.md')).toMatch(/^# Overview \(\/overview\)\n/);
-    expect(await fetchDocsPage('/cli/items')).toContain('marfa items list');
+    expect(await fetchDocsPage('/cli')).toContain('marfa items list');
+    expect(await fetchDocsPage('/typescript-sdk')).toMatch(/^# TypeScript SDK \(\/typescript-sdk\)\n/);
     // Code tabs keep their examples, under each tab's label.
     const quickstart = await fetchDocsPage('/quickstart');
     expect(quickstart).toContain('marfa items create --type core.note');
     expect(quickstart).toContain('**TypeScript**');
     expect(await fetchDocsPage('/cli-reference')).toBeNull();
     expect(await fetchDocsPage('/docs-for-agents')).toBeNull();
+    expect(await fetchDocsPage('/cli/items')).toBeNull();
+    expect(await fetchDocsPage('/typescript-client')).toBeNull();
+    expect(await fetchDocsPage('/docs-mcp-server')).toBeNull();
     expect(await fetchDocsPage('/get-started/files')).toBeNull();
     expect(await fetchDocsPage('/tools/marfa-command')).toBeNull();
   });
 
-  it('returns every page the topics list, including one whose name starts with docs', async () => {
+  it('returns every page the topics list, including ones whose names start with docs', async () => {
     const { pages } = listTopics();
-    expect(pages.map((p) => p.url)).toContain('/docs-mcp-server');
-    expect(pages.map((p) => p.url)).toContain('/docs-as-markdown');
+    expect(pages.map((p) => p.url)).toContain('/guides/docs-mcp-server');
+    expect(pages.map((p) => p.url)).toContain('/guides/docs-as-markdown');
     for (const { url } of pages) {
       expect(await fetchDocsPage(url), url).not.toBeNull();
     }

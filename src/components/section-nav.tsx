@@ -1,12 +1,16 @@
 import Link from 'fumadocs-core/link';
 import { useRouterState } from '@tanstack/react-router';
-import toolsMeta from '../../content/docs/(tools)/meta.json';
+import referenceMeta from '../../content/docs/(reference)/meta.json';
 
-// The Overview and Tools folders are groups, so their pages share the site root
-// (`/files`, `/cli`). A Tools page is told apart by its first path segment,
-// read from the folder's own list so a new page can't be missed. The Overview
-// is every path that belongs to no other section.
-const TOOLS_SEGMENTS = new Set(toolsMeta.pages.filter((entry) => /^[a-z0-9-]+$/.test(entry)));
+// The Overview and Reference folders are groups, so their pages share the site
+// root (`/files`, `/cli`). A Reference page is told apart by its first path
+// segment, read from the folder's own list so a new page can't be missed; the
+// API's pages sit under `/api-reference`. The Overview is every path that
+// belongs to no other section.
+const REFERENCE_SEGMENTS = new Set([
+  ...referenceMeta.pages.filter((entry) => /^[a-z0-9-]+$/.test(entry)),
+  'api-reference',
+]);
 
 function firstSegment(pathname: string) {
   return pathname.split('/').filter(Boolean)[0] ?? '';
@@ -21,12 +25,11 @@ function isUnder(pathname: string, prefix: string) {
 // but it still scopes the sidebar by URL; these pills are the visible switcher.
 const SECTIONS: { label: string; href: string; matches: ((pathname: string) => boolean) | null }[] = [
   { label: 'Overview', href: '/overview', matches: null },
-  { label: 'Tools', href: '/cli', matches: (pathname) => TOOLS_SEGMENTS.has(firstSegment(pathname)) },
   { label: 'Guides', href: '/guides/swift-app', matches: (pathname) => isUnder(pathname, '/guides') },
   {
-    label: 'API reference',
+    label: 'Reference',
     href: '/api-reference',
-    matches: (pathname) => isUnder(pathname, '/api-reference'),
+    matches: (pathname) => REFERENCE_SEGMENTS.has(firstSegment(pathname)),
   },
 ];
 

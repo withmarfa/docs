@@ -25,10 +25,11 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 | Tab | Sidebar groups | Kind of page |
 | --- | --- | --- |
 | Overview | Get started: Overview, Quickstart | Explanation, then a tutorial |
-| Overview | Concepts: How Marfa works, then one page per idea | Explanation |
-| Tools | SDKs and CLI, AI agents, Resources | How-to for each client, generated reference, and Troubleshooting, Glossary and Changelog |
-| Guides | Tutorials, Build apps, Build connectors, Run Marfa | Tutorial, how-to |
-| API reference | The overview, Errors, and the operations generated from the API description | Reference |
+| Overview | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation |
+| Guides | Tutorials, Build apps, Build connectors, AI agents, Run Marfa (ending with Troubleshooting) | Tutorial, how-to |
+| Reference | SDKs and CLI: one page each | How to install and use each client |
+| Reference | HTTP API: the overview, Errors, and the operations generated from the API description | Reference |
+| Reference | Resources: the Changelog and the contract | Reference |
 
 - A **concept** page explains one idea: what it is, why it works the way it does, and the rules a reader meets in normal use.
 - A **tutorial** takes a newcomer through one complete piece of work, start to finish, and every step works.
@@ -80,7 +81,7 @@ Don't restate what the API reference says. A page explains what the reference ca
 - Present tense, active voice, second person for the reader.
 - "Coming soon" appears only on the Overview. Anywhere else, describe only what exists.
 - Sentence case for titles and headings. Headings are plain text: no code, links or other markup.
-- Inline code is for text a reader would type or copy: type IDs, field names, paths, header names, flags, values. A product name in prose is plain text (the TypeScript client, not `@withmarfa/client`).
+- Inline code is for text a reader would type or copy: type IDs, field names, paths, header names, flags, values. A product name in prose is plain text (the TypeScript SDK, not `@withmarfa/client`).
 - Internal links are paths from the site root, such as `/files`, so the Markdown copy of each page resolves them. Link text says where the link goes.
 - No filler: "simply", "just", "easy", "basically", "really", "actually", "very".
 
@@ -148,7 +149,7 @@ Every visual follows these rules:
 
 The docs stay right by being rewritten whole, not by being added to.
 
-- **Generated reference is synced, never written by hand.** The API reference, the CLI reference, the error codes, the settings, the shipped types and edge types, the permissions, the event types and the glossary come from withmarfa/marfa through `scripts/sync-from-marfa.sh`.
+- **Generated reference is synced, never written by hand.** The API reference, the CLI's global options and exit codes, the error codes, the settings, the shipped types and edge types, the permissions, the event types and the glossary come from withmarfa/marfa through `scripts/sync-from-marfa.sh`.
 - **A code change doesn't need a docs change.** Code repositories don't open a pull request here for each public change.
 - **A docs pass runs at each release.** It reads every page whose contract rules or operations changed since the last release and rewrites each one whole, to this file. "No change needed" is a normal answer.
 - **A page that grows is a warning.** When a change makes a page much longer, check whether the new text belongs in the reference instead, or replaces something.

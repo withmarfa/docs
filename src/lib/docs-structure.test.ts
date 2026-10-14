@@ -19,27 +19,17 @@ const ALL_PAGES = pages(CONTENT).map((file) => ({
   text: readFileSync(file, 'utf8'),
 }));
 
-describe('the CLI reference pages', () => {
+describe('the CLI page', () => {
+  const CLI_PAGE = path.join('(reference)', 'cli.mdx');
   const included = (name: string) =>
     ALL_PAGES.filter(({ text }) => text.includes(`<include cwd>src/generated/cli/${name}</include>`)).map(
       ({ file }) => file,
     );
 
-  it('show every command area the sync writes, each on exactly one page', () => {
-    const areas = readdirSync(GENERATED_CLI).filter(
-      (name) => name.endsWith('.md') && name !== 'global-options.md' && name !== 'exit-codes.md',
-    );
-    expect(areas.length).toBeGreaterThan(10);
-    for (const area of areas) {
-      const on = included(area);
-      expect(on, `${area} is included by ${on.length} pages`).toHaveLength(1);
-      expect(on[0].startsWith(path.join('(tools)', 'cli'))).toBe(true);
-    }
-  });
-
-  it('show the global options and exit codes on the CLI page', () => {
-    expect(included('global-options.md')).toEqual([path.join('(tools)', 'cli', 'index.mdx')]);
-    expect(included('exit-codes.md')).toEqual([path.join('(tools)', 'cli', 'index.mdx')]);
+  it('is the only page that shows the global options and exit codes, the two files the sync writes', () => {
+    expect(readdirSync(GENERATED_CLI).sort()).toEqual(['exit-codes.md', 'global-options.md']);
+    expect(included('global-options.md')).toEqual([CLI_PAGE]);
+    expect(included('exit-codes.md')).toEqual([CLI_PAGE]);
   });
 });
 
@@ -50,7 +40,7 @@ describe('the CLI download', () => {
     const including = ALL_PAGES.filter(({ text }) =>
       text.includes('<include cwd>src/generated/cli-download.md</include>'),
     ).map(({ file }) => file);
-    expect(including.sort()).toEqual([path.join('(overview)', 'quickstart.mdx'), path.join('(tools)', 'cli', 'index.mdx')]);
+    expect(including.sort()).toEqual([path.join('(overview)', 'quickstart.mdx'), path.join('(reference)', 'cli.mdx')]);
   });
 
   it('names the latest release', () => {
@@ -63,7 +53,7 @@ describe('the CLI download', () => {
 describe('the Glossary page', () => {
   it('defines only words marfa\'s glossary uses', () => {
     const glossary = readFileSync(path.join(ROOT, 'src/generated/GLOSSARY.md'), 'utf8').toLowerCase();
-    const page = ALL_PAGES.find(({ file }) => file === path.join('(tools)', 'glossary.mdx'))!;
+    const page = ALL_PAGES.find(({ file }) => file === path.join('(overview)', 'glossary.mdx'))!;
     const words = [...page.text.matchAll(/^\| \*\*([^*]+)\*\* \|/gm)].map((match) => match[1]);
     expect(words.length).toBeGreaterThan(20);
     for (const word of words) {
