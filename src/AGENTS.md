@@ -19,7 +19,7 @@ The code of the docs site and the status page. The root `AGENTS.md` still applie
 
 ## Status page
 
-- `src/status/` reads the store that the checker in withmarfa/status writes, and never writes to it. It is not prerendered, because it answers from the store at request time.
+- `src/status/` reads the store that a separate checker writes, and never writes to it. It is not prerendered, because it answers from the store at request time.
 - The status build has no `@/` alias. Code under `src/status/`, and any shared module it imports, such as `src/components/analytics.tsx` and `src/lib/analytics.ts`, uses relative imports.
 
 ## Tests
