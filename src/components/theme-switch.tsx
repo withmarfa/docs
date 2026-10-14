@@ -6,8 +6,9 @@ import { flushSync } from 'react-dom';
 import { cn } from '../lib/cn';
 
 // Fumadocs' three-way switch with System first. Its order is fixed inside the
-// component, so the layouts swap it in through `slots.themeSwitch`, the
-// replacement Fumadocs provides. Relative imports: the status build has no `@/`.
+// component, so the docs layouts swap it in through `slots.themeSwitch`, the
+// replacement Fumadocs provides, and the status page places it as a nav item.
+// Relative imports: the status build has no `@/`.
 const THEMES = [
   { value: 'system', label: 'System', Icon: Airplay },
   { value: 'light', label: 'Light', Icon: Sun },
