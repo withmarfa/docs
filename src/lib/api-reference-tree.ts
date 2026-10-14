@@ -43,16 +43,23 @@ function isWebhookPage(node: PageTree.Node): boolean {
   );
 }
 
+// A folder of operations generated for one tag. The Reference tab may hold
+// other folders, which keep their place and their pages' order.
+function isTagFolder(node: PageTree.Node): node is PageTree.Folder {
+  return (
+    node.type === 'folder' &&
+    node.children.some((child) => child.type === 'page' && child.url.startsWith('/api-reference/'))
+  );
+}
+
 // Orders the tag folders and leaves every other entry, such as the index and
 // errors pages, where the folder's meta.json put it.
-function sortFoldersInPlace(
+function sortTagFoldersInPlace(
   nodes: PageTree.Node[],
   rank: (node: PageTree.Node) => number,
 ): PageTree.Node[] {
-  const folders = nodes
-    .filter((node) => node.type === 'folder')
-    .sort((a, b) => rank(a) - rank(b));
-  return nodes.map((node) => (node.type === 'folder' ? folders.shift()! : node));
+  const folders = nodes.filter(isTagFolder).sort((a, b) => rank(a) - rank(b));
+  return nodes.map((node) => (isTagFolder(node) ? folders.shift()! : node));
 }
 
 function nodeName(name: PageTree.Node['name']): string {
@@ -110,8 +117,8 @@ export function regroupApiReference(tree: PageTree.Root): PageTree.Root {
       nodeName(node.name).trim().toLowerCase() === REFERENCE_TITLE
         ? {
             ...node,
-            children: sortFoldersInPlace(node.children, tagRank).map((child) =>
-              child.type === 'folder'
+            children: sortTagFoldersInPlace(node.children, tagRank).map((child) =>
+              isTagFolder(child)
                 ? {
                     ...child,
                     defaultOpen: false,

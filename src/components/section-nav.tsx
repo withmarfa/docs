@@ -28,7 +28,7 @@ const SECTIONS: { label: string; href: string; matches: ((pathname: string) => b
   { label: 'Guides', href: '/guides/swift-app', matches: (pathname) => isUnder(pathname, '/guides') },
   {
     label: 'Reference',
-    href: '/api-reference',
+    href: '/typescript-sdk',
     matches: (pathname) => REFERENCE_SEGMENTS.has(firstSegment(pathname)),
   },
 ];
