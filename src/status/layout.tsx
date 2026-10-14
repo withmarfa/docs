@@ -1,5 +1,5 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
-import { ThemeSwitch } from 'fumadocs-ui/layouts/shared/slots/theme-switch';
+import { ThemeSwitch } from '../components/theme-switch';
 import { BookOpen, Rss } from 'lucide-react';
 import { gitConfig } from '../lib/shared';
 
@@ -72,7 +72,7 @@ export function baseOptions(): BaseLayoutProps {
         external: true,
         secondary: true,
       },
-      { type: 'custom', secondary: true, children: <ThemeSwitch mode="light-dark-system" /> },
+      { type: 'custom', secondary: true, children: <ThemeSwitch /> },
     ],
     // Disabled so it can be placed above instead. The layout otherwise renders
     // it ahead of every icon, and it belongs at the far edge.
