@@ -28,6 +28,17 @@
 #                                     with a hash of its statement, grouped by
 #                                     chapter, which the staleness report
 #                                     compares between two releases
+#   src/generated/catalog/            what the Catalog tab lists, replaced whole like
+#                                     cli/: builtin-catalog.json (a copy of the
+#                                     shipped type catalog), one Markdown file per
+#                                     top-level type with its subtypes inside
+#                                     (core.media.md, system.folder.md), edges.md,
+#                                     the three name lists (reserved-type-roots.md,
+#                                     reserved-field-names.md, searched-field-names.md)
+#                                     and, from the spec's schemas, item-fields.md,
+#                                     edge-fields.md and event-fields.md. The catalog's
+#                                     em dashes become colons, as the contract's
+#                                     generator writes them.
 #   src/generated/marfa-release.json  the latest release tag, shown in the sidebar
 #   src/generated/cli-download.md     the macOS install of that release's CLI,
 #                                     included by the Quickstart and the CLI page
@@ -63,7 +74,7 @@ if [ ! -f "$MARFA_ROOT/pnpm-workspace.yaml" ]; then
   exit 1
 fi
 
-for file in openapi.json GLOSSARY.md core/marfa-cli/COMMANDS.md conformance/spec/errors.md conformance/spec/instance.md conformance/spec/types.md conformance/spec/edges.md conformance/spec/keys-and-oauth.md conformance/spec/events.md; do
+for file in openapi.json GLOSSARY.md core/marfa-cli/COMMANDS.md core/marfa-core/src/builtin_catalog.json conformance/spec/errors.md conformance/spec/instance.md conformance/spec/types.md conformance/spec/edges.md conformance/spec/keys-and-oauth.md conformance/spec/events.md; do
   if [ ! -s "$MARFA_ROOT/$file" ]; then
     echo "No $file in $MARFA_ROOT. Nothing has changed." >&2
     exit 1
@@ -95,7 +106,8 @@ EDGE_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-edge-types.XXXXXX")"
 PERMISSIONS="$(mktemp "${TMPDIR:-/tmp}/marfa-permissions.XXXXXX")"
 EVENT_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-event-types.XXXXXX")"
 INDEX="$(mktemp "${TMPDIR:-/tmp}/marfa-contract-index.XXXXXX")"
-cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$ERRORS" "$SETTINGS" "$TYPES" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX"; }
+CATALOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marfa-catalog.XXXXXX")"
+cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$ERRORS" "$SETTINGS" "$TYPES" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$CATALOG_DIR"; }
 trap cleanup EXIT
 
 # The overview page includes this file under its own level-2 heading, so every
@@ -307,6 +319,443 @@ then
   exit 1
 fi
 
+# The Catalog tab lists the shipped types, edge types and the names a type may
+# not use, from the monorepo's type catalog, and the shape of an item, an edge
+# and an event, from the spec's schemas. Everything goes into a temporary
+# directory that replaces src/generated/catalog only once every other check has
+# passed, so a file that is no longer written disappears. Descriptions are
+# written the way the contract's own generator writes them: an em dash becomes
+# a colon, and a pipe inside a table cell is escaped.
+#
+# Each script says what is wrong itself, because only it knows which part of its
+# input failed. A shape it does not know is refused rather than left out, so a
+# field, key or role the catalog gains cannot go missing from the Catalog
+# without someone seeing it here.
+if ! python3 - "$MARFA_ROOT/core/marfa-core/src/builtin_catalog.json" "$CATALOG_DIR" <<'PY'
+import json, os, re, sys
+
+source, out_dir = sys.argv[1], sys.argv[2]
+
+
+def refuse(reason):
+    sys.exit(f"{source} {reason}. Nothing has changed.")
+
+
+EM_DASH = chr(0x2014)
+
+
+def plain(text):
+    """The contract's generator turns an em dash into a colon. A pair around an aside reads as parentheses."""
+    parts = re.split(rf"\s*{EM_DASH}\s*", text)
+    if len(parts) == 3:
+        return f"{parts[0]} ({parts[1]})" + ("" if parts[2][:1] in ".,;:)" else " ") + parts[2]
+    return ": ".join(parts)
+
+
+def safe(text):
+    """Escapes what MDX reads as markup outside a code span: a `<` or a `{`."""
+    parts = re.split(r"(`[^`]*`)", text)
+    return "".join(part if part.startswith("`") else part.replace("<", "\\<").replace("{", "\\{") for part in parts)
+
+
+def code(value):
+    return f"`{value}`"
+
+
+def names(values):
+    """`a`, `a` and `b`, or `a`, `b` and `c`."""
+    quoted = [code(v) for v in values]
+    return quoted[0] if len(quoted) == 1 else ", ".join(quoted[:-1]) + " and " + quoted[-1]
+
+
+def table(header, rows):
+    rows = [[safe(plain(cell)).replace("|", "\\|") for cell in row] for row in rows]
+    widths = [max(3, len(h), *(len(row[i]) for row in rows)) for i, h in enumerate(header)]
+
+    def line(cells):
+        return "| " + " | ".join(cell.ljust(widths[i]) for i, cell in enumerate(cells)) + " |"
+
+    return "\n".join([line(header), "| " + " | ".join("-" * w for w in widths) + " |", *map(line, rows)])
+
+
+def kind(field):
+    out = code(field["type"])
+    if field["type"] == "enum":
+        out += " of " + ", ".join(code(v) for v in field["enum_values"])
+    elif field["type"] == "array":
+        out += " of " + code(field["items_type"])
+    if "format" in field:
+        out += f" ({code(field['format'])})"
+    return out
+
+
+FIELD_KEYS = {"type", "description", "required", "format", "enum_values", "items_type"}
+TYPE_KEYS = {"id", "parent", "label", "description", "version", "fields", "display_hints", "merge_policy", "roles"}
+EDGE_KEYS = {
+    "id", "label", "description", "cardinality", "source_type_constraints", "target_type_constraints",
+    "cascade_on_delete", "reverse_name", "written_at", "property_schema", "shipped",
+}
+STRATEGIES = {"last_writer_wins", "keep_both_copies"}
+WRITE_SAFELY = "/guides/write-safely#let-marfa-resolve-it"
+
+
+def check_fields(owner, fields, allowed):
+    if not isinstance(fields, dict) or not fields:
+        refuse(f"has no fields for {owner}")
+    for name, field in fields.items():
+        if not isinstance(field, dict) or not isinstance(field.get("type"), str) or not isinstance(field.get("description"), str):
+            refuse(f"has a field {owner}.{name} without a type and a description")
+        if set(field) - allowed:
+            refuse(f"has a key {sorted(set(field) - allowed)[0]!r} on {owner}.{name} that the sync does not write")
+        if field["type"] == "enum" and not field.get("enum_values"):
+            refuse(f"has an enum {owner}.{name} without values")
+        if field["type"] == "array" and not field.get("items_type"):
+            refuse(f"has an array {owner}.{name} without an items_type")
+
+
+def collisions(owner, policy):
+    default = policy.get("default")
+    named = policy.get("fields", {})
+    if default not in STRATEGIES or not isinstance(named, dict) or set(named.values()) - STRATEGIES:
+        refuse(f"has a merge policy for {owner} with a strategy the sync does not know")
+    both = [n for n, s in named.items() if s == "keep_both_copies"]
+    last = [n for n, s in named.items() if s == "last_writer_wins"]
+    means = "the item keeps its value and the other writer's value goes to a new item tagged `conflicted-copy`"
+
+    def keep(plural):
+        return f"[{'keep' if plural else 'keeps'} both copies]({WRITE_SAFELY})"
+
+    if default == "last_writer_wins":
+        if not both:
+            return "every field takes the last writer's value."
+        return f"{names(both)} {keep(len(both) > 1)}: {means}. Every other field takes the last writer's value."
+    text = f"every field {keep(False)}: {means}"
+    if last:
+        text += f", except {names(last)}, which {'take' if len(last) > 1 else 'takes'} the last writer's value"
+    return text + "."
+
+
+def main():
+    try:
+        catalog = json.load(open(source, encoding="utf-8"))
+    except UnicodeDecodeError:
+        refuse("is not UTF-8")
+    except json.JSONDecodeError:
+        refuse("is not valid JSON")
+    if not isinstance(catalog, dict):
+        refuse("is not an object")
+    types, edges = catalog.get("types"), catalog.get("edge_types")
+    if not isinstance(types, list) or not types or not isinstance(edges, list) or not edges:
+        refuse("has no types or no edge_types")
+    for key in ("field_types", "reserved_type_roots", "reserved_field_names", "searched_field_names"):
+        if not isinstance(catalog.get(key), list) or not catalog[key] or not all(isinstance(v, str) for v in catalog[key]):
+            refuse(f"has no {key} list")
+
+    by_id = {}
+    for t in types:
+        if not isinstance(t, dict) or not isinstance(t.get("id"), str) or t["id"] in by_id:
+            refuse("has a type with no id, or one that repeats")
+        if set(t) - TYPE_KEYS:
+            refuse(f"has a key {sorted(set(t) - TYPE_KEYS)[0]!r} on {t['id']} that the sync does not write")
+        for key in ("label", "description"):
+            if not isinstance(t.get(key), str):
+                refuse(f"has no {key} for {t['id']}")
+        check_fields(t["id"], t.get("fields"), FIELD_KEYS)
+        by_id[t["id"]] = t
+    for t in types:
+        if t.get("parent") is not None and t["parent"] not in by_id:
+            refuse(f"names the parent {t['parent']} of {t['id']}, which is not a type in it")
+        if t.get("parent") and t["id"].split(".")[0] != t["parent"].split(".")[0]:
+            refuse(f"has {t['id']} under a parent in another family")
+
+    def section(t, parent, subtype):
+        """A core type has a page of its own, whose title and lead are its label and description, so its
+        file starts with its identifier. A subtype and a system type are sections of a page they share, so
+        each starts with a heading and its description."""
+        fields = t["fields"]
+        out = []
+        alone = t["id"].startswith("core.") and not subtype
+        if not alone:
+            out += [f"## {t['id']} [#{t['id'].replace('.', '-')}]", "", safe(plain(t["description"])), ""]
+        facts = []
+        if alone:
+            facts.append(f"- **Type:** {code(t['id'])}")
+        if parent is None:
+            required = [n for n, f in fields.items() if f.get("required")]
+            facts.append("- **Required:** " + (names(required) if required else "None"))
+        else:
+            extra = [n for n, f in fields.items() if f.get("required") and not parent["fields"].get(n, {}).get("required")]
+            if extra:
+                facts.append("- **Also required:** " + names(extra))
+        hints = t.get("display_hints") or {}
+        if set(hints) - {"title_field", "body_field"}:
+            refuse(f"has display hints for {t['id']} that the sync does not write")
+        if parent is None:
+            if "title_field" in hints:
+                facts.append(f"- **Title field:** {code(hints['title_field'])}")
+            if "body_field" in hints:
+                facts.append(f"- **Body field:** {code(hints['body_field'])}")
+            if isinstance(t.get("merge_policy"), dict):
+                facts.append("- **Collisions:** " + collisions(t["id"], t["merge_policy"]))
+        for role in t.get("roles", []):
+            if role == "container":
+                facts.append("- **Role:** `container`, so it can be the target of an [`in-collection`](/catalog/edges#in-collection) edge.")
+            else:
+                facts.append(f"- **Role:** {code(role)}")
+        rows = [
+            [code(n), kind(f), "Yes" if f.get("required") else "", f["description"]]
+            for n, f in fields.items()
+            if parent is None or parent["fields"].get(n) != f
+        ]
+        if facts:
+            out += facts + [""]
+        if rows:
+            out += [table(["Field", "Kind", "Required", "Description"], rows), ""]
+        return out
+
+    def render(t, subtype=False):
+        parent = by_id.get(t.get("parent"))
+        out = section(t, parent, subtype)
+        for child in types:
+            if child.get("parent") == t["id"]:
+                out += render(child, True)
+        return out
+
+    for t in types:
+        if t.get("parent"):
+            continue
+        lines = render(t)
+        with open(os.path.join(out_dir, t["id"] + ".md"), "w", encoding="utf-8") as out:
+            out.write("\n".join(lines).strip("\n") + "\n")
+
+    # The edge types: one section each, below the contract's summary table.
+    sections = []
+    for e in edges:
+        if not isinstance(e, dict) or not isinstance(e.get("id"), str) or not isinstance(e.get("description"), str):
+            refuse("has an edge type with no id or description")
+        if set(e) - EDGE_KEYS:
+            refuse(f"has a key {sorted(set(e) - EDGE_KEYS)[0]!r} on the edge type {e['id']} that the sync does not write")
+        lines = [f"## {e['id']}", "", safe(plain(e["description"])), ""]
+        facts = []
+        if e.get("reverse_name"):
+            facts.append(f"- **Reverse name:** {code(e['reverse_name'])}")
+        if e.get("written_at") not in ("source", "target"):
+            refuse(f"has the edge type {e['id']} with a written_at the sync does not know")
+        if e["written_at"] == "target" and not e.get("reverse_name"):
+            refuse(f"has the edge type {e['id']} written at its target with no reverse_name")
+        facts.append(f"- **Written in a folder at:** {code(e['written_at'])}")
+        lines += facts + [""]
+        props = e.get("property_schema") or {}
+        if props:
+            check_fields(f"{e['id']} property", props, FIELD_KEYS)
+            lines += [table(["Property", "Kind", "Description"], [[code(n), kind(f), f["description"]] for n, f in props.items()]), ""]
+        sections += lines
+    with open(os.path.join(out_dir, "edges.md"), "w", encoding="utf-8") as out:
+        out.write("\n".join(sections).strip("\n") + "\n")
+
+    # The three name lists, each one paragraph the page puts a sentence above.
+    for key, stem in (
+        ("reserved_type_roots", "reserved-type-roots"),
+        ("reserved_field_names", "reserved-field-names"),
+        ("searched_field_names", "searched-field-names"),
+    ):
+        with open(os.path.join(out_dir, stem + ".md"), "w", encoding="utf-8") as out:
+            out.write(", ".join(code(v) for v in catalog[key]) + "\n")
+
+    with open(os.path.join(out_dir, "builtin-catalog.json"), "w", encoding="utf-8") as out, open(source, encoding="utf-8") as src:
+        out.write(src.read())
+
+
+try:
+    main()
+except (KeyError, TypeError, ValueError, AttributeError, IndexError) as error:
+    refuse(f"is not a type catalog the sync can read ({type(error).__name__}: {error})")
+PY
+then
+  exit 1
+fi
+
+# An item's, an edge's and an event's fields come from the spec's schemas, the
+# one place the API describes them. A schema or property the script does not
+# find is a refusal, never an empty table.
+if ! python3 - "$MARFA_ROOT/openapi.json" "$CATALOG_DIR" <<'PY'
+import json, os, re, sys
+
+source, out_dir = sys.argv[1], sys.argv[2]
+
+
+def refuse(reason):
+    sys.exit(f"{source} {reason}. Nothing has changed.")
+
+
+EM_DASH = chr(0x2014)
+
+
+def plain(text):
+    """The contract's generator turns an em dash into a colon. A pair around an aside reads as parentheses."""
+    parts = re.split(rf"\s*{EM_DASH}\s*", text)
+    if len(parts) == 3:
+        return f"{parts[0]} ({parts[1]})" + ("" if parts[2][:1] in ".,;:)" else " ") + parts[2]
+    return ": ".join(parts)
+
+
+def safe(text):
+    """Escapes what MDX reads as markup outside a code span: a `<` or a `{`."""
+    parts = re.split(r"(`[^`]*`)", text)
+    return "".join(part if part.startswith("`") else part.replace("<", "\\<").replace("{", "\\{") for part in parts)
+
+
+def code(value):
+    return f"`{value}`"
+
+
+def table(header, rows):
+    rows = [[safe(plain(cell)).replace("|", "\\|") for cell in row] for row in rows]
+    widths = [max(3, len(h), *(len(row[i]) for row in rows)) for i, h in enumerate(header)]
+
+    def line(cells):
+        return "| " + " | ".join(cell.ljust(widths[i]) for i, cell in enumerate(cells)) + " |"
+
+    return "\n".join([line(header), "| " + " | ".join("-" * w for w in widths) + " |", *map(line, rows)])
+
+
+# An item and an edge have a Catalog section of their own, so a field that
+# holds one links there.
+LINKS = {"Item": "/catalog/items#fields-every-item-has", "Edge": "/catalog/edges#fields-every-edge-has"}
+
+schemas = {}
+
+
+def schema(name):
+    found = schemas.get(name)
+    if not isinstance(found, dict):
+        refuse(f"has no schema {name}")
+    return found
+
+
+def properties(name):
+    props = schema(name).get("properties")
+    if not isinstance(props, dict) or not props:
+        refuse(f"has no properties on the schema {name}")
+    return props
+
+
+def enum_kind(node):
+    return code("enum") + " of " + ", ".join(code(v) for v in node["enum"])
+
+
+def kind(node, enums):
+    if "$ref" in node:
+        name = node["$ref"].rsplit("/", 1)[-1]
+        if name in LINKS:
+            return f"[{code(name)}]({LINKS[name]})"
+        target = schema(name)
+        if "enum" in target and enums:
+            return enum_kind(target)
+        return code("object") if target.get("type") == "object" else kind(target, enums)
+    if "allOf" in node:
+        parts = node["allOf"]
+        return kind(next((p for p in parts if "$ref" in p), parts[0]), enums)
+    if "oneOf" in node:
+        return " or ".join(kind(p, enums) for p in node["oneOf"])
+    kinds = node.get("type")
+    if kinds is None:
+        refuse("has a property with no type")
+    if isinstance(kinds, list):
+        return " or ".join(code(k) for k in kinds)
+    if kinds == "array":
+        return code("array") + " of " + kind(node.get("items", {"type": "string"}), enums)
+    if "enum" in node and enums:
+        return enum_kind(node)
+    return code(kinds)
+
+
+def describe(node):
+    if "allOf" in node:
+        wrapped = [p["description"] for p in node["allOf"] if "$ref" not in p and "description" in p]
+        if wrapped:
+            return wrapped[-1]
+    return node.get("description", "")
+
+
+def rows(props, enums=False, skip=()):
+    return [[code(n), kind(p, enums), describe(p)] for n, p in props.items() if n not in skip]
+
+
+def write(name, lines):
+    with open(os.path.join(out_dir, name), "w", encoding="utf-8") as out:
+        out.write("\n".join(lines).strip("\n") + "\n")
+
+
+def delivery(name):
+    """The properties a webhook body adds to its frame: the allOf member that is not the frame's reference."""
+    members = [m for m in schema(name).get("allOf", []) if "$ref" not in m]
+    if len(members) != 1 or not isinstance(members[0].get("properties"), dict):
+        refuse(f"has a webhook schema {name} that is not a frame plus its delivery fields")
+    return members[0]["properties"]
+
+
+def main():
+    global schemas
+    spec = json.load(open(source, encoding="utf-8"))
+    schemas = spec["components"]["schemas"]
+    header = ["Field", "Kind", "Description"]
+
+    write("item-fields.md", [table(header, rows(properties("Item"), enums=True))])
+    write("edge-fields.md", [table(header, rows(properties("Edge")))])
+
+    lines = ["## Item event fields", "", table(header, rows(properties("ItemEventFrame"))), ""]
+    lines += ["## Edge event fields", "", table(header, rows(properties("EdgeEventFrame"))), ""]
+
+    item_delivery, edge_delivery = delivery("WebhookItemEvent"), delivery("WebhookEdgeEvent")
+    if item_delivery == edge_delivery:
+        lines += [
+            "## Webhook delivery fields",
+            "",
+            "A webhook sends an item event or an edge event with these fields added.",
+            "",
+            table(header, rows(item_delivery)),
+            "",
+        ]
+    else:
+        lines += ["## Item webhook delivery fields", "", table(header, rows(item_delivery)), ""]
+        lines += ["## Edge webhook delivery fields", "", table(header, rows(edge_delivery)), ""]
+
+    # The frames of a stream that are not events: each is named by the constant
+    # its event_type holds, and the frames with no other field are listed in a
+    # sentence below the table.
+    frames, bare = [], []
+    for name in ("StreamCursorFrame", "StreamLiveFrame", "StreamIncompleteFrame", "CatchupTooOldFrame", "CursorAheadFrame", "ReadViewChangedFrame"):
+        props = properties(name)
+        frame = props.get("event_type", {}).get("const")
+        if not isinstance(frame, str):
+            refuse(f"has no event_type constant on the schema {name}")
+        own = rows(props, skip=("event_type",))
+        if own:
+            frames += [[code(frame), *row] for row in own]
+        else:
+            bare.append(code(frame))
+    lines += [
+        "## Stream frame fields",
+        "",
+        table(["Frame", "Field", "Kind", "Description"], frames),
+        "",
+    ]
+    if bare:
+        lines += [("These frames carry no field but `event_type`: " + ", ".join(bare) + "."), ""]
+    write("event-fields.md", lines)
+
+
+try:
+    main()
+except (KeyError, TypeError, ValueError, AttributeError, IndexError, StopIteration) as error:
+    refuse(f"does not describe the item, edge and event schemas the sync reads ({type(error).__name__}: {error})")
+PY
+then
+  exit 1
+fi
+chmod 755 "$CATALOG_DIR"
+
 cp "$MARFA_ROOT/openapi.json" "$CANDIDATE"
 mv "$CANDIDATE" "$SPEC"
 
@@ -321,6 +770,8 @@ mv "$EDGE_TYPES" "$GENERATED/edge-types.md"
 mv "$PERMISSIONS" "$GENERATED/permissions.md"
 mv "$EVENT_TYPES" "$GENERATED/event-types.md"
 mv "$INDEX" "$GENERATED/contract-index.json"
+rm -rf "$GENERATED/catalog"
+mv "$CATALOG_DIR" "$GENERATED/catalog"
 trap - EXIT
 cp "$MARFA_ROOT/GLOSSARY.md" "$GENERATED/GLOSSARY.md"
 printf '{"version":"%s"}\n' "$RELEASE" > "$GENERATED/marfa-release.json"
@@ -335,4 +786,4 @@ marfa --version
 \`\`\`
 DOWNLOAD
 
-echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the release ($RELEASE) and its CLI download synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE) and its CLI download synced from $MARFA_ROOT"
