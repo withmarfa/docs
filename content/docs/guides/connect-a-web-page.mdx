@@ -83,11 +83,15 @@ const challenge = base64url(
 const state = base64url(crypto.getRandomValues(new Uint8Array(16)));
 
 // Listen first: the answer can come back before the next line returns.
+// Every tab of the page hears every callback, so keep only the answer
+// that carries this connection's state.
 const answered = new Promise<URLSearchParams>((resolve) => {
   const channel = new BroadcastChannel("marfa-approval");
   channel.onmessage = (event) => {
+    const answer = new URLSearchParams(event.data);
+    if (answer.get("state") !== state) return;
     channel.close();
-    resolve(new URLSearchParams(event.data));
+    resolve(answer);
   };
 });
 
@@ -124,12 +128,11 @@ When the owner decides, Marfa sends the window to the callback address with `cod
 </script>
 ```
 
-The main page waits on the channel it opened before the window, and checks the answer:
+The main page waits on the channel it opened before the window. **It ignores any message whose `state` isn't the one it sent**, because two tabs of the page on the same origin hear each other's callbacks. Then it checks the answer:
 
 ```ts title="connect.ts"
 const answer = await answered;
 
-if (answer.get("state") !== state) throw new Error("state does not match");
 if (answer.get("error")) throw new Error(`not approved: ${answer.get("error")}`);
 const code = answer.get("code")!;
 ```
