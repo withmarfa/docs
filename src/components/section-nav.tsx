@@ -26,6 +26,7 @@ function isUnder(pathname: string, prefix: string) {
 const SECTIONS: { label: string; href: string; matches: ((pathname: string) => boolean) | null }[] = [
   { label: 'Overview', href: '/overview', matches: null },
   { label: 'Guides', href: '/guides/swift-app', matches: (pathname) => isUnder(pathname, '/guides') },
+  { label: 'Catalog', href: '/catalog', matches: (pathname) => isUnder(pathname, '/catalog') },
   {
     label: 'Reference',
     href: '/typescript-sdk',

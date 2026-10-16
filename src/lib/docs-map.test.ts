@@ -5,8 +5,8 @@ describe('buildDocsMap', () => {
   const map = buildDocsMap();
   const lines = map.split('\n');
 
-  it('lists the three tabs in order, as H2 headings', () => {
-    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Overview', '## Guides', '## Reference']);
+  it('lists the four tabs in order, as H2 headings', () => {
+    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Overview', '## Guides', '## Catalog', '## Reference']);
   });
 
   it('groups each tab as the sidebar does', () => {
@@ -16,11 +16,16 @@ describe('buildDocsMap', () => {
     expect(overview.some((line) => line.startsWith('- [Overview](/overview)'))).toBe(true);
     expect(overview.some((line) => line.startsWith('- [Glossary](/glossary)'))).toBe(true);
 
-    const guides = lines.slice(lines.indexOf('## Guides'), lines.indexOf('## Reference'));
+    const guides = lines.slice(lines.indexOf('## Guides'), lines.indexOf('## Catalog'));
     expect(guides).toContain('### Build apps and agents');
     expect(guides).not.toContain('### AI agents');
     expect(guides.some((line) => line.startsWith('- [Use Marfa with AI agents](/guides/ai-agents)'))).toBe(true);
     expect(guides.some((line) => line.startsWith('- [Troubleshooting](/guides/troubleshooting)'))).toBe(true);
+
+    const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Reference'));
+    expect(catalog.filter((line) => line.startsWith('### '))).toEqual(['### Items', '### Core types', '### More types', '### Edges, events and permissions']);
+    expect(catalog.some((line) => line.startsWith('- [Media](/catalog/media)'))).toBe(true);
+    expect(catalog.some((line) => line.startsWith('- [Catalog](/catalog)'))).toBe(true);
 
     const reference = lines.slice(lines.indexOf('## Reference'));
     const groups = reference.filter((line) => line.startsWith('### '));

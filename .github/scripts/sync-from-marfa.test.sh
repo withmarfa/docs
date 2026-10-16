@@ -12,14 +12,20 @@
 # into src/generated/settings.md, the tables of the shipped types, edge types,
 # permissions and event types from their chapters into src/generated/core-types.md,
 # edge-types.md, permissions.md and event-types.md, and it hashes every rule of
-# the contract's chapters into src/generated/contract-index.json. A description
+# the contract's chapters into src/generated/contract-index.json. It writes the
+# Catalog's files into src/generated/catalog, replaced whole: a Markdown file per
+# top-level type from the monorepo's type catalog, with its subtypes inside, the
+# edge types, three name lists, and the item, edge and event fields from the
+# spec's schemas. A description
 # that is missing, blank or the wrong type, a spec whose top level or `info` is
 # not an object, or a command reference that is missing, empty, not UTF-8, with a
 # comment that never closes, without its global options or exit codes, or with
 # either repeated or empty, or a chapter with no table between its markers, or a
 # contract with no rules, a repeated rule ID or an ID under another chapter, must
 # stop the script before it changes anything, with one line saying so, never a
-# Python traceback. The script is copied into each fixture so that its docs root
+# Python traceback, and so must a type catalog that is missing, not JSON, or of a
+# shape the Catalog does not write, and a spec without the schemas it reads. The
+# script is copied into each fixture so that its docs root
 # is the fixture, and the real tree is never touched.
 set -euo pipefail
 
@@ -289,6 +295,196 @@ index_expected="$(cat <<EOF
 EOF
 )"
 
+# The type catalog every fixture holds: a type with a subtype that makes a field
+# required and adds others, a system type, two edge types and the name lists. The
+# descriptions carry what the script must change or escape: an em dash, a pair of
+# them around an aside, a pipe and a bare angle bracket.
+catalog_json="$(cat <<'EOF'
+{
+  "types": [
+    {
+      "id": "core.note",
+      "label": "Note",
+      "description": "Text you wrote — a thought.",
+      "version": 0,
+      "fields": {
+        "body": { "type": "string", "description": "The text <raw>", "required": true },
+        "title": { "type": "string", "description": "A title | or not" },
+        "language": { "type": "string", "description": "A language", "format": "bcp47" }
+      },
+      "display_hints": { "title_field": "title", "body_field": "body" },
+      "merge_policy": { "fields": { "body": "keep_both_copies" }, "default": "last_writer_wins" }
+    },
+    {
+      "id": "core.note.memo",
+      "parent": "core.note",
+      "label": "Memo",
+      "description": "A memo — for a team — with a level.",
+      "version": 0,
+      "fields": {
+        "body": { "type": "string", "description": "The memo text", "required": true },
+        "title": { "type": "string", "description": "A title | or not", "required": true },
+        "language": { "type": "string", "description": "A language", "format": "bcp47" },
+        "level": { "type": "enum", "description": "How urgent", "enum_values": ["low", "high"] },
+        "to": { "type": "array", "description": "Who it is for", "items_type": "string" }
+      },
+      "display_hints": { "title_field": "title", "body_field": "body" },
+      "merge_policy": { "fields": { "body": "keep_both_copies" }, "default": "last_writer_wins" },
+      "roles": ["container"]
+    },
+    {
+      "id": "system.folder",
+      "label": "Folder",
+      "description": "A folder's settings. Active | revoked.",
+      "version": 0,
+      "fields": { "title": { "type": "string", "description": "The folder's name", "required": true } }
+    }
+  ],
+  "edge_types": [
+    {
+      "id": "in-collection",
+      "label": "In collection",
+      "description": "Member of a container.",
+      "cardinality": "many-to-many",
+      "source_type_constraints": ["*"],
+      "target_type_constraints": ["role:container"],
+      "cascade_on_delete": "orphan",
+      "written_at": "source",
+      "property_schema": { "position": { "type": "number", "description": "Ordering." } },
+      "shipped": true
+    },
+    {
+      "id": "parent-of",
+      "label": "Parent of",
+      "description": "Source is the parent of the target — once.",
+      "cardinality": "one-to-many",
+      "source_type_constraints": ["*"],
+      "target_type_constraints": ["*"],
+      "cascade_on_delete": "cascade",
+      "reverse_name": "child-of",
+      "written_at": "target",
+      "property_schema": {},
+      "shipped": true
+    }
+  ],
+  "field_types": ["string", "enum"],
+  "reserved_type_roots": ["app", "core"],
+  "reserved_field_names": ["id", "type"],
+  "searched_field_names": ["body", "title"]
+}
+EOF
+)"
+note_expected="$(cat <<'EOF'
+- **Type:** `core.note`
+- **Required:** `body`
+- **Title field:** `title`
+- **Body field:** `body`
+- **[Merge policy](/catalog/your-own-types#merge-policy):** `body` `keep_both_copies`; every other field `last_writer_wins`
+
+| Field      | Kind               | Required | Description       |
+| ---------- | ------------------ | -------- | ----------------- |
+| `body`     | `string`           | Yes      | The text \<raw>   |
+| `title`    | `string`           |          | A title \| or not |
+| `language` | `string` (`bcp47`) |          | A language        |
+
+## core.note.memo [#core-note-memo]
+
+A memo (for a team) with a level.
+
+- **Also required:** `title`
+- **[Roles](/catalog/your-own-types#roles):** `container`
+
+| Field   | Kind                    | Required | Description       |
+| ------- | ----------------------- | -------- | ----------------- |
+| `body`  | `string`                | Yes      | The memo text     |
+| `title` | `string`                | Yes      | A title \| or not |
+| `level` | `enum` of `low`, `high` |          | How urgent        |
+| `to`    | `array` of `string`     |          | Who it is for     |
+EOF
+)"
+folder_expected="$(cat <<'EOF'
+## system.folder [#system-folder]
+
+A folder's settings. Active | revoked.
+
+- **Required:** `title`
+
+| Field   | Kind     | Required | Description       |
+| ------- | -------- | -------- | ----------------- |
+| `title` | `string` | Yes      | The folder's name |
+EOF
+)"
+catalog_edges_expected="$(cat <<'EOF'
+## in-collection
+
+Member of a container.
+
+- **written_at:** `source`
+
+| Property   | Kind     | Description |
+| ---------- | -------- | ----------- |
+| `position` | `number` | Ordering.   |
+
+## parent-of
+
+Source is the parent of the target: once.
+
+- **reverse_name:** `child-of`
+- **written_at:** `target`
+EOF
+)"
+
+item_fields_expected="$(cat <<'EOF'
+| Field   | Kind                           | Description       |
+| ------- | ------------------------------ | ----------------- |
+| `id`    | `string`                       | The item's ID.    |
+| `state` | `enum` of `active`, `archived` | The item's state. |
+| `edges` | `object`                       | Edges \| by type. |
+EOF
+)"
+edge_fields_expected="$(cat <<'EOF'
+| Field     | Kind     | Description         |
+| --------- | -------- | ------------------- |
+| `id`      | `string` | The edge's ID.      |
+| `version` | `number` | The edge's version. |
+EOF
+)"
+event_fields_expected="$(cat <<'EOF'
+## Item event fields
+
+| Field        | Kind                                           | Description                |
+| ------------ | ---------------------------------------------- | -------------------------- |
+| `event_type` | `string`                                       | The event.                 |
+| `item`       | [`Item`](/catalog/items#fields-every-item-has) | The item after the change. |
+| `metadata`   | `object` or `null`                             | Tags and extensions.       |
+
+## Edge event fields
+
+| Field        | Kind                                           | Description                |
+| ------------ | ---------------------------------------------- | -------------------------- |
+| `event_type` | `string`                                       | The event.                 |
+| `edge`       | [`Edge`](/catalog/edges#fields-every-edge-has) | The edge after the change. |
+
+## Webhook delivery fields
+
+| Field         | Kind     | Description        |
+| ------------- | -------- | ------------------ |
+| `event_id`    | `string` | The event's ID.    |
+| `delivery_id` | `string` | The delivery's ID. |
+
+## Stream frame fields
+
+| Frame               | Field       | Kind               | Description       |
+| ------------------- | ----------- | ------------------ | ----------------- |
+| `stream_cursor`     | `cursor`    | `string`           | The latest event. |
+| `stream_live`       | `cursor`    | `string` or `null` | Where to resume.  |
+| `stream_incomplete` | `reason`    | `string`           | Why.              |
+| `catchup_too_old`   | `requested` | `string`           | The ID you sent.  |
+| `cursor_ahead`      | `head`      | `string`           | The latest ID.    |
+| `read_view_changed` | None        |                    |                   |
+EOF
+)"
+
 # The glossary every fixture holds. The script copies it and shows nothing of it
 # but its banned terms, which the content lint reads.
 glossary="$(cat <<'EOF'
@@ -328,10 +524,14 @@ fixture() {
   printf 'stale events\n' > "${dir}/docs/src/generated/event-types.md"
   printf 'stale index\n' > "${dir}/docs/src/generated/contract-index.json"
   printf '{"version":"v0.0.0"}\n' > "${dir}/docs/src/generated/marfa-release.json"
+  mkdir -p "${dir}/docs/src/generated/catalog"
+  printf 'stale core.note\n' > "${dir}/docs/src/generated/catalog/core.note.md"
+  printf 'stale old type\n' > "${dir}/docs/src/generated/catalog/core.old.md"
 
   cp "$2" "${dir}/marfa/openapi.json"
   printf '%s\n' "${glossary}" > "${dir}/marfa/GLOSSARY.md"
-  mkdir -p "${dir}/marfa/core/marfa-cli"
+  mkdir -p "${dir}/marfa/core/marfa-cli" "${dir}/marfa/core/marfa-core/src"
+  printf '%s\n' "${catalog_json}" > "${dir}/marfa/core/marfa-core/src/builtin_catalog.json"
   printf '%s\n' "${commands}" > "${dir}/marfa/core/marfa-cli/COMMANDS.md"
   mkdir -p "${dir}/marfa/conformance/spec"
   printf '%s\n' "${errors}" > "${dir}/marfa/conformance/spec/errors.md"
@@ -427,16 +627,53 @@ Intro paragraph.
 EOF
 )"
 
-python3 - "${description}" > "${work}/good.json" <<'PY'
+# spec_with_schemas <description>: a spec whose info.description is the argument and whose
+# schemas hold what the Catalog reads: an item, an edge, the item and edge events, a
+# webhook body for each, and the six frames of a stream that are not events.
+spec_with_schemas() {
+python3 - "$1" <<'PY'
 import json, sys
-print(json.dumps({"openapi": "3.1.0", "info": {"title": "Marfa", "version": "0", "description": sys.argv[1]}, "paths": {}}))
+
+ref = lambda name: {"$ref": f"#/components/schemas/{name}"}
+frame = lambda name, extra: {"type": "object", "properties": {"event_type": {"type": "string", "const": name, "description": "The frame's name."}, **extra}}
+delivery = {"type": "object", "properties": {"event_id": {"type": "string", "description": "The event's ID."}, "delivery_id": {"type": "string", "description": "The delivery's ID."}}}
+schemas = {
+    "ItemState": {"type": "string", "enum": ["active", "archived"], "description": "A state."},
+    "Item": {"type": "object", "properties": {
+        "id": {"type": "string", "description": "The item's ID."},
+        "state": {"allOf": [ref("ItemState"), {"description": "The item's state."}]},
+        "edges": {"type": "object", "additionalProperties": {}, "description": "Edges | by type."},
+    }},
+    "Edge": {"type": "object", "properties": {"id": {"type": "string", "description": "The edge's ID."}, "version": {"type": "number", "description": "The edge's version."}}},
+    "Metadata": {"type": "object", "properties": {"tags": {"type": "array", "items": {"type": "string"}, "description": "Tags."}}},
+    "ItemEventFrame": {"type": "object", "properties": {
+        "event_type": {"type": "string", "enum": ["item.created"], "description": "The event."},
+        "item": {"allOf": [ref("Item"), {"description": "The item after the change."}]},
+        "metadata": {"oneOf": [ref("Metadata"), {"type": "null"}], "description": "Tags and extensions."},
+    }},
+    "EdgeEventFrame": {"type": "object", "properties": {
+        "event_type": {"type": "string", "enum": ["edge.created"], "description": "The event."},
+        "edge": {"allOf": [ref("Edge"), {"description": "The edge after the change."}]},
+    }},
+    "WebhookItemEvent": {"allOf": [ref("ItemEventFrame"), delivery]},
+    "WebhookEdgeEvent": {"allOf": [ref("EdgeEventFrame"), delivery]},
+    "StreamCursorFrame": frame("stream_cursor", {"cursor": {"type": "string", "description": "The latest event."}}),
+    "StreamLiveFrame": frame("stream_live", {"cursor": {"type": ["string", "null"], "description": "Where to resume."}}),
+    "StreamIncompleteFrame": frame("stream_incomplete", {"reason": {"type": "string", "enum": ["reader_behind"], "description": "Why."}}),
+    "CatchupTooOldFrame": frame("catchup_too_old", {"requested": {"type": "string", "description": "The ID you sent."}}),
+    "CursorAheadFrame": frame("cursor_ahead", {"head": {"type": "string", "description": "The latest ID."}}),
+    "ReadViewChangedFrame": frame("read_view_changed", {}),
+}
+print(json.dumps({"openapi": "3.1.0", "info": {"title": "Marfa", "version": "0", "description": sys.argv[1]}, "paths": {}, "components": {"schemas": schemas}}))
 PY
+}
+spec_with_schemas "${description}" > "${work}/good.json"
 fixture good "${work}/good.json"
 sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the contract index, the release (v1.2.3) and its CLI download synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3) and its CLI download synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -476,7 +713,39 @@ check "the CLI download names that release and its archive" \
   "$(sed -n 2p "${work}/good/docs/src/generated/cli-download.md")"
 check "the CLI download is one bash block" '```bash|```' "$(head -1 "${work}/good/docs/src/generated/cli-download.md")|$(tail -1 "${work}/good/docs/src/generated/cli-download.md")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md cli cli-download.md contract-index.json core-types.md edge-types.md error-codes.md event-types.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md catalog cli cli-download.md contract-index.json core-types.md edge-types.md error-codes.md event-types.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+
+
+# The Catalog's files: a Markdown file for each top-level type with its subtypes
+# in it, the edge types, the three name lists and the fields that the spec's
+# schemas give an item, an edge and an event. The directory is replaced whole.
+catalog_dir="${work}/good/docs/src/generated/catalog"
+check "the catalog directory holds what the script writes, and the stale files are gone" \
+  "builtin-catalog.json core.note.md edge-fields.md edges.md event-fields.md item-fields.md reserved-field-names.md reserved-type-roots.md searched-field-names.md system.folder.md" \
+  "$(ls "${catalog_dir}" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+check "the folder can be read by anyone who can read the checkout" \
+  755 "$(python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "${catalog_dir}")"
+check "the type catalog is copied byte for byte" \
+  "$(cat "${work}/good/marfa/core/marfa-core/src/builtin_catalog.json")" "$(cat "${catalog_dir}/builtin-catalog.json")"
+check "a core type's file has its facts and fields, a subtype's section only what it adds or changes, and an em dash is a colon or a pair of parentheses" \
+  "${note_expected}" "$(cat "${catalog_dir}/core.note.md")"
+check "a system type's file starts with its heading and description, and escapes a pipe" \
+  "${folder_expected}" "$(cat "${catalog_dir}/system.folder.md")"
+check "each edge type is a section with its reverse name, where it is written and its properties" \
+  "${catalog_edges_expected}" "$(cat "${catalog_dir}/edges.md")"
+check "the reserved roots are one paragraph" '`app`, `core`' "$(cat "${catalog_dir}/reserved-type-roots.md")"
+check "the reserved field names are one paragraph" '`id`, `type`' "$(cat "${catalog_dir}/reserved-field-names.md")"
+check "the searched field names are one paragraph" '`body`, `title`' "$(cat "${catalog_dir}/searched-field-names.md")"
+check "the item's fields come from its schema, with a state's values and a pipe escaped" \
+  "${item_fields_expected}" "$(cat "${catalog_dir}/item-fields.md")"
+check "the edge's fields come from its schema" \
+  "${edge_fields_expected}" "$(cat "${catalog_dir}/edge-fields.md")"
+check "the event fields are one table for each shape, the webhook fields once, and a frame with no field a row of None" \
+  "${event_fields_expected}" "$(cat "${catalog_dir}/event-fields.md")"
+for file in "${catalog_dir}"/*.md; do
+  check "$(basename "${file}") ends with exactly one newline and starts with text" True \
+    "$(python3 -c 'import sys; t = open(sys.argv[1]).read(); print(t.endswith("\n") and not t.endswith("\n\n") and not t[0].isspace())' "${file}")"
+done
 
 # The split must not depend on the folder being there already, or on how the
 # reference's lines end.
@@ -540,7 +809,7 @@ refuse "invalid JSON" "@marfa@/openapi.json is not valid JSON. @docs@/openapi.js
 
 echo "a checkout the script refuses"
 # No release tag: the spec is good, and still nothing is written.
-printf '%s\n' '{"info": {"description": "Intro."}}' > "${work}/untagged.json"
+spec_with_schemas "Intro." > "${work}/untagged.json"
 fixture untagged "${work}/untagged.json"
 git -C "${work}/untagged/marfa" tag -d v1.2.3 > /dev/null
 before="$(everything untagged)"
@@ -713,6 +982,116 @@ refuse_contract "no rules in any chapter" '# Blobs\n\nNo rules here.\n' alone
 refuse_contract "a rule ID that repeats" '### `blobs/a`\n\nThe server MUST.\n\n### `blobs/a`\n\nThe server MUST again.\n'
 refuse_contract "a rule ID that names another chapter" '### `items/a`\n\nThe server MUST.\n'
 refuse_contract "a chapter that is not UTF-8" '### `blobs/a`\n\nThe server MUST \xff.\n'
+
+
+# refuse_catalog <label> <message after the path> <catalog text, "absent" for no file>:
+# everything else is good, and still nothing is written. @marfa@ is the fixture's monorepo.
+k=0
+refuse_catalog() {
+  k=$((k+1))
+  local name="catalog-${k}"
+  fixture "${name}" "${work}/untagged.json"
+  local file="${work}/${name}/marfa/core/marfa-core/src/builtin_catalog.json"
+  if [ "$3" = absent ]; then rm "${file}"; else printf '%b' "$3" > "${file}"; fi
+  local before; before="$(everything "${name}")"
+  sync "${name}"
+  local message="${2//@marfa@/${work}/${name}/marfa}"
+  check "${1}: exits 1" 1 "${status}"
+  check "${1}: says so in one line" "${message}" "${out}"
+  check "${1}: shows no traceback" 0 "$(printf '%s' "${out}" | grep -c 'Traceback\|File "' || true)"
+  check "${1}: changes nothing" "${before}" "$(everything "${name}")"
+}
+# catalog_with <python statements on the catalog c>: the fixture's catalog, changed.
+catalog_with() {
+  printf '%s' "${catalog_json}" | python3 -c 'import json, sys; c = json.load(sys.stdin); exec(sys.argv[1]); print(json.dumps(c))' "$1"
+}
+cat_file="@marfa@/core/marfa-core/src/builtin_catalog.json"
+echo "a type catalog the script refuses"
+refuse_catalog "no type catalog" "No core/marfa-core/src/builtin_catalog.json in @marfa@. Nothing has changed." absent
+refuse_catalog "an empty type catalog" "No core/marfa-core/src/builtin_catalog.json in @marfa@. Nothing has changed." ''
+refuse_catalog "a type catalog that is not JSON" "${cat_file} is not valid JSON. Nothing has changed." '{"types": ['
+refuse_catalog "a type catalog that is not UTF-8" "${cat_file} is not UTF-8. Nothing has changed." '{"types": "\xff\xfe"}'
+refuse_catalog "a list at the top" "${cat_file} is not an object. Nothing has changed." '[]'
+refuse_catalog "no types" "${cat_file} has no types or no edge_types. Nothing has changed." "$(catalog_with 'c["types"] = []')"
+refuse_catalog "no edge types" "${cat_file} has no types or no edge_types. Nothing has changed." "$(catalog_with 'del c["edge_types"]')"
+refuse_catalog "no searched field names" "${cat_file} has no searched_field_names list. Nothing has changed." "$(catalog_with 'del c["searched_field_names"]')"
+refuse_catalog "a name list of numbers" "${cat_file} has no reserved_field_names list. Nothing has changed." "$(catalog_with 'c["reserved_field_names"] = [1]')"
+refuse_catalog "a type that is not an object" "${cat_file} has a type with no id, or one that repeats. Nothing has changed." "$(catalog_with 'c["types"].append("core.x")')"
+refuse_catalog "a type that repeats" "${cat_file} has a type with no id, or one that repeats. Nothing has changed." "$(catalog_with 'c["types"].append(c["types"][0])')"
+refuse_catalog "a type with a key the sync does not write" "${cat_file} has a key 'link_field' on core.note that the sync does not write. Nothing has changed." "$(catalog_with 'c["types"][0]["link_field"] = "title"')"
+refuse_catalog "a type with no description" "${cat_file} has no description for core.note. Nothing has changed." "$(catalog_with 'del c["types"][0]["description"]')"
+refuse_catalog "a type with no fields" "${cat_file} has no fields for core.note. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"] = []')"
+refuse_catalog "a field with a key the sync does not write" "${cat_file} has a key 'maxLength' on core.note.body that the sync does not write. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["maxLength"] = 9')"
+refuse_catalog "a field with no description" "${cat_file} has a field core.note.body without a type and a description. Nothing has changed." "$(catalog_with 'del c["types"][0]["fields"]["body"]["description"]')"
+refuse_catalog "an enum with no values" "${cat_file} has an enum core.note.memo.level without values. Nothing has changed." "$(catalog_with 'del c["types"][1]["fields"]["level"]["enum_values"]')"
+refuse_catalog "an array with no items_type" "${cat_file} has an array core.note.memo.to without an items_type. Nothing has changed." "$(catalog_with 'del c["types"][1]["fields"]["to"]["items_type"]')"
+refuse_catalog "a parent that is not a type" "${cat_file} names the parent core.thing of core.note.memo, which is not a type in it. Nothing has changed." "$(catalog_with 'c["types"][1]["parent"] = "core.thing"')"
+refuse_catalog "a parent in another family" "${cat_file} has core.note.memo under a parent in another family. Nothing has changed." "$(catalog_with 'c["types"][1]["parent"] = "system.folder"')"
+refuse_catalog "a role other than container" "${cat_file} has a role on core.note.memo other than container. Nothing has changed." "$(catalog_with 'c["types"][1]["roles"] = ["archive"]')"
+refuse_catalog "types that are each other's parent" "${cat_file} has core.note under a chain of parents that never reaches a top-level type. Nothing has changed." "$(catalog_with 'c["types"][0]["parent"] = "core.note.memo"')"
+refuse_catalog "a merge strategy the sync does not know" "${cat_file} has a merge policy for core.note with a strategy the sync does not know. Nothing has changed." "$(catalog_with 'c["types"][0]["merge_policy"]["default"] = "newest"')"
+refuse_catalog "display hints the sync does not write" "${cat_file} has display hints for core.note that the sync does not write. Nothing has changed." "$(catalog_with 'c["types"][0]["display_hints"]["icon_field"] = "title"')"
+refuse_catalog "an edge type with no description" "${cat_file} has an edge type with no id or description. Nothing has changed." "$(catalog_with 'del c["edge_types"][0]["description"]')"
+refuse_catalog "an edge type with a key the sync does not write" "${cat_file} has a key 'weight' on the edge type in-collection that the sync does not write. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["weight"] = 1')"
+refuse_catalog "an edge type written nowhere the sync knows" "${cat_file} has the edge type in-collection with a written_at the sync does not know. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["written_at"] = "both"')"
+refuse_catalog "an edge type written at its target with no reverse name" "${cat_file} has the edge type parent-of written at its target with no reverse_name. Nothing has changed." "$(catalog_with 'del c["edge_types"][1]["reverse_name"]')"
+
+# Shapes the sync writes without a rule of its own: a default of both copies says which fields do not
+# keep them, and a type with nothing to add has no table.
+echo "a type catalog in other shapes"
+fixture shapes "${work}/untagged.json"
+catalog_with 'c["types"][0]["merge_policy"] = {"default": "keep_both_copies", "fields": {"title": "last_writer_wins", "language": "last_writer_wins"}}; c["types"].append({"id": "core.note.bare", "parent": "core.note", "label": "Bare", "description": "A note.", "version": 0, "fields": c["types"][0]["fields"]})' \
+  > "${work}/shapes/marfa/core/marfa-core/src/builtin_catalog.json"
+sync shapes
+check "a default of both copies and a subtype with no field to add: the script succeeds" 0 "${status}"
+check "a default of both copies names the fields that do not keep both, as values" 1 \
+  "$(grep -c '^- \*\*\[Merge policy\](/catalog/your-own-types#merge-policy):\*\* `title` and `language` `last_writer_wins`; every other field `keep_both_copies`$' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
+check "a subtype with nothing to add is a heading and its description" \
+  "$(printf '## core.note.bare [#core-note-bare]\n\nA note.')" "$(sed -n '/^## core.note.bare \[#core-note-bare\]$/,$p' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
+
+# A subtype says what its parent does not already say: display hints and a merge policy only where
+# they differ from the parent's, and nothing where they are equal.
+echo "a subtype that repeats or changes what its parent says"
+fixture drift "${work}/untagged.json"
+catalog_with 'base = c["types"][0]; c["types"].append({"id": "core.note.same", "parent": "core.note", "label": "Same", "description": "Says what the parent says.", "version": 0, "fields": base["fields"], "display_hints": dict(base["display_hints"]), "merge_policy": json.loads(json.dumps(base["merge_policy"]))}); c["types"].append({"id": "core.note.drift", "parent": "core.note", "label": "Drift", "description": "Says something else.", "version": 0, "fields": base["fields"], "display_hints": {"title_field": "language", "body_field": "body"}, "merge_policy": {"default": "keep_both_copies"}})' \
+  > "${work}/drift/marfa/core/marfa-core/src/builtin_catalog.json"
+sync drift
+drift_file="${work}/drift/docs/src/generated/catalog/core.note.md"
+check "a subtype that differs from its parent: the script succeeds" 0 "${status}"
+check "a subtype equal to its parent says nothing of hints or merge policy" \
+  "$(printf '## core.note.same [#core-note-same]\n\nSays what the parent says.')" \
+  "$(sed -n '/^## core.note.same/,/^## core.note.drift/p' "${drift_file}" | sed '$d')"
+check "a subtype that differs says its hints and merge policy as values" \
+  "$(printf '%s\n%s\n%s' '- **Title field:** `language`' '- **Body field:** `body`' '- **[Merge policy](/catalog/your-own-types#merge-policy):** every field `keep_both_copies`')" \
+  "$(sed -n '/^## core.note.drift/,$p' "${drift_file}" | grep '^- \*\*')"
+check "the parent says its own hints once, and a subtype equal to it adds none" 1 \
+  "$(grep -c '^- \*\*Title field:\*\* `title`$' "${drift_file}")"
+
+# spec_with <python statements on the spec s>: the fixture's spec, changed.
+spec_with() {
+  python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); exec(sys.argv[2]); print(json.dumps(s))' "${work}/untagged.json" "$1"
+}
+sch_file="@marfa@/openapi.json"
+echo "a spec without the schemas the Catalog reads"
+refuse "no components" "${sch_file} does not describe the item, edge and event schemas the sync reads (KeyError: 'components'). Nothing has changed." "$(spec_with 'del s["components"]')"
+refuse "no item schema" "${sch_file} has no schema Item. Nothing has changed." "$(spec_with 'del s["components"]["schemas"]["Item"]')"
+refuse "no stream frame schema" "${sch_file} has no schema StreamLiveFrame. Nothing has changed." "$(spec_with 'del s["components"]["schemas"]["StreamLiveFrame"]')"
+refuse "an edge schema with no properties" "${sch_file} has no properties on the schema Edge. Nothing has changed." "$(spec_with 's["components"]["schemas"]["Edge"]["properties"] = {}')"
+refuse "a frame with no name constant" "${sch_file} has no event_type constant on the schema CursorAheadFrame. Nothing has changed." "$(spec_with 'del s["components"]["schemas"]["CursorAheadFrame"]["properties"]["event_type"]["const"]')"
+refuse "a webhook body that is not a frame plus its fields" "${sch_file} has a webhook schema WebhookItemEvent that is not a frame plus its delivery fields. Nothing has changed." "$(spec_with 's["components"]["schemas"]["WebhookItemEvent"] = {"type": "object"}')"
+refuse "an array property with no items" "${sch_file} has an array property with no items. Nothing has changed." "$(spec_with 's["components"]["schemas"]["Item"]["properties"]["tags"] = {"type": "array", "description": "Tags."}')"
+refuse "a property with no type" "${sch_file} has a property with no type. Nothing has changed." "$(spec_with 'del s["components"]["schemas"]["Edge"]["properties"]["id"]["type"]')"
+
+echo "a spec whose webhook bodies add different fields"
+spec_with 's["components"]["schemas"]["WebhookEdgeEvent"]["allOf"][1]["properties"]["attempt"] = {"type": "integer", "description": "Which attempt."}' > "${work}/two-deliveries.json"
+fixture two-deliveries "${work}/two-deliveries.json"
+sync two-deliveries
+check "two shapes of webhook body: the script succeeds" 0 "${status}"
+check "each shape of webhook body gets its own table" \
+  "## Item webhook delivery fields|## Edge webhook delivery fields|2" \
+  "$(grep '^## .*webhook delivery fields$' "${work}/two-deliveries/docs/src/generated/catalog/event-fields.md" | paste -sd'|' -)|$(grep -c '^## .*webhook delivery fields$' "${work}/two-deliveries/docs/src/generated/catalog/event-fields.md")"
+check "the field only one shape adds is in the edge table" 1 \
+  "$(sed -n '/^## Edge webhook delivery fields$/,/^## Stream/p' "${work}/two-deliveries/docs/src/generated/catalog/event-fields.md" | grep -c '`attempt`')"
 
 echo "temporary files"
 check "no temporary file or folder is left behind, by a success or a refusal" "" "$(ls -A "${work}/tmp")"
