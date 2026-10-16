@@ -1,0 +1,223 @@
+---
+title: Connect a web page
+description: Let a page in a browser register itself with an instance, get the owner's approval in a small window, and read the owner's data with the token it receives.
+---
+
+A web page connects the way any [app signs in with OAuth](/guides/authenticate), with every step taken by the page's own script. **The instance needs no setup and the page needs no key.** The page registers itself, the owner approves it once, and the instance then lets the page's address call it from a browser.
+
+This guide takes a page from nothing to a data request. It assumes you know the [authorization code grant](/guides/authenticate#connect-an-app-with-oauth), and covers what a browser changes about it.
+
+## What the page needs
+
+- **An `https` address.** A web page registers as a web client, whose redirect addresses must be `https` and off the loopback. A page served from `http://localhost` can't connect this way; serve it from an `https` address with a real host name.
+- **A callback page** at the redirect address, for the approval window to hand the code back. The steps below show it.
+- **An instance the browser can reach.** When a page on a public address calls an instance on a private-network or loopback address, Chrome asks the person for Local Network Access permission before the page's first request, and blocks the request if they decline. An instance on a public address raises no such question, and Marfa can't answer it for the person.
+
+## Connect the page
+
+<Steps>
+<Step>
+
+### Find the endpoints
+
+The discovery documents answer a request from any origin, with no credential, so a page that isn't yet approved can read them. The one to read names the registration, authorization and token endpoints:
+
+```ts title="connect.ts"
+const instance = "https://marfa.example.com";
+
+const meta = await (
+  await fetch(`${instance}/.well-known/oauth-authorization-server/auth`)
+).json();
+// meta.registration_endpoint, meta.authorization_endpoint, meta.token_endpoint
+```
+
+</Step>
+<Step>
+
+### Register the page
+
+Registration takes no credential and answers any origin, so the page registers itself from the browser. Name the page's callback address, which sets the origin the owner approves:
+
+```ts title="connect.ts"
+const redirectUri = `${location.origin}/callback`;
+
+const registered = await (
+  await fetch(meta.registration_endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_name: "Reading page",
+      redirect_uris: [redirectUri],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code"],
+      response_types: ["code"],
+      scope: "core.note:read core.note:write",
+    }),
+  })
+).json();
+const clientId: string = registered.client_id;
+```
+
+Marfa answers `201` with the `client_id`. A page keeps no secret, so `"token_endpoint_auth_method": "none"` registers a public client that proves itself with PKCE.
+
+**A registration takes at most 32 KiB and at most 10 redirect addresses.** A larger body is refused `413 request_too_large`, and more addresses `400 invalid_redirect_uri`. **A registration nobody approves is removed once it has been idle for a day**, as [Housekeeping](/guides/housekeeping) describes. Register again at each connection until the owner approves, and keep the `client_id` after that.
+
+</Step>
+<Step>
+
+### Open the approval window
+
+Make a PKCE verifier and its `S256` challenge, then open the authorization endpoint in a small window. Open it from a click, because browsers block a window that no click opened:
+
+```ts title="connect.ts"
+const base64url = (bytes: Uint8Array | ArrayBuffer) =>
+  btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
+const challenge = base64url(
+  await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)),
+);
+const state = base64url(crypto.getRandomValues(new Uint8Array(16)));
+
+// Listen first: the answer can come back before the next line returns.
+const answered = new Promise<URLSearchParams>((resolve) => {
+  const channel = new BroadcastChannel("marfa-approval");
+  channel.onmessage = (event) => {
+    channel.close();
+    resolve(new URLSearchParams(event.data));
+  };
+});
+
+const authorize = new URL(meta.authorization_endpoint);
+authorize.search = new URLSearchParams({
+  response_type: "code",
+  client_id: clientId,
+  redirect_uri: redirectUri,
+  scope: "core.note:read core.note:write",
+  state,
+  code_challenge: challenge,
+  code_challenge_method: "S256",
+}).toString();
+open(authorize, "marfa-approval", "popup,width=480,height=640");
+```
+
+The window asks the owner to sign in if they need to, then shows the page's name, a caution that Marfa has not verified it, **the page's origin**, and each scope it asks for. The owner can untick any scope. Approving allows that origin to call the instance from a browser, as the next section explains.
+
+</Step>
+<Step>
+
+### Hand the code back from the callback page
+
+When the owner decides, Marfa sends the window to the callback address with `code`, `state` and `iss`, or with `error=access_denied` if the owner declined.
+
+**Marfa's sign-in and approval pages send `Cross-Origin-Opener-Policy: same-origin`**, so the browser cuts the window off from the page that opened it. The page can't read `window.opener` or the window's address. The callback page runs at the page's own origin, so it passes the result over a `BroadcastChannel`, which only that origin can hear:
+
+```html title="callback.html"
+<!doctype html>
+<title>Connecting</title>
+<script>
+  new BroadcastChannel("marfa-approval").postMessage(location.search);
+  close();
+</script>
+```
+
+The main page waits on the channel it opened before the window, and checks the answer:
+
+```ts title="connect.ts"
+const answer = await answered;
+
+if (answer.get("state") !== state) throw new Error("state does not match");
+if (answer.get("error")) throw new Error(`not approved: ${answer.get("error")}`);
+const code = answer.get("code")!;
+```
+
+An owner who closes the window sends nothing, so give the page a way to cancel the wait.
+
+</Step>
+<Step>
+
+### Exchange the code
+
+Send the code and the verifier to the token endpoint, as a form. A public client sends no secret:
+
+```ts title="connect.ts"
+const token = await (
+  await fetch(meta.token_endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      code_verifier: verifier,
+    }),
+  })
+).json();
+```
+
+```json
+{
+  "access_token": "marfa_at_…",
+  "expires_in": 3600,
+  "expires_at": 1791593756,
+  "token_type": "Bearer",
+  "scope": "core.note:read"
+}
+```
+
+**A code works once**, and `scope` lists what the owner left ticked, which can be less than the page asked for. Marfa answers this request with `Access-Control-Allow-Origin` naming the page's origin only after the owner approves it, so a page that skips the approval can't read the answer.
+
+</Step>
+<Step>
+
+### Make a data request
+
+Send the access token in the `Authorization` header, as for any key:
+
+```ts title="connect.ts"
+const response = await fetch(`${instance}/items?type=core.note&limit=5`, {
+  headers: { Authorization: `Bearer ${token.access_token}` },
+});
+const notes = await response.json();
+```
+
+```http
+GET /items?type=core.note&limit=5
+Authorization: Bearer marfa_at_…
+```
+
+**Don't send `credentials: "include"`.** Marfa never allows credentials on a cross-origin answer, so the page works only with the token it holds. [List items](/api-reference/items/listItems) has every parameter. The token expires after `expires_in` seconds. To get another, open the approval window again and exchange the new code: an owner who is signed in and approved these scopes already goes straight back with a code.
+
+</Step>
+</Steps>
+
+## Redirect the whole page instead
+
+A page can skip the window and send the browser itself to the authorization address. The page leaves and comes back, so the opener policy never matters, and the callback page is the page itself. Before leaving, keep the `verifier`, `state` and `client_id` in `sessionStorage`. On return, read `code` and `state` from the query string, check `state`, then exchange the code. This suits a page that can lose its place and recover it, and a browser that blocks windows.
+
+## What the approval allows
+
+Approving the page allows **the origin of each `https` redirect address it registered** to call the instance from a browser. The origin is the scheme, host and port: the path, the query and a trailing slash don't count, and a default port is left out.
+
+- **Data requests and the token endpoint.** Any operation the page's token reaches answers with `Access-Control-Allow-Origin` naming the origin, a preflight included. The access token is the only authority: the origin lets the browser deliver the answer to the page and gives the page nothing else.
+- **Not the sign-in forms.** A form posted from the page's origin to the sign-in, device approval or consent address is refused `403 forbidden`, and so is a password sign-in. The page never acts as the owner.
+- **Until the owner approves.** A page that isn't yet approved, one the owner declined, and one the owner disconnected get no `Access-Control-Allow-Origin`, so the browser blocks the request. Only discovery and registration answer every origin.
+- **Until the last app on the origin goes.** Disconnecting the page, in the browser or with `DELETE /auth/grants/{id}` as [Authenticate](/guides/authenticate#revoke-access) shows, ends the approval. The origin is forgotten when the last connected app on it is disconnected, so two pages on one address keep it until both are gone.
+
+An operator who trusts an origin in advance names it in `CORS_ORIGINS`, as [Settings](/guides/settings#every-environment-setting) shows. A native app's redirect address, where a program on a device listens, allows no origin.
+
+## If a step fails
+
+| What the page sees | Why |
+| --- | --- |
+| Registration answers `413 request_too_large` | The body is over 32 KiB. |
+| Registration answers `400 invalid_redirect_uri` | An address isn't `https`, is on the loopback, doesn't parse, or the registration names more than 10. |
+| The code never reaches the page | The callback page is missing, or the page reads `window.opener`, which the opener policy cuts. |
+| A request is blocked with no response | The owner hasn't approved the page, or disconnected it, or the page's origin differs from the origin of every redirect address it registered. Chrome's Local Network Access prompt, if the person declined it, blocks the request too. |
+| The token endpoint answers `400 invalid_grant` | The code was used already, or the verifier doesn't match its challenge. |
+
+The rules behind this guide are in the [keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#web-pages) chapter of the contract, which names each of the limits above.
