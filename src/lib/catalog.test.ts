@@ -193,7 +193,11 @@ function frontmatter(page: string): Record<string, unknown> {
   return (block ? parseYaml(block[1]) : {}) as Record<string, unknown>;
 }
 
-/** The contract's generator turns an em dash into a colon, and a pair around an aside into parentheses. */
+/**
+ * The contract's generator turns an em dash into a colon, and a pair around an aside into parentheses.
+ * This copy of the sync script's Python `plain` stays because a test in TypeScript cannot import it, and
+ * what it must agree with is the description the sync wrote.
+ */
 function plain(text: string): string {
   const parts = text.split(/\s*—\s*/);
   if (parts.length === 3) return `${parts[0]} (${parts[1]})${/^[.,;:)]/.test(parts[2]) ? '' : ' '}${parts[2]}`;
@@ -230,6 +234,10 @@ describe('the tab', () => {
     expect(PAGES.map((page) => page.slug).sort()).toEqual([...CORE_SLUGS, ...OTHER_PAGES].sort());
   });
 
+  it('puts no backtick in a description, which the page cards show as it is', () => {
+    for (const { file, text } of PAGES) expect(String(frontmatter(text).description), file).not.toContain('`');
+  });
+
   it('lists exactly those pages in its meta.json', () => {
     const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, 'meta.json'), 'utf8'));
     expect(meta.root).toBe(true);
@@ -256,7 +264,8 @@ describe('a core type page', () => {
       it('is titled with the type\'s label and described with its description', () => {
         const data = frontmatter(page.text);
         expect(data.title).toBe(type.label);
-        expect(data.description).toBe(plain(type.description));
+        // A backtick in a frontmatter description shows literally in the cards at the foot of a page.
+        expect(data.description).toBe(plain(type.description).replace(/`/g, ''));
       });
 
       it('includes the type\'s generated file', () => {
