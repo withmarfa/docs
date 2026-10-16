@@ -33,6 +33,18 @@ describe('the CLI page', () => {
   });
 });
 
+describe('the lists the Catalog holds', () => {
+  const LISTS = ['core-types.md', 'edge-types.md', 'permissions.md', 'event-types.md'];
+
+  it('are included on Catalog pages only', () => {
+    const outside = ALL_PAGES.filter(
+      ({ file, text }) =>
+        !file.startsWith(`catalog${path.sep}`) && LISTS.some((list) => text.includes(`src/generated/${list}`)),
+    ).map(({ file }) => file);
+    expect(outside).toEqual([]);
+  });
+});
+
 describe('the CLI download', () => {
   it('comes from the generated snippet, so a release sync updates it', () => {
     const hardCoded = ALL_PAGES.filter(({ text }) => text.includes('releases/download/')).map(({ file }) => file);

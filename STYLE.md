@@ -28,10 +28,19 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 | Overview | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation, then reference |
 | Overview | Using these docs: the Docs MCP server and Docs as Markdown | How-to |
 | Guides | Tutorials, Build apps and agents, Build connectors, Run Marfa (ending with Troubleshooting) | Tutorial, how-to |
-| Catalog | Items, Core types (one page each), More types, and Edges, events and permissions | Reference |
+| Catalog | The Catalog and Items pages, then Core types (one page each), More types, and Edges, events and permissions | Reference |
 | Reference | SDKs and CLI: one page each, and the file the CLI keeps for other programs | How-to and reference for each client, then reference |
 | Reference | HTTP API: the overview, Errors, and the operations generated from the API description | Reference |
 | Reference | Resources: the Changelog and the contract | Reference |
+
+The tabs divide the work, and each thing is said once, with links between:
+
+- **Overview** explains what Marfa is and how it works, with two or three examples at most.
+- **Guides** show how to do things.
+- **Catalog** lists exactly what Marfa ships and explains nothing.
+- **Reference** covers the HTTP API's operations and errors, the SDKs, the CLI, the changelog and the contract.
+
+A page that needs a list the Catalog holds, such as the types, edge types, permissions, events, field kinds or reserved names, links to the Catalog page instead of restating it.
 
 - A **concept** page explains one idea: what it is, why it works the way it does, and the rules a reader meets in normal use.
 - A **tutorial** takes a newcomer through one complete piece of work, start to finish, and every step works.
@@ -119,7 +128,7 @@ Use a component for what it's for, and only where it helps the reader.
 | `Steps` | An ordered procedure: the Quickstart, the tutorials, a how-to with an order |
 | Code tabs | The same example in more than one client (see Examples) |
 | `Tabs` | Alternatives that aren't code, such as two ways to claim an instance |
-| `Accordion` | Content a reader looks up, not reads through: troubleshooting entries, long catalogues |
+| `Accordion` | Entries a reader opens one at a time, such as troubleshooting. Never a reference list: a list a reader looks up is a plain table on its Catalog or Reference page |
 | `Files` | A directory a reader will see on disk |
 | `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data |
 | `Cards` | Where to go next, at the end of a tutorial and on the Overview |

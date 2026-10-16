@@ -13,7 +13,8 @@ import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const CATALOG_PAGES = path.join(ROOT, 'content/docs/catalog');
+const CONTENT = path.join(ROOT, 'content/docs');
+const CATALOG_PAGES = path.join(CONTENT, 'catalog');
 const GENERATED = path.join(ROOT, 'src/generated/catalog');
 
 interface Field {
@@ -417,9 +418,14 @@ describe('the links', () => {
     return ids;
   }
 
-  it('reach a heading on the page they name, from the pages and from the generated files they include', () => {
+  it('reach a heading on the page they name, from the pages, from the generated files they include and from every page that links to the Catalog', () => {
+    const elsewhere = (readdirSync(CONTENT, { recursive: true }) as string[])
+      .filter((file) => file.endsWith('.mdx') && !file.startsWith('catalog'))
+      .map((file) => ({ file: `content/docs/${file}`, text: readFileSync(path.join(CONTENT, file), 'utf8') }))
+      .filter(({ text }) => text.includes('](/catalog'));
     const sources = [
       ...PAGES.map(({ file, text }) => ({ file, text })),
+      ...elsewhere,
       ...readdirSync(GENERATED)
         .filter((file) => file.endsWith('.md'))
         .map((file) => ({ file: `src/generated/catalog/${file}`, text: readFileSync(path.join(GENERATED, file), 'utf8') })),
@@ -428,6 +434,7 @@ describe('the links', () => {
     const broken: string[] = [];
     for (const { file, text } of sources) {
       for (const [, target, id] of text.matchAll(/\]\((\/[a-z0-9/-]+)#([a-z0-9-]+)\)/g)) {
+        if (!file.includes('/catalog/') && !target.startsWith('/catalog')) continue;
         const page = `content/docs${target.startsWith('/catalog') || target.startsWith('/guides') ? target : `/(overview)${target}`}.mdx`;
         const ids = headingIds(page);
         checked += 1;
