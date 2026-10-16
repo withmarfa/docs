@@ -438,3 +438,23 @@ describe('the links', () => {
     expect(broken).toEqual([]);
   });
 });
+
+describe('the lists the Catalog holds', () => {
+  const LISTS = ['core-types.md', 'edge-types.md', 'permissions.md', 'event-types.md'];
+
+  function pages(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) return pages(full);
+      return /\.mdx?$/.test(entry.name) ? [full] : [];
+    });
+  }
+
+  it('are included on Catalog pages only', () => {
+    const outside = pages(path.join(ROOT, 'content/docs'))
+      .filter((file) => !file.startsWith(`${CATALOG_PAGES}${path.sep}`))
+      .filter((file) => LISTS.some((list) => readFileSync(file, 'utf8').includes(`src/generated/${list}`)))
+      .map((file) => path.relative(ROOT, file));
+    expect(outside).toEqual([]);
+  });
+});
