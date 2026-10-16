@@ -14,7 +14,7 @@ Released October 16, 2026. [v0.0.9 on GitHub](https://github.com/withmarfa/marfa
 For running an instance:
 
 - A web page can connect with one approval and no pasted key. The discovery documents and `POST /auth/oauth2/register` answer a request from any origin, and once the owner approves the page, the server lets the origin of its redirect URIs call the API from a browser, with no `CORS_ORIGINS` entry. [Connect a web page](/guides/connect-a-web-page) covers it.
-- Because any page can now register, a registration that never receives a grant is removed after 1 day rather than 30 (`MARFA_DCR_CLIENT_RETENTION_DAYS`). A registration takes a body of at most 32,768 bytes and at most 10 redirect URIs.
+- Because any page can now register, a registration that never receives a grant is removed 1 day after its registration or the last time its approval page was offered, rather than 30 days (`MARFA_DCR_CLIENT_RETENTION_DAYS`). A registration takes a body of at most 32,768 bytes and at most 10 redirect URIs.
 - Registering a client that authenticates with `private_key_jwt` is refused with `400 invalid_client_metadata`, and the discovery documents list the client authentication methods the instance accepts.
 - A connector operation that only the connector's own key can make answers an owner session or the private socket with `403 forbidden`, not `401`.
 - Bulk imports no longer delay unrelated outbound webhooks, and listing the owner's connected apps no longer reads every active item, so it stays quick on a large store.
@@ -22,7 +22,7 @@ For running an instance:
 For the API:
 
 - An operation that takes a JSON body refuses a top-level key it doesn't declare with `400 validation_error`, and `details.unknown_body_fields` lists the keys. Before, `POST /items`, `POST /edges` and several others dropped the key and answered success. `PUT /items/{id}/extensions/{namespace}` and `POST /auth/oauth2/register` still accept any key, and the operations that define a type or an edge type refuse one as `invalid_schema`.
-- A write can require the exact version you read. `PATCH /items/{id}` takes `version_match: "exact"`, `POST /items/{id}/transition` takes `version`, and `POST /edges` and `DELETE /edges/{id}` take `source_version`. A write whose version no longer matches is refused with `409 version_conflict` and changes nothing.
+- A write can require the exact version you read. `PATCH /items/{id}` takes `version_match: "exact"`, `POST /items/{id}/transition` takes a `version` query parameter, and `POST /edges` and `DELETE /edges/{id}` take a `source_version` query parameter. A write whose version no longer matches is refused with `409 version_conflict` and changes nothing.
 - A write can name the instance it was made for in `X-Marfa-Instance-Id`. An instance with a different `instance_id` refuses it with `409 instance_changed` and writes nothing, so a write meant for one instance can't land on another that took over the address.
 - `POST /items/{id}/tags`, `DELETE /items/{id}/tags/{tag}`, `PUT` and `PATCH /items/{id}/metadata`, and `PUT` and `DELETE /items/{id}/extensions/{namespace}` honor `Idempotency-Key`: a repeat is answered from the record of the first and changes nothing. The matching CLI commands take `--idempotency-key`.
 - `GET /edges`, `GET /items/{id}/edges`, `GET /items/{id}/backrefs` and the `edges` and `backrefs` blocks of an item leave out an edge whose source item a key's source filter hides, whatever the source of its target.
@@ -37,17 +37,18 @@ For the CLI:
 - A watch keeps a record of its folders in `folder-watch.json` for other programs on the machine to read. [Folder watch record](/folder-watch-record) covers it.
 - `marfa folders add` and `marfa folders watch` warn once on standard error when a folder is in iCloud Drive, a cloud service's synced location or a network file system, and go on. A refused `marfa folders add` leaves behind no directory it made.
 - `marfa folders push --send-only` sends what a folder holds and writes or removes no file in it. `marfa folders unmatched <DIR>` lists the files a folder keeps whose items its search no longer matches, and `--remove` takes them away after a confirmation or with `--yes`.
-- A Markdown document's file name and its item's title stay in step in a folder: renaming the file sets the title, and a new title renames the file.
+- A Markdown document's file name and its item's title stay in step in a folder: renaming the file sets the title, and a new title renames a file whose name still matches the previous title. A file you named differently, or an empty title, leaves the file name as it is.
 - With `OTEL_EXPORTER_OTLP_ENDPOINT` set, the CLI exports one OpenTelemetry trace for each command. With `MARFA_POSTHOG_HOST` and `MARFA_POSTHOG_PROJECT_TOKEN` set as well, a failed command is also sent to PostHog error tracking. With none set, the CLI sends nothing.
 
 For apps and devices:
 
 - A body link keeps naming the item its edge was made to when other links are added to the body or taken out of it, and a link by an item's id always names that item, whatever other items are titled. Before, a new link could move an existing link to another item, and a link by id could land on an item titled with that id.
-- An app can forget only the answered writes it names, so an answer recorded between its read and its clear isn't lost unread. Use `forgetAnswered(ids:)` in the Swift SDK from v0.0.17, `forgetAnsweredIds` in the Node module, or `marfa device forget --id <ID>`, which you can repeat. Without ids, `marfa device forget` still clears every answered write.
+- An app can forget only the answered writes it names, so an answer recorded between its read and its clear isn't lost unread. Use `forgetAnswered(ids:)` in the Swift SDK from v0.0.17, `forgetAnsweredIds` in the Node module, or `marfa device forget --id <ID>`, which you can repeat. Without ids, `marfa device forget` still clears every answered write it can, as before.
 - A working copy that holds the event stream, such as `marfa device follow`, drains its queue once when the server is reachable again, and reports the result as a `queue.drained` or `queue.not_drained` change, so an app no longer has to drain itself.
 - A working copy refuses a write to a `system.*` item before it saves or queues anything, with `403 type_not_permitted`.
 - A row that a slice holds in the trash stays in the working copy after a drain reads it back, and a person can discard a create that no read can land, so the queue can empty.
 - Moving the source of several edges costs one hydration for the whole batch rather than one for each.
+- A catch-up report no longer has a `reached_head` field, in the core, the Node module or the Swift binding.
 
 ## v0.0.8
 
