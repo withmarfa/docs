@@ -13,7 +13,7 @@ How every page on this site is written. This file is the one place the writing r
 Write for a reader who is new to Marfa. Most know software; some don't, and more of them will as apps built on Marfa reach people. The Overview and the concepts must make sense to both. Five readers come most often, and each needs something different first:
 
 - **Someone deciding whether Marfa is for them** needs to know what it is, what it's for and what it isn't: the Overview, then How Marfa works.
-- **An app builder** needs a credential, then reading and writing items, then the model: the Quickstart, the concepts, then the Build apps guides.
+- **An app builder** needs a credential, then reading and writing items, then the model: the Quickstart, the concepts, then the Build apps and agents guides.
 - **Someone running an instance** needs to start it, claim it and keep it safe: the Quickstart, then the Run Marfa guides.
 - **A connector author** needs what the instance keeps for a connector, then the tutorial and the connector guides.
 - **An AI agent**, working for any of them, reads the same pages as Markdown, through the docs MCP server or `marfa docs`.
@@ -26,7 +26,8 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 | --- | --- | --- |
 | Overview | Get started: Overview, Quickstart | Explanation, then a tutorial |
 | Overview | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation, then reference |
-| Guides | Tutorials, Build apps, Build connectors, AI agents, Run Marfa (ending with Troubleshooting) | Tutorial, how-to |
+| Overview | Using these docs: the Docs MCP server and Docs as Markdown | How-to |
+| Guides | Tutorials, Build apps and agents, Build connectors, Run Marfa (ending with Troubleshooting) | Tutorial, how-to |
 | Reference | SDKs and CLI: one page each, and the file the CLI keeps for other programs | How-to and reference for each client, then reference |
 | Reference | HTTP API: the overview, Errors, and the operations generated from the API description | Reference |
 | Reference | Resources: the Changelog and the contract | Reference |

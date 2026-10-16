@@ -7,7 +7,7 @@ describe('sectionFor', () => {
     expect(sectionFor('/files')).toBe('Overview');
     expect(sectionFor('/glossary')).toBe('Overview');
     expect(sectionFor('/guides/deploy')).toBe('Guides');
-    expect(sectionFor('/guides/docs-mcp-server')).toBe('Guides');
+    expect(sectionFor('/docs-mcp-server')).toBe('Overview');
     expect(sectionFor('/cli')).toBe('Reference');
     expect(sectionFor('/typescript-sdk')).toBe('Reference');
     expect(sectionFor('/changelog')).toBe('Reference');
