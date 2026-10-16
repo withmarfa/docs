@@ -38,7 +38,7 @@ The tabs divide the work, and each thing is said once, with links between:
 - **Overview** explains what Marfa is and how it works, with two or three examples at most.
 - **Guides** show how to do things.
 - **Catalog** lists exactly what Marfa ships and explains nothing.
-- **Reference** covers the HTTP API's operations and errors, the SDKs, the CLI and the changelog.
+- **Reference** covers the HTTP API's operations and errors, the SDKs, the CLI, the changelog and the contract.
 
 A page that needs a list the Catalog holds, such as the types, edge types, permissions, events, field kinds or reserved names, links to the Catalog page instead of restating it.
 
