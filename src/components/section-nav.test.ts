@@ -7,6 +7,8 @@ describe('sectionFor', () => {
     expect(sectionFor('/files')).toBe('Overview');
     expect(sectionFor('/glossary')).toBe('Overview');
     expect(sectionFor('/guides/deploy')).toBe('Guides');
+    expect(sectionFor('/catalog')).toBe('Catalog');
+    expect(sectionFor('/catalog/media')).toBe('Catalog');
     expect(sectionFor('/docs-mcp-server')).toBe('Overview');
     expect(sectionFor('/cli')).toBe('Reference');
     expect(sectionFor('/typescript-sdk')).toBe('Reference');
@@ -19,5 +21,6 @@ describe('sectionFor', () => {
     expect(sectionFor('/client')).toBe('Overview');
     expect(sectionFor('/clix')).toBe('Overview');
     expect(sectionFor('/guidesx')).toBe('Overview');
+    expect(sectionFor('/catalogx')).toBe('Overview');
   });
 });

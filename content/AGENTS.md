@@ -6,9 +6,10 @@ This file sits above `content/docs/` on purpose: the docs collection publishes e
 
 ## Placing a page
 
-- Each folder directly under `content/docs/` is a tab. `(overview)/` and `(reference)/` are folder groups, so their pages sit at the site root (`/files`, `/cli`). `guides/` keeps its name in the URL, and so does `(reference)/api-reference/`.
+- Each folder directly under `content/docs/` is a tab. `(overview)/` and `(reference)/` are folder groups, so their pages sit at the site root (`/files`, `/cli`). `guides/` and `catalog/` keep their names in the URL, and so does `(reference)/api-reference/`.
 - A new page needs its file and an entry in its folder's `meta.json`. `content/docs/meta.json` orders the tabs.
 - A slug in `(overview)/` or `(reference)/` must not repeat a slug in either group. It must not be a name the Worker answers at the root (`api`, `mcp`, `llms`, `llms-full`, `docs-map`, `version`), or `docs`, which the docs tools strip as a prefix.
+- The Catalog tab lists names and shapes and explains nothing. Its type pages (`src/lib/catalog.test.ts` holds them to `src/generated/catalog/builtin-catalog.json`) take their title and description from the type, include the type's generated file, and end with one `## Example` item that the test checks. Add a type's page when marfa ships a type, and leave explanation to the Overview and the Guides.
 - The header tabs come from `SECTIONS` in `src/components/section-nav.tsx`, not from `meta.json`. A new tab or a renamed landing page needs both. A new Reference page needs only its entry in `(reference)/meta.json`, which the header reads.
 - The header holds no text links. The Changelog and the contract sit in the Reference tab's Resources group, so a new destination goes in a sidebar group, not in `links` in `src/lib/layout.shared.tsx`.
 - The Reference tab's `meta.json` lifts the API pages into its own sidebar with `...api-reference`, and `src/lib/api-reference-tree.ts` finds the tab by that `meta.json` title. Renaming the title needs `REFERENCE_TITLE` changed there.
