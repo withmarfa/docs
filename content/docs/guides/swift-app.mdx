@@ -185,33 +185,36 @@ Add the functions that write, and the one that sends the queue:
     private func send() async {
         guard let copy else { return }
         do {
-            let report = try await copy.queue.drain()
-            if report.unavailable != nil {
-                isOnline = false
-            } else if report.answered > 0 {
-                isOnline = true
-            }
-            if report.stopped != nil {
-                needsKey = true
-                message = "The instance refused the key."
-            }
-            for answer in report.verdicts {
-                switch answer.verdict {
-                case .merged(let fields):
-                    message = "Merged \(fields.joined(separator: ", ")) with a newer change."
-                case .conflicted:
-                    message = "Someone else changed the same text. Your version is kept in a copy."
-                case .refused(let refusal):
-                    message = "Refused: \(refusal.message ?? refusal.reason)"
-                default:
-                    break
-                }
-            }
+            apply(try await copy.queue.drain())
             _ = try await copy.queue.forgetAnswered()
         } catch {
             await handle(error)
         }
         await refresh()
+    }
+
+    private func apply(_ report: DrainReport) {
+        if report.unavailable != nil {
+            isOnline = false
+        } else if report.answered > 0 {
+            isOnline = true
+        }
+        if report.stopped != nil {
+            needsKey = true
+            message = "The instance refused the key."
+        }
+        for answer in report.verdicts {
+            switch answer.verdict {
+            case .merged(let fields):
+                message = "Merged \(fields.joined(separator: ", ")) with a newer change."
+            case .conflicted:
+                message = "Someone else changed the same text. Your version is kept in a copy."
+            case .refused(let refusal):
+                message = "Refused: \(refusal.message ?? refusal.reason)"
+            default:
+                break
+            }
+        }
     }
 ```
 
@@ -219,7 +222,7 @@ Add the functions that write, and the one that sends the queue:
 
 `send()` drains the queue: it sends the writes in order and reports what the instance answered. If the server can't be reached, the report says so in `unavailable`, and **the writes stay queued for later**.
 
-Each answered write has a verdict, and the app tells you about the three that change what you see: `merged`, `conflicted` and `refused`. Then `forgetAnswered()` clears the answered writes, so `unsent` holds only what's still to send or needs attention.
+Each answered write has a verdict, and the app tells you about the three that change what you see: `merged`, `conflicted` and `refused`. Then `forgetAnswered()` clears the answered writes, so `unsent` holds only what's still to send or needs attention. `apply(_:)` reads a report, so the next step can reuse it for the drains the follow runs.
 
 </Step>
 <Step>
@@ -238,7 +241,11 @@ Add the last two functions:
                     isOnline = false
                 case .serverReachable:
                     isOnline = true
-                    await send()
+                case .queueDrained(let report):
+                    apply(report)
+                    _ = try? await copy.queue.forgetAnswered()
+                case .queueNotDrained(let error):
+                    await handle(error)
                 case .stopped(let error):
                     await handle(error)
                 default:
@@ -266,9 +273,9 @@ Add the last two functions:
     }
 ```
 
-`follow(_:)` holds a `changes()` stream, which tells the app about every change to the working copy, whether the app made it or another device did. It also says when the server goes away, `.serverUnreachable`, and when it comes back, `.serverReachable`, which is when to send what waited.
+`follow(_:)` holds a `changes()` stream, which tells the app about every change to the working copy, whether the app made it or another device did. It also says when the server goes away, `.serverUnreachable`, and when it comes back, `.serverReachable`. **The stream sends what waited by itself**, once each time the server is back, so the app starts no drain on `.serverReachable`. It tells how the drain ended: `.queueDrained` with the drain's report, which `apply(_:)` reads like the one from `send()`, or `.queueNotDrained` with the error that stopped it. A drain that stopped leaves the rest of the writes queued, and the stream doesn't try again until the server next returns, so `send()` after the next write sends them.
 
-`.stopped` means the stream can't go on without the app's help, and `handle(_:)` gives errors from any call the same treatment. A `copyExpired` copy can't be kept current from where it stands, so it hydrates again; `unauthorized` and `signedOut` mean the instance refused the key, so the app asks for a new one. **The queue survives all of these.**
+`.stopped` means the stream can't go on without the app's help, and `handle(_:)` gives errors from any call the same treatment. A `copyExpired` copy can't be kept current from where it stands, for example because the server at its address is now another instance (`instance_changed`), so it hydrates again; `unauthorized` and `signedOut` mean the instance refused the key, so the app asks for a new one. **The queue survives all of these.**
 
 </Step>
 <Step>
