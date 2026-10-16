@@ -2,7 +2,7 @@
 - **Required:** `title`
 - **Title field:** `title`
 - **Body field:** `body`
-- **Collisions:** `body` and `notes` [keep both copies](/guides/write-safely#let-marfa-resolve-it): the item keeps its value and the other writer's value goes to a new item tagged `conflicted-copy`. Every other field takes the last writer's value.
+- **[Merge policy](/catalog/your-own-types#merge-policy):** `body` and `notes` `keep_both_copies`; every other field `last_writer_wins`
 
 | Field          | Kind               | Required | Description                           |
 | -------------- | ------------------ | -------- | ------------------------------------- |
@@ -21,7 +21,7 @@
 
 An album. Inherits all core.media fields.
 
-- **Role:** `container`, so it can be the target of an [`in-collection`](/catalog/edges#in-collection) edge.
+- **[Roles](/catalog/your-own-types#roles):** `container`
 
 | Field          | Kind      | Required | Description                           |
 | -------------- | --------- | -------- | ------------------------------------- |
@@ -79,7 +79,7 @@ A film. Inherits all core.media fields.
 
 Any ongoing media container: a TV show, a podcast, a radio serial, a video series. Inherits all core.media fields. Episodes join it through the in-collection edge; containment is never part of a type name.
 
-- **Role:** `container`, so it can be the target of an [`in-collection`](/catalog/edges#in-collection) edge.
+- **[Roles](/catalog/your-own-types#roles):** `container`
 
 | Field    | Kind                                                 | Required | Description                                        |
 | -------- | ---------------------------------------------------- | -------- | -------------------------------------------------- |

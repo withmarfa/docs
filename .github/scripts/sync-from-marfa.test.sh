@@ -379,7 +379,7 @@ note_expected="$(cat <<'EOF'
 - **Required:** `body`
 - **Title field:** `title`
 - **Body field:** `body`
-- **Collisions:** `body` [keeps both copies](/guides/write-safely#let-marfa-resolve-it): the item keeps its value and the other writer's value goes to a new item tagged `conflicted-copy`. Every other field takes the last writer's value.
+- **[Merge policy](/catalog/your-own-types#merge-policy):** `body` `keep_both_copies`; every other field `last_writer_wins`
 
 | Field      | Kind               | Required | Description       |
 | ---------- | ------------------ | -------- | ----------------- |
@@ -392,7 +392,7 @@ note_expected="$(cat <<'EOF'
 A memo (for a team) with a level.
 
 - **Also required:** `title`
-- **Role:** `container`, so it can be the target of an [`in-collection`](/catalog/edges#in-collection) edge.
+- **[Roles](/catalog/your-own-types#roles):** `container`
 
 | Field   | Kind                    | Required | Description       |
 | ------- | ----------------------- | -------- | ----------------- |
@@ -419,7 +419,7 @@ catalog_edges_expected="$(cat <<'EOF'
 
 Member of a container.
 
-- **Written in a folder at:** `source`
+- **written_at:** `source`
 
 | Property   | Kind     | Description |
 | ---------- | -------- | ----------- |
@@ -429,8 +429,8 @@ Member of a container.
 
 Source is the parent of the target: once.
 
-- **Reverse name:** `child-of`
-- **Written in a folder at:** `target`
+- **reverse_name:** `child-of`
+- **written_at:** `target`
 EOF
 )"
 
@@ -467,8 +467,6 @@ event_fields_expected="$(cat <<'EOF'
 
 ## Webhook delivery fields
 
-A webhook sends an item event or an edge event with these fields added.
-
 | Field         | Kind     | Description        |
 | ------------- | -------- | ------------------ |
 | `event_id`    | `string` | The event's ID.    |
@@ -483,8 +481,7 @@ A webhook sends an item event or an edge event with these fields added.
 | `stream_incomplete` | `reason`    | `string`           | Why.              |
 | `catchup_too_old`   | `requested` | `string`           | The ID you sent.  |
 | `cursor_ahead`      | `head`      | `string`           | The latest ID.    |
-
-These frames carry no field but `event_type`: `read_view_changed`.
+| `read_view_changed` | None        |                    |                   |
 EOF
 )"
 
@@ -730,7 +727,7 @@ check "the folder can be read by anyone who can read the checkout" \
   755 "$(python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "${catalog_dir}")"
 check "the type catalog is copied byte for byte" \
   "$(cat "${work}/good/marfa/core/marfa-core/src/builtin_catalog.json")" "$(cat "${catalog_dir}/builtin-catalog.json")"
-check "a core type's file has its facts and fields, a subtype's section only what it adds, and an em dash is a colon or a pair of parentheses" \
+check "a core type's file has its facts and fields, a subtype's section only what it adds or changes, and an em dash is a colon or a pair of parentheses" \
   "${note_expected}" "$(cat "${catalog_dir}/core.note.md")"
 check "a system type's file starts with its heading and description, and escapes a pipe" \
   "${folder_expected}" "$(cat "${catalog_dir}/system.folder.md")"
@@ -743,7 +740,7 @@ check "the item's fields come from its schema, with a state's values and a pipe 
   "${item_fields_expected}" "$(cat "${catalog_dir}/item-fields.md")"
 check "the edge's fields come from its schema" \
   "${edge_fields_expected}" "$(cat "${catalog_dir}/edge-fields.md")"
-check "the event fields are one table for each shape, the webhook fields once, and a frame with no field named below" \
+check "the event fields are one table for each shape, the webhook fields once, and a frame with no field a row of None" \
   "${event_fields_expected}" "$(cat "${catalog_dir}/event-fields.md")"
 for file in "${catalog_dir}"/*.md; do
   check "$(basename "${file}") ends with exactly one newline and starts with text" True \
@@ -1030,6 +1027,8 @@ refuse_catalog "an enum with no values" "${cat_file} has an enum core.note.memo.
 refuse_catalog "an array with no items_type" "${cat_file} has an array core.note.memo.to without an items_type. Nothing has changed." "$(catalog_with 'del c["types"][1]["fields"]["to"]["items_type"]')"
 refuse_catalog "a parent that is not a type" "${cat_file} names the parent core.thing of core.note.memo, which is not a type in it. Nothing has changed." "$(catalog_with 'c["types"][1]["parent"] = "core.thing"')"
 refuse_catalog "a parent in another family" "${cat_file} has core.note.memo under a parent in another family. Nothing has changed." "$(catalog_with 'c["types"][1]["parent"] = "system.folder"')"
+refuse_catalog "a role other than container" "${cat_file} has a role on core.note.memo other than container. Nothing has changed." "$(catalog_with 'c["types"][1]["roles"] = ["archive"]')"
+refuse_catalog "types that are each other's parent" "${cat_file} has core.note under a chain of parents that never reaches a top-level type. Nothing has changed." "$(catalog_with 'c["types"][0]["parent"] = "core.note.memo"')"
 refuse_catalog "a merge strategy the sync does not know" "${cat_file} has a merge policy for core.note with a strategy the sync does not know. Nothing has changed." "$(catalog_with 'c["types"][0]["merge_policy"]["default"] = "newest"')"
 refuse_catalog "display hints the sync does not write" "${cat_file} has display hints for core.note that the sync does not write. Nothing has changed." "$(catalog_with 'c["types"][0]["display_hints"]["icon_field"] = "title"')"
 refuse_catalog "an edge type with no description" "${cat_file} has an edge type with no id or description. Nothing has changed." "$(catalog_with 'del c["edge_types"][0]["description"]')"
@@ -1037,19 +1036,36 @@ refuse_catalog "an edge type with a key the sync does not write" "${cat_file} ha
 refuse_catalog "an edge type written nowhere the sync knows" "${cat_file} has the edge type in-collection with a written_at the sync does not know. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["written_at"] = "both"')"
 refuse_catalog "an edge type written at its target with no reverse name" "${cat_file} has the edge type parent-of written at its target with no reverse_name. Nothing has changed." "$(catalog_with 'del c["edge_types"][1]["reverse_name"]')"
 
-# A shape the sync can write without a rule of its own: a role it has no sentence for is named, a
-# default that keeps both copies says which fields do not, and a type with nothing to add has no table.
+# Shapes the sync writes without a rule of its own: a default of both copies says which fields do not
+# keep them, and a type with nothing to add has no table.
 echo "a type catalog in other shapes"
 fixture shapes "${work}/untagged.json"
-catalog_with 'c["types"][1]["roles"] = ["archive"]; c["types"][0]["merge_policy"] = {"default": "keep_both_copies", "fields": {"title": "last_writer_wins", "language": "last_writer_wins"}}; c["types"].append({"id": "core.note.bare", "parent": "core.note", "label": "Bare", "description": "A note.", "version": 0, "fields": c["types"][0]["fields"]})' \
+catalog_with 'c["types"][0]["merge_policy"] = {"default": "keep_both_copies", "fields": {"title": "last_writer_wins", "language": "last_writer_wins"}}; c["types"].append({"id": "core.note.bare", "parent": "core.note", "label": "Bare", "description": "A note.", "version": 0, "fields": c["types"][0]["fields"]})' \
   > "${work}/shapes/marfa/core/marfa-core/src/builtin_catalog.json"
 sync shapes
-check "a role without a sentence, a default of both copies and a subtype with no field to add: the script succeeds" 0 "${status}"
-check "a role the sync has no sentence for is named alone" 1 "$(grep -c '^- \*\*Role:\*\* `archive`$' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
-check "a default of both copies names the fields that take the last writer's value" 1 \
-  "$(grep -c '^- \*\*Collisions:\*\* every field \[keeps both copies\](/guides/write-safely#let-marfa-resolve-it): .*, except `title` and `language`, which take the last writer.s value\.$' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
+check "a default of both copies and a subtype with no field to add: the script succeeds" 0 "${status}"
+check "a default of both copies names the fields that do not keep both, as values" 1 \
+  "$(grep -c '^- \*\*\[Merge policy\](/catalog/your-own-types#merge-policy):\*\* `title` and `language` `last_writer_wins`; every other field `keep_both_copies`$' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
 check "a subtype with nothing to add is a heading and its description" \
   "$(printf '## core.note.bare [#core-note-bare]\n\nA note.')" "$(sed -n '/^## core.note.bare \[#core-note-bare\]$/,$p' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
+
+# A subtype says what its parent does not already say: display hints and a merge policy only where
+# they differ from the parent's, and nothing where they are equal.
+echo "a subtype that repeats or changes what its parent says"
+fixture drift "${work}/untagged.json"
+catalog_with 'base = c["types"][0]; c["types"].append({"id": "core.note.same", "parent": "core.note", "label": "Same", "description": "Says what the parent says.", "version": 0, "fields": base["fields"], "display_hints": dict(base["display_hints"]), "merge_policy": json.loads(json.dumps(base["merge_policy"]))}); c["types"].append({"id": "core.note.drift", "parent": "core.note", "label": "Drift", "description": "Says something else.", "version": 0, "fields": base["fields"], "display_hints": {"title_field": "language", "body_field": "body"}, "merge_policy": {"default": "keep_both_copies"}})' \
+  > "${work}/drift/marfa/core/marfa-core/src/builtin_catalog.json"
+sync drift
+drift_file="${work}/drift/docs/src/generated/catalog/core.note.md"
+check "a subtype that differs from its parent: the script succeeds" 0 "${status}"
+check "a subtype equal to its parent says nothing of hints or merge policy" \
+  "$(printf '## core.note.same [#core-note-same]\n\nSays what the parent says.')" \
+  "$(sed -n '/^## core.note.same/,/^## core.note.drift/p' "${drift_file}" | sed '$d')"
+check "a subtype that differs says its hints and merge policy as values" \
+  "$(printf '%s\n%s\n%s' '- **Title field:** `language`' '- **Body field:** `body`' '- **[Merge policy](/catalog/your-own-types#merge-policy):** every field `keep_both_copies`')" \
+  "$(sed -n '/^## core.note.drift/,$p' "${drift_file}" | grep '^- \*\*')"
+check "the parent says its own hints once, and a subtype equal to it adds none" 1 \
+  "$(grep -c '^- \*\*Title field:\*\* `title`$' "${drift_file}")"
 
 # spec_with <python statements on the spec s>: the fixture's spec, changed.
 spec_with() {
@@ -1063,6 +1079,7 @@ refuse "no stream frame schema" "${sch_file} has no schema StreamLiveFrame. Noth
 refuse "an edge schema with no properties" "${sch_file} has no properties on the schema Edge. Nothing has changed." "$(spec_with 's["components"]["schemas"]["Edge"]["properties"] = {}')"
 refuse "a frame with no name constant" "${sch_file} has no event_type constant on the schema CursorAheadFrame. Nothing has changed." "$(spec_with 'del s["components"]["schemas"]["CursorAheadFrame"]["properties"]["event_type"]["const"]')"
 refuse "a webhook body that is not a frame plus its fields" "${sch_file} has a webhook schema WebhookItemEvent that is not a frame plus its delivery fields. Nothing has changed." "$(spec_with 's["components"]["schemas"]["WebhookItemEvent"] = {"type": "object"}')"
+refuse "an array property with no items" "${sch_file} has an array property with no items. Nothing has changed." "$(spec_with 's["components"]["schemas"]["Item"]["properties"]["tags"] = {"type": "array", "description": "Tags."}')"
 refuse "a property with no type" "${sch_file} has a property with no type. Nothing has changed." "$(spec_with 'del s["components"]["schemas"]["Edge"]["properties"]["id"]["type"]')"
 
 echo "a spec whose webhook bodies add different fields"

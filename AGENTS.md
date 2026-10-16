@@ -53,7 +53,7 @@ MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh   # defaults to ../marfa
 - Use a marfa checkout on an up-to-date `main` with its tags fetched. The script copies committed files and runs nothing, and it checks every input before it writes anything. Its header lists what it writes.
 - After an API, glossary, CLI, contract table or release change lands in marfa, run the sync and open a sync pull request. A code change gets no other docs pull request (`STYLE.md`, "Keeping pages current").
 - Fix a gap in `openapi.json` or a generated table in marfa's generator, never here.
-- The script takes only what marfa generates and commits, as a file of its own or as Markdown between markers. A list marfa does not generate gets a source there first.
+- The script takes only what marfa generates and commits: a file of its own, Markdown between markers, or a committed data file such as `builtin_catalog.json` and the schemas in `openapi.json`, which it renders into tables and lists under labels with no sentence of its own. What a value means is written on the page that includes the file. A list marfa does not generate gets a source there first.
 - After changing the script, run `.github/scripts/sync-from-marfa.test.sh`. It pins what the script writes and every input it refuses.
 
 ## Docs pass at each release

@@ -1,7 +1,7 @@
 - **Type:** `core.entity`
 - **Required:** `name`
 - **Title field:** `name`
-- **Collisions:** every field takes the last writer's value.
+- **[Merge policy](/catalog/your-own-types#merge-policy):** every field `last_writer_wins`
 
 | Field         | Kind     | Required | Description                       |
 | ------------- | -------- | -------- | --------------------------------- |

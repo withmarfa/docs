@@ -19,8 +19,6 @@
 
 ## Webhook delivery fields
 
-A webhook sends an item event or an edge event with these fields added.
-
 | Field          | Kind     | Description                                                                      |
 | -------------- | -------- | -------------------------------------------------------------------------------- |
 | `event_id`     | `string` | The event's ID in the log, the same as its `id:` on `GET /events`.               |
@@ -43,5 +41,4 @@ A webhook sends an item event or an edge event with these fields added.
 | `catchup_too_old`   | `requested`       | `string`           | The `Last-Event-ID` you sent.                                                                                                                                                                                                                       |
 | `cursor_ahead`      | `requested`       | `string`           | The `Last-Event-ID` you sent.                                                                                                                                                                                                                       |
 | `cursor_ahead`      | `head`            | `string`           | The ID of the latest event in the log.                                                                                                                                                                                                              |
-
-These frames carry no field but `event_type`: `read_view_changed`.
+| `read_view_changed` | None              |                    |                                                                                                                                                                                                                                                     |

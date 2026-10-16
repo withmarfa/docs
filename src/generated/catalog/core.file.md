@@ -1,7 +1,7 @@
 - **Type:** `core.file`
 - **Required:** `blob_ref` and `mime_type`
 - **Title field:** `title`
-- **Collisions:** every field takes the last writer's value.
+- **[Merge policy](/catalog/your-own-types#merge-policy):** every field `last_writer_wins`
 
 | Field            | Kind               | Required | Description                                                                                                                                                |
 | ---------------- | ------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
