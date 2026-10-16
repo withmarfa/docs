@@ -63,7 +63,7 @@ export const newEdge: Edge = { type: 'parent-of', title: 'Another child note', i
 
 function EdgeRow({ edge, lit, pending }: { edge: Edge; lit?: boolean; pending?: boolean }) {
   return (
-    <div className="marfa-ia-edge" data-pending={pending || undefined}>
+    <div className="marfa-ix-edge" data-pending={pending || undefined}>
       <Arrow
         axis="across"
         dashed={pending}
@@ -72,7 +72,7 @@ function EdgeRow({ edge, lit, pending }: { edge: Edge; lit?: boolean; pending?: 
             'New edge'
           ) : (
             <>
-              <code>{edge.type}</code> <span className="marfa-ia-edge-version">version 1</span>
+              <code>{edge.type}</code> <span className="marfa-ix-edge-aside">version 1</span>
             </>
           )
         }
@@ -100,13 +100,13 @@ export function ItemAnatomy({ caption }: { caption?: ReactNode }) {
   const all: (Write | null)[] = [null, ...writes.map((w) => w.id)];
 
   return (
-    <Figure label="Where a write lands on an item, and what it does to the version" caption={caption} className="marfa-ia">
-      <div className="marfa-ia-controls" role="group" aria-label="Writes">
+    <Figure label="Where a write lands on an item, and what it does to the version" caption={caption} className="marfa-ix marfa-ia">
+      <div className="marfa-ix-controls" role="group" aria-label="Writes">
         {writes.map((write) => (
           <button
             key={write.id}
             type="button"
-            className="marfa-ia-button"
+            className="marfa-ix-button"
             aria-pressed={last === write.id}
             onClick={() => setState((current) => apply(current, write.id))}
           >
@@ -115,7 +115,7 @@ export function ItemAnatomy({ caption }: { caption?: ReactNode }) {
         ))}
         <button
           type="button"
-          className="marfa-ia-button marfa-ia-reset"
+          className="marfa-ix-button marfa-ix-reset"
           aria-label="Reset"
           title="Reset"
           onClick={() => setState(initial)}
@@ -125,29 +125,29 @@ export function ItemAnatomy({ caption }: { caption?: ReactNode }) {
       </div>
 
       {/* Every message sits in one cell, so the line is as tall as the longest at any width. */}
-      <p className="marfa-ia-result">
+      <p className="marfa-ix-result">
         {all.map((write) => (
           <span key={write ?? 'none'} aria-hidden={write !== last || undefined} data-current={write === last || undefined}>
             {result(write, version)}
           </span>
         ))}
       </p>
-      <p className="marfa-ia-live" aria-live="polite">
+      <p className="marfa-ix-live" aria-live="polite">
         {last ? result(last, version) : ''}
       </p>
 
-      <div className="marfa-ia-parts">
+      <div className="marfa-ix-parts">
         <Box
-          className="marfa-ia-note"
+          className="marfa-ix-box"
           icon={StickyNote}
           title={<code>core.note</code>}
           aside={
-            <span className="marfa-ia-version" data-lit={last === 'property' || undefined}>
+            <span className="marfa-ix-pill" data-lit={last === 'property' || undefined}>
               version {version}
             </span>
           }
         >
-          <dl className="marfa-ia-rows" data-lit={last === 'property' || undefined}>
+          <dl className="marfa-ix-rows" data-lit={last === 'property' || undefined}>
             <div>
               <dt>
                 <code>title</code>
@@ -163,7 +163,7 @@ export function ItemAnatomy({ caption }: { caption?: ReactNode }) {
           </dl>
         </Box>
         <Group label="Metadata record" icon={Tags} className="marfa-ia-metadata">
-          <dl className="marfa-ia-rows">
+          <dl className="marfa-ix-rows">
             <div data-lit={last === 'tag' || undefined}>
               <dt>Tags</dt>
               <dd>
@@ -180,7 +180,7 @@ export function ItemAnatomy({ caption }: { caption?: ReactNode }) {
         </Group>
       </div>
 
-      <div className="marfa-ia-edges">
+      <div className="marfa-ix-edges">
         {edges.map((edge) => (
           <EdgeRow key={edge.title} edge={edge} />
         ))}
