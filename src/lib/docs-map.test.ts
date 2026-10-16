@@ -11,13 +11,15 @@ describe('buildDocsMap', () => {
 
   it('groups each tab as the sidebar does', () => {
     const overview = lines.slice(lines.indexOf('## Overview'), lines.indexOf('## Guides'));
-    expect(overview.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Concepts']);
+    expect(overview.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Concepts', '### Using these docs']);
+    expect(overview.some((line) => line.startsWith('- [Docs MCP server](/docs-mcp-server)'))).toBe(true);
     expect(overview.some((line) => line.startsWith('- [Overview](/overview)'))).toBe(true);
     expect(overview.some((line) => line.startsWith('- [Glossary](/glossary)'))).toBe(true);
 
     const guides = lines.slice(lines.indexOf('## Guides'), lines.indexOf('## Reference'));
-    expect(guides).toContain('### AI agents');
-    expect(guides.some((line) => line.startsWith('- [Docs MCP server](/guides/docs-mcp-server)'))).toBe(true);
+    expect(guides).toContain('### Build apps and agents');
+    expect(guides).not.toContain('### AI agents');
+    expect(guides.some((line) => line.startsWith('- [Use Marfa with AI agents](/guides/ai-agents)'))).toBe(true);
     expect(guides.some((line) => line.startsWith('- [Troubleshooting](/guides/troubleshooting)'))).toBe(true);
 
     const reference = lines.slice(lines.indexOf('## Reference'));

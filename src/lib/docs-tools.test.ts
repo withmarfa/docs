@@ -111,15 +111,15 @@ describe('fetchDocsPage', () => {
     expect(await fetchDocsPage('/docs-for-agents')).toBeNull();
     expect(await fetchDocsPage('/cli/items')).toBeNull();
     expect(await fetchDocsPage('/typescript-client')).toBeNull();
-    expect(await fetchDocsPage('/docs-mcp-server')).toBeNull();
+    expect(await fetchDocsPage('/guides/docs-mcp-server')).toBeNull();
     expect(await fetchDocsPage('/get-started/files')).toBeNull();
     expect(await fetchDocsPage('/tools/marfa-command')).toBeNull();
   });
 
   it('returns every page the topics list, including ones whose names start with docs', async () => {
     const { pages } = listTopics();
-    expect(pages.map((p) => p.url)).toContain('/guides/docs-mcp-server');
-    expect(pages.map((p) => p.url)).toContain('/guides/docs-as-markdown');
+    expect(pages.map((p) => p.url)).toContain('/docs-mcp-server');
+    expect(pages.map((p) => p.url)).toContain('/docs-as-markdown');
     for (const { url } of pages) {
       expect(await fetchDocsPage(url), url).not.toBeNull();
     }
