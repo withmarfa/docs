@@ -27,7 +27,7 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 | Overview | Get started: Overview, Quickstart | Explanation, then a tutorial |
 | Overview | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation, then reference |
 | Guides | Tutorials, Build apps, Build connectors, AI agents, Run Marfa (ending with Troubleshooting) | Tutorial, how-to |
-| Reference | SDKs and CLI: one page each | How-to and reference for each client |
+| Reference | SDKs and CLI: one page each, and the file the CLI keeps for other programs | How-to and reference for each client, then reference |
 | Reference | HTTP API: the overview, Errors, and the operations generated from the API description | Reference |
 | Reference | Resources: the Changelog and the contract | Reference |
 
