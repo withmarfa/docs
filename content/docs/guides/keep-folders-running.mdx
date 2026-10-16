@@ -1,0 +1,110 @@
+---
+title: Keep folders running
+description: Keep every folder on your computer in step with one watch, start it at login, and work on a folder's files while it runs.
+---
+
+A folder you [set up](/guides/sync-a-folder) stays in step only while something watches it. **One `marfa folders watch` keeps every folder on the computer in step**, and `marfa folders autostart` starts it at login, so a folder needs no terminal left open.
+
+These commands are in the CLI, which [the CLI page](/cli) installs. The watch uses each folder's own server and credential, so it needs no `--url` or `--key`.
+
+## Watch every folder
+
+Run the command with no directory. It watches each folder that `marfa folders list` shows, in one process:
+
+```bash
+marfa folders watch
+```
+
+```text
+watching every folder /Users/ada/Library/Application Support/Marfa/folders.json lists (interrupt to stop)
+/Users/ada/Notes: watching
+/Users/ada/Recipes: watching
+/Users/ada/Notes: 0 created, 1 updated, 0 renamed, 0 deleted; answered 1; 0 file(s) written
+```
+
+Every line names the folder's directory, and with `--json` each line is one JSON object with a `dir` field. Press Ctrl-C to stop it. `SIGTERM` stops it the same way and it exits 0, so a service manager that stopped it doesn't start it again. `--for <seconds>` stops it after that long, and `--log <file>` writes its output to a file in place of the terminal.
+
+**The watch follows the list.** A folder you add with `marfa folders add` joins it, and one you remove leaves it, with no restart. Each folder uses the server its copy came from and the credential the keychain keeps for that server, so folders on different servers share one watch and no key is sent to a server it wasn't made for.
+
+**One folder that can't be watched doesn't stop the others.** The watch reports it once and tries again. A folder fails to open while its first sync waits for `marfa folders confirm`, while another process works it, or when the keychain holds no credential for its server. Folders whose directories can't be found, such as one on a disk that isn't connected, are reported together in one line. They stay listed, and `marfa folders remove` takes one off.
+
+To watch a single folder, name its directory: `marfa folders watch Notes`.
+
+## Sync from login
+
+`marfa folders autostart` makes the watch start when you sign in to the computer, in your own account. On macOS it writes a launchd agent, and on Linux a systemd user unit. It needs no administrator, and other systems refuse it.
+
+```bash
+marfa folders autostart on
+```
+
+The command says which file it wrote, the program the agent runs, its log and the registry it reads, and starts the watch at once. **The agent holds no credential and no server.** Each folder uses the keychain's credential for its server, so on Linux the keychain must be unlocked at login. Run it again and nothing changes unless the agent would differ, as after the program moved.
+
+The watch runs as `marfa folders watch --log <file>`, and its output goes to `folder-watch.log` beside the folder registry, readable by you alone. At 1 MiB the log is moved to `folder-watch.log.1`. The service manager starts the watch again only after it fails, and no sooner than 30 seconds after it last started.
+
+Ask whether it works, or turn it off:
+
+```bash
+marfa folders autostart status
+marfa folders autostart off
+```
+
+`status` asks no server and needs no credential. It says whether the agent is installed and running, which program it runs (and when that program is gone, or isn't the one you ran), where it logs, and which folders the watch isn't holding and why. It names each folder with no credential the watch can use. `off` stops the watch and removes the agent. If the service manager can't be asked, it still removes the agent's file, exits 3 and says what it couldn't stop.
+
+Another program can show the same state from [the folder watch record](/folder-watch-record).
+
+## Work on a folder while the watch runs
+
+One process works a folder at a time. A command that works a folder, such as `marfa folders confirm`, `restore`, `remove`, `push`, `pull` or `unmatched --remove`, asks the running watch for it. The watch finishes the step it is on, so no write is cut off, lets the folder go and keeps the others in step. It takes the folder back when the command ends:
+
+```text
+/Users/ada/Notes: let go to a command that asked for it; taken back once that command ends
+/Users/ada/Notes: taken back from the command it was let go to, and watched again
+```
+
+If the watch hasn't let go within 10 seconds, such as when it is suspended or waiting on a slow server, the command is refused with `reading_handle` before it changes anything. Run it again. A second `marfa folders watch` of the same folder is refused at once, because a watch never asks for a folder.
+
+## Send without pulling
+
+When you have added or edited files and don't want the instance's changes written into the directory yet, push with `--send-only`:
+
+```bash
+marfa folders push Notes --send-only
+```
+
+```text
+1 created, 0 updated, 0 renamed, 2 unchanged, 0 missing, 0 deleted, 0 skipped
+answered 2, held 0
+send-only run: nothing was pulled, so no item's file was written or removed; the next `folders push` pulls what the server holds
+```
+
+It scans the directory and sends what changed, and writes and removes no file outside the folder's `.marfa` directory. A copy that has never hydrated hydrates first, which touches only the folder's own store. If the instance can't be reached, the writes stay queued. A first sync that waits for confirmation refuses it with `first_sync_waiting`.
+
+## Remove files a folder keeps but no longer holds
+
+When an item leaves a folder's search, for example because its type changed to one the search doesn't hold, the folder keeps its file instead of removing it. List those files:
+
+```bash
+marfa folders unmatched Notes
+```
+
+```text
+1 unmatched file(s), 1 of them removable with `folders unmatched --remove`
+Walks.md
+```
+
+Listing reads only the folder's store, so it works while the watch runs. To take the files away:
+
+```bash
+marfa folders unmatched Notes --remove
+```
+
+At a terminal it asks first. In a script, pass `--yes`: without a terminal or `--yes` the command is refused and removes nothing.
+
+```text
+1 file(s) removed; their items are unchanged in Marfa, and the folder's placement of each ends, sent at the next `folders push`
+```
+
+**Remove them with this command, never by hand.** A file you delete by hand is a delete of its item. This command ends only the folder's placement of the item, which stays in Marfa. It keeps a file you edited since the folder wrote it, and one whose item has a change waiting to be sent, and says why.
+
+The rules behind this guide are in the [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapter of the contract.
