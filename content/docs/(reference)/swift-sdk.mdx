@@ -12,7 +12,7 @@ The sections below cover the main tasks. [Build an app with Swift](/guides/swift
 The SDK supports iOS 27 and macOS 27, and builds with Xcode 27 on a Mac with Apple silicon. In Xcode, choose File > Add Package Dependencies, enter `https://github.com/withmarfa/marfa-swift`, and add the `Marfa` product to your app's target. In a `Package.swift`, add the package and the product:
 
 ```swift title="Package.swift"
-.package(url: "https://github.com/withmarfa/marfa-swift", exact: "0.0.11"),
+.package(url: "https://github.com/withmarfa/marfa-swift", exact: "0.0.16"),
 ```
 
 ```swift title="Package.swift"
@@ -82,11 +82,11 @@ Each write shows in the copy at once, with or without a connection, and waits in
 
 ## Keep the copy in step
 
-Nothing runs on its own: your app decides when the copy talks to the instance. Four moments matter:
+Your app decides when the copy first talks to the instance. Four moments matter:
 
 - On first launch, or when `status().hydration` is anything but `.complete`, call `hydrate(types:tier:)`. It replaces what the copy holds and keeps the queue.
 - When the app starts or comes to the front, call `catchUp()` to apply what changed while it was away, then `queue.drain()` to send what it queued.
-- While a screen shows data, hold a `changes()` stream, which follows the instance's events as they happen.
+- While a screen shows data, hold a `changes()` stream, which follows the instance's events as they happen. **The stream also sends the writes queued while the server was away**, once each time the server is back.
 - After each write, call `queue.drain()`. A drain that can't reach the server leaves the writes queued.
 
 The stream also tells your app when the server goes away and comes back, and when following it needs the app's help:
@@ -98,7 +98,10 @@ for await change in copy.changes() {
         showOffline(error)
     case .serverReachable:
         showOnline()
-        _ = try? await copy.queue.drain()
+    case .queueDrained(let report):
+        showSent(report)
+    case .queueNotDrained(let error):
+        showNotSent(error)
     case .stopped(.copyExpired):
         _ = try? await copy.hydrate(types: ["core.note"], tier: .library)
     case .stopped(.unauthorized), .stopped(.signedOut):
@@ -109,7 +112,9 @@ for await change in copy.changes() {
 }
 ```
 
-`.copyExpired` means the copy can't be kept current from where it stands, for example because the device was away longer than the instance keeps events, and has to hydrate again. Its queue survives.
+On `.serverReachable`, show the app as online and start nothing: the stream drains the queue itself, once each time the server is back, and tells how it ended. `.queueDrained` carries the drain's `DrainReport`, and each write the drain answered is told first as `.answered`, as for a drain your app starts. `.queueNotDrained` carries the `MarfaError` that stopped it. The answers it had recorded stay recorded and the rest stay queued, and the stream doesn't try again until the server next returns, so call `queue.drain()` when your app can.
+
+`.copyExpired` means the copy can't be kept current from where it stands, and has to hydrate again. Its queue survives. Its `reason` is an open string, so keep a default when you switch over it. Two reasons are common: the device was away longer than the instance keeps events, and the server at the copy's address is now another instance (`instance_changed`), in which case the writes stay queued under their keys and go to the instance now there once you hydrate.
 
 A drain returns the instance's verdict on each write it sent. Answered writes stay in the queue, with their verdicts, until you call `queue.forgetAnswered()`:
 
@@ -152,7 +157,10 @@ let folder = try await copy.createFolder(
     FolderSettings(title: "Notes", search: FolderSearch(types: ["core.note"])))
 
 let folders = Folders(server: Server(url: serverURL, key: key))
-_ = try await folders.add(notesDirectory, following: folder.id)
+let added = try await folders.add(notesDirectory, following: folder.id)
+if let storage = added.storage {
+    showWarning(storage.warning)
+}
 
 if case .awaitingConfirmation(let plan) = try await folders.sync(notesDirectory) {
     print("Writes \(plan.write) files here and sends \(plan.send) to the server.")
@@ -161,6 +169,8 @@ if case .awaitingConfirmation(let plan) = try await folders.sync(notesDirectory)
 }
 ```
 
-Call `sync(_:)` to sync once, or iterate `watch(_:)` to keep the folder in step while the app runs. A sandboxed app has its own home directory, and so its own list of folders. [Sync a folder](/guides/sync-a-folder) explains what a folder does with each file.
+A directory in iCloud Drive, in a cloud service's synced location or on a network file system is added all the same, but a second program may sync the same files, or changes made from another computer may not be noticed. `add(_:following:)` returns the cause as `storage`, and the `.watching` event of a watch carries it too. A `StorageCause` is `iCloudDrive`, `cloudService`, `cloudSynced` (iCloud Drive or another cloud service, which macOS doesn't tell apart) or `networkFileSystem(kind:)`. Its `warning` is a plain sentence that names the cause: show it once for each folder.
+
+Call `sync(_:)` to sync once, or iterate `watch(_:)` to keep the folder in step while the app runs. One process works a folder at a time. When a call such as `sync(_:)` or `confirmFirstSync(in:)`, or a command like `marfa folders confirm`, asks for a folder your watch holds, the watch lets it go and tells `.handedOver`, then takes it back and tells `.takenBack`. No pass runs in between, so don't show the folder as in step. `.heldElsewhere` says another process holds a folder that no call asked for, and `.removed` and `.unlisted` say the call took the folder off the Mac, so the watch ends without an error. A call that isn't let the folder within 10 seconds throws `MarfaError.readingHandle`. A sandboxed app has its own home directory, and so its own list of folders. [Sync a folder](/guides/sync-a-folder) explains what a folder does with each file.
 
 The full API is in the [marfa-swift repository](https://github.com/withmarfa/marfa-swift), and the rules a device follows are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) and [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) chapters of the contract.
