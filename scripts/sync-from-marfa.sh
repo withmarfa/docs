@@ -683,11 +683,15 @@ def describe(node):
 
 def rows(props, enums=False, skip=()):
     """With enums, an enum's values follow its description rather than its kind."""
-    return [
-        [code(n), schema_kind(p, enums), with_values(describe(p), enum_values(p) if enums else None)]
-        for n, p in props.items()
-        if n not in skip
-    ]
+    out = []
+    for n, p in props.items():
+        if n in skip:
+            continue
+        kind, values = schema_kind(p, enums), (enum_values(p) if enums else None)
+        if enums and code("enum") in kind and not values:
+            refuse(spec_path, f"has the property {n}, an enum whose values the sync cannot reach")
+        out.append([code(n), kind, with_values(describe(p), values)])
+    return out
 
 
 # The fields every item has, in groups a reader looks for. A field the spec

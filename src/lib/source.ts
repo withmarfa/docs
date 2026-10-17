@@ -43,8 +43,11 @@ export async function getLLMText(page: (typeof source)['$inferPage']) {
   const body =
     'getText' in page.data ? await page.data.getText('processed') : (page.data.description ?? '');
 
+  // The page's lead and, on a Catalog type page, its identifier, which the
+  // header shows from frontmatter rather than the body.
+  const lead = 'getText' in page.data && page.data.description ? `${page.data.description}\n\n` : '';
   const identifier = 'identifier' in page.data && page.data.identifier ? `Identifier: \`${page.data.identifier}\`\n\n` : '';
   return `# ${page.data.title} (${page.url})
 
-${identifier}${body}`;
+${lead}${identifier}${body}`;
 }
