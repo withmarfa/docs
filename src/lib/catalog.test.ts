@@ -214,9 +214,14 @@ const PAGES = readdirSync(CATALOG_PAGES)
   }));
 
 const TOP_LEVEL = catalog.types.filter((type) => !type.parent);
-const CORE_SLUGS = TOP_LEVEL.filter((type) => type.id.startsWith('core.')).map((type) => type.id.slice('core.'.length));
-/** The pages that are not the page of one core type. */
-const OTHER_PAGES = ['index', 'items', 'system-types', 'your-own-types', 'edges', 'events', 'permissions'];
+/** A top-level type's page is its identifier without its family: `core.media` is `media`. */
+const slugOf = (type: CatalogType) => type.id.slice(type.id.indexOf('.') + 1);
+const CORE_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('core.'));
+const SYSTEM_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('system.'));
+const CORE_SLUGS = CORE_TYPES.map(slugOf);
+const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
+/** The pages that are not the page of one type. */
+const OTHER_PAGES = ['index', 'items', 'field-kinds', 'your-own-types', 'edges', 'events', 'permissions'];
 
 describe('the catalog the pages follow', () => {
   it('is the synced copy, with the types the pages cover', () => {
@@ -231,8 +236,16 @@ describe('the catalog the pages follow', () => {
 });
 
 describe('the tab', () => {
-  it('has one page for each core type and the other pages, and no other', () => {
-    expect(PAGES.map((page) => page.slug).sort()).toEqual([...CORE_SLUGS, ...OTHER_PAGES].sort());
+  it('has one page for each top-level type and the other pages, and no other', () => {
+    expect(TOP_LEVEL.every((type) => type.id.startsWith('core.') || type.id.startsWith('system.'))).toBe(true);
+    expect(PAGES.map((page) => page.slug).sort()).toEqual([...CORE_SLUGS, ...SYSTEM_SLUGS, ...OTHER_PAGES].sort());
+  });
+
+  it('names an identifier only on the page of a type', () => {
+    for (const slug of OTHER_PAGES) {
+      const page = PAGES.find((candidate) => candidate.slug === slug)!;
+      expect(frontmatter(page.text).identifier, page.file).toBeUndefined();
+    }
   });
 
   it('puts no backtick in a description, which the page cards show as it is', () => {
@@ -262,9 +275,10 @@ describe('a core type page', () => {
     const page = PAGES.find((candidate) => candidate.slug === slug)!;
 
     describe(page.file, () => {
-      it('is titled with the type\'s label and described with its description', () => {
+      it('is titled with the type\'s label, described with its description and names its identifier', () => {
         const data = frontmatter(page.text);
         expect(data.title).toBe(type.label);
+        expect(data.identifier).toBe(type.id);
         // A backtick in a frontmatter description shows literally in the cards at the foot of a page.
         expect(data.description).toBe(plain(type.description).replace(/`/g, ''));
       });
@@ -282,12 +296,30 @@ describe('a core type page', () => {
     });
   }
 
-  it('shows the system types on their own page', () => {
-    const system = TOP_LEVEL.filter((type) => type.id.startsWith('system.'));
-    const page = PAGES.find((candidate) => candidate.slug === 'system-types')!;
-    expect(system.length).toBeGreaterThan(0);
-    for (const type of system) expect(page.text).toContain(`src/generated/catalog/${type.id}.md</include>`);
+});
+
+describe('a system type page', () => {
+  it('exists for each system type', () => {
+    expect(SYSTEM_TYPES.length).toBeGreaterThan(0);
   });
+
+  for (const type of SYSTEM_TYPES) {
+    const page = PAGES.find((candidate) => candidate.slug === slugOf(type))!;
+
+    describe(page.file, () => {
+      it('is titled and described from the type, and includes its generated file', () => {
+        const data = frontmatter(page.text);
+        expect(data.title).toBe(type.label);
+        expect(data.identifier).toBe(type.id);
+        expect(data.description).toBe(plain(type.description).replace(/`/g, ''));
+        expect(page.text).toContain(`<include cwd>src/generated/catalog/${type.id}.md</include>`);
+      });
+
+      it('gives no example, because no item operation writes the type', () => {
+        expect(page.text).not.toMatch(/^## Example/m);
+      });
+    });
+  }
 });
 
 describe('the example check', () => {
@@ -344,12 +376,9 @@ describe('the example check', () => {
   });
 });
 
-describe('the Items page', () => {
-  const page = PAGES.find((candidate) => candidate.slug === 'items')!.text;
-  const kinds = (() => {
-    const section = page.split(/^## Field kinds\s*$/m)[1]?.split(/^## /m)[0] ?? '';
-    return [...section.matchAll(/^\|\s*`([a-z]+)`\s*\|/gm)].map((match) => match[1]);
-  })();
+describe('the Field kinds page', () => {
+  const page = PAGES.find((candidate) => candidate.slug === 'field-kinds')!.text;
+  const kinds = [...page.matchAll(/^\|\s*`([a-z]+)`\s*\|/gm)].map((match) => match[1]);
 
   it('lists every field kind the catalog names, once', () => {
     expect(kinds.length).toBeGreaterThan(0);

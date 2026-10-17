@@ -43,7 +43,8 @@ export async function getLLMText(page: (typeof source)['$inferPage']) {
   const body =
     'getText' in page.data ? await page.data.getText('processed') : (page.data.description ?? '');
 
+  const identifier = 'identifier' in page.data && page.data.identifier ? `Identifier: \`${page.data.identifier}\`\n\n` : '';
   return `# ${page.data.title} (${page.url})
 
-${body}`;
+${identifier}${body}`;
 }

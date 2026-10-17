@@ -18,10 +18,9 @@
 #                                     environment settings, written from the
 #                                     server's own setting list, included by
 #                                     the Settings guide
-#   src/generated/core-types.md       the contract's table of the types every
-#                                     instance ships, written from the
+#   src/generated/edge-types.md       the contract's table of the edge types
+#                                     every instance ships, written from the
 #                                     server's type registry
-#   src/generated/edge-types.md       the same for the shipped edge types
 #   src/generated/permissions.md      the same for the twelve permissions
 #   src/generated/event-types.md      the same for the event types
 #   src/generated/contract-index.json every rule ID in the contract's chapters
@@ -30,9 +29,11 @@
 #                                     compares between two releases
 #   src/generated/catalog/            what the Catalog tab lists, replaced whole like
 #                                     cli/: builtin-catalog.json (a copy of the
-#                                     shipped type catalog), one Markdown file per
-#                                     top-level type with its subtypes inside
-#                                     (core.media.md, system.folder.md), edges.md,
+#                                     shipped type catalog), types.md (the
+#                                     top-level types, linked to their pages),
+#                                     one Markdown file per top-level type with
+#                                     its subtypes inside (core.media.md,
+#                                     system.folder.md), edges.md,
 #                                     the three name lists (reserved-type-roots.md,
 #                                     reserved-field-names.md, searched-field-names.md)
 #                                     and, from the spec's schemas, item-fields.md,
@@ -101,13 +102,12 @@ OVERVIEW="$(mktemp "${TMPDIR:-/tmp}/marfa-overview.XXXXXX")"
 COMMANDS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marfa-cli.XXXXXX")"
 ERRORS="$(mktemp "${TMPDIR:-/tmp}/marfa-errors.XXXXXX")"
 SETTINGS="$(mktemp "${TMPDIR:-/tmp}/marfa-settings.XXXXXX")"
-TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-types.XXXXXX")"
 EDGE_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-edge-types.XXXXXX")"
 PERMISSIONS="$(mktemp "${TMPDIR:-/tmp}/marfa-permissions.XXXXXX")"
 EVENT_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-event-types.XXXXXX")"
 INDEX="$(mktemp "${TMPDIR:-/tmp}/marfa-contract-index.XXXXXX")"
 CATALOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marfa-catalog.XXXXXX")"
-cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$ERRORS" "$SETTINGS" "$TYPES" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$CATALOG_DIR"; }
+cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$ERRORS" "$SETTINGS" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$CATALOG_DIR"; }
 trap cleanup EXIT
 
 # The overview page includes this file under its own level-2 heading, so every
@@ -222,7 +222,7 @@ chmod 755 "$COMMANDS_DIR"
 # Each table is the part of a contract chapter between its two markers, which
 # the monorepo's CI holds to what the server defines: the code table to the
 # server's list of codes, the settings table to its settings schema, and the
-# types, edge types, permissions and event types to the definitions it ships.
+# edge types, permissions and event types to the definitions it ships.
 # extract_table <chapter> <marker name> <output file> <what the table lists>
 extract_table() {
   if ! python3 - "$MARFA_ROOT/conformance/spec/$1" "$2" "$3" <<'PY'
@@ -253,7 +253,6 @@ PY
 
 extract_table errors.md errors "$ERRORS" code
 extract_table instance.md settings "$SETTINGS" settings
-extract_table types.md types "$TYPES" types
 extract_table edges.md edge-types "$EDGE_TYPES" "edge types"
 extract_table keys-and-oauth.md permissions "$PERMISSIONS" permissions
 extract_table events.md event-types "$EVENT_TYPES" "event types"
@@ -395,19 +394,26 @@ EDGE_KEYS = {
 STRATEGIES = {"last_writer_wins", "keep_both_copies"}
 ROLES = {"container"}
 HINT_KEYS = ("title_field", "body_field")
-MERGE_POLICY = "/catalog/your-own-types#merge-policy"
-ROLES_PAGE = "/catalog/your-own-types#roles"
+RULES = "/catalog/your-own-types"
 
 
 def kind(field):
     out = code(field["type"])
-    if field["type"] == "enum":
-        out += " of " + ", ".join(code(v) for v in field["enum_values"])
-    elif field["type"] == "array":
+    if field["type"] == "array":
         out += " of " + code(field["items_type"])
     if "format" in field:
         out += f" ({code(field['format'])})"
     return out
+
+
+def with_values(description, values):
+    """An enum's values follow its description, which keeps the Kind column narrow."""
+    if not values:
+        return description
+    text = description.rstrip()
+    if text and text[-1] not in ".:;!?":
+        text += "."
+    return (text + " " if text else "") + "Values: " + ", ".join(code(v) for v in values) + "."
 
 
 def check_fields(owner, fields, allowed):
@@ -424,7 +430,7 @@ def check_fields(owner, fields, allowed):
             refuse(catalog_path, f"has an array {owner}.{name} without an items_type")
 
 
-def merge_policy_line(owner, policy):
+def merge_policy_value(owner, policy):
     """The strategy of each named field and the default of the rest, as values."""
     default = policy.get("default")
     named = policy.get("fields", {})
@@ -434,9 +440,9 @@ def merge_policy_line(owner, policy):
     for strategy in sorted(STRATEGIES - {default}):
         fields = [n for n, s in named.items() if s == strategy]
         if fields:
-            parts.append(f"{names(fields)} {code(strategy)}")
-    parts.append(("every other field " if parts else "every field ") + code(default))
-    return f"- **[Merge policy]({MERGE_POLICY}):** " + "; ".join(parts)
+            parts.append(f"{code(strategy)} for {names(fields)}")
+    parts.append(f"{code(default)} for " + ("every other field" if parts else "every field"))
+    return "; ".join(parts)
 
 
 def hints_of(t):
@@ -474,58 +480,84 @@ def render_types(types):
             seen.add(step["id"])
             step = by_id[step["parent"]]
 
-    def section(t, parent, subtype):
-        """A core type has a page of its own, whose title and lead are its label and description, so its
-        file starts with its identifier. A subtype and a system type are sections of a page they share, so
-        each starts with a heading and its description."""
-        fields = t["fields"]
-        out = []
-        alone = t["id"].startswith("core.") and not subtype
-        if not alone:
-            out += [f"## {t['id']} [#{t['id'].replace('.', '-')}]", "", safe(plain(t["description"])), ""]
-        facts = []
-        if alone:
-            facts.append(f"- **Type:** {code(t['id'])}")
-        if parent is None:
-            required = [n for n, f in fields.items() if f.get("required")]
-            facts.append("- **Required:** " + (names(required) if required else "None"))
-        else:
-            extra = [n for n, f in fields.items() if f.get("required") and not parent["fields"].get(n, {}).get("required")]
-            if extra:
-                facts.append("- **Also required:** " + names(extra))
-        # A subtype says what its parent does not already say.
-        hints, parent_hints = hints_of(t), (hints_of(parent) if parent else None)
-        if hints is not None and hints != parent_hints:
-            if "title_field" in hints:
-                facts.append(f"- **Title field:** {code(hints['title_field'])}")
-            if "body_field" in hints:
-                facts.append(f"- **Body field:** {code(hints['body_field'])}")
-        policy = t.get("merge_policy")
-        if isinstance(policy, dict) and (parent is None or policy != parent.get("merge_policy")):
-            facts.append(merge_policy_line(t["id"], policy))
-        if t.get("roles"):
-            facts.append(f"- **[Roles]({ROLES_PAGE}):** " + ", ".join(code(r) for r in t["roles"]))
-        rows = [
-            [code(n), kind(f), "Yes" if f.get("required") else "", f["description"]]
-            for n, f in fields.items()
-            if parent is None or parent["fields"].get(n) != f
-        ]
-        if facts:
-            out += facts + [""]
-        if rows:
-            out += [table(["Field", "Kind", "Required", "Description"], rows), ""]
-        return out
+    def slug(t):
+        """A top-level type's page is its identifier without its family: core.media is /catalog/media."""
+        family, _, rest = t["id"].partition(".")
+        if not rest or "." in rest:
+            refuse(catalog_path, f"has the top-level type {t['id']}, whose identifier is not a family and a name")
+        return rest
 
-    def render(t, subtype=False):
-        out = section(t, by_id.get(t.get("parent")), subtype)
+    def descendants(t):
+        out = []
         for child in types:
             if child.get("parent") == t["id"]:
-                out += render(child, True)
+                out += [child, *descendants(child)]
         return out
 
-    for t in types:
-        if not t.get("parent"):
-            write(t["id"] + ".md", render(t))
+    def settings(t, parent):
+        """The definition's keys other than its fields. A subtype gives only those its parent does not."""
+        rows = []
+        hints, parent_hints = hints_of(t), (hints_of(parent) if parent else None)
+        if hints is not None and hints != parent_hints:
+            for key in HINT_KEYS:
+                if key in hints:
+                    rows.append([f"[{code(key)}]({RULES}#fields)", code(hints[key])])
+        policy = t.get("merge_policy")
+        if isinstance(policy, dict) and (parent is None or policy != parent.get("merge_policy")):
+            rows.append([f"[{code('merge_policy')}]({RULES}#merge-policy)", merge_policy_value(t["id"], policy)])
+        if t.get("roles") and (parent is None or t["roles"] != parent.get("roles")):
+            rows.append([f"[{code('roles')}]({RULES}#roles)", ", ".join(code(r) for r in t["roles"])])
+        return [table(["Setting", "Value"], rows), ""] if rows else []
+
+    def fields_table(t, parent):
+        """A subtype lists only the fields it adds or changes."""
+        rows = [
+            [code(n), kind(f), "Yes" if f.get("required") else "", with_values(f["description"], f.get("enum_values"))]
+            for n, f in t["fields"].items()
+            if parent is None or parent["fields"].get(n) != f
+        ]
+        return [table(["Field", "Kind", "Required", "Description"], rows), ""] if rows else []
+
+    def page(t):
+        """A top-level type has a page of its own, whose header gives its label, description and
+        identifier, so its file starts with its fields. Its subtypes are sections of it."""
+        out = ["## Fields", "", *fields_table(t, None)]
+        own = settings(t, None)
+        if own:
+            out += ["## Settings", "", *own]
+        children = descendants(t)
+        if children:
+            out += ["## Subtypes", ""]
+        for child in children:
+            parent = by_id[child["parent"]]
+            out += [f"### {child['id']} [#{child['id'].replace('.', '-')}]", "", safe(plain(child["description"])), ""]
+            out += settings(child, parent) + fields_table(child, parent)
+        return out
+
+    top = [t for t in types if not t.get("parent")]
+    for t in top:
+        write(t["id"] + ".md", page(t))
+
+    # The Catalog's front page: each family's top-level types, linked to their pages.
+    index = []
+    for family, heading in (("core", "Core types"), ("system", "System types")):
+        rows = []
+        for t in top:
+            if t["id"].split(".")[0] != family:
+                continue
+            subtypes = ", ".join(
+                f"[{code(c['id'][len(t['id']) + 1:])}](/catalog/{slug(t)}#{c['id'].replace('.', '-')})" for c in descendants(t)
+            )
+            rows.append([f"[{code(t['id'])}](/catalog/{slug(t)})", t["description"], subtypes])
+        if not rows:
+            refuse(catalog_path, f"has no top-level {family} type")
+        if any(row[2] for row in rows):
+            index += [f"## {heading}", "", table(["Type", "Description", "Subtypes"], rows), ""]
+        else:
+            index += [f"## {heading}", "", table(["Type", "Description"], [row[:2] for row in rows]), ""]
+    if {t["id"].split(".")[0] for t in top} - {"core", "system"}:
+        refuse(catalog_path, "has a top-level type outside the core and system families")
+    write("types.md", index)
 
 
 def render_edges(edges):
@@ -540,13 +572,13 @@ def render_edges(edges):
         if e["written_at"] == "target" and not e.get("reverse_name"):
             refuse(catalog_path, f"has the edge type {e['id']} written at its target with no reverse_name")
         lines = [f"## {e['id']}", "", safe(plain(e["description"])), ""]
-        if e.get("reverse_name"):
-            lines.append(f"- **reverse_name:** {code(e['reverse_name'])}")
-        lines += [f"- **written_at:** {code(e['written_at'])}", ""]
+        if e["written_at"] == "target":
+            lines += [f"**written_at:** {code('target')}", ""]
         props = e.get("property_schema") or {}
         if props:
             check_fields(f"{e['id']} property", props, FIELD_KEYS)
-            lines += [table(["Property", "Kind", "Description"], [[code(n), kind(f), f["description"]] for n, f in props.items()]), ""]
+            rows = [[code(n), kind(f), with_values(f["description"], f.get("enum_values"))] for n, f in props.items()]
+            lines += [table(["Property", "Kind", "Description"], rows), ""]
         sections += lines
     write("edges.md", sections)
 
@@ -601,8 +633,16 @@ def properties(name):
     return props
 
 
-def enum_kind(node):
-    return code("enum") + " of " + ", ".join(code(v) for v in node["enum"])
+def enum_values(node):
+    """The values of an enum property, inline or through its reference, or None."""
+    if "allOf" in node:
+        node = next((p for p in node["allOf"] if "$ref" in p), node["allOf"][0])
+    if "$ref" in node:
+        name = node["$ref"].rsplit("/", 1)[-1]
+        if name in LINKS:
+            return None
+        node = schema(name)
+    return node.get("enum")
 
 
 def schema_kind(node, enums):
@@ -612,7 +652,7 @@ def schema_kind(node, enums):
             return f"[{code(name)}]({LINKS[name]})"
         target = schema(name)
         if "enum" in target and enums:
-            return enum_kind(target)
+            return code("enum")
         return code("object") if target.get("type") == "object" else schema_kind(target, enums)
     if "allOf" in node:
         parts = node["allOf"]
@@ -629,7 +669,7 @@ def schema_kind(node, enums):
             refuse(spec_path, "has an array property with no items")
         return code("array") + " of " + schema_kind(node["items"], enums)
     if "enum" in node and enums:
-        return enum_kind(node)
+        return code("enum")
     return code(kinds)
 
 
@@ -642,7 +682,38 @@ def describe(node):
 
 
 def rows(props, enums=False, skip=()):
-    return [[code(n), schema_kind(p, enums), describe(p)] for n, p in props.items() if n not in skip]
+    """With enums, an enum's values follow its description rather than its kind."""
+    return [
+        [code(n), schema_kind(p, enums), with_values(describe(p), enum_values(p) if enums else None)]
+        for n, p in props.items()
+        if n not in skip
+    ]
+
+
+# The fields every item has, in groups a reader looks for. A field the spec
+# gains is refused until it has a group here, so none goes missing.
+ITEM_GROUPS = (
+    ("Identity", ("id", "type", "tier")),
+    ("Content", ("properties", "edges", "extensions")),
+    ("Origin", ("source", "source_id", "capture_latitude", "capture_longitude")),
+    ("State", ("state", "trashed_by_cascade", "trashed_with")),
+    ("Version", ("version", "schema_version")),
+    ("Time", ("occurred_at", "created_at", "updated_at")),
+)
+
+
+def item_fields():
+    props = properties("Item")
+    grouped = {n for _, fields in ITEM_GROUPS for n in fields}
+    unknown = sorted(set(props) - grouped)
+    if unknown:
+        refuse(spec_path, f"has the item field {unknown[0]}, which the sync puts in no group")
+    lines = []
+    for heading, fields in ITEM_GROUPS:
+        present = {n: props[n] for n in fields if n in props}
+        if present:
+            lines += [f"### {heading}", "", table(["Field", "Kind", "Description"], rows(present, enums=True)), ""]
+    return lines
 
 
 def delivery(name):
@@ -658,7 +729,7 @@ def render_spec():
     schemas = json.load(open(spec_path, encoding="utf-8"))["components"]["schemas"]
     header = ["Field", "Kind", "Description"]
 
-    write("item-fields.md", [table(header, rows(properties("Item"), enums=True))])
+    write("item-fields.md", item_fields())
     write("edge-fields.md", [table(header, rows(properties("Edge")))])
 
     lines = ["## Item event fields", "", table(header, rows(properties("ItemEventFrame"))), ""]
@@ -705,7 +776,6 @@ rm -rf "$GENERATED/cli"
 mv "$COMMANDS_DIR" "$GENERATED/cli"
 mv "$ERRORS" "$GENERATED/error-codes.md"
 mv "$SETTINGS" "$GENERATED/settings.md"
-mv "$TYPES" "$GENERATED/core-types.md"
 mv "$EDGE_TYPES" "$GENERATED/edge-types.md"
 mv "$PERMISSIONS" "$GENERATED/permissions.md"
 mv "$EVENT_TYPES" "$GENERATED/event-types.md"
@@ -726,4 +796,4 @@ marfa --version
 \`\`\`
 DOWNLOAD
 
-echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE) and its CLI download synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE) and its CLI download synced from $MARFA_ROOT"

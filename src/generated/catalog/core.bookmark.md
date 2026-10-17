@@ -1,8 +1,4 @@
-- **Type:** `core.bookmark`
-- **Required:** None
-- **Title field:** `title`
-- **Body field:** `body`
-- **[Merge policy](/catalog/your-own-types#merge-policy):** `body` and `notes` `keep_both_copies`; every other field `last_writer_wins`
+## Fields
 
 | Field          | Kind               | Required | Description                                       |
 | -------------- | ------------------ | -------- | ------------------------------------------------- |
@@ -17,3 +13,11 @@
 | `image_url`    | `url`              |          | Preview image                                     |
 | `language`     | `string` (`bcp47`) |          | BCP 47 language code                              |
 | `notes`        | `string`           |          | Personal annotations                              |
+
+## Settings
+
+| Setting                                                | Value                                                                               |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| [`title_field`](/catalog/your-own-types#fields)        | `title`                                                                             |
+| [`body_field`](/catalog/your-own-types#fields)         | `body`                                                                              |
+| [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for `body` and `notes`; `last_writer_wins` for every other field |

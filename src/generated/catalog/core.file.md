@@ -1,7 +1,4 @@
-- **Type:** `core.file`
-- **Required:** `blob_ref` and `mime_type`
-- **Title field:** `title`
-- **[Merge policy](/catalog/your-own-types#merge-policy):** every field `last_writer_wins`
+## Fields
 
 | Field            | Kind               | Required | Description                                                                                                                                                |
 | ---------------- | ------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -18,7 +15,16 @@
 | `executable`     | `boolean`          |          | Whether the file may be run as a program; absent means it may not                                                                                          |
 | `size_bytes`     | `integer`          |          | Size in bytes of the referenced blob (set by the server from the bytes the instance holds; absent where whoever named blob_ref never proved it holds them) |
 
-## core.file.audio [#core-file-audio]
+## Settings
+
+| Setting                                                | Value                              |
+| ------------------------------------------------------ | ---------------------------------- |
+| [`title_field`](/catalog/your-own-types#fields)        | `title`                            |
+| [`merge_policy`](/catalog/your-own-types#merge-policy) | `last_writer_wins` for every field |
+
+## Subtypes
+
+### core.file.audio [#core-file-audio]
 
 Recordings, music files, voice memos. Inherits all core.file fields.
 
@@ -27,7 +33,7 @@ Recordings, music files, voice memos. Inherits all core.file fields.
 | `language` | `string` (`bcp47`) |          | BCP 47 language code (for spoken content)                                                       |
 | `duration` | `number`           |          | Length in seconds (server enrichment: derived from the file when the client does not supply it) |
 
-## core.file.image [#core-file-image]
+### core.file.image [#core-file-image]
 
 Photos, screenshots, diagrams. Inherits all core.file fields.
 
@@ -39,7 +45,7 @@ Photos, screenshots, diagrams. Inherits all core.file fields.
 | `longitude` | `number`  |          | Subject longitude                                                                              |
 | `altitude`  | `number`  |          | Altitude in meters                                                                             |
 
-## core.file.video [#core-file-video]
+### core.file.video [#core-file-video]
 
 Video files. Inherits all core.file fields.
 

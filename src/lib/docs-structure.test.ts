@@ -34,7 +34,7 @@ describe('the CLI page', () => {
 });
 
 describe('the lists the Catalog holds', () => {
-  const LISTS = ['core-types.md', 'edge-types.md', 'permissions.md', 'event-types.md'];
+  const LISTS = ['edge-types.md', 'permissions.md', 'event-types.md'];
 
   it('are included on Catalog pages only', () => {
     const outside = ALL_PAGES.filter(

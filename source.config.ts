@@ -1,5 +1,6 @@
 import { defineConfig, defineDocs } from 'fumadocs-mdx/config';
 import { pageSchema } from 'fumadocs-core/source/schema';
+import { z } from 'zod';
 import type { LLMsOptions } from 'fumadocs-core/mdx-plugins/remark-llms';
 
 /** The part of an MDX JSX node this file reads (mdast-util-mdx's shape). */
@@ -115,7 +116,9 @@ const llms: LLMsOptions = {
 export const docs = defineDocs({
   dir: 'content/docs',
   docs: {
-    schema: pageSchema,
+    // A Catalog type page names its type's identifier, which the header shows
+    // under the description and the Markdown copy under the title.
+    schema: pageSchema.extend({ identifier: z.string().optional() }),
     postprocess: {
       includeProcessedMarkdown: llms,
     },

@@ -23,7 +23,7 @@ describe('buildDocsMap', () => {
     expect(guides.some((line) => line.startsWith('- [Troubleshooting](/guides/troubleshooting)'))).toBe(true);
 
     const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Reference'));
-    expect(catalog.filter((line) => line.startsWith('### '))).toEqual(['### Core types', '### More types', '### Edges, events and permissions']);
+    expect(catalog.filter((line) => line.startsWith('### '))).toEqual(['### Core types', '### System types', '### Your own types', '### Edges, events and permissions']);
     expect(catalog.some((line) => line.startsWith('- [Media](/catalog/media)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('- [Catalog](/catalog)'))).toBe(true);
 

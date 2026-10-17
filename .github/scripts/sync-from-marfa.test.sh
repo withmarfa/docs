@@ -10,11 +10,12 @@
 # from it, and it takes the code table from the errors chapter into
 # src/generated/error-codes.md and the settings table from the instance chapter
 # into src/generated/settings.md, the tables of the shipped types, edge types,
-# permissions and event types from their chapters into src/generated/core-types.md,
-# edge-types.md, permissions.md and event-types.md, and it hashes every rule of
+# permissions and event types from their chapters into src/generated/edge-types.md,
+# permissions.md and event-types.md, and it hashes every rule of
 # the contract's chapters into src/generated/contract-index.json. It writes the
 # Catalog's files into src/generated/catalog, replaced whole: a Markdown file per
-# top-level type from the monorepo's type catalog, with its subtypes inside, the
+# top-level type from the monorepo's type catalog, with its subtypes inside, an
+# index of those types, the
 # edge types, three name lists, and the item, edge and event fields from the
 # spec's schemas. A description
 # that is missing, blank or the wrong type, a spec whose top level or `info` is
@@ -205,7 +206,8 @@ EOF
 )"
 
 # The four catalogue chapters every fixture holds, and the table the script
-# takes from each.
+# takes from the three it reads tables from. The types chapter only feeds the
+# contract index.
 catalogue_chapter() { # catalogue_chapter <marker> <header> <row>
   printf '# Chapter\n\n<!-- %s-table:start -->\n\n%s\n| --- | --- |\n%s\n\n<!-- %s-table:end -->\n' "$1" "$2" "$3" "$1"
 }
@@ -213,7 +215,6 @@ catalogue_expected() { # catalogue_expected <header> <row>
   printf '%s\n| --- | --- |\n%s' "$1" "$2"
 }
 types_chapter="$(catalogue_chapter types '| Type | Family |' '| `core.note` | core |')"
-types_expected="$(catalogue_expected '| Type | Family |' '| `core.note` | core |')"
 edges_chapter="$(catalogue_chapter edge-types '| Edge type | On delete |' '| `parent-of` | cascade |')"
 edges_expected="$(catalogue_expected '| Edge type | On delete |' '| `parent-of` | cascade |')"
 permissions_chapter="$(catalogue_chapter permissions '| Permission | Lets |' '| `keys.mint` | Minting keys. |')"
@@ -375,11 +376,7 @@ catalog_json="$(cat <<'EOF'
 EOF
 )"
 note_expected="$(cat <<'EOF'
-- **Type:** `core.note`
-- **Required:** `body`
-- **Title field:** `title`
-- **Body field:** `body`
-- **[Merge policy](/catalog/your-own-types#merge-policy):** `body` `keep_both_copies`; every other field `last_writer_wins`
+## Fields
 
 | Field      | Kind               | Required | Description       |
 | ---------- | ------------------ | -------- | ----------------- |
@@ -387,27 +384,34 @@ note_expected="$(cat <<'EOF'
 | `title`    | `string`           |          | A title \| or not |
 | `language` | `string` (`bcp47`) |          | A language        |
 
-## core.note.memo [#core-note-memo]
+## Settings
+
+| Setting                                                | Value                                                                   |
+| ------------------------------------------------------ | ----------------------------------------------------------------------- |
+| [`title_field`](/catalog/your-own-types#fields)        | `title`                                                                 |
+| [`body_field`](/catalog/your-own-types#fields)         | `body`                                                                  |
+| [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for `body`; `last_writer_wins` for every other field |
+
+## Subtypes
+
+### core.note.memo [#core-note-memo]
 
 A memo (for a team) with a level.
 
-- **Also required:** `title`
-- **[Roles](/catalog/your-own-types#roles):** `container`
+| Setting                                  | Value       |
+| ---------------------------------------- | ----------- |
+| [`roles`](/catalog/your-own-types#roles) | `container` |
 
-| Field   | Kind                    | Required | Description       |
-| ------- | ----------------------- | -------- | ----------------- |
-| `body`  | `string`                | Yes      | The memo text     |
-| `title` | `string`                | Yes      | A title \| or not |
-| `level` | `enum` of `low`, `high` |          | How urgent        |
-| `to`    | `array` of `string`     |          | Who it is for     |
+| Field   | Kind                | Required | Description                        |
+| ------- | ------------------- | -------- | ---------------------------------- |
+| `body`  | `string`            | Yes      | The memo text                      |
+| `title` | `string`            | Yes      | A title \| or not                  |
+| `level` | `enum`              |          | How urgent. Values: `low`, `high`. |
+| `to`    | `array` of `string` |          | Who it is for                      |
 EOF
 )"
 folder_expected="$(cat <<'EOF'
-## system.folder [#system-folder]
-
-A folder's settings. Active | revoked.
-
-- **Required:** `title`
+## Fields
 
 | Field   | Kind     | Required | Description       |
 | ------- | -------- | -------- | ----------------- |
@@ -419,8 +423,6 @@ catalog_edges_expected="$(cat <<'EOF'
 
 Member of a container.
 
-- **written_at:** `source`
-
 | Property   | Kind     | Description |
 | ---------- | -------- | ----------- |
 | `position` | `number` | Ordering.   |
@@ -429,17 +431,43 @@ Member of a container.
 
 Source is the parent of the target: once.
 
-- **reverse_name:** `child-of`
-- **written_at:** `target`
+**written_at:** `target`
+EOF
+)"
+
+types_index_expected="$(cat <<'EOF'
+## Core types
+
+| Type                         | Description                | Subtypes                               |
+| ---------------------------- | -------------------------- | -------------------------------------- |
+| [`core.note`](/catalog/note) | Text you wrote: a thought. | [`memo`](/catalog/note#core-note-memo) |
+
+## System types
+
+| Type                               | Description                             |
+| ---------------------------------- | --------------------------------------- |
+| [`system.folder`](/catalog/folder) | A folder's settings. Active \| revoked. |
 EOF
 )"
 
 item_fields_expected="$(cat <<'EOF'
-| Field   | Kind                           | Description       |
-| ------- | ------------------------------ | ----------------- |
-| `id`    | `string`                       | The item's ID.    |
-| `state` | `enum` of `active`, `archived` | The item's state. |
-| `edges` | `object`                       | Edges \| by type. |
+### Identity
+
+| Field | Kind     | Description    |
+| ----- | -------- | -------------- |
+| `id`  | `string` | The item's ID. |
+
+### Content
+
+| Field   | Kind     | Description       |
+| ------- | -------- | ----------------- |
+| `edges` | `object` | Edges \| by type. |
+
+### State
+
+| Field   | Kind   | Description                                     |
+| ------- | ------ | ----------------------------------------------- |
+| `state` | `enum` | The item's state. Values: `active`, `archived`. |
 EOF
 )"
 edge_fields_expected="$(cat <<'EOF'
@@ -518,7 +546,6 @@ fixture() {
   printf 'stale old command\n' > "${dir}/docs/src/generated/cli/old-command.md"
   printf 'stale codes\n' > "${dir}/docs/src/generated/error-codes.md"
   printf 'stale settings\n' > "${dir}/docs/src/generated/settings.md"
-  printf 'stale types\n' > "${dir}/docs/src/generated/core-types.md"
   printf 'stale edge types\n' > "${dir}/docs/src/generated/edge-types.md"
   printf 'stale permissions\n' > "${dir}/docs/src/generated/permissions.md"
   printf 'stale events\n' > "${dir}/docs/src/generated/event-types.md"
@@ -673,7 +700,7 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the type, edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3) and its CLI download synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3) and its CLI download synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -697,8 +724,6 @@ check "the error codes are the rows between the markers, and nothing else" \
   "${errors_expected}" "$(cat "${work}/good/docs/src/generated/error-codes.md")"
 check "the settings are the rows between the markers, and nothing else" \
   "${instance_expected}" "$(cat "${work}/good/docs/src/generated/settings.md")"
-check "the types are the rows between the markers, and nothing else" \
-  "${types_expected}" "$(cat "${work}/good/docs/src/generated/core-types.md")"
 check "the edge types are the rows between the markers, and nothing else" \
   "${edges_expected}" "$(cat "${work}/good/docs/src/generated/edge-types.md")"
 check "the permissions are the rows between the markers, and nothing else" \
@@ -713,7 +738,7 @@ check "the CLI download names that release and its archive" \
   "$(sed -n 2p "${work}/good/docs/src/generated/cli-download.md")"
 check "the CLI download is one bash block" '```bash|```' "$(head -1 "${work}/good/docs/src/generated/cli-download.md")|$(tail -1 "${work}/good/docs/src/generated/cli-download.md")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md catalog cli cli-download.md contract-index.json core-types.md edge-types.md error-codes.md event-types.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md catalog cli cli-download.md contract-index.json edge-types.md error-codes.md event-types.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 
 # The Catalog's files: a Markdown file for each top-level type with its subtypes
@@ -721,22 +746,24 @@ check "nothing else is left in the generated folder" \
 # schemas give an item, an edge and an event. The directory is replaced whole.
 catalog_dir="${work}/good/docs/src/generated/catalog"
 check "the catalog directory holds what the script writes, and the stale files are gone" \
-  "builtin-catalog.json core.note.md edge-fields.md edges.md event-fields.md item-fields.md reserved-field-names.md reserved-type-roots.md searched-field-names.md system.folder.md" \
+  "builtin-catalog.json core.note.md edge-fields.md edges.md event-fields.md item-fields.md reserved-field-names.md reserved-type-roots.md searched-field-names.md system.folder.md types.md" \
   "$(ls "${catalog_dir}" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 check "the folder can be read by anyone who can read the checkout" \
   755 "$(python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "${catalog_dir}")"
 check "the type catalog is copied byte for byte" \
   "$(cat "${work}/good/marfa/core/marfa-core/src/builtin_catalog.json")" "$(cat "${catalog_dir}/builtin-catalog.json")"
-check "a core type's file has its facts and fields, a subtype's section only what it adds or changes, and an em dash is a colon or a pair of parentheses" \
+check "a core type's file has its fields and settings, a subtype's section only what it adds or changes, an enum's values follow its description, and an em dash is a colon or a pair of parentheses" \
   "${note_expected}" "$(cat "${catalog_dir}/core.note.md")"
-check "a system type's file starts with its heading and description, and escapes a pipe" \
+check "a system type's file has its fields, as a core type's does" \
   "${folder_expected}" "$(cat "${catalog_dir}/system.folder.md")"
-check "each edge type is a section with its reverse name, where it is written and its properties" \
+check "each edge type is a section with its properties, and where it is written only when that is its target" \
   "${catalog_edges_expected}" "$(cat "${catalog_dir}/edges.md")"
+check "the index lists each family's top-level types, linked to their pages, with a subtype linked to its section and a pipe escaped" \
+  "${types_index_expected}" "$(cat "${catalog_dir}/types.md")"
 check "the reserved roots are one paragraph" '`app`, `core`' "$(cat "${catalog_dir}/reserved-type-roots.md")"
 check "the reserved field names are one paragraph" '`id`, `type`' "$(cat "${catalog_dir}/reserved-field-names.md")"
 check "the searched field names are one paragraph" '`body`, `title`' "$(cat "${catalog_dir}/searched-field-names.md")"
-check "the item's fields come from its schema, with a state's values and a pipe escaped" \
+check "the item's fields come from its schema in their groups, with a state's values after its description and a pipe escaped" \
   "${item_fields_expected}" "$(cat "${catalog_dir}/item-fields.md")"
 check "the edge's fields come from its schema" \
   "${edge_fields_expected}" "$(cat "${catalog_dir}/edge-fields.md")"
@@ -932,7 +959,6 @@ refuse_table_cases() {
 }
 refuse_table_cases errors.md errors code Code
 refuse_table_cases instance.md settings settings Setting
-refuse_table_cases types.md types types Type
 refuse_table_cases edges.md edge-types "edge types" "Edge type"
 refuse_table_cases keys-and-oauth.md permissions permissions Permission
 refuse_table_cases events.md event-types "event types" Event
@@ -1045,9 +1071,9 @@ catalog_with 'c["types"][0]["merge_policy"] = {"default": "keep_both_copies", "f
 sync shapes
 check "a default of both copies and a subtype with no field to add: the script succeeds" 0 "${status}"
 check "a default of both copies names the fields that do not keep both, as values" 1 \
-  "$(grep -c '^- \*\*\[Merge policy\](/catalog/your-own-types#merge-policy):\*\* `title` and `language` `last_writer_wins`; every other field `keep_both_copies`$' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
+  "$(grep -cF '| [`merge_policy`](/catalog/your-own-types#merge-policy) | `last_writer_wins` for `title` and `language`; `keep_both_copies` for every other field |' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
 check "a subtype with nothing to add is a heading and its description" \
-  "$(printf '## core.note.bare [#core-note-bare]\n\nA note.')" "$(sed -n '/^## core.note.bare \[#core-note-bare\]$/,$p' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
+  "$(printf '### core.note.bare [#core-note-bare]\n\nA note.')" "$(sed -n '/^### core.note.bare \[#core-note-bare\]$/,$p' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
 
 # A subtype says what its parent does not already say: display hints and a merge policy only where
 # they differ from the parent's, and nothing where they are equal.
@@ -1059,13 +1085,13 @@ sync drift
 drift_file="${work}/drift/docs/src/generated/catalog/core.note.md"
 check "a subtype that differs from its parent: the script succeeds" 0 "${status}"
 check "a subtype equal to its parent says nothing of hints or merge policy" \
-  "$(printf '## core.note.same [#core-note-same]\n\nSays what the parent says.')" \
-  "$(sed -n '/^## core.note.same/,/^## core.note.drift/p' "${drift_file}" | sed '$d')"
+  "$(printf '### core.note.same [#core-note-same]\n\nSays what the parent says.')" \
+  "$(sed -n '/^### core.note.same/,/^### core.note.drift/p' "${drift_file}" | sed '$d')"
 check "a subtype that differs says its hints and merge policy as values" \
-  "$(printf '%s\n%s\n%s' '- **Title field:** `language`' '- **Body field:** `body`' '- **[Merge policy](/catalog/your-own-types#merge-policy):** every field `keep_both_copies`')" \
-  "$(sed -n '/^## core.note.drift/,$p' "${drift_file}" | grep '^- \*\*')"
+  "$(printf '%s\n%s\n%s' '| [`title_field`](/catalog/your-own-types#fields)        | `language`                         |' '| [`body_field`](/catalog/your-own-types#fields)         | `body`                             |' '| [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for every field |')" \
+  "$(sed -n '/^### core.note.drift/,$p' "${drift_file}" | grep '^| \[`')"
 check "the parent says its own hints once, and a subtype equal to it adds none" 1 \
-  "$(grep -c '^- \*\*Title field:\*\* `title`$' "${drift_file}")"
+  "$(grep -cE '^\| \[`title_field`\].*\| `title` +\|$' "${drift_file}")"
 
 # spec_with <python statements on the spec s>: the fixture's spec, changed.
 spec_with() {
@@ -1079,7 +1105,8 @@ refuse "no stream frame schema" "${sch_file} has no schema StreamLiveFrame. Noth
 refuse "an edge schema with no properties" "${sch_file} has no properties on the schema Edge. Nothing has changed." "$(spec_with 's["components"]["schemas"]["Edge"]["properties"] = {}')"
 refuse "a frame with no name constant" "${sch_file} has no event_type constant on the schema CursorAheadFrame. Nothing has changed." "$(spec_with 'del s["components"]["schemas"]["CursorAheadFrame"]["properties"]["event_type"]["const"]')"
 refuse "a webhook body that is not a frame plus its fields" "${sch_file} has a webhook schema WebhookItemEvent that is not a frame plus its delivery fields. Nothing has changed." "$(spec_with 's["components"]["schemas"]["WebhookItemEvent"] = {"type": "object"}')"
-refuse "an array property with no items" "${sch_file} has an array property with no items. Nothing has changed." "$(spec_with 's["components"]["schemas"]["Item"]["properties"]["tags"] = {"type": "array", "description": "Tags."}')"
+refuse "an array property with no items" "${sch_file} has an array property with no items. Nothing has changed." "$(spec_with 's["components"]["schemas"]["Edge"]["properties"]["tags"] = {"type": "array", "description": "Tags."}')"
+refuse "an item field in no group" "${sch_file} has the item field colour, which the sync puts in no group. Nothing has changed." "$(spec_with 's["components"]["schemas"]["Item"]["properties"]["colour"] = {"type": "string", "description": "A colour."}')"
 refuse "a property with no type" "${sch_file} has a property with no type. Nothing has changed." "$(spec_with 'del s["components"]["schemas"]["Edge"]["properties"]["id"]["type"]')"
 
 echo "a spec whose webhook bodies add different fields"
