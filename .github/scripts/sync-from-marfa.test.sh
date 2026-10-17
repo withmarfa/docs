@@ -9,7 +9,7 @@
 # into src/generated/cli/global-options.md and exit-codes.md and nothing else
 # from it, and it takes the code table from the errors chapter into
 # src/generated/error-codes.md and the settings table from the instance chapter
-# into src/generated/settings.md, the tables of the shipped types, edge types,
+# into src/generated/settings.md, the tables of the shipped edge types,
 # permissions and event types from their chapters into src/generated/edge-types.md,
 # permissions.md and event-types.md, and it hashes every rule of
 # the contract's chapters into src/generated/contract-index.json. It writes the
