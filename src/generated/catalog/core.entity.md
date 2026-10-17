@@ -1,7 +1,4 @@
-- **Type:** `core.entity`
-- **Required:** `name`
-- **Title field:** `name`
-- **[Merge policy](/catalog/your-own-types#merge-policy):** every field `last_writer_wins`
+## Fields
 
 | Field         | Kind     | Required | Description                       |
 | ------------- | -------- | -------- | --------------------------------- |
@@ -16,7 +13,16 @@
 | `founded`     | `date`   |          | Founding date (ISO 8601)          |
 | `notes`       | `string` |          | Personal annotations              |
 
-## core.entity.person [#core-entity-person]
+## Settings
+
+| Setting                                                | Value                              |
+| ------------------------------------------------------ | ---------------------------------- |
+| [`title_field`](/catalog/your-own-types#fields)        | `name`                             |
+| [`merge_policy`](/catalog/your-own-types#merge-policy) | `last_writer_wins` for every field |
+
+## Subtypes
+
+### core.entity.person [#core-entity-person]
 
 Contact information for an individual. Inherits all core.entity fields.
 
@@ -34,7 +40,7 @@ Contact information for an individual. Inherits all core.entity fields.
 | `birthday`     | `date`   |          | Date of birth (ISO 8601)           |
 | `pronouns`     | `string` |          | Pronouns                           |
 
-## core.entity.place [#core-entity-place]
+### core.entity.place [#core-entity-place]
 
 A location or venue. Inherits all core.entity fields.
 

@@ -138,7 +138,15 @@ const clientLoader = browserCollections.docs.createClientLoader({
           </div>
         </div>
         {frontmatter.description ? (
-          <DocsDescription>{frontmatter.description}</DocsDescription>
+          <DocsDescription className={frontmatter.identifier ? 'mb-0' : undefined}>
+            {frontmatter.description}
+          </DocsDescription>
+        ) : null}
+        {frontmatter.identifier ? (
+          <p className="marfa-identifier">
+            <span>Identifier</span>
+            <code>{frontmatter.identifier}</code>
+          </p>
         ) : null}
         <DocsBody>
           <MDX components={useMDXComponents()} />
