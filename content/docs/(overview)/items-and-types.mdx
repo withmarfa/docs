@@ -52,14 +52,46 @@ A feed item stays in the feed until someone acts on it. To keep one, an app make
 
 ## An item's life
 
-An item starts `active`. It can be archived, which sets it aside without deleting it, or trashed, which moves it to the trash. From the trash it can be restored, or purged for good.
+An item starts `active`. It can be archived, which sets it aside without deleting it, or moved to the bin, where its state is `trashed`. From the bin it can be restored, or purged for good.
 
 <ItemLifecycle />
 
 - **Archived** items stay readable by their `id`, but listings leave them out unless they ask for them.
-- **Trashing** an item also trashes the items under it, such as a task's subtasks, and restoring it brings them back.
-- **Purging** deletes an item and its history. Marfa also purges what has been in the trash longer than the trash retention, 60 days by default.
+- **Moving an item to the bin** also moves the items under it, such as a task's subtasks, and restoring it brings them back.
+- **Purging** deletes an item and its history. Marfa also purges what has been in the bin longer than `TRASH_RETENTION_DAYS`, 60 days by default.
 
-None of these moves changes an item's version, so an edit made before a trash still lands after a restore. [Change an item's state](/api-reference/items/transitionItem) and [Purge an item](/api-reference/items/purgeItem) are the operations.
+None of these moves changes an item's version, so an edit made before a move to the bin still lands after a restore. [Change an item's state](/api-reference/items/transitionItem) and [Purge an item](/api-reference/items/purgeItem) are the operations.
+
+### Empty the bin
+
+**Only an item in the bin can be purged, and purging is permanent.** A key needs the `items.purge` permission, and the private socket can't do it, because it carries no key. To empty the bin in one step, purge every item whose state is `trashed`:
+
+```bash tab="CLI" tab-group="client"
+marfa items bulk-action purge --state trashed --confirm PURGE
+```
+
+```http tab="HTTP"
+POST /items/bulk-actions
+Authorization: Bearer <a key holding items.purge>
+Content-Type: application/json
+
+{ "action": "purge", "confirm": "PURGE", "filter": { "state": "trashed" } }
+```
+
+Marfa answers that it queued the purge as a job:
+
+```json
+{
+  "id": "01a150c0-71c7-7ea5-b5a4-68b6267b988a",
+  "action": "purge",
+  "status": "queued",
+  "matched": 3,
+  "processed": 0,
+  "succeeded": 0,
+  "errored": 0
+}
+```
+
+`marfa items bulk-action job <id>` shows the job again, and its `status` is `completed` once the purge has finished. Add `--dry-run` first to list what the purge would take and change nothing. A bin of more than 10,000 items is refused with `400 bulk_cap_exceeded` unless you raise `--max-items`, which Marfa counts as 50,000 at most: purge what's left with a second run. To purge one item, run `marfa items purge <id>`. Left alone, the bin empties itself: the `trash-purge` [housekeeping job](/guides/housekeeping) purges each item once it has been there longer than `TRASH_RETENTION_DAYS`, which [Settings](/guides/settings#change-settings-while-it-runs) can change while the server runs.
 
 The rules behind this page are in the [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) and [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) chapters of the contract.
