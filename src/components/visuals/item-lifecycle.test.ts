@@ -25,8 +25,8 @@ describe('item lifecycle figure', () => {
       [
         'active > archived (archive)',
         'archived > active (unarchive)',
-        'active > trashed (trash)',
-        'archived > trashed (trash)',
+        'active > trashed (delete)',
+        'archived > trashed (delete)',
         'trashed > active (restore)',
         'trashed > purged (purge)',
       ].sort(),
