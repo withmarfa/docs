@@ -26,6 +26,8 @@ Source item is a member of the target container. The target may be any type decl
 
 Where an item's file sits in a folder: the source is the item, the target the folder's `system.folder`, and `path` the file's path relative to the folder's root. Placement only; a folder's search alone decides what it holds, and the edge is never written in a file's frontmatter. An item may sit in any number of folders. Revoking or removing the folder leaves its items in place, and a revoked folder takes no new placement.
 
+**written_at:** `none`
+
 | Property | Kind     | Description                                                                                                                                                |
 | -------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `path`   | `string` | The file's path relative to the folder's root, with `/` between names; required, and it may not climb out of the folder. The edge takes no other property. |

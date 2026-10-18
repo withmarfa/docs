@@ -3,7 +3,7 @@ title: Housekeeping
 description: See the work an instance does on itself, read what each housekeeping job last did, and run one now.
 ---
 
-An instance looks after itself on a schedule: it purges the trash, thins old versions, clears old log entries, sends webhook deliveries, and copies and checks blobs. Each piece of that work is a housekeeping job, and one scheduler runs them all from one table. Reading what each job last did is how you check that an instance is keeping up, and running one yourself applies a new retention without waiting for its schedule.
+An instance looks after itself on a schedule: it purges the trash, thins old versions, moves expired feed items to the trash, clears old log entries, sends webhook deliveries, and copies and checks blobs. Each piece of that work is a housekeeping job, and one scheduler runs them all from one table. Reading what each job last did is how you check that an instance is keeping up, and running one yourself applies a new retention without waiting for its schedule.
 
 **Listing needs the `instance.read` permission, and running needs `instance.maintain`**; neither reads or writes any item. The owner needs no key for either, through the private socket or signed in to the instance's Manage Marfa pages.
 
@@ -64,6 +64,7 @@ A housekeeping job whose `last_outcome` stays `error`, or whose `next_run_at` is
 | `dcr-client-cleanup` | Deletes an app's registration that no approval or token holds, once it has been idle for `MARFA_DCR_CLIENT_RETENTION_DAYS` (default 1 day). Idle is counted from the registration, or from the last time the consent screen or the device approval page showed it to the owner. | 1 hour |
 | `enrichment-sweep` | Reads the bytes of file items, and writes an image's `width` and `height` and a file's `extracted_text` onto the item. | 30 seconds |
 | `event-log-cleanup` | Deletes events, and the stored answers to requests sent with an `Idempotency-Key`, older than the event log retention. | 1 hour |
+| `feed-expiry` | Moves feed items to the trash once their type's `retention_policy` window has passed since they arrived. | 1 hour |
 | `grant-inactivity-retirement` | Disconnects an app you signed in to once it goes unused for `MARFA_GRANT_INACTIVITY_DAYS` (default 365). | 1 day (fixed) |
 | `heartbeat` | Sends a `GET` request to `MARFA_HEARTBEAT_URL`, so a monitor somewhere else can tell the instance is up. | 1 minute |
 | `inbound-delivery-cleanup` | Deletes inbound webhook deliveries past their retention: handled ones after 7 days and unhandled ones after 30, by default. | 1 minute |
@@ -76,6 +77,8 @@ A housekeeping job whose `last_outcome` stays `error`, or whose `next_run_at` is
 | `webhook-schedule` | Reads new events from the event log, and queues a delivery for each webhook that subscribes to them. | 1 second (fixed) |
 
 </ReferenceList>
+
+`feed-expiry` acts only on a type that has a `feed_days` window in its [retention policy](/catalog/your-own-types#retention-policy), set on the type or taken from a parent. It moves an active feed item to the trash, as a delete does, once more than that many days have passed since the item arrived. **Library items, archived items and items brought back from the trash are kept**, and a type with no window keeps its items. A moved item can be restored until the trash retention ends, and `trash-purge` then deletes it for good. Each run reports `moved` and `held` in `last_result`; `held` counts expired items it left alone because deleting them would also delete an item that hasn't expired or isn't a feed item, or because an edge with `cascade_on_delete` set to `block` refuses the delete. [Settings](/guides/settings#every-environment-setting) names `FEED_EXPIRY_INTERVAL_MS`.
 
 A setting can switch a housekeeping job off, and **one that's off isn't listed**.
 
