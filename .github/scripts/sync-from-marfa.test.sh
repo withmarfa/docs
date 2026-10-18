@@ -264,6 +264,14 @@ EOF
 housekeeping_chapter="$(cat <<'EOF'
 # Housekeeping
 
+<!-- housekeeping-table:start -->
+
+| Job | What it does |
+| --- | ------------ |
+| `trash-purge` | Purges expired trash. |
+
+<!-- housekeeping-table:end -->
+
 ### `housekeeping/run-unknown-name`
 
 The server MUST answer `404`.
@@ -563,6 +571,7 @@ fixture() {
   printf 'stale status\n' > "${dir}/docs/src/generated/cli/status.md"
   printf 'stale old command\n' > "${dir}/docs/src/generated/cli/old-command.md"
   printf 'stale codes\n' > "${dir}/docs/src/generated/error-codes.md"
+  printf 'stale housekeeping\n' > "${dir}/docs/src/generated/housekeeping.md"
   printf 'stale settings\n' > "${dir}/docs/src/generated/settings.md"
   printf 'stale edge types\n' > "${dir}/docs/src/generated/edge-types.md"
   printf 'stale permissions\n' > "${dir}/docs/src/generated/permissions.md"
@@ -718,7 +727,7 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3) and its CLI download synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3) and its CLI download synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -756,7 +765,7 @@ check "the CLI download names that release and its archive" \
   "$(sed -n 2p "${work}/good/docs/src/generated/cli-download.md")"
 check "the CLI download is one bash block" '```bash|```' "$(head -1 "${work}/good/docs/src/generated/cli-download.md")|$(tail -1 "${work}/good/docs/src/generated/cli-download.md")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md catalog cli cli-download.md contract-index.json edge-types.md error-codes.md event-types.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md catalog cli cli-download.md contract-index.json edge-types.md error-codes.md event-types.md housekeeping.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 
 # The Catalog's files: a Markdown file for each top-level type with its subtypes
@@ -977,6 +986,9 @@ refuse_table_cases() {
 }
 refuse_table_cases errors.md errors code Code
 refuse_table_cases instance.md settings settings Setting
+refuse_table_cases housekeeping.md housekeeping "housekeeping jobs" Job
+refuse_table housekeeping housekeeping.md housekeeping "housekeeping jobs" "duplicate start marker" "${housekeeping_chapter}\n<!-- housekeeping-table:start -->"
+refuse_table housekeeping housekeeping.md housekeeping "housekeeping jobs" "duplicate end marker" "${housekeeping_chapter}\n<!-- housekeeping-table:end -->"
 refuse_table_cases edges.md edge-types "edge types" "Edge type"
 refuse_table_cases keys-and-oauth.md permissions permissions Permission
 refuse_table_cases events.md event-types "event types" Event
@@ -1012,7 +1024,7 @@ refuse_contract() {
   fixture "${name}" "${work}/untagged.json"
   local dir="${work}/${name}/marfa/conformance/spec"
   printf '%b' "$2" > "${dir}/blobs.md"
-  if [ "${3:-}" = alone ]; then rm "${dir}/housekeeping.md"; fi
+  if [ "${3:-}" = alone ]; then sed '/^### /,$d' "${dir}/housekeeping.md" > "${dir}/housekeeping-only.md"; mv "${dir}/housekeeping-only.md" "${dir}/housekeeping.md"; fi
   local before; before="$(everything "${name}")"
   sync "${name}"
   check "${1}: exits 1" 1 "${status}"
@@ -1141,6 +1153,11 @@ check "each shape of webhook body gets its own table" \
   "$(grep '^## .*webhook delivery fields$' "${work}/two-deliveries/docs/src/generated/catalog/event-fields.md" | paste -sd'|' -)|$(grep -c '^## .*webhook delivery fields$' "${work}/two-deliveries/docs/src/generated/catalog/event-fields.md")"
 check "the field only one shape adds is in the edge table" 1 \
   "$(sed -n '/^## Edge webhook delivery fields$/,/^## Stream/p' "${work}/two-deliveries/docs/src/generated/catalog/event-fields.md" | grep -c '`attempt`')"
+
+check "the housekeeping rows are copied without their markers" \
+  '| Job | What it does |
+| --- | ------------ |
+| `trash-purge` | Purges expired trash. |' "$(cat "${work}/good/docs/src/generated/housekeeping.md")"
 
 echo "temporary files"
 check "no temporary file or folder is left behind, by a success or a refusal" "" "$(ls -A "${work}/tmp")"
