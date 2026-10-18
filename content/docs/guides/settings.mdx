@@ -61,7 +61,7 @@ The configuration at `/config` **takes effect at once, with no restart**. Readin
 | `enforcement.strict_mode` | `{ types }` | The types that refuse a property their type doesn't declare. |
 | `enforcement.source_allowlist` | `{ types, sources }` | The types that take new items only from the listed sources. |
 | `enforcement.source_filter` | `{ types, sources }` | The types whose listings, searches, exports, event streams and webhook deliveries show only items from the listed sources. |
-| `trash_retention_days` | `integer` | Days an item stays in the trash before Marfa purges it. Overrides `TRASH_RETENTION_DAYS`. |
+| `trash_retention_days` | `integer` | Days an item stays in the bin before Marfa purges it. Overrides `TRASH_RETENTION_DAYS`. |
 | `audit_retention_days` | `integer` | Days Marfa keeps audit log entries and the history of outbound webhook deliveries. Overrides `AUDIT_RETENTION_DAYS`. |
 | `event_log_retention_hours` | `integer` | Hours Marfa keeps events for a stream to replay. Overrides `MARFA_EVENT_LOG_RETENTION_HOURS`. |
 | `inbound_handled_retention_days` | `integer` | Days Marfa keeps an inbound webhook delivery a connector has marked handled. Overrides `MARFA_INBOUND_HANDLED_RETENTION_DAYS`. |
@@ -94,7 +94,7 @@ An instance that has set nothing answers its `instance_id` alone:
 
 ### Replace the configuration
 
-**A replace sets the whole configuration: a field you leave out goes back to its default.** Read the configuration first, change what you need, and send all of it back. This names the instance Library, keeps the trash for 30 days and makes `core.note` refuse a property it doesn't declare:
+**A replace sets the whole configuration: a field you leave out goes back to its default.** Read the configuration first, change what you need, and send all of it back. This names the instance Library, keeps the bin for 30 days and makes `core.note` refuse a property it doesn't declare:
 
 ```bash tab="CLI" tab-group="client"
 marfa config replace --body '{"name": "Library", "enforcement": {"strict_mode": {"types": ["core.note"]}}, "trash_retention_days": 30}'
@@ -127,5 +127,67 @@ Each lever names types. `strict_mode` and `source_allowlist` hold for exactly th
 `source_filter` hides the items of a type, and of the types under it, whose source isn't listed, from every read that returns a set: listings, searches, counts and exports. It narrows the event stream too, live and on a replay from a cursor, and the deliveries of a webhook subscription: neither carries an event for a hidden item, and neither carries an edge event when the filter hides the edge's source item. A delivery already waiting is settled unsent once the filter comes to hide its item. An edge counts toward a `backref` term of a filter only if the filter shows its source item. An item with no source is judged as one whose source is `unknown`. **Reading an item by its ID isn't filtered.** A copy stream, which a device uses to keep its working copy, still sends such an item, marked `listed: false`, so the device holds every row it may read.
 
 A key can carry levers of its own in `enforcement_override`, which **replace the instance's for that key, looser or stricter**. A key minted with `--enforcement-override '{"source_filter": {"types": ["core.note"], "sources": ["notes-app"]}}'` lists only the notes the notes app wrote. Setting a key's levers needs `config.manage`, or the owner's own authority.
+
+## Move the clock for a test
+
+`MARFA_TEST_HOOKS` and `MARFA_TEST_CLOCK_OFFSET_MS` are for the conformance harness, the test suite that holds a server to the contract. It moves the server's clock to test a rule that waits days, without waiting. **Never set either on an instance that holds real data.**
+
+With `MARFA_TEST_HOOKS=true`, the server serves a clock route and a fault route under `/_control/test` on the private socket, and nowhere else. The server refuses to start with the setting when `NODE_ENV` is `production`, which the container sets, so only a server you run with Node yourself can use it. `MARFA_TEST_CLOCK_OFFSET_MS` sets how far ahead of the system clock the server's clock starts, so a restart after a move doesn't send time back. It needs `MARFA_TEST_HOOKS`.
+
+`GET /_control/test/clock` answers the `offset_ms` and the server's `now`. `POST /_control/test/clock` with `{ "advance_ms": 172800000 }` moves the clock forward by that many milliseconds, and answers the same. **The clock moves forward only**: a negative or fractional step is refused `400 validation_error`, because ids, versions and cursors assume time never goes back. Everything that reads the time moves with it, such as the times on new items, key expiry and the age housekeeping counts. Timers don't, so each job still runs on its own schedule.
+
+To try feed expiry, start a server with `MARFA_TEST_HOOKS=true`, then give a type a one-day feed window and let a day pass:
+
+<Steps>
+<Step>
+
+Register a type whose feed items expire after one day, and put one in the feed:
+
+```bash
+marfa types register --body '{"id":"user.headline","fields":{"title":{"type":"string","required":true}},"retention_policy":{"feed_days":1}}'
+marfa items create --type user.headline --prop title="Today" --tier feed
+```
+
+</Step>
+<Step>
+
+Move the clock two days forward, through the socket:
+
+```bash
+curl --unix-socket /srv/marfa/data/control/marfa.sock \
+  -X POST http://localhost/_control/test/clock \
+  -H 'Content-Type: application/json' -d '{"advance_ms": 172800000}'
+```
+
+</Step>
+<Step>
+
+Run the job, instead of waiting for its hourly turn, and read the item from the bin:
+
+```bash
+marfa housekeeping run feed-expiry
+marfa items list --state trashed --type user.headline
+```
+
+```json
+{
+  "name": "feed-expiry",
+  "started_at": "2026-10-22T20:42:52.014Z",
+  "finished_at": "2026-10-22T20:42:52.016Z",
+  "outcome": "ok",
+  "result": {
+    "moved": 1,
+    "held": 0,
+    "types": 1,
+    "unresolvable": 0
+  },
+  "error": null
+}
+```
+
+</Step>
+</Steps>
+
+[Housekeeping](/guides/housekeeping) covers the job and [Type rules](/catalog/your-own-types#retention-policy) the policy.
 
 The rules behind this page are in the [instance](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#settings) chapter, the [enforcement levers](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#enforcement-levers) in the types chapter, and the [retention](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md#retention) rules in the housekeeping chapter of the contract.
