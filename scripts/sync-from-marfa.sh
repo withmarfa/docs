@@ -14,6 +14,7 @@
 #   src/generated/error-codes.md      the contract's table of error codes,
 #                                     written from the server's own code list,
 #                                     included by the Errors page
+#   src/generated/housekeeping.md     the registered housekeeping job table
 #   src/generated/settings.md         the contract's table of the instance's
 #                                     environment settings, written from the
 #                                     server's own setting list, included by
@@ -75,7 +76,7 @@ if [ ! -f "$MARFA_ROOT/pnpm-workspace.yaml" ]; then
   exit 1
 fi
 
-for file in openapi.json GLOSSARY.md core/marfa-cli/COMMANDS.md core/marfa-core/src/builtin_catalog.json conformance/spec/errors.md conformance/spec/instance.md conformance/spec/types.md conformance/spec/edges.md conformance/spec/keys-and-oauth.md conformance/spec/events.md; do
+for file in openapi.json GLOSSARY.md core/marfa-cli/COMMANDS.md core/marfa-core/src/builtin_catalog.json conformance/spec/errors.md conformance/spec/housekeeping.md conformance/spec/instance.md conformance/spec/types.md conformance/spec/edges.md conformance/spec/keys-and-oauth.md conformance/spec/events.md; do
   if [ ! -s "$MARFA_ROOT/$file" ]; then
     echo "No $file in $MARFA_ROOT. Nothing has changed." >&2
     exit 1
@@ -101,13 +102,14 @@ CANDIDATE="$(mktemp "${TMPDIR:-/tmp}/marfa-openapi.XXXXXX")"
 OVERVIEW="$(mktemp "${TMPDIR:-/tmp}/marfa-overview.XXXXXX")"
 COMMANDS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marfa-cli.XXXXXX")"
 ERRORS="$(mktemp "${TMPDIR:-/tmp}/marfa-errors.XXXXXX")"
+HOUSEKEEPING="$(mktemp "${TMPDIR:-/tmp}/marfa-housekeeping.XXXXXX")"
 SETTINGS="$(mktemp "${TMPDIR:-/tmp}/marfa-settings.XXXXXX")"
 EDGE_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-edge-types.XXXXXX")"
 PERMISSIONS="$(mktemp "${TMPDIR:-/tmp}/marfa-permissions.XXXXXX")"
 EVENT_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-event-types.XXXXXX")"
 INDEX="$(mktemp "${TMPDIR:-/tmp}/marfa-contract-index.XXXXXX")"
 CATALOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marfa-catalog.XXXXXX")"
-cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$ERRORS" "$SETTINGS" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$CATALOG_DIR"; }
+cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$ERRORS" "$HOUSEKEEPING" "$SETTINGS" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$CATALOG_DIR"; }
 trap cleanup EXIT
 
 # The overview page includes this file under its own level-2 heading, so every
@@ -252,6 +254,7 @@ PY
 }
 
 extract_table errors.md errors "$ERRORS" code
+extract_table housekeeping.md housekeeping "$HOUSEKEEPING" "housekeeping jobs"
 extract_table instance.md settings "$SETTINGS" settings
 extract_table edges.md edge-types "$EDGE_TYPES" "edge types"
 extract_table keys-and-oauth.md permissions "$PERMISSIONS" permissions
@@ -779,6 +782,7 @@ mv "$OVERVIEW" "$GENERATED/api-overview.md"
 rm -rf "$GENERATED/cli"
 mv "$COMMANDS_DIR" "$GENERATED/cli"
 mv "$ERRORS" "$GENERATED/error-codes.md"
+mv "$HOUSEKEEPING" "$GENERATED/housekeeping.md"
 mv "$SETTINGS" "$GENERATED/settings.md"
 mv "$EDGE_TYPES" "$GENERATED/edge-types.md"
 mv "$PERMISSIONS" "$GENERATED/permissions.md"
@@ -800,4 +804,4 @@ marfa --version
 \`\`\`
 DOWNLOAD
 
-echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE) and its CLI download synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE) and its CLI download synced from $MARFA_ROOT"
