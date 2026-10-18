@@ -31,7 +31,7 @@ Copy the key: **Marfa shows it only once**. `--type-permission core.note=write` 
 ### Create the project
 
 1. In Xcode, choose File > New > Project, choose Multiplatform, then App, and name the app `ReadingList`.
-2. Choose File > Add Package Dependencies, and enter `https://github.com/withmarfa/marfa-swift`. Set the dependency rule to Exact Version, enter the version of the [latest release](https://github.com/withmarfa/marfa-swift/releases/latest), such as `0.0.16`, and add the `Marfa` product to the `ReadingList` target.
+2. Choose File > Add Package Dependencies, and enter `https://github.com/withmarfa/marfa-swift`. Set the dependency rule to Exact Version, enter the version of the [latest release](https://github.com/withmarfa/marfa-swift/releases/latest), such as `0.0.18`, and add the `Marfa` product to the `ReadingList` target.
 3. In the target's Build Settings, set Excluded Architectures for Any iOS Simulator SDK to `x86_64`. Marfa's core is built for Apple silicon only.
 4. In the target's Signing & Capabilities, under App Sandbox, turn on Outgoing Connections (Client), so the Mac app can reach the server.
 
@@ -167,7 +167,7 @@ Add the functions that write, and the one that sends the queue:
     func rename(_ note: Item, to title: String) async {
         await write { copy in
             _ = try await copy.items.update(
-                note.id, Edit(.merge(["title": .string(title)]), baseVersion: note.version))
+                note.id, Edit(properties: ["title": .string(title)], baseVersion: note.version))
         }
     }
 
@@ -218,7 +218,7 @@ Add the functions that write, and the one that sends the queue:
     }
 ```
 
-`items.create` and `items.update` **return at once**: the change shows in the working copy, and the write waits in the queue. An `Edit` carries the version of the note the app read, so the instance can tell whether someone else changed it since, and `.merge` changes only the title.
+`items.create` and `items.update` **return at once**: the change shows in the working copy, and the write waits in the queue. An `Edit` carries the version of the note the app read, so the instance can tell whether someone else changed it since, and it changes only the title.
 
 `send()` drains the queue: it sends the writes in order and reports what the instance answered. If the server can't be reached, the report says so in `unavailable`, and **the writes stay queued for later**.
 
@@ -273,7 +273,7 @@ Add the last two functions:
     }
 ```
 
-`follow(_:)` holds a `changes()` stream, which tells the app about every change to the working copy, whether the app made it or another device did. It also says when the server goes away, `.serverUnreachable`, and when it comes back, `.serverReachable`. **The stream sends what waited by itself**, once each time the server is back, so the app starts no drain on `.serverReachable`. It tells how the drain ended: `.queueDrained` with the drain's report, which `apply(_:)` reads like the one from `send()`, or `.queueNotDrained` with the error that stopped it. A drain that stopped leaves the rest of the writes queued, and the stream doesn't try again until the server next returns, so `send()` after the next write sends them.
+`follow(_:)` holds a `changes()` stream, which tells the app about every change to the working copy, whether the app made it or another device did. It also says when the server goes away, `.serverUnreachable`, and when it comes back, `.serverReachable`. **The stream sends what waited by itself**, once each time the server is back and once after a drain left a write undelivered, so the app starts no drain on `.serverReachable`. It tells how the drain ended: `.queueDrained` with the drain's report, which `apply(_:)` reads like the one from `send()`, or `.queueNotDrained` with the error that stopped it. A drain that stopped leaves the rest of the writes queued. The stream drains again when the server next returns, and once more for a `send()` that left a write undelivered, and `send()` after the next write sends them sooner.
 
 `.stopped` means the stream can't go on without the app's help, and `handle(_:)` gives errors from any call the same treatment. A `copyExpired` copy can't be kept current from where it stands, for example because the server at its address is now another instance (`instance_changed`), so it hydrates again; `unauthorized` and `signedOut` mean the instance refused the key, so the app asks for a new one. **The queue survives all of these.**
 
