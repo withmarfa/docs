@@ -37,13 +37,47 @@ key 01a12311-8b01-7c3c-879e-3ff7346ce72f (Notes app); the plaintext is shown onc
 
 The source, here `notes-app`, is stamped on every item the key creates, so you can always tell which app wrote what. **Each key in use has a source of its own**, and a source another key already has is refused `409 conflict`. With this key, creating a note works, and creating a bookmark is refused `403 type_not_permitted`.
 
-Each map and permission has a flag of its own: `--edge-permission`, `--extension-permission`, `--metadata-permission`, `--profile-permission` and `--permission`, each repeatable. [Create an API key](/api-reference/access/createKey) has every field.
+Each map and permission has a flag of its own: `--edge-permission`, `--extension-permission`, `--metadata-permission`, `--profile-permission` and `--permission`, each repeatable. `--claim` names a source the key may also write under, as the next section explains. [Create an API key](/api-reference/access/createKey) has every field.
+
+## Let keys share a source
+
+A key writes under its own source, and under the sources it **claims**. Claims suit several keys that stand for one thing, such as the laptop and the phone that both keep your notes: they write under one source, so an item that one of them wrote under a `source_id` is the item the other updates, not a copy. Name the claims when you make the key, with `--claim` once for each source:
+
+```bash tab="CLI" tab-group="client"
+marfa --socket /srv/marfa/data/control/marfa.sock keys create \
+  --label "Laptop" --source laptop --claim notes-sync --type-permission core.note=write
+```
+
+```http tab="HTTP"
+POST /keys
+Authorization: Bearer <a key holding keys.mint>
+Content-Type: application/json
+
+{
+  "label": "Laptop",
+  "source": "laptop",
+  "sources": ["notes-sync"],
+  "type_permissions": { "core.note": "write" }
+}
+```
+
+The key's own source, `laptop`, is still its alone: a second key naming it is refused `409 conflict`. A claimed source has no such limit, so a phone's key can claim `notes-sync` too. `marfa keys current` lists a key's claims as `sources`.
+
+**A write names its source in the item's `source` field**, which `marfa items create` takes as `--source`. Leave it out and the item takes the key's own source. A source that is neither the key's own nor one it claims is refused, naming it in `details.source`:
+
+```text
+marfa: the server refused (403 forbidden): This credential may not write under the source "other". A write names its own credential's source or one that credential claims. {"source":"other"}
+```
+
+The owner can grant any source except one beginning with `oauth:` or `restored:`. A key holding `keys.mint` can grant only its own source and the sources it claims, and is refused `403 forbidden` for any other. An item's source never changes after the write that made it.
+
+Naming claims is naming what the key holds, as naming a map is, so a key made with `--claim` alone holds no permission and no map. Name every part the key needs, as the example does. On `marfa keys update`, `--claim` replaces the key's claims, and `--no-claims` removes them all. A key that lost a claim is refused when it next creates an item under that source, and the items already under it stay editable.
 
 ## What a key holds
 
 What a new key holds depends on what the request names.
 
-If the request names no permission, map or claimed source, **the key takes everything its maker could give**. A key the owner makes this way holds every [permission](/catalog/permissions) and wildcard `write` in all five maps, which suits your own laptop and nothing else. **Profile write changes only name and avatar; email stays read-only.** A key made this way by another key inherits only that key's effective access.
+If the request names no permission, map or [claimed source](#let-keys-share-a-source), **the key takes everything its maker could give**. A key the owner makes this way holds every [permission](/catalog/permissions) and wildcard `write` in all five maps, which suits your own laptop and nothing else. **Profile write changes only name and avatar; email stays read-only.** A key made this way by another key inherits only that key's effective access.
 
 If the request names any of them, the key holds exactly what it names in each part it names, and **nothing in each part it leaves out**. The notes app's key above named one map, so it holds that map and no permission at all. A key made with only `--permission audit.read` reads the audit log and no item.
 
