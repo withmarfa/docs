@@ -1,0 +1,100 @@
+---
+title: Run a shipped connector
+description: Run one of the connectors in the marfa-connectors repository against your instance, with the RSS connector as the worked example.
+---
+
+Marfa ships working connectors for GitHub, Todoist, Readwise, Readwise Reader and RSS feeds, in the [marfa-connectors](https://github.com/withmarfa/marfa-connectors) repository. **Each one is a program you run yourself**, with a key of its own and the vendor's credentials in its environment. [Connectors](/connectors) explains why the server never runs one.
+
+**The repository has no releases and publishes no package**, so you build a connector from its `main` branch. Its own tests run against the Marfa server commit that `scripts/monorepo.commit` pins, which Marfa v0.0.9 and every later release contains. The steps below were run against Marfa v0.0.13.
+
+## The connectors
+
+Each connector's README names its own settings, such as a vendor token, and its key.
+
+| Connector | What it does |
+| --- | --- |
+| [GitHub](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/github/README.md) | Reads repositories, issues, comments, pull requests and retained issue and comment files, from a personal token or a GitHub App. With an App, it carries issue and comment edits back. |
+| [Todoist](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/todoist/README.md) | Reads a Todoist account's tasks, and carries changes back. |
+| [Readwise](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/readwise/README.md) | Reads the sources and highlights of one Readwise account. It never writes to Readwise. |
+| [Readwise Reader](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/readwise-reader/README.md) | Reads Reader documents and highlights, and carries supported edits back. |
+| [RSS](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/rss/README.md) | Reads the entries of the feeds you give it, in Atom, RSS 2.0, RSS 1.0 and JSON Feed. It never writes to a feed. |
+
+Every connector writes to the feed tier, never straight into the library. Keeping an entry is a person's or an app's act.
+
+## Run the RSS connector
+
+You need a running instance and its CLI, from the [Quickstart](/quickstart), Git, [Node.js](https://nodejs.org) 22.13 or later and [pnpm](https://pnpm.io/installation) 11.
+
+<Steps>
+<Step>
+
+### Build the connector
+
+```bash
+git clone https://github.com/withmarfa/marfa-connectors.git
+cd marfa-connectors
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+</Step>
+<Step>
+
+### Make its key
+
+The connector runs on a key made for it alone, which reaches its one type, `rss.entry`, and can register that type. Make it as the owner, on the instance's machine:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock keys create \
+  --label rss --source rss --type-permission rss.entry=write \
+  --metadata-permission types=write --default-tier feed
+```
+
+Copy the key from the answer, because Marfa shows it once. **The connector refuses a key that holds more, or less**, and names what is wrong. Revoke that key with `marfa keys revoke` and make another as above. [Manage keys](/guides/manage-keys) explains each flag.
+
+</Step>
+<Step>
+
+### Name the feeds and run it once
+
+`RSS_FEEDS` holds one feed on each line, as an address or as `name=address`. A feed's address can carry a token, so keep `RSS_FEEDS` and the key out of any file in the checkout:
+
+```bash
+export MARFA_API_URL=https://marfa.example.com
+export MARFA_API_KEY=<the connector's key>
+export RSS_FEEDS='https://example.org/feed.xml
+news=https://example.com/atom.xml'
+node connectors/rss/dist/main.js --once
+```
+
+```text
+2026-10-18T20:48:11.705Z info registered as 01a150c5-a1a9-7db2-840f-4b46cc2facab
+2026-10-18T20:48:11.812Z info run succeeded: created 2, updated 0, archived 0, unchanged 0, skipped 0
+```
+
+The exit code is `0` for a run that succeeded, `1` for a run that failed, and `2` for a missing or malformed setting. Give a feed a name when its address may change, so its entries keep their items.
+
+</Step>
+<Step>
+
+### Look at what it wrote
+
+Each entry is an `rss.entry` item in the feed, a kind of `core.bookmark`:
+
+```bash
+MARFA_API_KEY=<a key that reads rss.entry> marfa items list --type rss.entry
+```
+
+The registration, with the last heartbeat and how recent runs went, is the connector's own:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock connectors list
+marfa --socket /srv/marfa/data/control/marfa.sock connectors runs <connector id>
+```
+
+</Step>
+</Steps>
+
+To keep it running, start it with `--every 15m` in place of `--once`, which reads every feed every 15 minutes, or run `--once` from cron or launchd. The connector keeps no file: its place in each feed is on the instance, so a new process or container carries on from the last run. The repository's template README shows a launchd file and a container image.
+
+The RSS README covers private feeds, redirects and what a run skips. [Build a connector](/guides/connector) writes one of your own.
