@@ -37,13 +37,39 @@ key 01a12311-8b01-7c3c-879e-3ff7346ce72f (Notes app); the plaintext is shown onc
 
 The source, here `notes-app`, is stamped on every item the key creates, so you can always tell which app wrote what. **Each key in use has a source of its own**, and a source another key already has is refused `409 conflict`. With this key, creating a note works, and creating a bookmark is refused `403 type_not_permitted`.
 
-Each map and permission has a flag of its own: `--edge-permission`, `--extension-permission`, `--metadata-permission`, `--profile-permission` and `--permission`, each repeatable. [Create an API key](/api-reference/access/createKey) has every field.
+Each map and permission has a flag of its own: `--edge-permission`, `--extension-permission`, `--metadata-permission`, `--profile-permission` and `--permission`, each repeatable. `--claim` is explained below. [Create an API key](/api-reference/access/createKey) has every field.
+
+## Let keys share a source
+
+A key writes under its own source and the sources it **claims**. Keys that stand for one thing, such as a laptop and a phone, can claim one source and update each other's items. Name the claims when you make the key:
+
+```bash tab="CLI" tab-group="client"
+marfa --socket /srv/marfa/data/control/marfa.sock keys create \
+  --label "Laptop" --source laptop --claim notes-sync --type-permission core.note=write
+```
+
+```http tab="HTTP"
+POST /keys
+Authorization: Bearer <a key holding keys.mint>
+Content-Type: application/json
+
+{
+  "label": "Laptop",
+  "source": "laptop",
+  "sources": ["notes-sync"],
+  "type_permissions": { "core.note": "write" }
+}
+```
+
+**A write names its source in the item's `source` field**, `--source` in `marfa items create`. Leave it out and the item takes the key's own source. Another source is refused `403 forbidden`, naming it in `details.source`. Many keys can claim a source, but a key's own source stays its alone.
+
+The owner can grant any source except one beginning with `oauth:` or `restored:`; a key holding `keys.mint` only its own and the ones it claims. Naming claims names what the key holds, so `--claim` alone leaves no permission and no map. `marfa keys update --claim` replaces the claims and `--no-claims` removes them; items already under a lost claim stay editable.
 
 ## What a key holds
 
 What a new key holds depends on what the request names.
 
-If the request names no permission, map or claimed source, **the key takes everything its maker could give**. A key the owner makes this way holds every [permission](/catalog/permissions) and wildcard `write` in all five maps, which suits your own laptop and nothing else. **Profile write changes only name and avatar; email stays read-only.** A key made this way by another key inherits only that key's effective access.
+If the request names no permission, map or [claimed source](#let-keys-share-a-source), **the key takes everything its maker could give**. A key the owner makes this way holds every [permission](/catalog/permissions) and wildcard `write` in all five maps, which suits your own laptop and nothing else. **Profile write changes only name and avatar; email stays read-only.** A key made this way by another key inherits only that key's effective access.
 
 If the request names any of them, the key holds exactly what it names in each part it names, and **nothing in each part it leaves out**. The notes app's key above named one map, so it holds that map and no permission at all. A key made with only `--permission audit.read` reads the audit log and no item.
 
@@ -162,6 +188,8 @@ marfa --socket /srv/marfa/data/control/marfa.sock owner recover
 ```
 
 The CLI asks for the new password without showing it; for a script, `--stdin` reads `{"password": "…"}` instead. **Recovery signs out every browser.** Keys and the apps you signed in keep working, and the owner keeps the same email.
+
+Recovery also lifts a password lock: **ten password attempts from one address in 15 minutes** answer `429` with `Retry-After`, and a passkey still works. Behind a proxy every client shares one address unless `TRUSTED_PROXY_CIDRS` or `TRUSTED_PROXY_HEADER` is set, as [Deploy](/guides/deploy#the-address) explains.
 
 In the container, run the command inside it, with `docker exec -it marfa marfa --socket /data/control/marfa.sock owner recover`.
 

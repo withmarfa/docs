@@ -25,10 +25,10 @@ export type Move = { name: string; from: StateId; to: StateId };
 export const moves: readonly Move[] = [
   { name: 'archive', from: 'active', to: 'archived' },
   { name: 'unarchive', from: 'archived', to: 'active' },
-  { name: 'trash', from: 'active', to: 'trashed' },
+  { name: 'delete', from: 'active', to: 'trashed' },
   { name: 'restore', from: 'trashed', to: 'active' },
   { name: 'purge', from: 'trashed', to: 'purged' },
-  { name: 'trash', from: 'archived', to: 'trashed' },
+  { name: 'delete', from: 'archived', to: 'trashed' },
 ];
 
 const indexOf = (id: StateId) => states.findIndex((state) => state.id === id);

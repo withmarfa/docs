@@ -51,7 +51,7 @@ export function reached(root: ItemId | null): ItemId[] {
 export type Message = 'none' | ItemId;
 
 export const messages: Record<Message, string> = {
-  none: 'Trash an item to see where each edge takes it.',
+  none: 'Move an item to the bin to see where each edge takes it.',
   note: 'The child note goes with it, because `parent-of` cascades. The book stays active, because `about` orphans: the edge stays and the book is left alone.',
   child: 'Only the child note goes. A cascade follows an edge from its source to its target, never back, so the note stays.',
   book: 'Only the book goes. `about` orphans, so the note stays active and its edge stays.',
@@ -85,9 +85,9 @@ export function BinCascade({ caption }: { caption?: ReactNode }) {
   const [root, setRoot] = useState<ItemId | null>(null);
 
   return (
-    <Figure label="What trashing an item does to the items its edges reach" caption={caption} className="marfa-ix marfa-bc">
+    <Figure label="What moving an item to the bin does to the items its edges reach" caption={caption} className="marfa-ix marfa-bc">
       <Controls onReset={() => setRoot(null)}>
-        <Choices label="Trash" options={choices} value={root} onChange={(id) => setRoot((current) => (current === id ? null : id))} />
+        <Choices label="Move to the bin" options={choices} value={root} onChange={(id) => setRoot((current) => (current === id ? null : id))} />
       </Controls>
 
       <Result messages={messages} current={root ?? 'none'} />

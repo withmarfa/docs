@@ -3,7 +3,7 @@ title: Housekeeping
 description: See the work an instance does on itself, read what each housekeeping job last did, and run one now.
 ---
 
-An instance looks after itself on a schedule: it purges the trash, thins old versions, moves expired feed items to the trash, clears old log entries, sends webhook deliveries, and copies and checks blobs. Each piece of that work is a housekeeping job, and one scheduler runs them all from one table. Reading what each job last did is how you check that an instance is keeping up, and running one yourself applies a new retention without waiting for its schedule.
+An instance looks after itself on a schedule: it purges the bin, thins old versions, moves expired feed items to the bin, clears old log entries, sends webhook deliveries, and copies and checks blobs. Each piece of that work is a housekeeping job, and one scheduler runs them all from one table. Reading what each job last did is how you check that an instance is keeping up, and running one yourself applies a new retention without waiting for its schedule.
 
 **Listing needs the `instance.read` permission, and running needs `instance.maintain`.** These permissions apply to housekeeping operations. Item routes use their own permissions. The owner needs no key for either, through the private socket or signed in to the instance's Manage Marfa pages.
 
@@ -53,7 +53,7 @@ A housekeeping job whose `last_outcome` stays `error`, or whose `next_run_at` is
 
 <include cwd>src/generated/housekeeping.md</include>
 
-`feed-expiry` acts only on a type that has a `feed_days` window in its [retention policy](/catalog/your-own-types#retention-policy), set on the type or taken from a parent. It moves an active feed item to the trash, as a delete does, once more than that many days have passed since the item arrived. **Library items, archived items and items brought back from the trash are kept**, and a type with no window keeps its items. A moved item can be restored until the trash retention ends, and `trash-purge` then deletes it for good. Each run reports `moved` and `held` in `last_result`; `moved` includes items a cascade took with them. `held` counts expired items it left alone because deleting them would also delete an item that hasn't expired, isn't a feed item or was brought back from the trash, because an edge with `cascade_on_delete` set to `block` refuses the delete, or because the delete failed. [Settings](/guides/settings#every-environment-setting) names `FEED_EXPIRY_INTERVAL_MS`.
+`feed-expiry` acts only on a type that has a `feed_days` window in its [retention policy](/catalog/your-own-types#retention-policy), set on the type or taken from a parent. It moves an active feed item to the bin, as a delete does, once more than that many days have passed since the item arrived. **Library items, archived items and items brought back from the bin are kept**, and a type with no window keeps its items. A moved item can be restored until the bin's retention ends, and `trash-purge` then deletes it for good. Each run reports `moved` and `held` in `last_result`; `moved` includes items a cascade took with them. `held` counts expired items it left alone because deleting them would also delete an item that hasn't expired, isn't a feed item or was brought back from the bin, because an edge with `cascade_on_delete` set to `block` refuses the delete, or because the delete failed. [Settings](/guides/settings#every-environment-setting) names `FEED_EXPIRY_INTERVAL_MS`.
 
 A setting can switch a housekeeping job off, and **one that's off isn't listed**.
 
@@ -90,5 +90,93 @@ Authorization: Bearer <key>
 **A run that fails still answers `200`**, with `outcome` set to `error` and the reason in `error`. The listing then shows this run as the last one, and a run on demand never makes the next scheduled run later.
 
 The server refuses `409 housekeeping_job_running` while a run of the same housekeeping job is already in progress, so try again when it finishes. One that's switched off, or a name it doesn't run, is refused `404 housekeeping_job_not_found`. [Run a housekeeping job](/api-reference/instance/runHousekeeping) lists every answer.
+
+## Empty the bin
+
+**An item stays in the bin until it is purged, and a purge is permanent.** Left alone, the `trash-purge` job purges each item once it has been in the bin longer than `TRASH_RETENTION_DAYS`, which is 60 days unless you change it. `trash_retention_days` in the [configuration](/guides/settings#change-settings-while-it-runs) overrides that while the server runs, and a retention of `0` keeps every item.
+
+To empty the bin now, purge every item whose state is `trashed`. A key needs the `items.purge` permission, and **the private socket can't do it**, because it carries no key:
+
+```bash tab="CLI" tab-group="client"
+marfa items bulk-action purge --state trashed --confirm PURGE
+```
+
+```http tab="HTTP"
+POST /items/bulk-actions
+Authorization: Bearer <a key holding items.purge>
+Content-Type: application/json
+
+{ "action": "purge", "confirm": "PURGE", "filter": { "state": "trashed" } }
+```
+
+Marfa answers that it queued the purge as a job:
+
+```json
+{
+  "id": "01a150c0-71c7-7ea5-b5a4-68b6267b988a",
+  "action": "purge",
+  "status": "queued",
+  "matched": 3,
+  "processed": 0,
+  "succeeded": 0,
+  "errored": 0
+}
+```
+
+`marfa items bulk-action job <id>` shows the job again, and its `status` is `completed` once the purge has finished. Add `--dry-run` first to list what the purge would take and change nothing. A bin of more than 10,000 items is refused with `400 bulk_cap_exceeded` unless you raise `--max-items`, which Marfa counts as 50,000 at most: purge what's left with a second run. To purge one item, run `marfa items purge <id>`.
+
+## Try feed expiry with a moved clock
+
+On a test server started with `MARFA_TEST_HOOKS=true`, [Settings](/guides/settings#move-the-clock-for-a-test) explains how to move the clock, and you can watch `feed-expiry` act without waiting a day. **Two credentials are in play**: a key runs the `marfa types register` and `marfa items create` commands, because the private socket refuses item operations, and the socket alone reaches the clock.
+
+<Steps>
+<Step>
+
+With a key in `MARFA_API_KEY`, register a type whose feed items expire after one day, and put one in the feed:
+
+```bash
+marfa types register --body '{"id":"user.headline","fields":{"title":{"type":"string","required":true}},"retention_policy":{"feed_days":1}}'
+marfa items create --type user.headline --prop title="Today" --tier feed
+```
+
+</Step>
+<Step>
+
+Move the clock two days forward, through the socket:
+
+```bash
+curl --unix-socket /srv/marfa/data/control/marfa.sock \
+  -X POST http://localhost/_control/test/clock \
+  -H 'Content-Type: application/json' -d '{"advance_ms": 172800000}'
+```
+
+</Step>
+<Step>
+
+Run the job, in place of waiting for its next turn, and read the item from the bin:
+
+```bash
+marfa housekeeping run feed-expiry
+marfa items list --state trashed --type user.headline
+```
+
+```json
+{
+  "name": "feed-expiry",
+  "started_at": "2026-10-22T20:42:52.014Z",
+  "finished_at": "2026-10-22T20:42:52.016Z",
+  "outcome": "ok",
+  "result": {
+    "moved": 1,
+    "held": 0,
+    "types": 1,
+    "unresolvable": 0
+  },
+  "error": null
+}
+```
+
+</Step>
+</Steps>
 
 The rules behind this page are in the [housekeeping chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md) of the contract.
