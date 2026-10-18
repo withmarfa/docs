@@ -12,7 +12,7 @@ The sections below cover the main tasks. [Build an app with Swift](/guides/swift
 The SDK supports iOS 27 and macOS 27, and builds with Xcode 27 on a Mac with Apple silicon. In Xcode, choose File > Add Package Dependencies, enter `https://github.com/withmarfa/marfa-swift`, and add the `Marfa` product to your app's target. In a `Package.swift`, add the package and the product:
 
 ```swift title="Package.swift"
-.package(url: "https://github.com/withmarfa/marfa-swift", exact: "0.0.16"),
+.package(url: "https://github.com/withmarfa/marfa-swift", exact: "0.0.18"),
 ```
 
 ```swift title="Package.swift"
@@ -44,11 +44,11 @@ When the credential changes, give the open copy the new one with `useKey(_:)`. [
 
 ## Declare an app type
 
-An app can bring its own types, under its own namespace, such as `app.readinglist.entry`. Declare them when you open the copy, each as a JSON type definition:
+An app can bring its own types, under its own namespace, such as `app.readinglist.entry`. Declare them when you open the copy, each as a type definition, a `JSONObject`:
 
 ```swift
 try await copy.declareTypes([
-    #"{"id":"app.readinglist.entry","fields":{"title":{"type":"string","required":true}}}"#
+    ["id": "app.readinglist.entry", "fields": ["title": ["type": "string", "required": true]]]
 ])
 ```
 
@@ -66,7 +66,7 @@ for note in try await copy.items.list(ListFilters(type: "core.note")) {
 }
 ```
 
-An item's `title` and `body` read the properties its type uses for a title and a body, whatever they're called, so prefer them to reading `properties`.
+An item's `title` and `body` read the properties its type uses for a title and a body, whatever they're called, so prefer them to reading `properties`. A row whose stored properties can't be read stays in a list or a search with empty `properties` and `unreadableProperties` saying why, so check `unreadableProperties` before you write back from `properties`.
 
 To make an item, pass a `Draft`. To change one, pass an `Edit` with the version you read, so the instance can tell whether someone else changed the item in between:
 
@@ -75,10 +75,10 @@ let created = try await copy.items.create(
     Draft(type: "core.note", properties: ["title": "Reading list", "body": "Start with the essays."]))
 
 guard let id = created.itemId, let note = try await copy.items.get(id) else { return }
-_ = try await copy.items.update(id, Edit(.merge(["title": "Books to read"]), baseVersion: note.version))
+_ = try await copy.items.update(id, Edit(properties: ["title": "Books to read"], baseVersion: note.version))
 ```
 
-Each write shows in the copy at once, with or without a connection, and waits in the queue. `.merge` changes the properties it names and keeps the rest. `.replace` makes its properties the item's whole set, so it's how you remove a property.
+Each write shows in the copy at once, with or without a connection, and waits in the queue. An edit changes the properties it names and keeps the rest. With `replaceProperties: true`, its properties become the item's whole set, so that's how you remove a property.
 
 ## Keep the copy in step
 
@@ -86,7 +86,7 @@ Your app decides when the copy first talks to the instance. Four moments matter:
 
 - On first launch, or when `status().hydration` is anything but `.complete`, call `hydrate(types:tier:)`. It replaces what the copy holds and keeps the queue.
 - When the app starts or comes to the front, call `catchUp()` to apply what changed while it was away, then `queue.drain()` to send what it queued.
-- While a screen shows data, hold a `changes()` stream, which follows the instance's events as they happen. **The stream also sends the writes queued while the server was away**, once each time the server is back.
+- While a screen shows data, hold a `changes()` stream, which follows the instance's events as they happen. **The stream also sends the writes queued while the server was away**, once each time the server is back, and once after a drain left a write undelivered.
 - After each write, call `queue.drain()`. A drain that can't reach the server leaves the writes queued.
 
 The stream also tells your app when the server goes away and comes back, and when following it needs the app's help:
@@ -112,7 +112,7 @@ for await change in copy.changes() {
 }
 ```
 
-On `.serverReachable`, show the app as online and start nothing: the stream drains the queue itself, once each time the server is back, and tells how it ended. `.queueDrained` carries the drain's `DrainReport`, and each write the drain answered is told first as `.answered`, as for a drain your app starts. `.queueNotDrained` carries the `MarfaError` that stopped it. The answers it had recorded stay recorded and the rest stay queued, and the stream doesn't try again until the server next returns, so call `queue.drain()` when your app can.
+On `.serverReachable`, show the app as online and start nothing: the stream drains the queue itself, and tells how it ended. It drains once each time the server is back. It also drains once at its next contact with the server after any drain, yours or its own, left a write undelivered. That contact comes when the follow next starts, for example after a catch-up, a hydration or a new stream, and if the server was never lost, no `.serverReachable` comes with it. `.queueDrained` carries the drain's `DrainReport`, and each write the drain answered is told first as `.answered`, as for a drain your app starts. `.queueNotDrained` carries the `MarfaError` that stopped it. The answers it had recorded stay recorded and the rest stay queued. Call `queue.drain()` when your app can send sooner.
 
 `.copyExpired` means the copy can't be kept current from where it stands, and has to hydrate again. Its queue survives. Its `reason` is an open string, so keep a default when you switch over it. Two reasons are common: the device was away longer than the instance keeps events, and the server at the copy's address is now another instance (`instance_changed`), in which case the writes stay queued under their keys and go to the instance now there once you hydrate.
 
@@ -132,6 +132,42 @@ updateItem accepted
 ```
 
 A refused write that carried content stays even then, so your app can offer the content back, until you call `queue.discard(_:)`. [Devices](/devices#verdicts) explains each verdict.
+
+## Keep a view current
+
+A `LiveQuery` reads from the working copy and reads again whenever the copy changes, so a SwiftUI view that reads its `value` stays current with no refresh code. Create one on the main actor, in the model that owns the copy, and give it a `Reading`:
+
+```swift
+@MainActor @Observable
+final class Library {
+    let notes: LiveQuery<[Item]>
+
+    init(copy: WorkingCopy) {
+        notes = LiveQuery(copy, reading: .list(ListFilters(type: "core.note")))
+    }
+}
+```
+
+A view reads `library.notes.value`, and `Item` is `Identifiable`, so `List(library.notes.value)` works. Assigning `reading` reads again at once, so a search field can switch the same query to `.search(text)`. A query reads its copy for life, so a view for another copy needs another query.
+
+| Reading | Value | Reads |
+| --- | --- | --- |
+| `.list(_:sort:)` | `[Item]` | `items.list`. `ListFilters.limit` and `offset` bound the result. |
+| `.search(_:filters:limit:)` | `[Item]` | `search`, best match first. |
+| `.item(_:)` | `Item?` | `items.get`, `nil` while the copy doesn't hold the item or it's in the bin. |
+| `.queue` | `[QueuedWrite]` | `queue.all()`. |
+| `Reading(placeholder:_:)` | Any `Sendable` and `Equatable` type | Any other read, in a closure that only reads. |
+
+The query reads again after each change the copy tells that can alter a read, including a write your app makes offline. It makes no read for `.serverUnreachable`, `.serverReachable` or `.stopped`. A burst of changes causes the read in flight and at most one more.
+
+A query shows its state in four properties:
+
+- **`value`** is what the last successful read answered, and the reading's placeholder before one.
+- **`isLoading`** is true from creation to the end of the first read, and during every later read.
+- **`error`** is why the last read failed, and `nil` after a read succeeds. `value` keeps the rows of the last successful read.
+- **`following`** is `.live`, `.stopped(error)` or `.ended(error)`. `.stopped` means the copy's follow of the server failed, and local writes still refresh the query. It returns to `.live` on a server event, or on a hydration or a catch-up that tells a change. `.ended` means the stream finished, with the error the core ended it on, or `nil` when the copy is closed.
+
+`refresh()` reads now and returns after a read that began after the call, so it fits `.refreshable`. The query never asks for a new stream by itself, but on an `.ended` query `refresh()` asks the copy for one. Releasing the query ends its stream.
 
 ## Conflicted copies
 
