@@ -112,7 +112,7 @@ for await change in copy.changes() {
 }
 ```
 
-On `.serverReachable`, show the app as online and start nothing: the stream drains the queue itself, once each time the server is back, and once more after a drain left a write undelivered, and tells how it ended. `.queueDrained` carries the drain's `DrainReport`, and each write the drain answered is told first as `.answered`, as for a drain your app starts. `.queueNotDrained` carries the `MarfaError` that stopped it. The answers it had recorded stay recorded and the rest stay queued. The stream drains again when the server next returns, and once more for a drain your app started that left a write undelivered. Call `queue.drain()` when your app can send sooner.
+On `.serverReachable`, show the app as online and start nothing: the stream drains the queue itself, and tells how it ended. It drains once each time the server is back. It also drains once at its next contact with the server after any drain, yours or its own, left a write undelivered. That contact comes when the follow next starts, for example after a catch-up, a hydration or a new stream, and if the server was never lost, no `.serverReachable` comes with it. `.queueDrained` carries the drain's `DrainReport`, and each write the drain answered is told first as `.answered`, as for a drain your app starts. `.queueNotDrained` carries the `MarfaError` that stopped it. The answers it had recorded stay recorded and the rest stay queued. Call `queue.drain()` when your app can send sooner.
 
 `.copyExpired` means the copy can't be kept current from where it stands, and has to hydrate again. Its queue survives. Its `reason` is an open string, so keep a default when you switch over it. Two reasons are common: the device was away longer than the instance keeps events, and the server at the copy's address is now another instance (`instance_changed`), in which case the writes stay queued under their keys and go to the instance now there once you hydrate.
 
@@ -154,20 +154,20 @@ A view reads `library.notes.value`, and `Item` is `Identifiable`, so `List(libra
 | --- | --- | --- |
 | `.list(_:sort:)` | `[Item]` | `items.list`. `ListFilters.limit` and `offset` bound the result. |
 | `.search(_:filters:limit:)` | `[Item]` | `search`, best match first. |
-| `.item(_:)` | `Item?` | `items.get`, `nil` while the copy doesn't hold the item. |
+| `.item(_:)` | `Item?` | `items.get`, `nil` while the copy doesn't hold the item or it's in the bin. |
 | `.queue` | `[QueuedWrite]` | `queue.all()`. |
 | `Reading(placeholder:_:)` | Any `Sendable` and `Equatable` type | Any other read, in a closure that only reads. |
 
 The query reads again after each change the copy tells that can alter a read, including a write your app makes offline. It makes no read for `.serverUnreachable`, `.serverReachable` or `.stopped`. A burst of changes causes the read in flight and at most one more.
 
-A query has four properties:
+A query shows its state in four properties:
 
 - **`value`** is what the last successful read answered, and the reading's placeholder before one.
 - **`isLoading`** is true from creation to the end of the first read, and during every later read.
 - **`error`** is why the last read failed, and `nil` after a read succeeds. `value` keeps the rows of the last successful read.
-- **`following`** is `.live`, `.stopped(error)` or `.ended(error)`. `.stopped` means the copy's follow of the server failed, and local writes still refresh the query. `.ended` means the stream finished, with the error the core ended it on, or `nil` when the copy is closed.
+- **`following`** is `.live`, `.stopped(error)` or `.ended(error)`. `.stopped` means the copy's follow of the server failed, and local writes still refresh the query. It returns to `.live` on a server event, or on a hydration or a catch-up that tells a change. `.ended` means the stream finished, with the error the core ended it on, or `nil` when the copy is closed.
 
-`refresh()` reads now and returns after a read that began after the call, so it fits `.refreshable`. On an `.ended` query it also asks the copy for a new stream. Releasing the query ends its stream.
+`refresh()` reads now and returns after a read that began after the call, so it fits `.refreshable`. The query never asks for a new stream by itself, but on an `.ended` query `refresh()` asks the copy for one. Releasing the query ends its stream.
 
 ## Conflicted copies
 
