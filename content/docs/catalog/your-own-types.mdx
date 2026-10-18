@@ -1,6 +1,6 @@
 ---
 title: Type rules
-description: "The rules a type you register must meet: its identifier, fields, parent, roles and merge policy."
+description: "The rules a type you register must meet: its identifier, fields, parent, roles, merge policy and retention policy."
 ---
 
 [Define a type](/guides/define-a-type) shows how to register one.
@@ -21,6 +21,7 @@ A publisher name can't be one of these roots ([`types/id-reserved-scope-root`](h
 ## Fields
 
 - **Kind:** each field has one of the [field kinds](/catalog/field-kinds). An `enum` needs `enum_values`, a list of strings with at least one value. An `array` needs `items_type` ([`types/field-grammar`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesfield-grammar)).
+- **Array elements:** a write is refused with `400 invalid_properties` if an element of an `array` field isn't a value of its `items_type`, and `details.errors` names the field and the element's position, as `names.1`. Marfa judges the properties the item would hold after the write, so an item that already stores a wrong element refuses any write that carries `properties` or changes its type and leaves that array in place, and the item stays as it was. The check covers `links` and `attachments`, which every type has, too. An `items_type` that isn't a field kind leaves the elements unchecked ([`types/array-items`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesarray-items), [`types/array-items-refused`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesarray-items-refused), [`types/array-items-unnamed`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesarray-items-unnamed)).
 - **Keys:** a field definition takes `type`, `description`, `required`, `enum_values`, `items_type`, `format`, `searchable`, `maxLength` and `maxItems`. Marfa refuses any other key with `400 invalid_schema`, so a field has no `minimum` or `maximum` ([`types/unknown-key`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesunknown-key)).
 - **Name:** a field can't take one of the reserved field names below.
 - **Thumbnail:** a type holds at most one `thumbnail` field, and it can't be named `title`, `body`, `description` or `name` ([`types/thumbnail-one`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesthumbnail-one), [`types/thumbnail-name`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesthumbnail-name)).
@@ -51,3 +52,13 @@ A `merge_policy` names a `default` strategy and, if you want, a strategy for eac
 | ------------------ | ------------------------------------------------------------------------------------------------------ |
 | `last_writer_wins` | The item takes the later writer's value.                                                               |
 | `keep_both_copies` | The item keeps its value, and the other writer's value goes to a new item tagged `conflicted-copy`.    |
+
+## Retention policy
+
+A `retention_policy` sets how long Marfa keeps the type's items in the feed. It takes one key, `feed_days` ([`types/retention-policy-values`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesretention-policy-values)):
+
+- **A whole number from 1 to 36500:** the `feed-expiry` [housekeeping job](/guides/housekeeping) moves a feed item of the type to the trash once more than that many days have passed since it arrived.
+- **`null`:** the type keeps its feed items, even when a parent type sets a window.
+- **Left out:** the type takes its parent's window, so a type that no type in its chain gives a window keeps its items ([`types/retention-policy-merge`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesretention-policy-merge)).
+
+Marfa counts from when the item arrived, and a refresh of the item by its natural key doesn't restart the count. Only active feed items expire. Library items, archived items and items you brought back from the trash stay. Marfa refuses another value or another key in the policy with `400 invalid_schema`. `GET /types/{id}` shows the window the type has after inheritance, and `GET /types` shows only the one the type declares itself.

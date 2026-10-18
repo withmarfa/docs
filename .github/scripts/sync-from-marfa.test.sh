@@ -366,6 +366,18 @@ catalog_json="$(cat <<'EOF'
       "written_at": "target",
       "property_schema": {},
       "shipped": true
+    },
+    {
+      "id": "in-folder",
+      "label": "In folder",
+      "description": "Placement of an item in a folder.",
+      "cardinality": "many-to-many",
+      "source_type_constraints": ["*"],
+      "target_type_constraints": ["system.folder"],
+      "cascade_on_delete": "orphan",
+      "written_at": "none",
+      "property_schema": {},
+      "shipped": true
     }
   ],
   "field_types": ["string", "enum"],
@@ -432,6 +444,12 @@ Member of a container.
 Source is the parent of the target: once.
 
 **written_at:** `target`
+
+## in-folder
+
+Placement of an item in a folder.
+
+**written_at:** `none`
 EOF
 )"
 

@@ -567,13 +567,13 @@ def render_edges(edges):
             refuse(catalog_path, "has an edge type with no id or description")
         if set(e) - EDGE_KEYS:
             refuse(catalog_path, f"has a key {sorted(set(e) - EDGE_KEYS)[0]!r} on the edge type {e['id']} that the sync does not write")
-        if e.get("written_at") not in ("source", "target"):
+        if e.get("written_at") not in ("source", "target", "none"):
             refuse(catalog_path, f"has the edge type {e['id']} with a written_at the sync does not know")
         if e["written_at"] == "target" and not e.get("reverse_name"):
             refuse(catalog_path, f"has the edge type {e['id']} written at its target with no reverse_name")
         lines = [f"## {e['id']}", "", safe(plain(e["description"])), ""]
-        if e["written_at"] == "target":
-            lines += [f"**written_at:** {code('target')}", ""]
+        if e["written_at"] != "source":
+            lines += [f"**written_at:** {code(e['written_at'])}", ""]
         props = e.get("property_schema") or {}
         if props:
             check_fields(f"{e['id']} property", props, FIELD_KEYS)
