@@ -193,6 +193,29 @@ The folder leaves a name alone when it can't tell the name from your choice: a f
 
 **A file you delete moves its item to the bin** after a few seconds' grace, so a save that replaces a file isn't taken for a delete; the item stays in the bin until you restore or purge it.
 
+## Know whether a push finished
+
+`marfa folders push` ends with an exit code that says whether it finished, so a script need not read the report:
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | The push finished. |
+| `3` | A write is left unsent, or the catch-up with the instance failed. Try again. |
+| `5` | The server refused the credential. Use a valid key. |
+
+`marfa folders push --send-only` follows the same rule for a write left unsent and for a refused credential.
+
+**A push under a rate limit doesn't wait.** When the server refuses writes because the key is over its rate limit, the push leaves them queued, reports them as not delivered, names how long the server asked for, and exits `3`. The end of the report reads:
+
+```text
+2 write(s) not delivered, waiting for the next drain
+the server asked for 60s before the next drain; push again after that to send the rest
+```
+
+Run the push again after that wait, as a script would. A large first sync takes one push for each window. **A watch waits on its own**: after a pass leaves writes undelivered under a named wait, it starts no pass until the wait is over, and then sends the rest.
+
+The first line of a report counts files. A file whose create or edit was sent earlier and hasn't been answered yet counts as **waiting**, not unchanged, and the line adds `; 2 queued earlier and not delivered yet`. With `--json`, the count is `waiting`. A file whose write was refused for good counts as unchanged, because Marfa never sends that write again.
+
 ## A missing or unreadable directory
 
 A scan that cannot read or identify an entry is incomplete. **It does not treat files it failed to see as deleted**, and it defers deletions already waiting until a complete scan succeeds. Fix the directory or disk access and sync again.
@@ -200,6 +223,8 @@ A scan that cannot read or identify an entry is incomplete. **It does not treat 
 Each directory has its own working copy and queue, recorded in the machine's folder registry. **Adding a folder inside a registered folder, or around one, is refused.**
 
 A scan also leaves another folder's state directory and contents alone. If the registry cannot be read, deletion waits when the device cannot rule out a file having moved.
+
+**A file moved to another folder on the same Mac stays the same item.** The file carries its `marfa_id`, and the folder it left reads it there, so the folder it left doesn't take the move for a delete. That holds when an editor saves the moved file again as UTF-16, which changes its bytes: Marfa reads the `marfa_id` of a file that starts with a UTF-16 byte order mark. A file in another folder that isn't text doesn't hold up the deletes of this folder's files.
 
 ## A large removal waits for you
 
@@ -226,6 +251,13 @@ let status = try await folders.status(of: notes)
 if status.paused.isPaused {
     _ = try await folders.restoreRemoval(in: notes)   // or confirmRemoval(in:)
 }
+```
+
+`restore` counts only the files it wrote back. **A file it couldn't write**, such as one whose bytes it couldn't fetch, is listed with the flag the pull gave it, or `unwritten` where the pull gave none, and the command says so. Its item stays: the next push doesn't send it to the bin, and every later pull writes the file once the bytes can be fetched.
+
+```text
+2 file(s) written back; 0 item(s) restored, sent at the next push; 1 file(s) not written back yet, which every pull tries again
+Reading list.md: the pull did not write it
 ```
 
 `marfa folders status Notes` shows where every file stands, and whether a removal waits, without asking the instance. To see how every computer that follows the folder last reported, from any of them, `marfa folders health` takes the folder's ID and reads those reports from the instance. A report's age says when it arrived, not whether that computer is reachable now.
