@@ -32,9 +32,17 @@ To restore, stop the server, put the copied files where `SQLITE_PATH` and `BLOB_
 
 ### With a bucket
 
-When `S3_BUCKET` is set, **the container copies for you**. It streams each committed database write to the bucket within a second and keeps a day of hourly snapshots, and the `blob-replicate` housekeeping job copies each blob there. A new volume started with the same bucket and secrets restores the database as it starts, and brings the blobs back as replication runs.
+When `S3_BUCKET` is set, **the container copies for you**. It streams each committed database write to the bucket within a second and keeps a day of hourly snapshots, and the `blob-replicate` housekeeping job copies each blob there. A new volume started with the same bucket, prefix and secrets restores the database as it starts, and brings the blobs back as replication runs.
 
-**The database reaches the bucket before a blob does**, so a restore to a moment between the two can name a blob the bucket doesn't hold yet. The [deployment guide](https://github.com/withmarfa/marfa/blob/main/deploy/README.md#restoring-by-hand) has the commands to restore to the latest state or to a point in time.
+**Everything an instance keeps in the bucket is under its `S3_PREFIX`**: its blobs at `<S3_PREFIX>/<hash>` and its database replica at `<S3_PREFIX>/db`. **Every instance on a shared bucket needs a prefix of its own**, so that a new volume restores its own database and not another instance's. [Deploy](/guides/deploy#an-object-store) says what a prefix may hold.
+
+**The database reaches the bucket before a blob does**, so a restore to a moment between the two can name a blob the bucket doesn't hold yet. To restore by hand, run Litestream against the replica, and **set `S3_PREFIX` to the instance's prefix** with no `/` at either end, even when it's the default `blobs`: Litestream reads an unset name as nothing, and would look for the replica at `/db`.
+
+```bash
+S3_PREFIX=blobs litestream restore -config deploy/litestream.yml -o restored.db -integrity-check full "$SQLITE_PATH"
+```
+
+The [deployment guide](https://github.com/withmarfa/marfa/blob/main/deploy/README.md#restoring-by-hand) has the same command for a point in time.
 
 ## Export an archive
 
@@ -87,10 +95,48 @@ types.ndjson
 blobs/sha256:a0feecd7233d9f5f3ec784c6bdb36587c651e2ec60437c27b4bf135de39149d7
 ```
 
-If the server fails partway through an export, it ends the connection early, and the file doesn't unpack.
+If the server fails partway through an export, it ends the connection early, and the file doesn't unpack. **`marfa export --output` writes to a file beside the path and renames it only once the stream has ended whole.** A stream cut short removes that file, leaves any earlier file at the path as it was, and ends with exit code 3, so try again.
+
+</Step>
+<Step>
+
+### Check what the archive lacks
+
+The manifest names each file's bytes the archive couldn't carry, under `missing_blobs`. Read it from the archive:
+
+```bash
+tar -xzOf marfa-archive.tar.gz manifest.json
+```
+
+The manifest's other fields are left out here:
+
+```json
+{
+  "blob_count": 0,
+  "blobs": {},
+  "missing_blobs": {
+    "sha256:a0feecd7233d9f5f3ec784c6bdb36587c651e2ec60437c27b4bf135de39149d7": {
+      "mime_type": "image/jpeg",
+      "size_bytes": 2048
+    }
+  }
+}
+```
+
+An empty `missing_blobs` means the archive holds every blob its items name. The next section says what a name in it means.
 
 </Step>
 </Steps>
+
+### When an archive lacks a file's bytes
+
+An export never claims a blob it doesn't hold. When no store holds a whole copy of a blob, such as after a disk lost the file, the export **leaves the blob out of the archive** and names it in `missing_blobs`, with its `mime_type` and `size_bytes`. The rest of the instance is still backed up: one lost file costs the backup that file, not everything.
+
+`marfa export` writes the archive, then **exits with code 1 and `blobs_missing`**, naming up to ten of the hashes and counting the rest. A script that reads only the exit code can't take such an archive for a whole one. The HTTP answer is still `200`, so read the manifest if you export without the CLI.
+
+A file item can name bytes the instance has no record of, as after a restore that lacked them. The export names such a blob too, with `null` for both `mime_type` and `size_bytes`, because nothing knows them. **Every later backup keeps naming a file's blob it lacks until the bytes are uploaded again**, with `marfa blobs upload` or [Upload a blob](/api-reference/blobs/uploadBlob). Only a file item's `blob_ref` counts: a hash that appears in a note's text is not named.
+
+A store that fails, or doesn't answer within 15 seconds, is not a lost file. The export, or a restore, is refused with `503 blob_store_unavailable` before anything is written, unless another store holds the blob whole. **Try again once the store answers.**
 
 **An export isn't taken at one instant**: an item created while it runs may not be in it. Stop your apps first if the archive must hold every write. The server prepares the whole archive before it sends the first byte, in a folder inside the blob folder, so leave room on that disk for about as much as the archive's text takes uncompressed.
 
@@ -114,6 +160,7 @@ The answer counts what the restore did. Into a fresh instance:
   "edges_skipped": 0,
   "edges_skipped_reasons": {},
   "blobs_imported": 1,
+  "blobs_missing": [],
   "types_registered": 0,
   "types_skipped": 0,
   "edge_types_registered": 0,
@@ -126,6 +173,8 @@ Items keep their IDs, versions, dates and states, with every earlier version and
 A restored `system.connection` item for an app has `status: revoked`. It records past access rather than reconnecting the app. Sign the app in again if you want it to resume work.
 
 An item the instance already holds is counted in `duplicates` and left as it is, so replaying an archive never overwrites work done since. Restoring the same archive again into the same instance answers `"imported": 0` and `"duplicates": 5`.
+
+`blobs_missing` lists the hashes the archive names but doesn't carry bytes for, that no store of the instance holds either. The restore still writes the items, and **writes no record for those blobs**, so a file that names one is a file with no bytes until you upload them again with `marfa blobs upload`. `marfa restore` prints the answer and exits with code 1 and `blobs_missing` when the list isn't empty, naming up to ten of the hashes. The same check covers an archive whose blob entry is missing or doesn't hash to its name.
 
 A restore writes in one transaction. If it's refused, fails or is interrupted, it leaves nothing behind, so you can run it again. While it runs, other writes wait for it, so let it answer before you start your apps.
 
