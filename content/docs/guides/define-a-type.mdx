@@ -232,6 +232,8 @@ Marfa checks the claim when you register or replace the type, by the rule in [Ty
 
 A claim that doesn't hold is refused with `422 compatible_with_violation`, naming the property and what it should be. **A compatible type inherits nothing**, and a listing of `core.note` leaves recipes out.
 
+**Marfa keeps the claim true afterward.** Marfa refuses a replacement or deletion of a type that you registered if it would break another type's claim, such as a change to a target's properties that leaves `user.recipe` unreadable as it. A platform type such as `core.note` can't be replaced or deleted at all. [Change the type](#change-the-type) and [Delete the type](#delete-the-type) cover the refusals.
+
 ## Change the type
 
 `PUT /types/{id}` **replaces the whole definition**, so send everything you want to keep. This adds an optional `category` and sets the type's `version` to 1:
@@ -290,9 +292,11 @@ await marfa.PUT("/types/{id}", {
 
 **Name the `version` on every replacement:** one that leaves it out sets it back to 0.
 
+**A replacement can't break another type's `compatible_with` claim.** If a change would leave a type that names this one unable to keep its claim, such as by removing a property the claimant relies on, Marfa refuses it with `422 compatible_with_violation`. `details.dependent_type_ids` lists the claimants. Change or remove their claims first.
+
 ## Delete the type
 
-`DELETE /types/{id}` removes a type **that no item holds and no other type names as its parent**:
+`DELETE /types/{id}` removes a type **that no item holds and no other type names as its parent or in `compatible_with`**:
 
 ```bash tab="CLI" tab-group="client"
 marfa types delete app.example.receipt
@@ -309,18 +313,18 @@ await marfa.DELETE("/types/{id}", {
 });
 ```
 
-Marfa refuses to delete a type that another type names as its parent, with `409 type_has_subtypes`, and one that items still hold, in any state and the bin included, with `409 type_in_use`.
+Marfa refuses to delete a type that another type names as its parent, with `409 type_has_subtypes`, and one that items still hold, in any state and the bin included, with `409 type_in_use`. A type that other types name in `compatible_with` is refused with `422 compatible_with_violation`, and `details.dependent_type_ids` lists them. Remove their claims first.
 
 <Callout type="warn">
-`force=true` (the CLI's `--force`) deletes a type that items still hold. The items stay, but until the type is registered again, Marfa refuses any write to their properties, tier or time, so they can't be edited. You can still tag, archive or move them to the bin.
+`force=true` (the CLI's `--force`) deletes a type that items still hold. It doesn't override a subtype or a `compatible_with` claim. The items stay, but until the type is registered again, Marfa refuses any write to their properties, tier or time, so they can't be edited. You can still tag, archive or move them to the bin.
 </Callout>
 
 ## What your key needs
 
 Registering, replacing and deleting a type each need a key whose type map **grants write on the type's identifier**. Each also needs a grant or a permission of its own:
 
-- **Registering** needs `types` at `write` in the key's metadata map, written `metadata.types:write`. Naming a parent that Marfa doesn't ship also needs write on the parent.
-- **Replacing** needs `metadata.types:write` when it only adds optional properties no item holds a value under, or changes the label, a description, the display hints or the version. Any other change, such as removing a property or making one required, needs the `schema.write` permission.
+- **Registering** needs `types` at `write` in the key's metadata map, written `metadata.types:write`. Naming a parent or a `compatible_with` target that Marfa doesn't ship also needs write on it.
+- **Replacing** needs `metadata.types:write` when it only adds optional properties no item holds a value under, or changes the label, a description, the display hints or the version. Any other change, such as removing a property or making one required, needs the `schema.write` permission. A replacement that adds a parent or a `compatible_with` target Marfa doesn't ship also needs write on that target, and one that keeps a parent or target the type already names doesn't, so a connector can update its type after its permissions narrow. Marfa answers `403 type_not_permitted` when the key's type map lacks that write, and `details.grant` names the target.
 - **Deleting** needs `schema.write`.
 
 When a replacement needs `schema.write` and the key doesn't hold it, Marfa answers `403 forbidden`, and `details.changes` lists each part of the replacement that needs it:
