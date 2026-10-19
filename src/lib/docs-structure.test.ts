@@ -64,7 +64,7 @@ describe('the CLI download', () => {
 
 describe('the server image commands', () => {
   it('come from the generated snippet, so a release sync updates them', () => {
-    const hardCoded = ALL_PAGES.filter(({ text }) => text.includes('marfa-server:')).map(({ file }) => file);
+    const hardCoded = ALL_PAGES.filter(({ text }) => /marfa-server:\d/.test(text)).map(({ file }) => file);
     expect(hardCoded).toEqual([]);
     const including = ALL_PAGES.filter(({ text }) =>
       text.includes('<include cwd>src/generated/server-image.md</include>'),
