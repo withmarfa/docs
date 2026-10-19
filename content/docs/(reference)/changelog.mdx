@@ -3,9 +3,30 @@ title: Changelog
 description: What each release of Marfa changed for someone running an instance or building on it.
 ---
 
-Each release of Marfa ships the server, the CLI for macOS on Apple silicon, and the TypeScript SDK on npm. Below is what each one changed that you'd notice when you run an instance or build on it, newest first, with a link to the full list on GitHub.
+Each release of Marfa ships the server and its container image, the CLI for macOS on Apple silicon, and the TypeScript SDK on npm. Below is what each one changed that you'd notice when you run an instance or build on it, newest first, with a link to the full list on GitHub.
 
 **Until the first public release, Marfa does not upgrade a database in place.** A build refuses a database whose schema differs from its own or that holds retired tables or settings, and leaves the file unchanged. If the build refuses your database, [Upgrade](/guides/upgrade) covers exporting with the old build and restoring into fresh storage. A version change alone does not cause a refusal.
+
+## v0.0.14
+
+Released October 19, 2026. [v0.0.14 on GitHub](https://github.com/withmarfa/marfa/releases/tag/v0.0.14)
+
+**Before you update, if your container keeps its database in a bucket:** the replica moves from `db` at the bucket's root to `<S3_PREFIX>/db`. On its next start, an existing deployment streams its database to the new path and takes a full snapshot there at once. The old `db/` objects are no longer read or pruned, and you can delete them once the new replica exists. **Every instance on a shared bucket now needs its own `S3_PREFIX`.** Before this release, instances on one bucket shared one replica, and a new volume of one could start on another's database. [Back up and restore](/guides/back-up-and-restore#with-a-bucket) and [Deploy](/guides/deploy#an-object-store) explain the prefix.
+
+For running an instance:
+
+- **Each release publishes the server image** to `ghcr.io/withmarfa/marfa-server`, for `linux/amd64` and `linux/arm64`, tagged with the release and `latest`. [Deploy](/guides/deploy#run-it-in-a-container) pulls it, and [Upgrade](/guides/upgrade) names the old build by its tag. `GET /` answers the `release` of such a build beside `version`, and `marfa status` and `marfa whoami` show both. A build made from a clone has no `release`. The container's port is published on the loopback address only, because Docker publishes a bare port on every interface.
+- **A proxy on the same machine as the container needs `TRUSTED_PROXY_CIDRS`** set to the container network's range. Without it, every caller shares one address, and sign-in lockouts, which count attempts for each address, apply to everyone together. [Deploy](/guides/deploy#the-address) explains it.
+- **A webhook to a private address is refused when you register it.** A `url` whose host is a private address, or a name that resolves to one, such as a Tailscale name, is refused `400 validation_error` that names `MARFA_WEBHOOK_ALLOW_PRIVATE_ADDRESSES`, and so is a change of `url` to one. A delivery refused for its address is `dead_letter` at once and not retried, so redeliver it after you allow private addresses. An outbound webhook reaches only global IPv6 addresses, and other IPv6 blocks are refused. [Receive webhooks](/guides/receive-webhooks#receive-deliveries-on-a-private-network) covers it.
+- **Telemetry names the instance.** Every log record, span and reported exception carries `service.instance.id`, the `instance_id` that `GET /` answers. `OTEL_RESOURCE_ATTRIBUTES` marks an instance, such as `deployment.environment=staging` for a test one, for the server and the CLI, and `OTEL_SERVICE_NAME` wins over a `service.name` in it. The bare-metal start in [Deploy](/guides/deploy#run-it-without-a-container) loads the telemetry preload. [Send telemetry](/guides/telemetry#tell-instances-apart) covers it.
+- **A backup names the files it lacks.** An archive leaves out a blob that no store holds whole and names it under `missing_blobs` in its manifest. `marfa export` then exits `1` with `blobs_missing`, a restore answers `blobs_missing`, and `marfa restore` exits `1` when it lists any. A cut `marfa export --output` leaves the path as it was and exits `3`. A blob store that fails answers `503 blob_store_unavailable`. [Back up and restore](/guides/back-up-and-restore#when-an-archive-lacks-a-files-bytes) covers it.
+- **Headers a Tailscale proxy adds, those named `Tailscale-`, are not stored** with a connector's inbound delivery. [Receive vendor webhooks](/guides/connector-webhooks) covers it.
+
+For apps and devices:
+
+- **A file item names only bytes its writer uploaded or can already read.** Any other write of `blob_ref` is refused `404 blob_not_found`, where it was taken and left a file that nobody could download. Upload with the same credential first. The refusal isn't kept against an `Idempotency-Key`, and a working copy uploads again under its current key when the key changed. [Handle files](/guides/handle-files#point-an-item-at-the-bytes) covers it.
+- **`marfa folders push` says whether it finished.** It exits `3` when a write is left unsent or the catch-up fails, and `5` when the credential is refused. Under a rate limit it doesn't wait: it reports the writes as not delivered, names the wait and exits `3`, and a watch waits on its own. The report counts files with an unanswered write as waiting. `marfa folders restore` lists the files it couldn't write back. A file moved to another folder and saved again as UTF-16 stays the same item, and a file that isn't text no longer holds up deletes in other folders. [Sync a folder](/guides/sync-a-folder#know-whether-a-push-finished) covers it.
+- **`marfa keys keep` keeps any valid key**, including one that holds only `keys.mint`, `instance.read` or `audit.read`. `marfa events` ends with exit `1` for `cursor_ahead` and `catchup_too_old`, `3` for a stream that stopped early, and `5` for `credential_ended`. `marfa owner passkeys add` opens the ordinary sign-in page. [The CLI](/cli#connect-to-a-server) and [Keep a copy in sync](/guides/keep-in-sync#when-the-stream-ends) cover them.
 
 ## Swift SDK v0.0.21
 
