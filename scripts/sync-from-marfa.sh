@@ -44,6 +44,9 @@
 #   src/generated/marfa-release.json  the latest release tag, shown in the sidebar
 #   src/generated/cli-download.md     the macOS install of that release's CLI,
 #                                     included by the Quickstart and the CLI page
+#   src/generated/server-image.md     the commands that pull that release's server
+#                                     image and start it, included by the Deploy
+#                                     guide
 #
 # Reads committed files from a checkout of the monorepo, by default the sibling
 # at ../marfa. Set MARFA_ROOT to use another. Nothing is generated: the
@@ -803,5 +806,14 @@ sudo mv marfa /usr/local/bin/
 marfa --version
 \`\`\`
 DOWNLOAD
+# The server image is tagged with the release without its v. The loopback
+# publish is deliberate: Docker publishes a bare port on every interface.
+cat > "$GENERATED/server-image.md" <<IMAGE
+\`\`\`bash
+docker pull ghcr.io/withmarfa/marfa-server:${RELEASE#v}
+docker run --name marfa -d --restart unless-stopped -p 127.0.0.1:8600:8600 \\
+  -v marfa-data:/data --env-file marfa.env ghcr.io/withmarfa/marfa-server:${RELEASE#v}
+\`\`\`
+IMAGE
 
-echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE) and its CLI download synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE), its CLI download and its server image commands synced from $MARFA_ROOT"
