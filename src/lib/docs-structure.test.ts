@@ -62,6 +62,24 @@ describe('the CLI download', () => {
   });
 });
 
+describe('the server image commands', () => {
+  it('come from the generated snippet, so a release sync updates them', () => {
+    const hardCoded = ALL_PAGES.filter(({ text }) => /marfa-server:\d/.test(text)).map(({ file }) => file);
+    expect(hardCoded).toEqual([]);
+    const including = ALL_PAGES.filter(({ text }) =>
+      text.includes('<include cwd>src/generated/server-image.md</include>'),
+    ).map(({ file }) => file);
+    expect(including).toEqual([path.join('guides', 'deploy.mdx')]);
+  });
+
+  it('name the latest release and publish the port on loopback only', () => {
+    const { version } = JSON.parse(readFileSync(path.join(ROOT, 'src/generated/marfa-release.json'), 'utf8'));
+    const snippet = readFileSync(path.join(ROOT, 'src/generated/server-image.md'), 'utf8');
+    expect(snippet).toContain(`docker pull ghcr.io/withmarfa/marfa-server:${version.slice(1)}\n`);
+    expect(snippet).toContain('-p 127.0.0.1:8600:8600');
+  });
+});
+
 describe('the Glossary page', () => {
   it('defines only words marfa\'s glossary uses', () => {
     const glossary = readFileSync(path.join(ROOT, 'src/generated/GLOSSARY.md'), 'utf8').toLowerCase();

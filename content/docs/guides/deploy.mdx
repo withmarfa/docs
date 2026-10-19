@@ -12,7 +12,7 @@ An instance is one server process and one SQLite database, so there's no databas
 | Where | How | Good for |
 | --- | --- | --- |
 | A computer you own | Run the server under a supervisor that restarts it, as in [Run it without a container](#run-it-without-a-container). | A Mac or a home server that stays on. |
-| A container | Build the image from `deploy/Dockerfile` in the [Marfa repository](https://github.com/withmarfa/marfa) and give it one volume, as in [Run it in a container](#run-it-in-a-container). | A server you already run. |
+| A container | Pull the published server image and give it one volume, as in [Run it in a container](#run-it-in-a-container). | A server you already run. |
 | Railway | Deploy the [Marfa template](https://railway.com/new/template/5z9-Ja). It creates the server, a volume and a private bucket for backups, generates the two secrets, and sets the address. | The quickest way to an instance on the internet. Railway bills the service and its storage to you. |
 
 [Create a personal Marfa instance on Railway](https://github.com/withmarfa/marfa/blob/main/deploy/railway.md) has the Railway steps, including claiming the instance.
@@ -103,38 +103,36 @@ You reach an instance in one of three ways:
 
 When a proxy or tunnel sits in front of the server, **tell the server which client address to believe**: `TRUSTED_PROXY_CIDRS` names the proxy's address ranges, or `TRUSTED_PROXY_HEADER` names a header the platform's edge overwrites with the client's address. Without either, the server ignores `X-Forwarded-For`, and every request seems to come from the proxy.
 
+**That matters for sign-in.** The server limits password sign-in attempts at the owner's account to ten in fifteen minutes from one address, and answers the next `429`. When every caller seems to come from the proxy, they share one address, so anyone's wrong guesses can lock the owner out.
+
+A proxy on the same machine as a container, such as Tailscale Serve or a tunnel, reaches the container through Docker's network, so the server sees the container network's gateway address and not the proxy's. **Set `TRUSTED_PROXY_CIDRS` to the range of the container network**, such as the subnet that `docker network inspect bridge` shows for the default network, so the server reads each caller's own address from `X-Forwarded-For`. Trust only a range that nothing but your proxy can reach the server through: the server believes the header from every address in it.
+
 ### An object store
 
 Name an S3-compatible bucket with `S3_BUCKET` and the other `S3_` settings, and the server keeps a second copy of every blob there. In the container, the bucket also receives the database, so the instance can be rebuilt from the bucket alone.
+
+**Everything an instance keeps in the bucket is under its `S3_PREFIX`**, which is `blobs` unless you set it: its blobs at `<S3_PREFIX>/<hash>` and its database replica at `<S3_PREFIX>/db`. **Give each instance that shares a bucket its own prefix**, such as `trial/blobs`. Two instances with one prefix write one replica, and a new volume of either starts on whichever database was copied last. A prefix is segments of letters, digits, `.`, `_` and `-` joined by `/`, and a `/` at either end is dropped. A prefix keeps replicas apart, not access: each instance holds credentials for the whole bucket, so share a bucket only between instances of one owner.
 
 **Put the bucket on a different site from the instance.** A link the bucket signs serves a blob from the bucket's own host, without the protections the instance adds to its own downloads, so a bucket under the instance's domain could let an uploaded HTML file run as a page of the instance.
 
 ## Run it in a container
 
+Every release publishes the server image to `ghcr.io/withmarfa/marfa-server` for `linux/amd64` and `linux/arm64`, tagged with its release number and `latest`. **Pull a release by its tag, not `latest`**, so that a restart never changes the build, and so that the old and the new build of an [upgrade](/guides/upgrade) can each be named.
+
 <Steps>
 <Step>
 
-### Build the image
+### Pull the image and start it
 
-From a clone of the repository:
+Put `API_KEY_SALT`, `MARFA_AUTH_SECRET`, `MARFA_AUTH_BASE_URL` and the `S3_` settings in `marfa.env`, kept out of any repository. **Leave out `NODE_ENV`, `PORT` and the paths**: the image sets them, with the database, the blobs and the socket under `/data`. Then pull the image and start the container with one volume there:
 
-```bash
-docker build -f deploy/Dockerfile --build-arg VERSION_SHA=$(git rev-parse HEAD) -t marfa-server .
-```
+<include cwd>src/generated/server-image.md</include>
 
-</Step>
-<Step>
-
-### Start it
-
-Put `API_KEY_SALT`, `MARFA_AUTH_SECRET`, `MARFA_AUTH_BASE_URL` and the `S3_` settings in `marfa.env`, kept out of any repository. **Leave out `NODE_ENV`, `PORT` and the paths**: the image sets them, with the database, the blobs and the socket under `/data`. Then start the container with one volume there:
-
-```bash
-docker run --name marfa -d --restart unless-stopped -p 8600:8600 \
-  -v marfa-data:/data --env-file marfa.env marfa-server
-```
+**`-p 127.0.0.1:8600:8600` publishes the port on the loopback address only.** A reverse proxy or a tunnel on the same machine reaches it there, and `MARFA_AUTH_BASE_URL` names the address people use. Docker publishes a bare `-p 8600:8600` on every network interface, and on Linux it does so past the host's firewall, so the instance would be open to the whole network. A proxy in front of the container needs `TRUSTED_PROXY_CIDRS`, as [The address](#the-address) says.
 
 Without `S3_BUCKET`, the container runs the server alone and says so in its log: that's a trial, because nothing leaves the machine.
+
+To run code that no release holds, build the image from a clone of the repository with `docker build -f deploy/Dockerfile --build-arg VERSION_SHA=$(git rev-parse HEAD) -t marfa-server .`, and use `marfa-server` in place of the image name. It reports no `release`.
 
 </Step>
 <Step>
@@ -165,8 +163,10 @@ Then start it from `packages/server`, with the settings in its environment:
 
 ```bash
 cd packages/server
-node dist/index.js
+node --import ./dist/instrumentation.js dist/index.js
 ```
+
+**The `--import` loads the server's telemetry before anything else**, as the container does. Plain `node dist/index.js` starts the server but loads no telemetry, whatever the environment says. With `OTEL_EXPORTER_OTLP_ENDPOINT` unset, the preload exports nothing. [Send telemetry](/guides/telemetry) covers turning it on.
 
 Claim it with `marfa --socket <path> setup open`, as the account that runs the server. **The container is the tested route**; this suits a computer you own, under a supervisor such as launchd or systemd.
 
@@ -182,5 +182,7 @@ When the server can't start, its exit status tells your supervisor whether to tr
 - `78` means the database has an incompatible schema or holds retired tables or settings. The server changed nothing, and starting it again meets the same refusal, so **don't restart on `78`**: [Upgrade](/guides/upgrade) says what to do. The container doesn't exit on `78`; it stays up and unhealthy with the reason in its log, so a restart policy can't loop on it.
 
 A server that crashes can leave its socket file behind. On restart, the server replaces a socket that refuses connections. If another listener accepts connections there, the new start refuses and preserves it: check which process is running rather than removing its socket.
+
+`GET /` answers the `release` the image was built as, beside `version`, which is the commit. A build from a clone has no `release`.
 
 The rules behind this page are in the [instance chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md) of the contract, and the container recipe is described in the [deployment guide](https://github.com/withmarfa/marfa/blob/main/deploy/README.md).

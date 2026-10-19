@@ -17,11 +17,23 @@ export MARFA_OTEL_SAMPLE_RATIO=0.1
 
 - **`OTEL_EXPORTER_OTLP_HEADERS`** holds the headers the receiver wants, as comma-separated `key=value` pairs with percent-encoded values. It is a secret: keep it out of any file you commit.
 - **`MARFA_OTEL_SAMPLE_RATIO`** is the share of traces exported, from 0 to 1. **A trace that contains an error is always exported**, whatever the ratio.
-- **`OTEL_SERVICE_NAME`** names the service on what Marfa sends.
+- **`OTEL_SERVICE_NAME`** names the service on what Marfa sends. It is `marfa-server` unless you set it, and it wins over a `service.name` in `OTEL_RESOURCE_ATTRIBUTES`.
 
 The settings also take an address and headers for traces or logs alone, which override the shared ones: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` are used as written, and `OTEL_EXPORTER_OTLP_TRACES_HEADERS` and `OTEL_EXPORTER_OTLP_LOGS_HEADERS` win over `OTEL_EXPORTER_OTLP_HEADERS`. **The two address settings need `OTEL_EXPORTER_OTLP_ENDPOINT` set too**, or the server refuses to start. The header settings have no such check, and without the shared address nothing reads them.
 
 Marfa drops what carries a credential, a request body, raw SQL or an email address, and strips the query string from a URL, before it exports anything.
+
+### Tell instances apart
+
+Several instances can send to one project, such as your own, a demo and a test. **Every log record and span names its instance by `service.instance.id`**, which is the `instance_id` that `GET /` answers. So does every exception reported to PostHog once the server has read the id, which it does as soon as its database opens. Look the id up with `GET /` to find which instance an export came from. The instance's name isn't sent: it can change while the server runs, and it can be personal.
+
+`OTEL_RESOURCE_ATTRIBUTES` adds attributes of your own, as comma-separated `key=value` pairs with percent-encoded values. **An attribute named there replaces the server's own of the same name**, `service.instance.id` and `service.version` included. Mark a test or demo instance with `deployment.environment`, which is `production` unless you set it:
+
+```bash
+export OTEL_RESOURCE_ATTRIBUTES=deployment.environment=staging
+```
+
+The `environment` of a [failure notice](#post-a-notice-when-a-request-fails) takes the value of `deployment.environment.name` if the list names it, and otherwise of `deployment.environment`. The server refuses to start when the list is malformed, and names the setting.
 
 **Telemetry loads only when the server starts with its preload.** The container already does. When you run the server with Node yourself, start it this way, because plain `node dist/index.js` exports nothing whatever the variables say:
 
@@ -53,4 +65,4 @@ A system can't report its own death, so something outside the instance has to no
 
 ## What the CLI sends
 
-**The CLI sends nothing unless the environment names an OTLP endpoint**, `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. With one set, each command sends one trace, named for the command, with its exit code. The trace holds no argument, address, credential, item content or message. A failed command also sends one exception to PostHog when an OTLP endpoint and both `MARFA_POSTHOG_HOST` and `MARFA_POSTHOG_PROJECT_TOKEN` are set, as the server does. `OTEL_SDK_DISABLED=true` turns the CLI's telemetry off. It also reads the standard variables for headers, timeout, sampler and service name, as [the CLI reference](https://github.com/withmarfa/marfa/blob/main/core/marfa-cli/COMMANDS.md#telemetry) lists.
+**The CLI sends nothing unless the environment names an OTLP endpoint**, `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. With one set, each command sends one trace, named for the command, with its exit code. The trace holds no argument, address, credential, item content or message. A failed command also sends one exception to PostHog when an OTLP endpoint and both `MARFA_POSTHOG_HOST` and `MARFA_POSTHOG_PROJECT_TOKEN` are set, as the server does. `OTEL_SDK_DISABLED=true` turns the CLI's telemetry off. It adds the attributes `OTEL_RESOURCE_ATTRIBUTES` names to its trace and its exception, and a list with one pair it can't read is ignored whole. `OTEL_SERVICE_NAME`, which names the trace `marfa-cli` unless you set it, wins over a `service.name` in that list. It also reads the standard variables for headers, timeout, sampler and service name, as [the CLI reference](https://github.com/withmarfa/marfa/blob/main/core/marfa-cli/COMMANDS.md#telemetry) lists.

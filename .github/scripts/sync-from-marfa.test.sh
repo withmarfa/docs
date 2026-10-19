@@ -727,7 +727,7 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3) and its CLI download synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3), its CLI download and its server image commands synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -764,8 +764,12 @@ check "the CLI download names that release and its archive" \
   'curl -fsSL https://github.com/withmarfa/marfa/releases/download/v1.2.3/marfa-1.2.3-darwin-arm64.tar.gz | tar -xz' \
   "$(sed -n 2p "${work}/good/docs/src/generated/cli-download.md")"
 check "the CLI download is one bash block" '```bash|```' "$(head -1 "${work}/good/docs/src/generated/cli-download.md")|$(tail -1 "${work}/good/docs/src/generated/cli-download.md")"
+check "the server image commands name that release's image, on loopback" \
+  'docker pull ghcr.io/withmarfa/marfa-server:1.2.3|docker run --name marfa -d --restart unless-stopped -p 127.0.0.1:8600:8600 \|  -v marfa-data:/data --env-file marfa.env ghcr.io/withmarfa/marfa-server:1.2.3' \
+  "$(sed -n 2p "${work}/good/docs/src/generated/server-image.md")|$(sed -n 3p "${work}/good/docs/src/generated/server-image.md")|$(sed -n 4p "${work}/good/docs/src/generated/server-image.md")"
+check "the server image commands are one bash block" '```bash|```' "$(head -1 "${work}/good/docs/src/generated/server-image.md")|$(tail -1 "${work}/good/docs/src/generated/server-image.md")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md catalog cli cli-download.md contract-index.json edge-types.md error-codes.md event-types.md housekeeping.md marfa-release.json permissions.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md catalog cli cli-download.md contract-index.json edge-types.md error-codes.md event-types.md housekeeping.md marfa-release.json permissions.md server-image.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 
 # The Catalog's files: a Markdown file for each top-level type with its subtypes
