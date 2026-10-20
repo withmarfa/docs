@@ -28,7 +28,7 @@ Confirming replaces your browser session with a new one created at that moment, 
 - Adding, renaming or removing a passkey.
 - Changing the owner's name or email on the Profile page.
 - Revoking a key, disconnecting an app, or signing out another browser.
-- Approving an app for more than reading, as [When approval needs a recent sign-in](#when-approval-needs-a-recent-sign-in) describes.
+- Approving a write or a permission the app doesn't already hold, as [When approval needs a recent sign-in](#when-approval-needs-a-recent-sign-in) describes.
 
 A program that makes the same request, with no page to show a dialog, gets `403 forbidden` with the message `Sign in again to perform this operation`, and Marfa changes nothing. `POST /auth/confirm` is the operation behind the dialog: it takes the password or a passkey assertion of the owner who is signed in. A program that carries the owner's live browser session can call it with that proof, and a request with no live owner session, or with a key, is refused `401 unauthorized`.
 
@@ -271,7 +271,7 @@ client_id=<client_id>&scope=core.note%3Aread%20offline_access
 }
 ```
 
-Show the owner the `user_code` and `verification_uri`, or open `verification_uri_complete` for them. They sign in there, enter the code if it wasn't in the address, and choose what to allow on the same controls as the Approve access screen, [with a recent sign-in](#when-approval-needs-a-recent-sign-in) for anything beyond reading. The code page takes the code in any case, with or without a hyphen after the fourth character, as `LFMC-H9Q4` or `LFMCH9Q4`, and says that codes end after 10 minutes.
+Show the owner the `user_code` and `verification_uri`, or open `verification_uri_complete` for them. They sign in there, enter the code if it wasn't in the address, and choose what to allow on the same controls as the Approve access screen, under the [same rule for a recent sign-in](#when-approval-needs-a-recent-sign-in). The code page takes the code in any case, with or without a hyphen after the fourth character, as `LFMC-H9Q4` or `LFMCH9Q4`, and says that codes end after 10 minutes.
 
 **Keep the request explicit:** omitting `scope`, or sending only whitespace, is refused with `400 invalid_scope` before a code is issued. Read the approved `scope` in the token response; it can be narrower than you asked for.
 
@@ -306,20 +306,17 @@ A control for an item type shows the type's identifier under its label when two 
 
 **An app that asks for all data with `*:read` or `*:write` can be given types instead.** The screen then offers Choose types beside the levels, with one control for each registered item type that the app's registration can request by name. It leaves out types under `system` and `marfa`, and types the app already holds in full. The token holds the types the owner turned on, such as `core.note:read core.task:read`, and not `*:read`, so read the approved `scope` in the token response. Turning on no type is declining.
 
-Marfa grants what the owner chose, the reads that a write includes, and the scopes the app already held that it still holds when the owner approves. A form that posts a scope the request didn't name is refused `400`, and nothing is granted. **Approving with none of the newly requested access turned on is declining.** When the request names access beyond `openid` and `offline_access` that the app doesn't already hold, the app gets `access_denied` and keeps what it held. A request of only `openid` and `offline_access` offers nothing to turn off, and the owner can approve it.
+Marfa grants what the owner turned on, the reads that a write includes, and the scopes the request names that the app still holds when the owner approves. A form can only narrow the request: one that posts a scope the request didn't name is refused `400` and grants nothing, with the types chosen in place of all data as the exception, such as `core.note:read` under `*:read`. **Approving is declining when the request asks for access beyond `openid` and `offline_access` that the app doesn't already hold, and the owner turns all of that off.** The app then gets `access_denied` and keeps what it held. A request for nothing more than those two offers nothing to turn off, and the owner can approve it.
+
+The exact rules are in the contract: [`keys-and-oauth/approval-beyond-shown`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthapproval-beyond-shown) and [`keys-and-oauth/approval-types-beyond`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthapproval-types-beyond) for what a form may post, [`keys-and-oauth/approval-held-now`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthapproval-held-now) for the held scopes, and [`keys-and-oauth/consent-nothing-denies`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthconsent-nothing-denies) for when approving is declining.
 
 ## When approval needs a recent sign-in
 
-**A browser that signed in more than five minutes ago can approve reading only.** That covers the Approve access screen and the device approval page alike. The scopes that read are `<type>:read` for an item type or a pattern of types, `edge.<type>:read` for an edge type or a pattern of edge types, `metadata:read`, `metadata.<sub-resource>:read`, `content:read`, `profile:read`, `profile.<row>:read`, `openid`, `profile`, `email` and `offline_access`.
+**Approving can need a sign-in from the last five minutes.** Whether it does depends on the access the owner turns on that the app doesn't already hold, not on what the app asked for: turning on only reading never needs one, and a write or a permission the app doesn't already hold does. The Approve access screen and the device approval page follow the same rule.
 
-To approve write access, or any of the [permissions](/catalog/permissions) the app doesn't already hold, the owner must have signed in within the last five minutes. **A scope the owner approved for the app before needs no new sign-in.**
+When the owner's sign-in is older, the page asks them to [confirm it's them](#confirm-its-you) as they press Approve, and approves in the same step. An approval sent without a recent sign-in, as a program might send it, is refused `403 forbidden` with the message `Sign in again to perform this operation`, and Marfa issues no code.
 
-The page asks the owner to [confirm it's them](#confirm-its-you) when they press Approve, and approves in the same step:
-
-- **The owner opens a screen that asks for more than reading and more than the app already holds.** The screen carries the "Confirm it's you" dialog whatever the age of the sign-in, because the owner may leave the screen open past the five minutes. The dialog opens when the owner presses Approve and the sign-in is older than that. A request that asks for nothing beyond reading, or beyond what the app holds, has no dialog.
-- **A request without a page.** A request whose `Accept` header doesn't prefer `text/html` is refused `403 forbidden`, and Marfa issues no code.
-
-The app does nothing differently. An app that uses the authorization code grant waits for the redirect, and an app that uses the device grant keeps polling and gets `authorization_pending` until the owner decides. [Keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthconsent-older-reads) holds the exact rules, starting with `keys-and-oauth/consent-older-reads`.
+The app does nothing differently. An app that uses the authorization code grant waits for the redirect, and an app that uses the device grant keeps polling and gets `authorization_pending` until the owner decides. [Keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthconsent-recent-needed) holds the exact rules in `keys-and-oauth/consent-recent-needed` and `keys-and-oauth/consent-older-reads`.
 
 ## Revoke access
 
