@@ -20,7 +20,7 @@ export const Route = createRootRoute({
       {
         name: 'description',
         content:
-          'A home for your personal data that you run yourself, and the pieces that work with it.',
+          'A shared, typed data layer for your apps that you run yourself, and the pieces that work with it.',
       },
     ],
     links: [
