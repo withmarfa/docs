@@ -47,6 +47,8 @@ A command that talks to an instance needs the server's address and a credential.
 marfa login --url https://marfa.example.com
 ```
 
+To print the token set instead of keeping it, add `--print-token`. The command then doesn't read or write the keychain, so the server must come from `--url` or `MARFA_API_URL`.
+
 ```text
 Open https://marfa.example.com/auth/device?user_code=V3Z5RBBC and enter the code V3Z5RBBC
 Waiting for the approval...
@@ -71,7 +73,7 @@ Either way, the server you sign in to or keep a key for becomes the current serv
 | A server | `--url` | `MARFA_API_URL` | The current server |
 | A credential | `--key` | `MARFA_API_KEY` | What the keychain holds for that server |
 
-So `MARFA_API_URL` and `MARFA_API_KEY` override what the keychain holds, which suits a script. Prefer them to `--key`: other users of the machine can read a command line, and it stays in your shell history. On macOS, `MARFA_KEYCHAIN` names a keychain file to use instead of your own, for a run with nobody there to answer a prompt. **The file must already exist.** The CLI doesn't create it, and a missing file ends the command with exit code 4 and `no keychain file is there`. Make an empty one with `security`, then keep the key in it:
+So `MARFA_API_URL` and `MARFA_API_KEY` override what the keychain holds, which suits a script. A key from `--key` or `MARFA_API_KEY` belongs to the server you name with it: if a command that sends the key has no server named, it asks for `--url` or `MARFA_API_URL` instead of sending the key to the current server. `marfa login`, `marfa logout` and `marfa keys forget` send no key, so they still use the current server. Prefer the variables to `--key`: other users of the machine can read a command line, and it stays in your shell history. On macOS, `MARFA_KEYCHAIN` names a keychain file to use instead of your own, for a run with nobody there to answer a prompt. **The file must already exist.** The CLI doesn't create it, and a missing file ends the command with exit code 4 and `no keychain file is there`. Make an empty one with `security`, then keep the key in it:
 
 ```bash
 security create-keychain -p '' "$HOME/marfa.keychain-db"
@@ -155,6 +157,24 @@ marfa items get 01a12192-a000-76e3-b129-b55027e21dcb --json
 
 ```json
 {"error":{"code":"not_found","message":"the server refused (404 item_not_found): Item 01a12192-a000-76e3-b129-b55027e21dcb not found","server":{"status":404,"code":"item_not_found","details":null},"retry_after_seconds":null},"exit":1}
+```
+
+### Run without the keychain
+
+Pass `--no-keychain` or set `MARFA_NO_KEYCHAIN=1` and the CLI treats the keychain as absent: it reads nothing from it and writes nothing to it, so it can't raise a system prompt. A script, a CI job or an agent then takes the server and the key from `--url` and `--key`, or from `MARFA_API_URL` and `MARFA_API_KEY`. There's no current server to fall back to, so every command needs `--url` or `MARFA_API_URL`. A command that has to keep or remove something, such as `marfa keys keep`, `marfa keys forget`, `marfa logout` or `marfa login` without `--print-token`, refuses and says how to pass a key instead.
+
+A secrets manager can set both variables for one command. With 1Password, store the key as a secret reference, which `op run` replaces with the value:
+
+```bash
+export MARFA_API_URL=https://marfa.example.com
+export MARFA_API_KEY="op://Private/Marfa/key"
+MARFA_NO_KEYCHAIN=1 op run -- marfa items list
+```
+
+With Infisical, keep `MARFA_API_URL` and `MARFA_API_KEY` as secrets in the project and run the command through the CLI:
+
+```bash
+MARFA_NO_KEYCHAIN=1 infisical run -- marfa items list
 ```
 
 ## Exit codes
