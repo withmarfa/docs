@@ -64,6 +64,8 @@ check "Build and type-check keeps its name" "$(grep -cF "name: Build and type-ch
 check "the classifier runs in CI" "$(grep -cF "run: bash .github/scripts/ci-changes.sh" "${workflow}")" 1
 check "the classifier's own test runs in CI" "$(grep -cF "run: bash .github/scripts/ci-changes.test.sh" "${workflow}")" 1
 check "no trigger filters paths" "$(grep -cE '^\s+paths(-ignore)?:' "${workflow}")" 0
+check "a push to main gets a group of its own" "$(grep -cF "|| github.run_id }}" "${workflow}")" 1
+check "only a pull request's run is cancelled" "$(grep -cF "cancel-in-progress: \${{ github.event_name == 'pull_request' }}" "${workflow}")" 1
 
 # As CI runs it, against a repository with real commits.
 repo="$(mktemp -d)"
