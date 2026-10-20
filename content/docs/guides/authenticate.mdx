@@ -9,15 +9,36 @@ The owner signs in in a browser to manage the instance and approve apps. For dat
 
 **The owner signs in in a browser at `/auth/sign-in`**, using the password chosen when claiming the instance or a registered passkey.
 
-To add a passkey, open `/auth/owner/passkeys` with a browser session authenticated within the last five minutes. This page also lists and removes individual passkeys. **Renaming or removing a passkey requires authentication within the last five minutes**; listing them needs only a live owner session. Removing one prevents further sign-in with it, while existing sign-ins and other passkeys keep working.
+**The Password and passkeys page, at `/auth/owner/passkeys`, changes the password and manages passkeys.** It asks for the current password to change it. It adds a passkey, and lists, renames and removes the ones you have, showing when each was added in your browser's time zone. **Adding, renaming or removing a passkey needs a sign-in within the last five minutes**; listing them needs only a live owner session. If your sign-in is older, the page asks you to confirm it's you, as [the next section](#confirm-its-you) describes. Removing a passkey prevents further sign-in with it, while existing sign-ins and other passkeys keep working.
+
+**Home, at `/`, is where you land after you sign in**, and [Start from Home](#start-from-home) describes it.
 
 On the instance's own machine, `marfa --socket <path> owner passkeys list` lists the passkeys. Use `marfa --socket <path> owner passkeys rename <id> --name "Laptop"` to rename one, or `marfa --socket <path> owner passkeys remove <id>` to remove it. `marfa --socket <path> owner passkeys add` opens the ordinary sign-in page, where you sign in with the password or a passkey, and then the passkey page; `--no-browser` prints the URL instead. **The add command issues no sign-in credential**: you still authenticate in the browser and register the passkey there. [Recover the owner's password](/guides/manage-keys#recover-the-owners-password) remains the way to recover a lost password.
 
 Passkeys need a supported browser and HTTPS, or localhost for development. **A valid passkey works even when password attempts are locked.** It creates the same owner browser authority used to approve apps and manage the instance; an app still needs its own token to read and write data.
 
-The owner's browser and the private local command can list, rename and end sign-ins at `/owner/sign-ins`. **Keys and app tokens cannot use these operations.** Browser changes require authentication within the last five minutes.
+The owner's browser and the private local command can list, rename and end sign-ins at `/owner/sign-ins`. **Keys and app tokens cannot use these operations.** A browser can end its own sign-in at any time. Ending another sign-in needs a sign-in within the last five minutes. `revoke_keys` applies only to an app: naming a browser or a key with `revoke_keys` set to `true` answers `400 validation_error`.
+
+## Confirm it's you
+
+**When a change needs a sign-in from the last five minutes and yours is older, the page asks you to confirm it's you.** A dialog titled "Confirm it's you" asks for the owner's password or a passkey. When you confirm, the page sends the change again, and you don't sign in a second time.
+
+Confirming replaces your browser session with a new one created at that moment, and ends the old one. The password counts against the same attempt windows as a password sign-in. A wrong password answers `401 unauthorized`, and once the windows are spent the answer is `429 rate_limited` with `Retry-After`. A passkey still confirms. A refused confirmation leaves your session as it was. These changes ask for it:
+
+- Adding, renaming or removing a passkey.
+- Changing the owner's name or email on the Profile page.
+- Revoking a key, disconnecting an app, or signing out another browser.
+- Approving a write or a permission the app doesn't already hold, as [When approval needs a recent sign-in](#when-approval-needs-a-recent-sign-in) describes.
+
+A program that makes the same request, with no page to show a dialog, gets `403 forbidden` with the message `Sign in again to perform this operation`, and Marfa changes nothing. `POST /auth/confirm` is the operation behind the dialog: it takes the password or a passkey assertion of the owner who is signed in. A program that carries the owner's live browser session can call it with that proof, and a request with no live owner session, or with a key, is refused `401 unauthorized`.
 
 [Manage keys](/guides/manage-keys) covers key access, and `marfa sign-ins --help` lists the local sign-in commands.
+
+## Start from Home
+
+**Open the instance's address in a browser where you are signed in as the owner, and Home answers.** It is headed by the instance's name and address, and it lists the owner's pages in groups. A page that needs a look appears under Needs attention. Home has a search that finds a page or a setting by name, which Cmd-K on a Mac or Ctrl-K elsewhere also opens, and a Sign out button. The older management page, at `/auth/owner/manage`, still holds what the newer pages don't: server health, housekeeping, signed-in browsers, connected apps, connectors, and a link to restoring an archive. Home is never cached, because it belongs to the owner.
+
+**A browser that isn't signed in sees a page that says the instance is running**, with a Sign in link, at `/`. **An owner page sends it to sign in, and back.** Opening an owner page, one under `/auth/owner/`, without a session answers `302` to `/auth/sign-in` with the page you asked for as `return_to`, and signing in returns you there. A page address longer than 2,048 characters returns you to Home instead. On an instance with no owner yet, the redirect goes to `/setup`. A program gets no redirect: a request with an `Authorization` header, or one that doesn't ask for HTML, is answered as before, and `GET /` for a program is still the instance's description.
 
 ## Change the owner's email or name
 
@@ -142,7 +163,7 @@ Then open the authorization endpoint in the owner's browser, with the challenge 
 GET /auth/oauth2/authorize?response_type=code&client_id=<client_id>&redirect_uri=https%3A%2F%2Freader.example.com%2Fcallback&scope=core.note%3Aread%20core.note%3Awrite%20offline_access&code_challenge=<challenge>&code_challenge_method=S256&state=<state>
 ```
 
-The owner signs in if they need to, and sees each scope the app asks for. They can untick any of them. A browser that signed in more than five minutes ago can approve reading only, as [the recent sign-in rules](#when-approval-needs-a-recent-sign-in) say. When they approve, Marfa sends the browser to your redirect address with a `code` and your `state`:
+The owner signs in if they need to, then chooses what to allow on the Approve access screen, as [What the owner chooses](#what-the-owner-chooses) describes. When they approve, Marfa sends the browser to your redirect address with a `code` and your `state`:
 
 ```text
 https://reader.example.com/callback?code=<code>&state=<state>&iss=http%3A%2F%2Flocalhost%3A8600%2Fauth
@@ -250,7 +271,7 @@ client_id=<client_id>&scope=core.note%3Aread%20offline_access
 }
 ```
 
-Show the owner the `user_code` and `verification_uri`, or open `verification_uri_complete` for them. They sign in there and approve each requested scope, [with a recent sign-in](#when-approval-needs-a-recent-sign-in) for anything beyond reading.
+Show the owner the `user_code` and `verification_uri`, or open `verification_uri_complete` for them. They sign in there, enter the code if it wasn't in the address, and choose what to allow on the same controls as the Approve access screen, under the [same rule for a recent sign-in](#when-approval-needs-a-recent-sign-in). The code page takes the code in any case, with or without a hyphen after the fourth character, as `LFMC-H9Q4` or `LFMCH9Q4`, and says that codes end after 10 minutes.
 
 **Keep the request explicit:** omitting `scope`, or sending only whitespace, is refused with `400 invalid_scope` before a code is issued. Read the approved `scope` in the token response; it can be narrower than you asked for.
 
@@ -273,19 +294,29 @@ Until the owner decides, Marfa answers `400 authorization_pending`, and `400 slo
 </Step>
 </Steps>
 
+## What the owner chooses
+
+**The Approve access screen, and the device approval page, offer a choice for what the app asks and nothing more.** The screen is headed by the app's name and the instance's. A web page's origin is shown without its `https://`.
+
+- **Your data** has one control for each item type the app asks for, with the levels No access, Read only and Read and edit. A level is offered only up to the highest the app asked for, so an app that asks to read a type is never offered editing. Read and edit includes adding and deleting items.
+- **Your profile** appears when the app asks for the profile, and **More control over Marfa** when it asks for a [permission](/catalog/permissions). Each permission starts turned off, and the three that can't be undone, `instance.maintain`, `schema.write` and `items.purge`, are marked.
+- **Already allowed** lists what the app held before it asked again. Approving never lowers it, and the screen offers no level below it.
+
+A control for an item type shows the type's identifier under its label when two types share a label, such as `core.task` and `aic.ticket.task`, which are both "Task".
+
+**An app that asks for all data with `*:read` or `*:write` can be given types instead.** The screen then offers Choose types beside the levels, with one control for each registered item type that the app's registration can request by name. It leaves out types under `system` and `marfa`, and types the app already holds in full. The token holds the types the owner turned on, such as `core.note:read core.task:read`, and not `*:read`, so read the approved `scope` in the token response. Turning on no type is declining.
+
+Marfa grants what the owner turned on, the reads that a write includes, and the scopes the request names that the app still holds when the owner approves. A form can only narrow the request: one that posts a scope the request didn't name is refused `400` and grants nothing, with the types chosen in place of all data as the exception, such as `core.note:read` under `*:read`. **Approving is declining when the request asks for access beyond `openid` and `offline_access` that the app doesn't already hold, and the owner turns all of that off.** The app then gets `access_denied` and keeps what it held. A request for nothing more than those two offers nothing to turn off, and the owner can approve it.
+
+The exact rules are in the contract: [`keys-and-oauth/approval-beyond-shown`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthapproval-beyond-shown) and [`keys-and-oauth/approval-types-beyond`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthapproval-types-beyond) for what a form may post, [`keys-and-oauth/approval-held-now`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthapproval-held-now) for the held scopes, and [`keys-and-oauth/consent-nothing-denies`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthconsent-nothing-denies) for when approving is declining.
+
 ## When approval needs a recent sign-in
 
-**A browser that signed in more than five minutes ago can approve reading only.** That covers the consent screen and the device approval screen alike. The scopes that read are `<type>:read` for an item type or a pattern of types, `edge.<type>:read` for an edge type or a pattern of edge types, `metadata:read`, `metadata.<sub-resource>:read`, `content:read`, `profile:read`, `profile.<row>:read`, `openid`, `profile`, `email` and `offline_access`.
+**Approving can need a sign-in from the last five minutes.** Whether it does depends on the access the owner turns on that the app doesn't already hold, not on what the app asked for: turning on only reading never needs one, and a write or a permission the app doesn't already hold does. The Approve access screen and the device approval page follow the same rule.
 
-To approve write access, or any of the [permissions](/catalog/permissions) the app doesn't already hold, the owner must have signed in within the last five minutes. **A scope the owner approved for the app before needs no new sign-in.**
+When the owner's sign-in is older, the page asks them to [confirm it's them](#confirm-its-you) as they press Approve, and approves in the same step. An approval sent without a recent sign-in, as a program might send it, is refused `403 forbidden` with the message `Sign in again to perform this operation`, and Marfa issues no code.
 
-Marfa asks the owner for the password or a passkey, then returns them to the same screen:
-
-- **The screen is opened after the five minutes.** Marfa sends the owner to sign in first, then back to the screen.
-- **The screen was already open when the five minutes passed.** Approving sends the browser to sign in again and back to the same request, if the request hasn't expired. An authorization request is signed for a short window, and a device code lasts `expires_in` seconds.
-- **The caller doesn't ask for a page.** A request whose `Accept` header doesn't prefer `text/html` is refused `403 forbidden`.
-
-The app does nothing differently. An app that uses the authorization code grant waits for the redirect, and an app that uses the device grant keeps polling and gets `authorization_pending` until the owner decides. [Keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthconsent-older-reads) holds the exact rules, starting with `keys-and-oauth/consent-older-reads`.
+The app does nothing differently. An app that uses the authorization code grant waits for the redirect, and an app that uses the device grant keeps polling and gets `authorization_pending` until the owner decides. [Keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthconsent-recent-needed) holds the exact rules in `keys-and-oauth/consent-recent-needed` and `keys-and-oauth/consent-older-reads`.
 
 ## Revoke access
 
@@ -300,7 +331,7 @@ token=marfa_rt_…&token_type_hint=refresh_token&client_id=<client_id>
 
 Marfa answers `200`, even for a token it doesn't hold. The owner can also disconnect an app in the browser, and a credential holding `grants.manage` lists the apps signed in with `GET /auth/grants` and ends one with `DELETE /auth/grants/{id}`.
 
-**Disconnecting an app from a browser needs a sign-in within the last five minutes.** A browser that signed in earlier is refused `403 forbidden` and leaves the app working. A credential holding `grants.manage` is not affected by when the owner last signed in, and neither is the private local command.
+**Disconnecting an app from a browser needs a sign-in within the last five minutes.** A browser that signed in earlier is asked to [confirm it's the owner](#confirm-its-you) first, and a request without a page is refused `403 forbidden` and leaves the app working. A credential holding `grants.manage` is not affected by when the owner last signed in, and neither is the private local command.
 
 The endpoints under `/auth/oauth2/` and `/auth/device/` **answer errors in OAuth's own shape**, such as `{ "error": "invalid_grant", "error_description": "invalid refresh token" }`, not in the [error envelope](/api-reference/errors) the rest of the API uses.
 

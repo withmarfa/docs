@@ -21,6 +21,8 @@ The SDK supports iOS 27 and macOS 27, and builds with Xcode 27 on a Mac with App
 
 Replace `<latest release>` with the version of the [latest release](https://github.com/withmarfa/marfa-swift/releases/latest). Every release adds 0.0.1 to the version, whatever it changes, so pin one version and move to the next on purpose.
 
+**An added enum case breaks an exhaustive switch** that has no default. A switch over `BlockedReason` must handle `.failingAlone` as well as the other cases, or provide a default.
+
 Each release carries the core already built, so your app needs no Rust toolchain. The core is built for Apple silicon only, so in your app target's build settings, set Excluded Architectures for Any iOS Simulator SDK to `x86_64`. Without it, some simulator builds fail to link.
 
 ## Open a working copy
@@ -85,6 +87,10 @@ _ = try await copy.items.update(id, Edit(properties: ["title": "Books to read"],
 ```
 
 Each write shows in the copy at once, with or without a connection, and waits in the queue. An edit changes the properties it names and keeps the rest. With `replaceProperties: true`, its properties become the item's whole set, so that's how you remove a property.
+
+If Marfa would serve a whole number back with other digits, the write throws `MarfaError.validation` with code `invalid_properties` **before anything is queued**. This includes `.integer(9_007_199_254_740_993)`, even inside an array or object, in an edge's properties or in an extension's data.
+
+Send a value that must keep every digit as a string. [Field kinds](/catalog/field-kinds) gives the number rule.
 
 ## Read the bin
 
@@ -179,6 +185,19 @@ updateItem accepted
 ```
 
 A refused write that carried content stays even then, so your app can offer the content back, until you call `queue.discard(_:)`. [Devices](/devices#verdicts) explains each verdict.
+
+**`BlockedReason.failingAlone`** means the write keeps meeting a failure while the server answers other writes. It stays blocked until you release or withdraw it. Dependent writes have `waiting` set to `true`, with no verdict.
+
+The queue exposes what the write met:
+
+| Property | Meaning |
+| --- | --- |
+| `QueuedWrite.environmentalStreak` | The number of drains in a row in which the write met a failure that was no answer to it. [`queue-and-verdicts/streak-counted`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsstreak-counted) and [`queue-and-verdicts/streak-run-restarts`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsstreak-run-restarts) say what counts and when the count starts again. |
+| `QueuedWrite.lastFailure` | An optional `LastFailure` describing the last such failure. A `429` updates it without increasing the streak. Failures in credential renewal or the device's own storage leave it unchanged. |
+| `LastFailure.status` | The optional HTTP status, including a gateway's answer or a `429`. `nil` means no status was kept: headers may have arrived before reading the body failed. |
+| `LastFailure.text` | The start of a text body, with whitespace collapsed, cut to 200 Unicode scalar values and followed by `...` if cut. `nil` for an empty body or one that isn't text. |
+
+An answer to the write or a refusal clears the streak and failure details. Setting it aside as `.failingAlone` keeps the failure details for your app to show. Releasing the write clears both at once, before the next answer.
 
 ## Keep a view current
 
