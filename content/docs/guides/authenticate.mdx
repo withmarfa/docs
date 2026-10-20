@@ -17,20 +17,20 @@ On the instance's own machine, `marfa --socket <path> owner passkeys list` lists
 
 Passkeys need a supported browser and HTTPS, or localhost for development. **A valid passkey works even when password attempts are locked.** It creates the same owner browser authority used to approve apps and manage the instance; an app still needs its own token to read and write data.
 
-The owner's browser and the private local command can list, rename and end sign-ins at `/owner/sign-ins`. **Keys and app tokens cannot use these operations.** A browser can end its own sign-in at any time. Ending another sign-in, or ending your own with `revoke_keys` set to `true`, needs a sign-in within the last five minutes.
+The owner's browser and the private local command can list, rename and end sign-ins at `/owner/sign-ins`. **Keys and app tokens cannot use these operations.** A browser can end its own sign-in at any time. Ending another sign-in needs a sign-in within the last five minutes. `revoke_keys` applies only to an app: naming a browser or a key with `revoke_keys` set to `true` answers `400 validation_error`.
 
 ## Confirm it's you
 
 **When a change needs a sign-in from the last five minutes and yours is older, the page asks you to confirm it's you.** A dialog titled "Confirm it's you" asks for the owner's password or a passkey. When you confirm, the page sends the change again, and you don't sign in a second time.
 
-Confirming replaces your browser session with a new one created at that moment, and ends the old one. The password counts against the same attempt windows as a password sign-in, so too many wrong passwords answer `429 rate_limited` with `Retry-After`, and a passkey still confirms. A refused confirmation leaves your session as it was. These changes ask for it:
+Confirming replaces your browser session with a new one created at that moment, and ends the old one. The password counts against the same attempt windows as a password sign-in. A wrong password answers `401 unauthorized`, and once the windows are spent the answer is `429 rate_limited` with `Retry-After`. A passkey still confirms. A refused confirmation leaves your session as it was. These changes ask for it:
 
 - Adding, renaming or removing a passkey.
 - Changing the owner's name or email on the Profile page.
 - Revoking a key, disconnecting an app, or signing out another browser.
 - Approving an app for more than reading, as [When approval needs a recent sign-in](#when-approval-needs-a-recent-sign-in) describes.
 
-A program that makes the same request, with no page to show a dialog, gets `403 forbidden` with the message `Sign in again to perform this operation`, and Marfa changes nothing. `POST /auth/confirm` is the operation behind the dialog: it takes the password or a passkey assertion of the owner who is signed in, and a request with no live browser session, or with a key, is refused `401 unauthorized`.
+A program that makes the same request, with no page to show a dialog, gets `403 forbidden` with the message `Sign in again to perform this operation`, and Marfa changes nothing. `POST /auth/confirm` is the operation behind the dialog: it takes the password or a passkey assertion of the owner who is signed in. A program that carries the owner's live browser session can call it with that proof, and a request with no live owner session, or with a key, is refused `401 unauthorized`.
 
 [Manage keys](/guides/manage-keys) covers key access, and `marfa sign-ins --help` lists the local sign-in commands.
 
@@ -38,7 +38,7 @@ A program that makes the same request, with no page to show a dialog, gets `403 
 
 **Open the instance's address in a browser where you are signed in as the owner, and Home answers.** It is headed by the instance's name and address, and it lists the owner's pages in groups. A page that needs a look appears under Needs attention. Home has a search that finds a page or a setting by name, which Cmd-K on a Mac or Ctrl-K elsewhere also opens, and a Sign out button. The older management page, at `/auth/owner/manage`, still holds what the newer pages don't: server health, housekeeping, signed-in browsers, connected apps, connectors, and a link to restoring an archive. Home is never cached, because it belongs to the owner.
 
-**A browser that isn't signed in is sent to sign in, and back.** Opening an owner page, one under `/auth/owner/`, without a session answers `302` to `/auth/sign-in` with the page you asked for as `return_to`, and signing in returns you there. A page address longer than 2,048 characters returns you to Home instead. On an instance with no owner yet, the redirect goes to `/setup`. A program gets no redirect: a request with an `Authorization` header, or one that doesn't ask for HTML, is answered as before, and `GET /` for a program is still the instance's description.
+**A browser that isn't signed in sees a page that says the instance is running**, with a Sign in link, at `/`. **An owner page sends it to sign in, and back.** Opening an owner page, one under `/auth/owner/`, without a session answers `302` to `/auth/sign-in` with the page you asked for as `return_to`, and signing in returns you there. A page address longer than 2,048 characters returns you to Home instead. On an instance with no owner yet, the redirect goes to `/setup`. A program gets no redirect: a request with an `Authorization` header, or one that doesn't ask for HTML, is answered as before, and `GET /` for a program is still the instance's description.
 
 ## Change the owner's email or name
 
@@ -304,9 +304,9 @@ Until the owner decides, Marfa answers `400 authorization_pending`, and `400 slo
 
 A control for an item type shows the type's identifier under its label when two types share a label, such as `core.task` and `aic.ticket.task`, which are both "Task".
 
-**An app that asks for all data with `*:read` or `*:write` can be given types instead.** The screen then offers Choose types beside the levels, with one control for each registered item type. The token holds exactly the types the owner turned on, such as `core.note:read core.task:read`, and not `*:read`, so read the approved `scope` in the token response. Turning on no type is declining.
+**An app that asks for all data with `*:read` or `*:write` can be given types instead.** The screen then offers Choose types beside the levels, with one control for each registered item type that the app's registration can request by name. It leaves out types under `system` and `marfa`, and types the app already holds in full. The token holds the types the owner turned on, such as `core.note:read core.task:read`, and not `*:read`, so read the approved `scope` in the token response. Turning on no type is declining.
 
-Marfa grants what the owner chose, the reads that a write includes, and the scopes the app already held that it still holds when the owner approves. A form that posts a scope the request didn't name is refused `400`, and nothing is granted. **Approving with nothing newly chosen is declining**: the app gets `access_denied` and keeps what it held.
+Marfa grants what the owner chose, the reads that a write includes, and the scopes the app already held that it still holds when the owner approves. A form that posts a scope the request didn't name is refused `400`, and nothing is granted. **Approving with none of the newly requested access turned on is declining.** When the request names access beyond `openid` and `offline_access` that the app doesn't already hold, the app gets `access_denied` and keeps what it held. A request of only `openid` and `offline_access` offers nothing to turn off, and the owner can approve it.
 
 ## When approval needs a recent sign-in
 
@@ -316,7 +316,7 @@ To approve write access, or any of the [permissions](/catalog/permissions) the a
 
 The page asks the owner to [confirm it's them](#confirm-its-you) when they press Approve, and approves in the same step:
 
-- **The owner opens a screen that asks for more than reading.** The screen carries the "Confirm it's you" dialog whatever the age of the sign-in, because the owner may leave the screen open past the five minutes. The dialog opens when the owner presses Approve and the sign-in is older than that. A request that only reads has no dialog.
+- **The owner opens a screen that asks for more than reading and more than the app already holds.** The screen carries the "Confirm it's you" dialog whatever the age of the sign-in, because the owner may leave the screen open past the five minutes. The dialog opens when the owner presses Approve and the sign-in is older than that. A request that asks for nothing beyond reading, or beyond what the app holds, has no dialog.
 - **A request without a page.** A request whose `Accept` header doesn't prefer `text/html` is refused `403 forbidden`, and Marfa issues no code.
 
 The app does nothing differently. An app that uses the authorization code grant waits for the redirect, and an app that uses the device grant keeps polling and gets `authorization_pending` until the owner decides. [Keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthconsent-older-reads) holds the exact rules, starting with `keys-and-oauth/consent-older-reads`.
