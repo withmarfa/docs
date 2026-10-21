@@ -31,32 +31,18 @@ export function StatusError({ error }: ErrorComponentProps) {
   );
 }
 
-/** An unknown path on the status page. It had none of its own before. */
+/** An unknown path on the status page. */
 export function StatusNotFound() {
   return (
     <HomeLayout {...baseOptions()}>
-      <div className="mx-auto flex w-full max-w-3xl grow flex-col items-center justify-center px-4 py-20 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight text-fd-foreground sm:text-3xl">
-          Page not found
-        </h1>
-        <p className="mt-3 max-w-md text-sm text-fd-muted-foreground">
-          This site carries the current status of Marfa and nothing else.
-        </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <a
-            href="/"
-            className="rounded-lg bg-fd-primary px-4 py-2 text-sm font-medium text-fd-primary-foreground hover:opacity-90"
-          >
-            Current status
-          </a>
-          <a
-            href={DOCS_URL}
-            className="rounded-lg border border-fd-border px-4 py-2 text-sm font-medium text-fd-foreground hover:bg-fd-accent"
-          >
-            Documentation
-          </a>
-        </div>
-      </div>
+      <ErrorPage
+        title="Page not found"
+        message="This site carries the current status of Marfa and nothing else."
+        primaryHref="/"
+        primaryLabel="Current status"
+        secondaryHref={DOCS_URL}
+        secondaryLabel="Documentation"
+      />
     </HomeLayout>
   );
 }

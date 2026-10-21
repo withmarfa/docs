@@ -3,51 +3,36 @@ title: Field kinds
 description: The kinds of value a type's field can hold, and what Marfa accepts for each.
 ---
 
-Each kind and rule links to the contract rule behind it.
+Each field of a type holds one kind of value, named by its `type`. **A value Marfa doesn't accept for its kind is refused `400 invalid_properties`**, and `details.errors` names the field. A device applies these rules to whole numbers and URLs offline, and queues nothing it refuses.
 
 ## Kinds
 
 | Kind | Holds |
 | --- | --- |
-| [`string`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsproperty-length-cap) | Text of up to `maxLength` UTF-16 code units, or 100,000 where the field sets none. |
-| [`number`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsproperty-number-exact) | A number. A whole number must be one Marfa serves back with the same digits (see Values). |
-| [`integer`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsproperty-number-exact) | A whole number, with the same rule on its digits. |
-| [`boolean`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsproperty-invalid) | `true` or `false`. |
-| [`url`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesurl-value) | An absolute URL that the WHATWG URL Standard accepts (see Values). |
-| [`email`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsproperty-invalid) | An email address. |
-| [`datetime`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesdatetime-value) | A date as `YYYY-MM-DD`, or a date and time with a zone, such as `2026-03-01T09:30:00Z`. |
-| [`date`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesdatetime-refused) | A calendar date as `YYYY-MM-DD`, with no time. |
-| [`enum`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesfield-grammar) | One of the field's `enum_values`. |
-| [`array`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesarray-items) | A list. `items_type` names the kind of its elements, and `maxItems` caps their number. |
-| [`object`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsproperty-invalid) | A JSON object. |
-| [`thumbnail`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsthumbnail-format) | A PNG, JPEG or WebP data URI that decodes to at most 16 KiB. |
+| `string` | Text of up to `maxLength` UTF-16 code units, or 100,000 where the field sets none. It can't hold U+0000. |
+| `number` | A number. A whole number must be written in the shortest digits of its 64-bit float, so Marfa serves it back unchanged: `1500000000000000001` and `-0` are refused. Send a whole number that must keep every digit as a `string`. |
+| `integer` | A whole number, written the same way. |
+| `boolean` | `true` or `false`. |
+| `url` | An absolute URL that the WHATWG URL Standard accepts once whitespace is trimmed from both ends. Marfa stores it without that whitespace and without tab, line feed and carriage return characters. |
+| `email` | An email address. |
+| `datetime` | A date and time with a zone, such as `2026-03-01T09:30:00Z`, or a date alone, as `YYYY-MM-DD`. A time with no zone is refused. |
+| `date` | A date alone, as `YYYY-MM-DD`. A date with a time is refused. |
+| `enum` | One of the field's `enum_values`. |
+| `array` | A list. `items_type` names the kind of its elements, and `maxItems` caps their number. |
+| `object` | A JSON object. |
+| `thumbnail` | A PNG, JPEG or WebP data URI that decodes to at most 16 KiB. |
 
-A value of the wrong shape is refused `400 invalid_properties`, and `details.errors` names the field.
+The rule on whole numbers holds at any depth, and also in an edge's `properties` and an extension's data. A bulk write that breaks it is refused whole, and `details.index` gives the entry's position.
 
 ## Formats
 
-| Format | What Marfa does |
+A field's `format` refines its kind:
+
+| Format on the field | What Marfa does |
 | --- | --- |
-| [`url`, `email`, `datetime`, `date`, `thumbnail`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesformat-collapses) | On a `string` field, stores the field as that kind. On an array of strings, stores an array of that kind. |
-| [Its own kind](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesformat-own-type) | On a field of the kind the format names, such as a `url` field, stores the field without the `format`. |
-| [`bcp47`, `iso3166`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesformat-string-only) | Keeps the format as a label on a `string` field: `bcp47` for a language tag, as on `language`, and `iso3166` for a country code, as on `country`. Marfa doesn't check the value. |
-| [Kind-naming format elsewhere](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesformat-refused) | Refuses `url`, `email`, `datetime`, `date` or `thumbnail` on any other kind, and `thumbnail` on an array, with `400` `invalid_schema`. |
-| [`bcp47`, `iso3166` elsewhere](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesformat-string-only-refused) | Refuses them on any kind but `string` with `400` `invalid_schema`. |
+| `url`, `email`, `datetime`, `date` or `thumbnail` on a `string` field | Stores the field as that kind. An array of strings takes any of the first four, and becomes an array of that kind. |
+| A format that names the field's own kind, such as `url` on a `url` field | Stores the field without the `format`. |
+| `bcp47` or `iso3166` on a `string` field | Keeps the format as a label, for a language tag (as on `language`) or a country code (as on `country`). Marfa doesn't check the value. |
+| `url`, `email`, `datetime`, `date` or `thumbnail` where the rows above don't allow it, and `bcp47` or `iso3166` on any kind but `string` | Refuses the type with `400 invalid_schema`. |
 
-## Values
-
-| Rule | Marfa allows or refuses |
-| --- | --- |
-| [Null character](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsproperty-nul) | A string that holds U+0000 is refused `400` `invalid_properties`. |
-| [Exact whole numbers](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsproperty-number-exact) | A whole number must be written in the shortest digits of its 64-bit float. `1500000000000000001`, 2^60 (`1152921504606846976`) and `-0` are refused `400` `invalid_properties`. Send a value that must keep every digit as a `string`. |
-| [Where it applies](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsproperty-number-exact-bulk) | At any depth, including an edge's `properties` and an extension's data. A bulk write is refused whole, and `details.index` gives the entry's position. |
-| [Numbers Marfa takes](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsproperty-number-kept) | A whole number in its shortest digits, such as `1152921504606847000`, and a number with a fraction or an exponent. |
-| [URL trimming](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesurl-value) | Marfa trims whitespace from both ends, as JavaScript's `String.prototype.trim` does, then parses the value as an absolute URL. |
-| [URL storage](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesurl-stored) | Marfa stores the URL without the trimmed whitespace and without tab, line feed and carriage return characters. |
-| [ASCII host](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesurl-punycode) | On a special scheme such as `http`, a host that is ASCII after percent-decoding is taken whatever its labels hold, so `http://xn--` is a URL. |
-| [Non-ASCII host](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesurl-idna) | Must be valid IDNA. `http://bücher.xn--` is refused `400` `invalid_properties`. |
-| [Forbidden host](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#typesurl-host-refused) | A forbidden domain code point, or a last label that is a number where the host isn't a valid IPv4 address, is refused `400` `invalid_properties`. |
-| [URL on a device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#deviceurl-idna-unassigned) | A device applies the same URL rules offline. It also refuses a special-scheme URL whose host holds a code point its IDNA tables leave unassigned. |
-| [Numbers on a device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#devicenumber-exact) | A device refuses the same whole numbers offline and queues nothing. |
-
-The rules behind this page are in the [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md), [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) and [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) chapters of the contract.
+The rules behind this page are in the [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md), [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) and [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) chapters of the contract, including how Marfa reads a URL's host.

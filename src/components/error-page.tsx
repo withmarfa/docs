@@ -34,16 +34,11 @@ export function ErrorPage({
       <p className="mt-3 max-w-md text-[0.9375rem] leading-relaxed text-fd-muted-foreground">{message}</p>
       <div className="mt-6 flex flex-wrap justify-center gap-2">
         {/*
-          A real navigation rather than a reload handler. This component renders
+          Real navigations rather than a reload handler. This component renders
           inside a boundary that may itself have failed to hydrate, and an
-          anchor works with no JavaScript running at all.
+          anchor works with no JavaScript running at all. The primary action
+          comes last, on the right, as on the console and the website.
         */}
-        <a
-          href={primaryHref}
-          className="inline-flex h-8 items-center rounded-md bg-fd-primary px-3 text-[0.8125rem] font-medium text-fd-primary-foreground transition-opacity duration-150 hover:opacity-85"
-        >
-          {primaryLabel}
-        </a>
         {secondaryHref && secondaryLabel ? (
           <a
             href={secondaryHref}
@@ -52,6 +47,12 @@ export function ErrorPage({
             {secondaryLabel}
           </a>
         ) : null}
+        <a
+          href={primaryHref}
+          className="inline-flex h-8 items-center rounded-md bg-fd-primary px-3 text-[0.8125rem] font-medium text-fd-primary-foreground transition-opacity duration-150 hover:opacity-85"
+        >
+          {primaryLabel}
+        </a>
       </div>
     </div>
   );
