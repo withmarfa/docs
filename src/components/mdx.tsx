@@ -1,14 +1,15 @@
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 import { File, Files, Folder } from 'fumadocs-ui/components/files';
-import { Step, Steps } from 'fumadocs-ui/components/steps';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import { TypeTable } from 'fumadocs-ui/components/type-table';
 import type { MDXComponents } from 'mdx/types';
 import { Callout } from './callout';
 import { Card, Cards } from './cards';
+import { FoldingCodeBlock, Terminal } from './code';
 import { CodeBlockTabs } from './code-tabs';
 import { ReferenceList } from './reference-list';
+import { Step, Steps } from './steps';
 import { visualComponents } from './visuals';
 
 export function getMDXComponents(components?: MDXComponents) {
@@ -28,6 +29,8 @@ export function getMDXComponents(components?: MDXComponents) {
     Steps,
     Tab,
     Tabs,
+    Terminal,
+    pre: FoldingCodeBlock,
     TypeTable,
     ...visualComponents,
     ...components,
