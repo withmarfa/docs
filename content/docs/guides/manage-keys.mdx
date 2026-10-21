@@ -5,7 +5,7 @@ description: Give a script or app a key that reaches only what it needs, then na
 
 A key is the credential for a script or service you run yourself. **It reaches only what it was made with**: a notes app gets notes and nothing else. An app that people sign in to uses OAuth instead, as [Authenticate](/guides/authenticate) shows. [Access](/access) explains the maps and permissions a key holds.
 
-The owner makes keys in a browser or through the private socket, and a key holding `keys.mint` can make them within what it holds itself. The examples use the socket, so run them on the instance's machine with `MARFA_API_URL` and `MARFA_API_KEY` unset:
+The owner makes keys in a browser or through the private socket; a key holding `keys.mint` makes keys within its own access. The examples use the socket, so run them on the instance's machine with `MARFA_API_URL` and `MARFA_API_KEY` unset:
 
 ```bash
 SOCK=/srv/marfa/data/control/marfa.sock
@@ -15,7 +15,7 @@ SOCK=/srv/marfa/data/control/marfa.sock
 
 Open API keys from [Home](/guides/sign-in-as-the-owner#start-from-home) and choose Create key. Details holds the name and when the key ends. **Access starts with everything off**, so turn on only what the key needs. Advanced holds its sources and where its items land.
 
-**The page shows the key once**, under Copy your key. A saved key can only get less access or an earlier end. Revoke this key is below the form.
+**The page shows the key once**, under Copy your key. A saved key can only get less access or an earlier end.
 
 ## Make a key
 
@@ -26,18 +26,19 @@ marfa --socket "$SOCK" keys create \
   --label "Notes app" --source notes-app --type-permission core.note=write
 ```
 
-Through the API, send `POST /keys` with `label`, `source` and `type_permissions` set the same way, as [Create an API key](/api-reference/access/createKey) shows.
+Through the API, [Create an API key](/api-reference/access/createKey) takes the same fields.
 
 The plaintext, which begins `marfa_k1_`, appears **once**. **Copy it to the app now**.
 
 ```text
 marfa_k1_614e182634b2e78eb69e0a3cda8806b739be5a4917c5765a5420dfe766c63947
 key 01a12311-8b01-7c3c-879e-3ff7346ce72f (Notes app); the plaintext is shown once, keep it now
+  core.note  Read and edit
 ```
 
-The source is stamped on every item the key creates. **A source belongs to one live key**: a second key with the same source is refused `409 conflict`. This key can create a note, and a bookmark is refused `403 type_not_permitted`.
+The source is stamped on every item the key creates. **A source belongs to one live key**: a second key naming it is refused `409 conflict`. With the notes key, a bookmark is refused `403 type_not_permitted`.
 
-These flags work on `marfa keys create` and `marfa keys update`, except where noted. `marfa keys create --help` lists all of them.
+These flags work on `keys create` and `keys update` unless noted, and `--help` lists them.
 
 | Flag | What it sets |
 | --- | --- |
@@ -47,8 +48,9 @@ These flags work on `marfa keys create` and `marfa keys update`, except where no
 | `--permission <name>` | One [permission](/catalog/permissions), such as `audit.read`. |
 | `--claim <source>` | Another source the key may write as. |
 | `--default-tier <tier>`, `--enforcement-override <json>` | Where its items land when a write names none (`library` or `feed`), and write rules for this key alone. |
-| `--expires-in <duration>`, `--expires-at <time>` | When it stops, as a number and `s`, `m`, `h`, `d` or `w` such as `7d`, or as a time such as `2026-10-17T12:00:00Z`. Use one, not both. |
-| `--no-permissions`, `--no-claims` | Hold no permission, or claim no extra source. |
+| `--expires-in <duration>`, `--expires-at <time>` | When it stops, as a number and `s`, `m`, `h`, `d` or `w` such as `7d`, or as a time such as `2027-01-31T12:00:00Z`. Use one, not both. |
+| `--no-permissions` | Hold nothing: no permission and no map. |
+| `--no-claims` | Claim no source besides its own. |
 | `--no-type-permissions` and four like it | Update only. Empty one map. |
 | `--no-expiry` | Update only. Clear the expiry. |
 
@@ -80,7 +82,7 @@ See [`expiry-inherited`](https://github.com/withmarfa/marfa/blob/main/conformanc
 
 ## Check what a key holds
 
-**Any key can read itself** with `marfa keys current`, or `GET /keys/current`, so a program can check it holds no more than it should. `marfa keys list` shows other keys with what each holds, when it was last used (updated about hourly) and when it ends.
+**Any key can read itself** with `marfa keys current`, or `GET /keys/current`, so a program can check it holds no more than it should. `marfa keys list` shows each key's access, its last use (recorded at most hourly) and when it ends.
 
 ## Narrow a key
 
@@ -93,7 +95,6 @@ marfa --socket "$SOCK" keys update 01a12311-8b01-7c3c-879e-3ff7346ce72f \
 
 The same change is `PATCH /keys/{id}`. Who can change which key:
 
-
 - **The owner** reaches every key and can change anything, but a key an app made can only narrow.
 - **A key holding `keys.manage`** reaches every key and can only take access away.
 - **A key holding `keys.mint`** reaches keys that hold nothing it doesn't. Any other ID answers `404 api_key_not_found`.
@@ -102,13 +103,13 @@ The same change is `PATCH /keys/{id}`. Who can change which key:
 
 ## Rotate a key
 
-Rotate when a key may have leaked or its holder changes:
+Replace a key when its holder changes. **If a key may have leaked, revoke it first**, then make a new one.
 
-1. Make the new key with the same access and a new `--source`, and give it to the app.
-2. Check that the new key works, and that `marfa keys list` shows no recent use of the old one.
+1. Make a key with the same access and a new `--source`, and give it to the app.
+2. Check that the new key works. An hour later, `marfa keys list` should show the old key's last use before the switch.
 3. Revoke the old key.
 
-To keep the same source, revoke the old key first. The new key is refused `409 conflict` until then.
+**A new source starts new items.** The old key's items keep its source, and an upsert by `source_id` looks only under the new one, adding a second copy. To keep the source, revoke the old key first, or the new key is refused `409 conflict`.
 
 ## Revoke a key
 
@@ -122,7 +123,7 @@ marfa --socket "$SOCK" keys revoke 01a12311-8b01-7c3c-879e-3ff7346ce72f
 
 ## Give a key to a script or agent
 
-The CLI takes a key from `--key`, then `MARFA_API_KEY`, then the keychain, as [the CLI page](/cli#connect-to-a-server) shows. Choose by who runs it.
+The CLI takes a key from `--key`, then `MARFA_API_KEY`, then the keychain, as [the CLI page](/cli#connect-to-a-server) shows.
 
 **On your own machine,** keep the key once in the keychain:
 
@@ -130,7 +131,7 @@ The CLI takes a key from `--key`, then `MARFA_API_KEY`, then the keychain, as [t
 marfa keys keep --url https://marfa.example.com
 ```
 
-It reads the key from `MARFA_API_KEY` or standard input and checks it with the server. A key the server refuses is kept nowhere (exit code 5). To sign in as an app instead, use `marfa login`, as [Authenticate](/guides/authenticate#connect-a-command-line-app) shows.
+It reads the key from `MARFA_API_KEY` or standard input and checks it with the server. A key the server refuses is kept nowhere (exit code 5).
 
 **In a script, a CI job or an agent,** set `MARFA_NO_KEYCHAIN=1` and pass the server and the key as variables. With 1Password, store the key as a secret reference, which `op run` replaces with the value:
 
@@ -148,7 +149,7 @@ MARFA_NO_KEYCHAIN=1 infisical run -- marfa items list
 
 ## Recover the owner's password
 
-If you lose the owner's password, set a new one through the private socket, on the instance's machine:
+Set a lost owner password through the private socket, on the instance's machine:
 
 ```bash
 marfa --socket "$SOCK" owner recover
@@ -158,6 +159,6 @@ The CLI asks for the new password without showing it, and `--stdin` reads `{"pas
 
 It also lifts a password lock: **ten attempts from one address in 15 minutes** answer `429` with `Retry-After`, and a passkey still works. Behind a proxy every client shares one address unless `TRUSTED_PROXY_CIDRS` or `TRUSTED_PROXY_HEADER` is set, as [Deploy](/guides/deploy#the-address) shows.
 
-In a container, run `docker exec -it marfa marfa --socket /data/control/marfa.sock owner recover`. If the server can't start, **start it with `MARFA_CONTROL_ONLY=true`** to open the socket alone.
+In a container, run `docker exec -it marfa marfa --socket /data/control/marfa.sock owner recover`. If the server can't start in full, such as when its port is taken, **start it with `MARFA_CONTROL_ONLY=true`** to open the socket alone.
 
 The rules are in the [keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md) and [instance claim](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance-claim.md#direct-ownership-and-recovery) chapters of the contract.
