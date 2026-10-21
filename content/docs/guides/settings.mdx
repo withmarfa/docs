@@ -25,7 +25,7 @@ The server cannot start; fix these settings:
   TRASH_RETENTION_DAYS must be a whole number, from 0 to 36500 (got "forever")
 ```
 
-A setting that holds a secret is named, and its value is never printed.
+A setting that holds a secret is named, and its value is never printed. A setting counts as one when it holds a credential or an address that can carry one, such as `S3_ENDPOINT` or `ERROR_WEBHOOK_URL`.
 
 ## The settings to check first
 
@@ -46,6 +46,8 @@ Most settings have defaults that suit any instance. Check these before you keep 
 
 The list comes from the server's own definition of its settings. The configurable intervals and retention windows of the [housekeeping jobs](/guides/housekeeping) are here too.
 
+The owner can read the same settings in a browser, in groups with each one's value now, on the All settings page at `/auth/owner/settings`. **A setting that holds a secret shows only whether it is set**, on every page and in Home's search. [Console settings hold no secret](https://github.com/withmarfa/marfa/blob/main/conformance/spec/authentication.md#authenticationconsole-settings-no-secret) holds the rule.
+
 <ReferenceList description={3}>
 
 <include cwd>src/generated/settings.md</include>
@@ -54,7 +56,7 @@ The list comes from the server's own definition of its settings. The configurabl
 
 ## Change settings while it runs
 
-The configuration at `/config` **takes effect at once, with no restart**. Reading or replacing it needs the `config.manage` permission; the owner, signed in or through the private socket, needs no key. It holds these fields, and a field you haven't set is left out of the answer:
+The configuration at `/config` **takes effect at once, with no restart**. Reading, replacing or updating it needs the `config.manage` permission; the owner, signed in or through the private socket, needs no key. In a browser, the General page at `/auth/owner/general` changes the name and the five retentions, and sends only the ones you changed. It holds these fields, and a field you haven't set is left out of the answer:
 
 <ReferenceList description={2}>
 
@@ -118,6 +120,29 @@ Content-Type: application/json
 The answer is the configuration as it now stands. `marfa config replace --file config.json` reads the body from a file, and `--file -` from standard input. **Sending `{}` clears every field.**
 
 The server refuses a body with a field it doesn't know, an invalid name or a retention out of range, and keeps the configuration as it was. Each accepted replace is recorded in the [audit log](/guides/audit-log) as `config.update`. [Replace the configuration](/api-reference/instance/replaceConfig) has every refusal.
+
+### Update the configuration
+
+**An update changes only the settings it names.** A setting in the body is replaced, a setting set to `null` is removed so that its default applies, and every other setting stays as it was. Two callers who each change one setting don't undo each other, as they can with a replace. This keeps the bin for 30 days and puts the name back to `Marfa`, and leaves the levers and the other retentions as they were:
+
+```bash tab="CLI" tab-group="client"
+marfa config update --body '{"trash_retention_days": 30, "name": null}'
+```
+
+```http tab="HTTP"
+PATCH /config
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{
+  "trash_retention_days": 30,
+  "name": null
+}
+```
+
+The answer is the whole configuration as it now stands. `--file config.json` reads the body from a file, and `--file -` from standard input. **`enforcement` is one setting**, so an update that names it replaces all three levers: include every lever you want on, and `null` removes them all.
+
+The server refuses an update with a field it doesn't know, a retention out of range, an invalid name, or an `instance_id` other than the instance's own with `400 validation_error`, and keeps the configuration as it was. A lever without its `types` or `sources` is refused `400 missing_required_field`. A key without `config.manage` is refused `403 forbidden`. Each accepted update is recorded in the audit log as `config.update`. [Update the configuration](/api-reference/instance/updateConfig) has every refusal, and [`PATCH /config` merges](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#instanceconfig-patch-merges) holds the rule.
 
 ## What the enforcement levers do
 
