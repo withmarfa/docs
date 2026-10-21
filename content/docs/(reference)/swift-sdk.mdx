@@ -3,13 +3,13 @@ title: Swift SDK
 description: Give an iOS or macOS app a working copy of your instance that reads offline, queues its writes and keeps itself current.
 ---
 
-The Swift SDK is how an app on iPhone, iPad or Mac works with an instance. **An app built on it is a [device](/devices)**: it keeps a working copy of the data it needs, reads from that copy with or without a connection, and queues its writes until it can send them. It's the Swift package `Marfa`, which embeds Marfa's core, the engine every native client shares, so your app gets the same working copy and queue as the [CLI](/cli).
+The Swift SDK gives an app on iPhone, iPad or Mac a **working copy** of an instance: a local database the app reads with or without a connection, and a queue that holds its writes until it can send them. **An app built on it is a [device](/devices).** The package is `Marfa`. It embeds Marfa's core, the engine every native client shares, so the app gets the same working copy and queue as the [CLI](/cli).
 
-The sections below cover the main tasks. [Build an app with Swift](/guides/swift-app) puts them together into a working app.
+Use it for an app that must keep working offline. A program that only sends requests, such as a script or a server, needs no working copy: use the [TypeScript SDK](/typescript-sdk) or the [HTTP API](/api-reference). [Build an app with Swift](/guides/swift-app) takes the SDK through a complete SwiftUI app.
 
-## Add the package
+## Install
 
-The SDK supports iOS 27 and macOS 27, and builds with Xcode 27 on a Mac with Apple silicon. In Xcode, choose File > Add Package Dependencies, enter `https://github.com/withmarfa/marfa-swift`, and add the `Marfa` product to your app's target. In a `Package.swift`, add the package and the product:
+The SDK supports iOS 27 and macOS 27, and builds with Xcode 27 on a Mac with Apple silicon. In Xcode, choose File > Add Package Dependencies and enter `https://github.com/withmarfa/marfa-swift`. In a `Package.swift`, add the package and the product:
 
 ```swift title="Package.swift"
 .package(url: "https://github.com/withmarfa/marfa-swift", exact: "<latest release>"),
@@ -19,15 +19,19 @@ The SDK supports iOS 27 and macOS 27, and builds with Xcode 27 on a Mac with App
 .product(name: "Marfa", package: "marfa-swift"),
 ```
 
-Replace `<latest release>` with the version of the [latest release](https://github.com/withmarfa/marfa-swift/releases/latest). Every release adds 0.0.1 to the version, whatever it changes, so pin one version and move to the next on purpose.
+Replace `<latest release>` with the version of the [latest release](https://github.com/withmarfa/marfa-swift/releases/latest). Every release adds 0.0.1 to the version, whatever it changes, so pin one version and move to the next on purpose. **A new enum case breaks an exhaustive `switch` without a default**, such as a switch over `BlockedReason`.
 
-**An added enum case breaks an exhaustive switch** that has no default. A switch over `BlockedReason` must handle `.failingAlone` as well as the other cases, or provide a default.
+Each release carries the core already built, so your app needs no Rust toolchain. The core is built for Apple silicon only: set Excluded Architectures for Any iOS Simulator SDK to `x86_64` in your app target's build settings, or some simulator builds fail to link.
 
-Each release carries the core already built, so your app needs no Rust toolchain. The core is built for Apple silicon only, so in your app target's build settings, set Excluded Architectures for Any iOS Simulator SDK to `x86_64`. Without it, some simulator builds fail to link.
+| Product | Holds |
+| --- | --- |
+| `Marfa` | The SDK. Add it to your app target. |
+| `MarfaTesting` | A fake working copy for tests and SwiftUI previews, with no store, server or core. It compiles empty in a release build, so wrap its uses in `#if DEBUG`. `WorkingCopy.fake(items:itemTypes:)` returns a `FakeCopy`; pass its `copy` wherever your code takes a `WorkingCopy`. |
+| `MarfaTypes` | Swift types generated from the API description, and `marfaContractVersion`. |
 
 ## Open a working copy
 
-A working copy keeps its data in a SQLite file, which it makes the first time you open it. Give it a URL for that file, and the server's URL with a credential, a key or an app's access token:
+A working copy keeps its data in a SQLite file, which it makes the first time you open it. Opening reads nothing from the instance.
 
 ```swift
 import Marfa
@@ -35,50 +39,55 @@ import Marfa
 let copy = try await WorkingCopy.open(store: storeURL, server: Server(url: serverURL, key: key))
 ```
 
-Opening reads nothing from the instance. When the address changes, the copy remains usable offline and checks the instance identity anonymously before sending credentials or data, as the `wrong_server` entry in [Troubleshooting](/guides/troubleshooting) explains. The copy holds the credential in memory and never writes it to its store, so keep it in the keychain between launches. `Keychain.system` does that:
+| Call | What it does |
+| --- | --- |
+| `WorkingCopy.open(store:server:)` | Opens the file. With a `Server`, the copy can hydrate, catch up and drain. Without one, it works offline only. |
+| `WorkingCopy.openReader(store:)` | Opens a store another process writes, to read only. It refuses a path where no store exists. |
+| `handle` | `.writer` or `.reader`. A reader refuses writes, hydration and catch-up with `MarfaError.readingHandle`, and tells `.saved(dataVersion:)` on `changes()` each time the writer saves. |
+| `useKey(_:)` | Gives the open copy a new key. Held `changes()` streams go on. |
+| `close()` | Ends every stream and releases the store. Later calls throw `MarfaError.closed`. |
 
-```swift
-try Keychain.system.save(key: key, service: "com.example.readinglist", account: serverURL.absoluteString)
-let saved = try Keychain.system.key(service: "com.example.readinglist", account: serverURL.absoluteString)
-```
+`Server(url:key:)` takes the instance's URL and a key or an app's access token. The copy holds the credential **in memory and never writes it to its store** ([`device/key-not-stored`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#devicekey-not-stored)). Keep it in the keychain between launches with `Keychain.system` (`save`, `key`, `holds` and `delete`, each by `service` and `account`). For a command-line tool, `Server.fromEnvironment()` reads `MARFA_API_URL` and `MARFA_API_KEY`. It returns `nil` when both are absent, and throws when only one is set. [Manage keys](/guides/manage-keys) shows how to make a key that reaches only the types your app needs.
 
-When the credential changes, give the open copy the new one with `useKey(_:)`. [Manage keys](/guides/manage-keys) shows how to make a key that reaches only the types your app needs.
+When the server's address changes, the copy stays usable offline and confirms the instance's identity before it sends credentials or data. The `wrong_server` entry in [Troubleshooting](/guides/troubleshooting) explains the refusal.
 
-For a command-line tool, `try Server.fromEnvironment()` reads `MARFA_API_URL` and `MARFA_API_KEY`. It returns `nil` when both are absent or empty, and throws when only one is set or the URL is invalid. Close a copy when its owner finishes with it:
+## The working copy
 
-```swift
-await copy.close()
-```
+| Part | Holds |
+| --- | --- |
+| `items` | Reads and writes of items, the bin, files and body links. |
+| `edges` | `from(_:)`, `to(_:)` and `ofType(_:)` to read. `create(...)`, `update(_:_:)` and `delete(_:)` to write. |
+| `tags`, `metadata`, `extensions` | Tags (`add`, `remove`, `replaceTags`, `mergeTags`), metadata and extension data by namespace. |
+| `blobs` | `put(file:mimeType:)` queues an upload. `get(_:)` returns where a blob's bytes are held, fetching them first. |
+| `queue` | The writes waiting to go, and their verdicts. |
+| `catalog` | The item types and edge types the copy holds, read with no request. |
 
-## Declare an app type
+| Call | What it does |
+| --- | --- |
+| `status()` | A `Status`: server origin, instance ID, slice, pinned IDs, event cursor, `hydration`, counts and `catalogVersion`. |
+| `hydrate(types:tier:edgeTypes:)` | Replaces the copy with every item of the types you name at a `SliceTier` (`.library`, `.feed` or `.all`), with their tags and outgoing edges. The queue survives ([`device/hydrate-keeps-queue`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#devicehydrate-keeps-queue)). |
+| `catchUp()` | Applies what changed since the copy's cursor. |
+| `pin(_:)`, `unpin(_:)` | Hold an item whatever the slice says, or let it go unless queued writes still need it. |
+| `search(_:filters:limit:)` | Full-text search over indexed fields and tags, best match first. |
+| `changes()` | An `AsyncStream<Change>` of what changes in the copy. |
+| `declareTypes(_:)` | Sets the app's own types. See [Declare an app type](#declare-an-app-type). |
 
-An app can bring its own types, under its own namespace, such as `app.readinglist.entry`. Declare them when you open the copy, each as a type definition, a `JSONObject`:
+`Status.hydration` is a `Hydration`. In progress or expired, reads and writes throw `MarfaError.hydrationIncomplete` ([`device/read-refused-in-progress`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#deviceread-refused-in-progress), [`device/read-refused-expired`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#deviceread-refused-expired)).
 
-```swift
-try await copy.declareTypes([
-    ["id": "app.readinglist.entry", "fields": ["title": ["type": "string", "required": true]]]
-])
-```
+| `Hydration` | Meaning |
+| --- | --- |
+| `.never` | No hydration has started. Reads work, and writes queue. |
+| `.inProgress` | One started and hasn't completed. |
+| `.complete` | The copy holds its slice and can be kept current. |
+| `.expired` | The copy can't be kept current from where it stands. Hydrate again. |
 
-`declareTypes(_:)` replaces the app's whole set, so pass every type on each call. Until the copy first hydrates, it checks a queued create against these declarations and the types Marfa ships, so an app can work offline from its first launch. When it hydrates, it registers each declared type the instance doesn't have yet, if the credential may register types, and lists them in the report's `registeredTypes`. [Define a type](/guides/define-a-type) explains what a type definition holds.
+## Read and write items
 
-## Read and edit items
-
-A new copy is empty. `hydrate(types:tier:)` chooses the slice the copy keeps, the types it names in the library, the feed or both (`.all`), and fills the copy with it. Reads then come from the copy:
+Reads come from the copy. Every write shows in the copy at once, with or without a connection, and waits in the queue as a `QueuedWrite`.
 
 ```swift
 _ = try await copy.hydrate(types: ["core.note"], tier: .library)
 
-for note in try await copy.items.list(ListFilters(type: "core.note")) {
-    print(note.title ?? "Untitled")
-}
-```
-
-An item's `title` and `body` read the properties its type uses for a title and a body, whatever they're called, so prefer them to reading `properties`. A row whose stored properties can't be read stays in a list or a search with empty `properties` and `unreadableProperties` saying why, so check `unreadableProperties` before you write back from `properties`.
-
-To make an item, pass a `Draft`. To change one, pass an `Edit` with the version you read, so the instance can tell whether someone else changed the item in between:
-
-```swift
 let created = try await copy.items.create(
     Draft(type: "core.note", properties: ["title": "Reading list", "body": "Start with the essays."]))
 
@@ -86,122 +95,116 @@ guard let id = created.itemId, let note = try await copy.items.get(id) else { re
 _ = try await copy.items.update(id, Edit(properties: ["title": "Books to read"], baseVersion: note.version))
 ```
 
-Each write shows in the copy at once, with or without a connection, and waits in the queue. An edit changes the properties it names and keeps the rest. With `replaceProperties: true`, its properties become the item's whole set, so that's how you remove a property.
+An item's `title` and `body` read the properties its type uses for them, so prefer them to reading `properties`. A row whose stored properties can't be read stays in a list or search with empty `properties`; `unreadableProperties` says why. An `Edit` changes the properties it names and keeps the rest; with `replaceProperties: true` its properties become the item's whole set. A write that carries a whole number Marfa would serve back with other digits throws `MarfaError.validation` with the code `invalid_properties` **before anything is queued**. Send such a value as a string ([Field kinds](/catalog/field-kinds)).
 
-If Marfa would serve a whole number back with other digits, the write throws `MarfaError.validation` with code `invalid_properties` **before anything is queued**. This includes `.integer(9_007_199_254_740_993)`, even inside an array or object, in an edge's properties or in an extension's data.
+| Call | What it does |
+| --- | --- |
+| `list(_:sort:)`, `get(_:)` | Items matching a `ListFilters`, newest first by default. One item, or `nil` when it's in the bin or not held. |
+| `create(_:)`, `update(_:_:)` | Queue a `Draft` or an `Edit`. An update is refused unless `baseVersion` is the version the copy holds. `updateAsRead(_:_:)` queues an edit based on an older version, which the server merges. |
+| `delete(_:)`, `restore(_:)`, `transition(_:to:)` | Move an item to the bin or out of it, or change its `ItemState`. |
+| `bin(type:after:limit:)`, `purge(_:version:)` | Read the server's bin, online, and destroy an item in it. Neither is queued. A purge needs `items.purge` and write on the type. |
+| `attach(to:file:_:)`, `embed(file:in:_:)` | Queue the upload, a file item and an `attached-to` edge, each with its own verdict. `embed` also adds the file's embed to the body, and throws `EmbedFailure` if that step fails. |
+| `links(in:)`, `embedText(of:in:)` | The links and file embeds in a body, each with a `BodyName.target`, and the `![[title]]` text for an attached file. |
+| `conflictedCopies(of:)`, `original(ofConflictedCopy:)` | The held conflicted copies of an item, and the item a copy was made from. |
 
-Send a value that must keep every digit as a string. [Field kinds](/catalog/field-kinds) gives the number rule.
+An `EdgeEdit` changes an edge's properties, moves one end, or both, in one write. `.source(id)` gives a `parent-of` edge's child a different parent; `.target(id)` moves the target where the edge type permits it. A move that breaks a cardinality or cycle rule throws `validation`. A source move expires the copy once the server accepts it, so hydrate again on `MarfaError.copyExpired`.
 
-## Read the bin
+When two devices change the same text, the instance keeps one version and puts the other in a **conflicted copy**: an item tagged `conflicted-copy` and linked to the original. The verdict is `.conflicted(siblingId:fields:)`. [Versions](/versions) explains how the instance settles two changes.
 
-`copy.items.bin(type:after:limit:)` reads **the server's bin online**, independently of the copy's slice, and adds none of its items to the copy. Follow `nextCursor` even when a page is short or empty:
+## Declare an app type
 
-```swift
-var cursor: String?
-repeat {
-    let page = try await copy.items.bin(type: "core.note", after: cursor)
-    for item in page.items {
-        print(item.id, item.title ?? "Untitled")
-    }
-    cursor = page.nextCursor
-} while cursor != nil
-```
-
-`copy.items.restore(_:)` queues a restore by ID, including an item the copy doesn't hold. `copy.items.purge(_:version:)` permanently destroys an item through an online request. The bin isn't cached, so an offline read throws `MarfaError.network`.
-
-## Move an edge
-
-An `EdgeEdit` changes properties, moves one end of an edge, or does both in one write. For a `parent-of` edge, move the source to give the child a different parent:
+An app brings its own types under its own namespace, such as `app.readinglist.entry`:
 
 ```swift
-_ = try await copy.edges.update(
-    edge.id, EdgeEdit(baseVersion: edge.version, move: .source(destination.id)))
+try await copy.declareTypes([
+    ["id": "app.readinglist.entry", "fields": ["title": ["type": "string", "required": true]]]
+])
 ```
 
-Use `.target(id)` to move a target where the edge type permits it. A move is refused when the end that stays can hold multiple edges, or when it would make the edge point to itself. An edit that names no properties and moves no end to a different item returns `nil`. A successful source move expires the copy's read view, so handle `MarfaError.copyExpired` by hydrating again; a target move doesn't expire it. The queue keeps writes behind the move.
-
-## Read body links and embeds
-
-`copy.items.links(in:)` reads resolved links and file embeds **from the copy**, in body order. Each `BodyName.target` is an item ID or a reason it hasn't resolved: pending, missing, ambiguous or refused.
-
-```swift
-let names = try await copy.items.links(in: note.id)
-for name in names.links + names.embeds {
-    print(name.text, name.target)
-}
-```
-
-`copy.items.embedText(of:in:)` returns `![[title]]` for a file attached to an item, and refuses a file whose title can't identify it alone. [Files](/files) explains attachments and embeds.
+`declareTypes(_:)` replaces the app's whole set, so pass every type on each call. Until the copy first hydrates, a queued create is checked against these declarations and the types Marfa ships, so the app works offline from its first launch. On hydration the copy registers each declared type the instance lacks, if the credential may register types; the `HydrateReport` lists them in `registeredTypes` and `unregisteredTypes`. [Define a type](/guides/define-a-type) explains what a definition holds.
 
 ## Keep the copy in step
 
-Your app decides when the copy first talks to the instance. Four moments matter:
+Your app decides when the copy talks to the instance:
 
-- On first launch, or when `status().hydration` is anything but `.complete`, call `hydrate(types:tier:)`. It replaces what the copy holds and keeps the queue.
-- When the app starts or comes to the front, call `catchUp()` to apply what changed while it was away, then `queue.drain()` to send what it queued.
-- While a screen shows data, hold a `changes()` stream, which follows the instance's events as they happen. **The stream also sends the writes queued while the server was away**, once each time the server is back, and once after a drain left a write undelivered.
-- After each write, call `queue.drain()`. A drain that can't reach the server leaves the writes queued.
+| When | Call |
+| --- | --- |
+| First launch, or `status().hydration` isn't `.complete` | `hydrate(types:tier:)` |
+| The app starts or comes to the front | `catchUp()`, then `queue.drain()` |
+| A screen shows data | Hold a `changes()` stream. It follows events as they happen, and **drains the queue by itself** each time the server is back. |
+| After a write | `queue.drain()`. A drain that can't reach the server leaves the writes queued. |
 
-The stream also tells your app when the server goes away and comes back, and when following it needs the app's help:
+### Follow changes
 
-```swift
-for await change in copy.changes() {
-    switch change.origin {
-    case .serverUnreachable(let error):
-        showOffline(error)
-    case .serverReachable:
-        showOnline()
-    case .queueDrained(let report):
-        showSent(report)
-    case .queueNotDrained(let error):
-        showNotSent(error)
-    case .stopped(.copyExpired):
-        _ = try? await copy.hydrate(types: ["core.note"], tier: .library)
-    case .stopped(.unauthorized), .stopped(.signedOut):
-        askForANewCredential()
-    default:
-        refresh(change.itemId)
-    }
-}
-```
+Each `Change` has an `origin`, and the `itemId` or `edgeId` it concerns.
 
-On `.serverReachable`, show the app as online and start nothing: the stream drains the queue itself, and tells how it ended. It drains once each time the server is back. It also drains once at its next contact with the server after any drain, yours or its own, left a write undelivered. That contact comes when the follow next starts, for example after a catch-up, a hydration or a new stream, and if the server was never lost, no `.serverReachable` comes with it. `.queueDrained` carries the drain's `DrainReport`, and each write the drain answered is told first as `.answered`, as for a drain your app starts. `.queueNotDrained` carries the `MarfaError` that stopped it. The answers it had recorded stay recorded and the rest stay queued. Call `queue.drain()` when your app can send sooner.
+| `Change.Origin` | Meaning |
+| --- | --- |
+| `.local(WriteKind)` | A write made through this copy. |
+| `.server(event:cursor:)` | A server event the copy applied. |
+| `.refreshed(Refresh)` | Many rows may have changed at once, for example after a hydration, catch-up or drain. |
+| `.saved(dataVersion:)` | The writer saved. A reader should read again. |
+| `.answered(DrainVerdict)` | A drain answered a write. |
+| `.serverUnreachable(MarfaError)`, `.serverReachable` | The server can't be reached, or answered again. Show the app as offline or online and start nothing. |
+| `.queueDrained(DrainReport)`, `.queueNotDrained(MarfaError)` | The drain the stream ran when the server came back ended, or stopped with this error. |
+| `.stopped(MarfaError)` | What fed the stream stopped. Local writes are still told. |
 
-`.copyExpired` means the copy can't be kept current from where it stands, and has to hydrate again. Its queue survives. Its `reason` is an open string, so keep a default when you switch over it. Two reasons are common: the device was away longer than the instance keeps events, and the server at the copy's address is now another instance (`instance_changed`), in which case the writes stay queued under their keys and go to the instance now there once you hydrate.
+A copy opened without a server, and a reader, drain nothing. [Build an app with Swift](/guides/swift-app) shows a `switch` over `Change.Origin` in a working app. Two stops need the app's help:
 
-A drain returns the instance's verdict on each write it sent. Answered writes stay in the queue, with their verdicts, until you call `queue.forgetAnswered()`:
+| Stop | What to do |
+| --- | --- |
+| `.stopped(.copyExpired(reason:))` | Hydrate again. The queue survives ([`device/expire-keeps-queue`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#deviceexpire-keeps-queue)). `reason` is an open string, so keep a default. Two values are common: `read_view_changed` and `instance_changed`. |
+| `.stopped(.unauthorized)` or `.stopped(.signedOut)` | Get a new credential and give it to the copy with `useKey(_:)`. |
 
-```swift
-let report = try await copy.queue.drain()
-for answer in report.verdicts {
-    print(answer.kind, answer.verdict.map { "\($0)" } ?? "no answer")
-}
-_ = try await copy.queue.forgetAnswered()
-```
+### Send writes and read verdicts
 
-```text
-createItem accepted
-updateItem accepted
-```
+A drain returns the instance's verdict on each write it sent. Answered writes stay in the queue, with their verdicts, until you clear them.
 
-A refused write that carried content stays even then, so your app can offer the content back, until you call `queue.discard(_:)`. [Devices](/devices#verdicts) explains each verdict.
+| Call | What it does |
+| --- | --- |
+| `queue.all()` | Every write the queue holds, answered ones included. |
+| `queue.drain()` | Sends the queue once. Returns a `DrainReport` with counts and a `verdicts` array of `DrainVerdict`. |
+| `queue.release(_:)`, `queue.release(reason:)` | Queue a blocked or dead write, or every write blocked for a `BlockedReason`, to go again under a fresh key. |
+| `queue.withdraw(_:)` | Takes a write that can never be sent out of the queue and puts its row back to what the server holds. It takes only a write blocked `ancestorUnavailable`, `conflictUnresolved` or `failingAlone`. It returns `false` when the copy moved during the read: ask again. |
+| `queue.forgetAnswered()`, `queue.discard(_:)` | Clear answered writes, or take a refused write and its content out of the queue. Blocked and dead writes stay. |
 
-**`BlockedReason.failingAlone`** means the write keeps meeting a failure while the server answers other writes. It stays blocked until you release or withdraw it. Dependent writes have `waiting` set to `true`, with no verdict.
+A `QueuedWrite` has no `verdict` until the server answers. One held behind a write that has no answer yet has `waiting` set to `true`, and goes once that write is answered. Each `Verdict` is one of the six in [Devices](/devices#verdicts) ([`queue-and-verdicts/verdicts-six`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsverdicts-six)).
 
-The queue exposes what the write met:
+| `Verdict` | Carries |
+| --- | --- |
+| `.accepted` | Nothing. |
+| `.merged(fields:)` | The fields the server settled. |
+| `.conflicted(siblingId:fields:)` | The conflicted copy that took the losing value, and the fields. |
+| `.refused(Refusal)` | The server's `reason`, `code` and `message`, and the `grant` the key lacks. |
+| `.blocked(reason:refusal:)` | A `BlockedReason`. |
+| `.dead` | Nothing. The write failed five times in ways that count against it ([`queue-and-verdicts/ceiling-five`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsceiling-five)). |
+
+| `BlockedReason` | Meaning |
+| --- | --- |
+| `.credentialRefused` | The server refused the credential, or the key lacks a grant. It clears when a person replaces the credential or restores the grant. |
+| `.keySpent` | The server already answered the write's idempotency key for another body. |
+| `.ancestorUnavailable` | The server no longer holds the version the write names. |
+| `.conflictUnresolved` | The server refused the write with `409 version_conflict`, which a device can't resolve itself. |
+| `.failingAlone` | The write keeps meeting a failure while the server answers other writes. Release it to try again, or withdraw it. |
+
+The contract's sixth reason, `awaiting_dependency`, appears as `QueuedWrite.waiting`, and no caller releases it ([`queue-and-verdicts/binding-shows-waiting`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsbinding-shows-waiting)).
+
+### Show a failing write
+
+A write set aside as `.failingAlone` keeps what it met, for your app to show.
 
 | Property | Meaning |
 | --- | --- |
-| `QueuedWrite.environmentalStreak` | The number of drains in a row in which the write met a failure that was no answer to it. [`queue-and-verdicts/streak-counted`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsstreak-counted) and [`queue-and-verdicts/streak-run-restarts`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsstreak-run-restarts) say what counts and when the count starts again. |
-| `QueuedWrite.lastFailure` | An optional `LastFailure` describing the last such failure. A `429` updates it without increasing the streak. Failures in credential renewal or the device's own storage leave it unchanged. |
-| `LastFailure.status` | The optional HTTP status, including a gateway's answer or a `429`. `nil` means no status was kept: headers may have arrived before reading the body failed. |
-| `LastFailure.text` | The start of a text body, with whitespace collapsed, cut to 200 Unicode scalar values and followed by `...` if cut. `nil` for an empty body or one that isn't text. |
+| `QueuedWrite.environmentalStreak` | The number of drains in a row in which the write met a failure that was no answer to it. [`queue-and-verdicts/streak-counted`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsstreak-counted) says what counts. |
+| `QueuedWrite.lastFailure` | An optional `LastFailure` describing the last such failure. |
+| `LastFailure.status` | The HTTP status, including a gateway's answer or a `429`. `nil` means none was kept. |
+| `LastFailure.text` | The start of a text body, with whitespace collapsed, cut to 200 characters. `nil` for an empty or non-text body. |
 
-An answer to the write or a refusal clears the streak and failure details. Setting it aside as `.failingAlone` keeps the failure details for your app to show. Releasing the write clears both at once, before the next answer.
+An answer to the write or a refusal clears both, and so does releasing the write ([`queue-and-verdicts/streak-cleared`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsstreak-cleared)).
 
 ## Keep a view current
 
-A `LiveQuery` reads from the working copy and reads again whenever the copy changes, so a SwiftUI view that reads its `value` stays current with no refresh code. Create one on the main actor, in the model that owns the copy, and give it a `Reading`:
+A `LiveQuery` reads from the working copy and reads again whenever the copy changes, so a SwiftUI view that reads its `value` stays current with no refresh code. Create one on the main actor, in the model that owns the copy:
 
 ```swift
 @MainActor @Observable
@@ -214,86 +217,82 @@ final class Library {
 }
 ```
 
-A view reads `library.notes.value`, and `Item` is `Identifiable`, so `List(library.notes.value)` works. Assigning `reading` reads again at once, so a search field can switch the same query to `.search(text)`. A query reads its copy for life, so a view for another copy needs another query.
+Assigning `reading` reads again at once, so a search field can switch the same query to `.search(text)`. A query doesn't page: bound a large list with `ListFilters.limit`.
 
-| Reading | Value | Reads |
-| --- | --- | --- |
-| `.list(_:sort:)` | `[Item]` | `items.list`. `ListFilters.limit` and `offset` bound the result. |
-| `.search(_:filters:limit:)` | `[Item]` | `search`, best match first. |
-| `.item(_:)` | `Item?` | `items.get`, `nil` while the copy doesn't hold the item or it's in the bin. |
-| `.queue` | `[QueuedWrite]` | `queue.all()`. |
-| `Reading(placeholder:_:)` | Any `Sendable` and `Equatable` type | Any other read, in a closure that only reads. |
+| `Reading` | Value |
+| --- | --- |
+| `.list(_:sort:)` | `[Item]` from `items.list`. |
+| `.search(_:filters:limit:)` | `[Item]` from `search`, best match first. |
+| `.item(_:)` | `Item?`, `nil` while the copy doesn't hold the item or it's in the bin. |
+| `.queue` | `[QueuedWrite]` from `queue.all()`. |
+| `Reading(placeholder:_:)` | Any `Sendable` and `Equatable` value, from a closure that only reads. |
 
-The query reads again after each change the copy tells that can alter a read, including a write your app makes offline. It makes no read for `.serverUnreachable`, `.serverReachable` or `.stopped`. A burst of changes causes the read in flight and at most one more.
+| Property | Meaning |
+| --- | --- |
+| `value` | What the last successful read answered, and the reading's placeholder before one. |
+| `isLoading` | True during the first read and every later one. |
+| `error` | Why the last read failed, and `nil` after a read succeeds. `value` keeps the last rows. |
+| `following` | `.live`: the query reads again on each change. `.stopped(MarfaError)`: the follow of the server failed; local writes still refresh it, and it returns to `.live` on the next server event, hydration or catch-up. `.ended(MarfaError?)`: the stream finished. |
 
-A query shows its state in four properties:
-
-- **`value`** is what the last successful read answered, and the reading's placeholder before one.
-- **`isLoading`** is true from creation to the end of the first read, and during every later read.
-- **`error`** is why the last read failed, and `nil` after a read succeeds. `value` keeps the rows of the last successful read.
-- **`following`** is `.live`, `.stopped(error)` or `.ended(error)`. `.stopped` means the copy's follow of the server failed, and local writes still refresh the query. It returns to `.live` on a server event, or on a hydration or a catch-up that tells a change. `.ended` means the stream finished, with the error the core ended it on, or `nil` when the copy is closed.
-
-`refresh()` reads now and returns after a read that began after the call, so it fits `.refreshable`. The query never asks for a new stream by itself, but on an `.ended` query `refresh()` asks the copy for one. Releasing the query ends its stream.
-
-## Conflicted copies
-
-When two devices change the same text, such as a note's body, the instance keeps one version on the item and puts the other in a conflicted copy: a new item tagged `conflicted-copy`, linked to the original, so neither text is lost. The drain's verdict for the write is `.conflicted(siblingId:fields:)`, and the conflicted copy reaches the working copy with the next catch-up. Find the copies of an item, or the original of a copy, like this:
-
-```swift
-for conflicted in try await copy.items.conflictedCopies(of: note.id) {
-    print("Also edited elsewhere:", conflicted.body ?? "")
-}
-if let original = try await copy.items.original(ofConflictedCopy: item.id) {
-    showBeside(original)
-}
-```
-
-`original(ofConflictedCopy:)` returns an ID, because the working copy might not hold the original. To settle on one text, edit the original and delete the conflicted copy.
+`refresh()` reads now and returns after a read that began after the call, so it fits `.refreshable`. On an `.ended` query it also asks the copy for a new stream.
 
 ## Folders on a Mac
 
-On macOS, `Folders` keeps a directory of files in step with a folder's settings on the instance, as `marfa folders` does. Both use the same list of folders on the Mac, so a folder your app adds shows in `marfa folders list`, and the other way around. Nothing is written into the directory or sent until the first sync is confirmed:
+On macOS, `Folders` keeps a directory of files in step with a folder's settings on the instance, as `marfa folders` does. Both use the same list of folders on the Mac. Nothing is written into the directory or sent until the first sync is confirmed ([`folders/first-sync-waits`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersfirst-sync-waits)). [Sync a folder](/guides/sync-a-folder) sets one up, with Swift examples, and [Devices](/devices#folders) explains what a folder is.
 
-```swift
-let folder = try await copy.createFolder(
-    FolderSettings(title: "Notes", search: FolderSearch(types: ["core.note"])))
+A folder's settings are an item on the instance: create and change them through the working copy with `createFolder(_:)`, `folder(_:)`, `changeFolder(...)` and `revokeFolder(_:)`. `Folders(server:)` works the directories on this Mac:
 
-let folders = Folders(server: Server(url: serverURL, key: key))
-let added = try await folders.add(notesDirectory, following: folder.id)
-if let storage = added.storage {
-    showWarning(storage.warning)
-}
+| Call | What it does |
+| --- | --- |
+| `add(_:following:)` | Makes a directory a folder that follows the settings item you name. The result's `storage` says if the directory is in cloud-synced or network storage. |
+| `list()`, `status(of:)` | The folders on this Mac, and where every file in a folder stands, read without asking the server. |
+| `sync(_:)` | Syncs once. While the first sync waits, it only reads the folder and returns `.awaitingConfirmation(FirstSyncPlan)`. |
+| `confirmFirstSync(in:)`, `confirmRemoval(in:)`, `restoreRemoval(in:)` | Let the first sync go, or let a paused large removal go, or cancel it. |
+| `remove(_:)` | Takes the folder off this Mac and leaves its files. It throws `invalid` while writes are unsent. |
+| `watch(_:)` | Keeps the folder in step while the app runs. Throws `firstSyncWaiting` until the first sync is confirmed. |
 
-if case .awaitingConfirmation(let plan) = try await folders.sync(notesDirectory) {
-    print("Writes \(plan.write) files here and sends \(plan.send) to the server.")
-    _ = try await folders.confirmFirstSync(in: notesDirectory)
-    _ = try await folders.sync(notesDirectory)
-}
-```
+`watch(_:)` returns a `FolderWatch`, an `AsyncSequence` of `FolderEvent`. It throws a `MarfaError` when the credential is refused, the server's changes stop reaching the folder, or the directory can't be watched. Call `await watch.stop()` when its owner finishes, because leaving a loop early doesn't stop it.
 
-A directory in iCloud Drive, in a cloud service's synced location or on a network file system is added all the same, but a second program may sync the same files, or changes made from another computer may not be noticed. `add(_:following:)` returns the cause as `storage`, and the `.watching` event of a watch carries it too. A `StorageCause` is `iCloudDrive`, `cloudService`, `cloudSynced` (iCloud Drive or another cloud service, which macOS doesn't tell apart) or `networkFileSystem(kind:)`. Its `warning` is a plain sentence that names the cause: show it once for each folder.
+| `FolderEvent` | Meaning |
+| --- | --- |
+| `.watching(_:storage:)`, `.passed(FolderPass)` | The watch begins, and a pass changed or found something to report. |
+| `.watcherFailed(message:)`, `.retrying(_:after:)` | The file system reported an error, or hydrating the folder failed. The watch goes on. |
+| `.unreachable(reason:)`, `.reachable` | The server can't be reached and writes wait, or answers again. |
+| `.waiting(reason:)` | The folder's directory is gone. The watch waits for it to come back. |
+| `.handedOver`, `.takenBack`, `.heldElsewhere` | The watch let the folder go to a call and took it back, or another process holds it. |
+| `.removed`, `.unlisted` | A call took the folder off the Mac. The watch ends without an error. |
 
-Call `sync(_:)` to sync once. `watch(_:)` throws `MarfaError.firstSyncWaiting` until the first sync is confirmed. To keep the folders in the shared registry current, list them and start a watch for each confirmed folder:
+A file's `FileState` is `.inStep`, `.waiting` (a write is queued), `.held` (its status says why), `.unmatched`, `.unreached` (held rather than deleted) or `.outside`.
 
-```swift
-for listed in try await folders.list() {
-    guard try await folders.status(of: listed.directory).firstSync == nil else { continue }
-    let watch = try await folders.watch(listed.directory)
-    Task {
-        do {
-            for try await event in watch {
-                print(event)
-            }
-        } catch {
-            print(error)
-        }
-        await watch.stop()
-    }
-}
-```
+**One process works a folder at a time.** When a call such as `sync(_:)`, or a command such as `marfa folders confirm`, asks for a folder your watch holds, the watch lets it go at the end of its current step and tells `.handedOver`. No pass runs until it tells `.takenBack`. A call that isn't let the folder within 10 seconds throws `MarfaError.readingHandle` ([`folders/handover-wait-refused`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldershandover-wait-refused)). A sandboxed app has its own home directory, and so its own list of folders.
 
-Keep the watches in your model and call `await watch.stop()` when their owner finishes. `folders.remove(_:)` leaves the directory's files intact and cancels a waiting first sync. After first sync is confirmed, it refuses removal while writes are unsent, so sync those before removing the folder.
+A directory in iCloud Drive, a cloud service's synced location or a network file system is added all the same, but a second program may sync the same files. A `StorageCause` names the cause, and its `warning` is a plain sentence to show once for each folder ([`folders/storage-warning-once`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersstorage-warning-once)).
 
-One process works a folder at a time. When a call such as `sync(_:)` or `confirmFirstSync(in:)`, or a command like `marfa folders confirm`, asks for a folder your watch holds, the watch lets it go and tells `.handedOver`, then takes it back and tells `.takenBack`. No pass runs in between, so don't show the folder as in step. `.heldElsewhere` says another process holds a folder that no call asked for, and `.removed` and `.unlisted` say the call took the folder off the Mac, so the watch ends without an error. A call that isn't let the folder within 10 seconds throws `MarfaError.readingHandle`. A sandboxed app has its own home directory, and so its own list of folders. [Sync a folder](/guides/sync-a-folder) explains what a folder does with each file.
+## Handle errors
 
-The full API is in the [marfa-swift repository](https://github.com/withmarfa/marfa-swift), and the rules a device follows are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) and [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) chapters of the contract.
+Every call throws a `MarfaError`. Its `message` is fit to show a person.
+
+| Case | Meaning |
+| --- | --- |
+| `notFound`, `unauthorized`, `forbidden`, `validation`, `unknownType`, `server` | The server answered. `code` is its error code, and [Errors](/api-reference/errors) lists them. |
+| `rateLimited` | The server asked for a wait. `retryAfterSeconds` says how long, when it said. |
+| `network`, `unnamed` | The server couldn't be reached, or something in front of it answered naming no contract. A queued write stays queued. |
+| `copyExpired(reason:)` | Hydrate again. The queue survives. |
+| `hydrationIncomplete` | A hydration is under way or the copy is expired. |
+| `readingHandle` | The copy is a reader, or another process holds the folder. |
+| `wrongServer` | The server at the copy's address is another instance than the copy recorded. |
+| `contractMismatch` | The server speaks a contract this build wasn't made for. A write it answered stays queued and goes again once the app speaks the server's contract. |
+| `wrongSchema` | The store has a shape this build can't read. |
+| `bytesAbsent` | The item is whole, and its bytes are neither here nor fetchable. |
+| `firstSyncWaiting` | A folder's first sync waits for confirmation. |
+| `noServer`, `closed`, `canceled` | The copy has no server, it was closed, or the call's task was canceled. |
+
+The remaining cases (`io`, `decoding`, `store`, `storageFull`, `signedOut`, `noKeychain`, `redirected`, `noCursor`, `noCatalog`, `streamIncomplete` and `invalid`) each carry a message that says what happened.
+
+## Where to go next
+
+- [Build an app with Swift](/guides/swift-app): a SwiftUI app for iPhone and Mac that uses the calls above.
+- [Devices](/devices): the working copy, the queue and the verdicts.
+- [Sync a folder](/guides/sync-a-folder) and [Keep folders running](/guides/keep-folders-running): folders in practice.
+- [Write safely](/guides/write-safely): versions, conflicts and retries.
+- The [marfa-swift repository](https://github.com/withmarfa/marfa-swift) holds the full API. The [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) and [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapters of the contract hold the rules.
