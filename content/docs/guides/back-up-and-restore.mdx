@@ -1,25 +1,26 @@
 ---
 title: Back up and restore
-description: Copy an instance so you can bring it back after a failure, and export your data to an archive you can restore into another instance.
+description: Copy an instance's data directory and secrets so you can bring it back after a failed disk or a lost machine.
 ---
 
-Your instance holds data you can't get back from anywhere else, so keep a copy somewhere the instance isn't. There are two kinds of copy, and they do different jobs. A copy of the data directory brings the same instance back after a failed disk or a lost machine, with everything in it: items, keys, configuration and sign-ins. An archive carries your items, edges, types and files into another instance, such as a new build when you [upgrade](/guides/upgrade).
+Your instance holds data you can't get back from anywhere else, so keep a copy somewhere the instance isn't. A copy of the data directory brings the same instance back with everything in it: items, keys, configuration and sign-ins. To carry your data into another instance instead, such as a new build, [export an archive](/guides/export-and-restore).
 
-## Back up the instance
+## What to copy
 
-Copy two things: the data directory, and the two secrets.
+Copy two things:
 
-The data directory holds the database file, the log beside it named `marfa.db-wal`, and the blob folder, as [Deploy](/guides/deploy#the-data-directory) shows. In the container, it's the volume at `/data`.
+- **The data directory.** It holds the database, the `marfa.db-wal` log beside it and the blob folder, as [Deploy](/guides/deploy#the-data-directory) shows. In the container, it's the volume at `/data`.
+- **The two secrets**, `API_KEY_SALT` and `MARFA_AUTH_SECRET`. They aren't in the data directory. Without the original `API_KEY_SALT`, a restored instance holds every key and **accepts none**. Without `MARFA_AUTH_SECRET`, every signed-in session ends.
 
-The secrets, `API_KEY_SALT` and `MARFA_AUTH_SECRET`, aren't in it. **Without the original `API_KEY_SALT`, a restored instance holds every key and accepts none.**
+## Copy the directory safely
 
-How you copy the directory decides whether the copy restores. Each of these keeps every write the instance had acknowledged before the copy began:
+How you copy the directory decides whether the copy restores. Each of these keeps every write the instance acknowledged before the copy began:
 
-- **A snapshot of the volume or the filesystem**, such as Time Machine on an APFS volume or a host's disk snapshot. It's an image of the directory at one instant, which SQLite recovers from as it does from a crash.
-- **Stop the server**, copy the directory, and start it again. Stopping moves every write into the database file.
-- **Copy the files one after another while the server runs**, holding a read transaction on the database for the whole copy: the database file, then the log, then the blob folder.
+- **A snapshot** of the volume or the filesystem, such as Time Machine on an APFS volume or a host's disk snapshot. SQLite recovers from it as it does from a crash.
+- **A stopped server.** Stop it, copy the directory including the log if one is there, and start it again.
+- **A held read transaction.** Copy the files one after another while the server runs, with a read transaction open on the database for the whole copy: the database file, then the log, then the blob folder.
 
-**Copying the files one after another with no read transaction held can leave a database that won't open, or has lost writes.** With the `sqlite3` program on the instance's machine, the third way looks like this:
+Copying the files one after another with no read transaction can leave **a database that won't open, or has lost writes** ([`instance/copy-under-reader`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#instancecopy-under-reader)). With the `sqlite3` program on the instance's machine, the held transaction looks like this:
 
 ```bash
 sqlite3 /srv/marfa/data/marfa.db "BEGIN; SELECT count(*) FROM sqlite_master;" \
@@ -28,201 +29,16 @@ sqlite3 /srv/marfa/data/marfa.db "BEGIN; SELECT count(*) FROM sqlite_master;" \
   "COMMIT;"
 ```
 
-To restore, stop the server, put the copied files where `SQLITE_PATH` and `BLOB_PATH` name, leaving out any `marfa.db-shm`, and start it with the same two secrets. `GET /health` answers `200` when it's back, and your keys work as before.
+## Restore the copy
 
-### With a bucket
+Stop the server, put the copied files where `SQLITE_PATH` and `BLOB_PATH` name, and leave out `marfa.db-shm`. Start the server with the same two secrets. `GET /health` answers `200` when it's back, and your keys work as before. If the instance uses a bucket, read [With a bucket](#with-a-bucket) first.
 
-When `S3_BUCKET` is set, **the container copies for you**. It streams each committed database write to the bucket within a second and keeps a day of hourly snapshots, and the `blob-replicate` housekeeping job copies each blob there. A new volume started with the same bucket, prefix and secrets restores the database as it starts, and brings the blobs back as replication runs.
+## With a bucket
 
-**Everything an instance keeps in the bucket is under its `S3_PREFIX`**: its blobs at `<S3_PREFIX>/<hash>` and its database replica at `<S3_PREFIX>/db`. **Every instance on a shared bucket needs a prefix of its own**, so that a new volume restores its own database and not another instance's. [Deploy](/guides/deploy#an-object-store) says what a prefix may hold.
+When `S3_BUCKET` is set, **the container copies for you**. It streams each committed database write to the bucket within a second, keeps a day of hourly snapshots, and the `blob-replicate` housekeeping job copies each blob. A new volume started with the same bucket, prefix and secrets restores the database as it starts and brings the blobs back as replication runs.
 
-**The database reaches the bucket before a blob does**, so a restore to a moment between the two can name a blob the bucket doesn't hold yet. To restore by hand, run Litestream against the replica, and **set `S3_PREFIX` to the instance's prefix** with no `/` at either end, even when it's the default `blobs`: Litestream reads an unset name as nothing, and would look for the replica at `/db`.
+Everything the instance keeps in the bucket is under its `S3_PREFIX`, so **give each instance on a shared bucket its own prefix**. [Deploy](/guides/deploy#an-object-store) says what a prefix may hold.
 
-```bash
-S3_PREFIX=blobs litestream restore -config deploy/litestream.yml -o restored.db -integrity-check full "$SQLITE_PATH"
-```
+**A copy older than the bucket needs a prefix of its own.** Started under the bucket's current prefix, it becomes the bucket's newest copy of the database. The [deployment guide](https://github.com/withmarfa/marfa/blob/main/deploy/README.md#restore-a-backup-that-is-older-than-the-bucket) gives those steps, and the steps for [restoring by hand](https://github.com/withmarfa/marfa/blob/main/deploy/README.md#restoring-by-hand) or to a point in time.
 
-The [deployment guide](https://github.com/withmarfa/marfa/blob/main/deploy/README.md#restoring-by-hand) has the same command for a point in time.
-
-**A copy of the volume that is older than the bucket needs a prefix of its own.** Started under the bucket's current `S3_PREFIX`, it becomes the bucket's newest copy of the database. The deployment guide's [restore of a backup older than the bucket](https://github.com/withmarfa/marfa/blob/main/deploy/README.md#restore-a-backup-that-is-older-than-the-bucket) gives the steps.
-
-## Export an archive
-
-**An archive holds what its caller can read.** A live owner browser session can export without a key or recent reauthentication. For automated exports with the CLI, make a key that reads everything and use it only for exports. The steps below use that key.
-
-**The owner can also export in a browser.** Export and restore, at `/auth/owner/export`, downloads an archive of everything, or of one type and the types under it, and an Include files switch leaves the files out.
-
-<Steps>
-<Step>
-
-### Make an export key
-
-On the instance's machine, under the account that runs the server:
-
-```bash
-marfa --socket /srv/marfa/data/control/marfa.sock keys create --label backup --source backup \
-  --type-permission '*=read' --edge-permission '*=read' --extension-permission '*=read'
-```
-
-**The CLI shows the key once.** Set it as `MARFA_API_KEY` wherever you export from.
-
-</Step>
-<Step>
-
-### Export
-
-```bash tab="CLI" tab-group="client"
-marfa export --format archive --state any --output marfa-archive.tar.gz
-```
-
-```http tab="HTTP"
-GET /export?format=archive&state=any
-Authorization: Bearer <key>
-```
-
-The answer is a `.tar.gz` file. It holds the items the key can read, with their tags, extensions and earlier versions, the edges between them, the blobs they name, and every type and edge type registered on the instance. **`--state any` includes the bin**, which an export otherwise leaves out.
-
-</Step>
-<Step>
-
-### Check the file
-
-```bash
-tar -tzf marfa-archive.tar.gz
-```
-
-```text
-manifest.json
-items.ndjson
-edges.ndjson
-types.ndjson
-blobs/sha256:a0feecd7233d9f5f3ec784c6bdb36587c651e2ec60437c27b4bf135de39149d7
-```
-
-If the server fails partway through an export, it ends the connection early, and the file doesn't unpack. **`marfa export --output` writes to a hidden file beside the path and renames it over the path only once the stream has ended whole and the archive lacks no blobs.** A stream cut short removes that file, leaves any earlier file at the path as it was, and ends with exit code 3, so try again.
-
-</Step>
-<Step>
-
-### Check what the archive lacks
-
-The manifest names each file's bytes the archive couldn't carry, under `missing_blobs`. When `marfa export` exits with code 1 and `blobs_missing`, the archive is at `marfa-archive.tar.gz.incomplete`, not at `marfa-archive.tar.gz`. Read the manifest from it:
-
-```bash
-tar -xzOf marfa-archive.tar.gz.incomplete manifest.json
-```
-
-The manifest's other fields are left out here:
-
-```json
-{
-  "blob_count": 0,
-  "blobs": {},
-  "missing_blobs": {
-    "sha256:a0feecd7233d9f5f3ec784c6bdb36587c651e2ec60437c27b4bf135de39149d7": {
-      "mime_type": "image/jpeg",
-      "size_bytes": 2048
-    }
-  }
-}
-```
-
-An empty `missing_blobs` means the archive holds every blob its items name. The next section says what a name in it means.
-
-</Step>
-</Steps>
-
-### When an archive lacks a file's bytes
-
-An export never claims a blob it doesn't hold. When no store holds a whole copy of a blob, such as after a disk lost the file, the export **leaves the blob out of the archive** and names it in `missing_blobs`, with its `mime_type` and `size_bytes`. The rest of the instance is still backed up: one lost file costs the backup that file, not everything.
-
-`marfa export` **exits with code 1 and `blobs_missing`**, naming up to ten of the hashes and counting the rest. **With `--output`, it doesn't replace the file at the path.** It keeps the archive beside it as `<path>.incomplete`, replacing only an earlier file of that name, so the last whole backup stays where a script reads it. If it can't write that name, it keeps the archive in a hidden file beside the path and names the file in its message. A script that reads only the exit code can't take such an archive for a whole one. The HTTP answer is still `200`, so read the manifest if you export without the CLI.
-
-A file item can name bytes the instance has no record of, as after a restore that lacked them. The export names such a blob too, with `null` for both `mime_type` and `size_bytes`, because nothing knows them. **Every later backup keeps naming a file's blob it lacks until the bytes are uploaded again**, with `marfa blobs upload` or [Upload a blob](/api-reference/blobs/uploadBlob). Only a file item's `blob_ref` counts: a hash that appears in a note's text is not named.
-
-A store that fails, or doesn't answer within 15 seconds, is not a lost file. The export, or a restore, is refused with `503 blob_store_unavailable` before anything is written, unless another store holds the blob whole. **Try again once the store answers.**
-
-### Leave out the files
-
-**An archive without file bytes is much smaller than one with them.** Add `files=false` to the export, or turn off Include files on the Export and restore page:
-
-```http
-GET /export?format=archive&files=false
-Authorization: Bearer <key>
-```
-
-The archive then carries no file, and its manifest names each file it would have carried under `missing_blobs`. A restore of it reports in `blobs_missing` each of those files that the instance it restores into doesn't hold. `marfa export` has no option for it, and `format=ndjson` carries no file bytes either way. [Export without files](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#search-and-filtersexport-without-files) holds the rule.
-
-### What an export checks
-
-**An export isn't taken at one instant**: an item created while it runs may not be in it. Stop your apps first if the archive must hold every write.
-
-**An export ends when its credential does.** If the key or signed-in app that started it is revoked, expires or is disconnected, or is narrowed so that it no longer reads something the export has still to send, the server ends the response with an error, in both formats, and an archive cut short this way doesn't unpack. A narrowing that takes away nothing the export has still to send changes nothing.
-
-**Before it sends a byte, Marfa checks the whole archive the way a restore into an empty instance would.** An archive that Marfa sends restores into an empty instance of the same build without skipping an item or an edge, even when writes landed between its pages. If a row fails the check, Marfa reads the selection once more. If the second read fails too, Marfa answers one of two ways, and neither sends an archive:
-
-- **`409 export_rows_unrestorable`:** both reads refused the same row, and the row didn't change between them. The cause is in your data, such as a type replaced to become an event while one of its rows holds a recurrence rule that can't be read. `details.row` names the row by `kind`, `id`, `type` and `field`, with the `code` a restore refuses it with or the reason it skips it. Correct the row or its type, then export again.
-- **`503 export_unrestorable`:** writes changed the refused row or its type between the two reads, or the second read refused a different row, so the data may be fine once the writes stop. Export again, or stop your apps first.
-
-The server prepares the whole archive before it sends the first byte, in a folder inside the blob folder, so leave room on that disk for about as much as the archive's text takes uncompressed. An export that would take the volume below `MARFA_DISK_RESERVE_BYTES` is refused `507 insufficient_storage`, as an upload or a restore is.
-
-A [source filter](/guides/settings#what-the-enforcement-levers-do) leaves items out of an export as it does out of a listing, so check that neither the instance nor the export key carries one that hides what you want kept.
-
-## Restore an archive
-
-**Only the owner can restore**, through the private socket or signed in to the instance within the five minutes before the restore starts. A key is refused `403 forbidden`, whatever it holds. The target can be a new instance or the one the archive came from:
-
-```bash
-marfa --socket /srv/marfa/data/control/marfa.sock restore marfa-archive.tar.gz
-```
-
-**In a browser, restore from the Export and restore page**, at `/auth/owner/export`: choose the archive and select Restore. A sign-in older than five minutes is asked to confirm it's the owner before the upload starts, and the page reports how many items, links, files and types it added.
-
-The answer counts what the restore did. Into a fresh instance:
-
-```json
-{
-  "imported": 5,
-  "duplicates": 0,
-  "edges_imported": 1,
-  "edges_skipped": 0,
-  "edges_skipped_reasons": {},
-  "blobs_imported": 1,
-  "blobs_missing": [],
-  "types_registered": 0,
-  "types_skipped": 0,
-  "edge_types_registered": 0,
-  "edge_types_skipped": 0
-}
-```
-
-Items keep their IDs, versions, dates and states, with every earlier version and version writer the archive carries, and edges keep their IDs and versions. Sources are preserved except for an app's OAuth source: Marfa prefixes it with `restored:`, so the archived records cannot be overwritten through a later app sign-in's natural keys. Exporting and restoring that historical source again leaves it unchanged.
-
-A restored `system.connection` item for an app has `status: revoked`. It records past access rather than reconnecting the app. Sign the app in again if you want it to resume work.
-
-**An edge to an item in the bin is restored**, as it was exported. A restore skips an edge only for one of four reasons, which `edges_skipped_reasons` counts: `already_present`, `endpoint_missing` (the instance holds no item under an endpoint's ID, in the bin or out of it), `malformed`, or the error code that `POST /edges` would answer for the edge, such as `edge_cycle`. An archive's types restore in any order, including types that name each other in `compatible_with`.
-
-**A restore takes an item as the archive holds it** when its type isn't registered, as after a forced delete, or when it lacks a field its type later required or holds a value the type's field no longer accepts. An item of a `core` or `system` type that the build ships is still held to its shape. A restore also keeps an edge whose edge type isn't registered, and doesn't judge an end whose type isn't registered against the edge type's constraints; the other reasons to skip an edge still apply.
-
-An item the instance already holds is counted in `duplicates` and left as it is, so replaying an archive never overwrites work done since. Restoring the same archive again into the same instance answers `"imported": 0` and `"duplicates": 5`.
-
-`blobs_missing` lists the hashes the archive names but doesn't carry bytes for, that no store of the instance holds either. The restore still writes the items, and **writes no record for those blobs**, so a file that names one is a file with no bytes until you upload them again with `marfa blobs upload`. `marfa restore` prints the answer and exits with code 1 and `blobs_missing` when the list isn't empty, naming up to ten of the hashes. The same check covers an archive whose blob entry is missing or doesn't hash to its name.
-
-A restore writes in one transaction. If it's refused, fails or is interrupted, it leaves nothing behind, so you can run it again. While it runs, other writes wait for it, so let it answer before you start your apps.
-
-**A restore has no time limit while its bytes arrive.** If none arrives for `MARFA_UPLOAD_IDLE_TIMEOUT_MS`, 60 seconds unless you set it, the server answers `408 request_timeout` and writes nothing. A browser session that ends during the upload is answered `401 unauthorized`, also with nothing written.
-
-**An archive never holds keys, webhooks, the configuration or the audit log**: make keys, register webhooks and set the configuration again on the new instance.
-
-Before Marfa's first release, only the build that wrote an archive is sure to read it, so **an archive isn't a long-term backup**. A restore refuses the whole archive, and writes nothing, for one of these reasons:
-
-- **`400 validation_error`:** the file isn't a valid archive, lacks `manifest.json`, `items.ndjson`, `edges.ndjson` or `types.ndjson` (`details.entries` names each), is at another format version, repeats an entry, has an invalid row, holds a file over 64 MiB, or holds text that isn't well-formed UTF-16. For that text, the answer names the entry or the row and the JSON pointer of the text.
-- **`400 invalid_schema`:** an archived type is invalid or carries a key the schema doesn't define.
-- **`400 invalid_properties`:** an item sets a property its type doesn't declare, and strict mode names that type.
-- **`409 conflict`:** the archive redefines a type the instance registers differently, carries a core edge type, or carries a snapshot ID the instance already holds.
-- **`409 link_taken`:** the archive registers a type with a `link_field` in which two rows share a value.
-- **`413 request_too_large`:** an item's properties, or an edge's, are larger than the bulk write operations accept. `details` names the row and the field.
-
-If a newer build refuses your archive, [keep running the old build](/guides/upgrade#if-the-new-build-refuses-the-archive). [Restore from an archive](/api-reference/export-and-restore/restoreArchive) lists every answer.
-
-The rules behind this page are in the [backing up](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#backing-up) section of the instance chapter, and the [export](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#export) and [restore](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#restore) sections of the search and filters chapter of the contract.
+The rules behind this page are in the [backing up](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#backing-up) section of the instance chapter of the contract.
