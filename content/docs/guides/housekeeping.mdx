@@ -63,12 +63,9 @@ Each run reports `moved` and `held` in `last_result`. `moved` includes items a c
 
 ### Switch a job off
 
-A setting can switch a job off, and **a job that's off isn't listed**. [Settings](/guides/settings#every-environment-setting) gives the switch for most jobs, such as a blank `MARFA_HEARTBEAT_URL` or an interval or retention of `0`. Two switches aren't tied to their jobs there:
+**Jobs controlled by live configuration stay listed when switched off.** You can still run one on demand; it answers `200` without doing the disabled work. This includes `enrichment-sweep` when `enrichment_enabled` is false and `grant-inactivity-retirement` when its retention is `0`. Enabling either in [configuration](/guides/settings#change-settings-while-it-runs) starts its work without a restart. A retention of `0` likewise keeps a cleanup job registered but stops age-based expiry.
 
-- `enrichment-sweep` is off when `MARFA_ENRICHMENT_ENABLED` is `false`.
-- `grant-inactivity-retirement` is off when `MARFA_GRANT_INACTIVITY_DAYS` is `0`.
-
-The retentions that `audit-cleanup`, `trash-purge`, `event-log-cleanup` and `inbound-delivery-cleanup` read can also change while the server runs, in the [configuration](/guides/settings#change-settings-while-it-runs).
+`heartbeat` is registered when a receiver is configured at startup. Its live `heartbeat_enabled` switch controls whether a run sends a ping. **A machine-only setting can prevent a job from being registered at all**, as `MARFA_BLOB_CLEANUP_INTERVAL_MS=0` does for `blob-orphans`. Such a job is absent from the listing and a run request for it answers `404 housekeeping_job_not_found`. Check the listing for the jobs this instance has.
 
 ## Run a housekeeping job now
 
@@ -100,15 +97,29 @@ Authorization: Bearer <key>
 
 **A run that fails still answers `200`**, with `outcome` set to `error` and the reason in `error`. The listing then shows this run as the last one, and a run on demand never makes the next scheduled run later.
 
-Marfa refuses `409 housekeeping_job_running` while a run of the same job is in progress. A job that's switched off, or a name it doesn't run, is refused `404 housekeeping_job_not_found`. [Run a housekeeping job](/api-reference/instance/runHousekeeping) lists every answer.
+The server refuses `409 housekeeping_job_running` while a run of the same housekeeping job is already in progress, so try again when it finishes. A name it has not registered is refused `404 housekeeping_job_not_found`. [Run a housekeeping job](/api-reference/instance/runHousekeeping) lists every answer.
 
 ## Empty the bin
 
 An item stays in the bin until it is purged. Left alone, `trash-purge` purges each item once it has been in the bin longer than `TRASH_RETENTION_DAYS`, which is 60 days unless you change it. `trash_retention_days` in the [configuration](/guides/settings#change-settings-while-it-runs) overrides that while the server runs, and a retention of `0` keeps every item. A run removes a limited number of items, and while items past the retention remain after a run that removed some, the job runs again at once.
 
-<Callout type="warn">A purge deletes items and their history for good. To see what it would take first, add `--dry-run` to the CLI command, or `"dry_run": true` to the HTTP body. A dry run changes nothing.</Callout>
+<Callout type="warn">A purge deletes items and their history for good. The owner’s empty-trash operation has no dry run. Read the trash before purging it.</Callout>
 
-To empty the bin now, purge every item whose state is `trashed`. A key needs the `items.purge` permission, and **the private socket can't do it**, because it carries no key. This dry run counts what a purge would take:
+To empty the trash through the private socket, use the owner's summary operation. **Each call attempts up to 200 selected items** and returns the committed purge count, per-item failures and a cursor for the next batch. Send `--cursor` or the HTTP `cursor` query parameter with the returned value until `next_cursor` is `null`. If a write outcome is unknown, read the trash again before retrying. The owner can also empty it from a recent browser session.
+
+```bash tab="CLI" tab-group="client"
+env -u MARFA_API_URL -u MARFA_API_KEY marfa --socket /path/to/data/control/marfa.sock items trash empty --confirm PURGE
+```
+
+```http tab="HTTP"
+POST /trash/empty
+Origin: https://marfa.example.com
+Cookie: <recent owner session>
+```
+
+Continue a batch with `POST /trash/empty?cursor=<next_cursor>`. The response reports `purged`, per-item `failures` and `next_cursor`.
+
+A key holding `items.purge` can instead queue a bulk action for every item whose state is `trashed`. This dry run counts what a purge would take:
 
 <Terminal>
 
@@ -147,7 +158,7 @@ A test server can move its clock forward, so you can watch `feed-expiry` act wit
 
 The hooks sit at `/_control/test` on the private socket only, so run these steps on the instance's machine. `GET /_control/test/clock` answers `offset_ms` and the server's `now`. `POST /_control/test/clock` with `{ "advance_ms": 172800000 }` moves the clock forward by that many milliseconds, never back, and everything that reads the time moves with it. `MARFA_TEST_CLOCK_OFFSET_MS` starts the clock that far ahead and needs `MARFA_TEST_HOOKS`.
 
-A key runs the `marfa` commands, because the private socket refuses item operations, and the socket alone reaches the clock.
+**Two authorities are in play**: a key runs `marfa types register`, `marfa items create` and the content listing below, while the private socket reaches the clock and owner summary operations. It does not authorize ordinary item content reads or writes.
 
 <Steps>
 <Step>
