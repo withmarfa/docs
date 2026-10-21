@@ -1,10 +1,9 @@
 import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '../lib/cn';
 
-// Fumadocs' Callout with the same props, drawn as a faint wash of its type's
-// color with no border, shadow or icon: the tint says what kind of note it is,
-// and the title, when there is one, says the rest. `icon` is accepted for compatibility and not
-// drawn.
+// Fumadocs' Callout, drawn as a faint wash of its type's color with no border,
+// shadow or icon: the tint says what kind of note it is, and the title, when
+// there is one, says the rest. `icon` is accepted and not drawn.
 
 type CalloutType = 'info' | 'warn' | 'warning' | 'error' | 'success' | 'tip';
 

@@ -30,13 +30,13 @@ import {
   PageTableOfContentsPopover,
 } from '@/components/page-table-of-contents';
 
-// Folders collapse to their headers by default and the active trail opens. The
-// footer holds the release label at the bottom of the sidebar, on desktop and
-// in the phone menu.
 // The page title and lead at the website's sizes, a step down on phones.
 const titleClass = 'text-[1.375rem] leading-tight tracking-[-0.01em] sm:text-[1.625rem]';
 const descriptionClass = 'mb-6 text-[0.9375rem] leading-relaxed sm:text-base';
 
+// Folders collapse to their headers by default and the active trail opens. The
+// footer holds the release label at the bottom of the sidebar, on desktop and
+// in the phone menu.
 const sidebarOptions = {
   defaultOpenLevel: 0,
   collapsible: false,

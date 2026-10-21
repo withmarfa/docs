@@ -51,8 +51,9 @@ function WebsiteLink() {
 
 // Fumadocs hides the default sidebar footer on desktop, so a plain footer node
 // only ever shows in the phone menu. This function form renders the label and
-// the website link in a row of their own, visible at every width, and keeps the default footer (icon
-// links and theme switch in the phone menu) beneath it.
+// the website link in a row of their own, visible at every width, and keeps
+// the default footer (icon links and theme switch in the phone menu) beneath
+// it.
 export function SidebarFooter(props: ComponentProps<'div'>) {
   return (
     <>
