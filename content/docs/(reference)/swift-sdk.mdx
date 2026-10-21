@@ -3,7 +3,7 @@ title: Swift SDK
 description: Give an iOS or macOS app a working copy of your instance that reads offline, queues its writes and keeps itself current.
 ---
 
-The Swift SDK gives an app on iPhone, iPad or Mac a **working copy** of an instance: a local database it reads with or without a connection, and a queue that holds its writes until it can send them. **An app built on it is a [device](/devices)**, and [Devices](/devices) explains the working copy, the queue and verdicts.
+The Swift SDK gives an app on iPhone, iPad or Mac a **working copy** of an instance: a local database it reads with or without a connection, and a queue that holds its writes until it can send them. **An app built on it is a [device](/devices)**: that page explains the working copy, the queue and verdicts.
 
 Use it for an app that must keep working offline. A script or a server needs no working copy: use the [TypeScript SDK](/typescript-sdk) or the [HTTP API](/api-reference). [Build an app with Swift](/guides/swift-app) builds a SwiftUI app on it.
 
@@ -53,7 +53,7 @@ let copy = try await WorkingCopy.open(store: storeURL, server: Server(url: serve
 | `useKey(_:)` | Gives the open copy a new credential. Held `changes()` streams go on. |
 | `close()` | Ends every stream and releases the store. Later calls throw `MarfaError.closed`. |
 | `Server(url:key:)` | The instance's URL and a key or an app's access token. |
-| `Server.fromEnvironment()` | For a command-line tool: reads `MARFA_API_URL` and `MARFA_API_KEY`. Returns `nil` when both are absent, and throws when only one is set. |
+| `Server.fromEnvironment()` | For a command-line tool: reads `MARFA_API_URL` and `MARFA_API_KEY`. Returns `nil` when both are absent, and throws when only one is set or the URL names no server. |
 
 ## Keep the copy in step
 
@@ -88,7 +88,7 @@ guard let id = created.itemId, let note = try await copy.items.get(id) else { re
 _ = try await copy.items.update(id, Edit(properties: ["title": "Books to read"], baseVersion: note.version))
 ```
 
-Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update`, `delete`), `tags` (`add` and `remove`, one at a time), `metadata` (`replaceTags` and `mergeTags`), `extensions` (`write` and `delete` by namespace), `blobs` (`put(file:mimeType:)` queues an upload, and `get(_:)` fetches a blob's bytes and returns where they're held), the [`queue`](#send-writes-and-read-verdicts) and the `catalog` of types the copy holds.
+Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update`, `delete`), `tags` (`add` and `remove`, one at a time), `metadata` (`replaceTags` and `mergeTags`), `extensions` (`write` and `delete` by namespace), `blobs` (`put(file:mimeType:)` queues an upload, and `get(_:)` returns where a blob's bytes are held, fetching them first if they aren't), the [`queue`](#send-writes-and-read-verdicts) and the `catalog` of types the copy holds.
 
 | `items` call | What it does |
 | --- | --- |
@@ -96,15 +96,15 @@ Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update
 | `create(_:)`, `update(_:_:)` | Queue a `Draft` or an `Edit`. An update is refused unless `baseVersion` is the version the copy holds. |
 | `updateAsRead(_:_:)` | Queues an edit based on an older version, which the server merges. |
 | `delete(_:)`, `restore(_:)`, `transition(_:to:)` | Move an item to the bin or out of it, or change its `ItemState`. |
-| `bin(type:after:limit:)`, `purge(_:version:)` | Read a page of the server's bin, and destroy an item in it. Both need the server and neither is queued. A page can be short or empty and still carry a `nextCursor`. |
+| `bin(type:after:limit:)`, `purge(_:version:)` | Read a page of the server's bin, and destroy an item in it. Both need the server and neither is queued. A page can be short or empty and still carry a `nextCursor`. A purge needs `items.purge` and write on the type. |
 | `attach(to:file:_:)`, `embed(file:in:_:)` | Queue the upload, a file item and an `attached-to` edge, each with its own verdict. `embed` also adds the file's embed to the body, and throws `EmbedFailure` if that step fails. |
 | `links(in:)`, `embedText(of:in:)` | The links and file embeds in a body, and the `![[title]]` text for an attached file. |
-| `conflictedCopies(of:)`, `original(ofConflictedCopy:)` | An item's held conflicted copies, and the item a copy was made from. |
+| `conflictedCopies(of:)`, `original(ofConflictedCopy:)` | An item's held conflicted copies, and the ID of the item a copy was made from. |
 
 - **Read `title` and `body`** rather than `properties`: they read the properties the item's type uses for them. Where `properties` is empty, `unreadableProperties` says why.
 - **An `Edit` changes the properties it names.** With `replaceProperties: true`, they become the item's whole set.
-- **A whole number Marfa would serve back with other digits** is refused `validation` before anything is queued, as [Field kinds](/catalog/field-kinds) explains.
-- **An `EdgeEdit`** changes an edge's properties, moves one end with `.source(id)` or `.target(id)`, or both. A move is refused `validation` when the end that stays can hold only one edge of the type, or when the edge would point to itself. Once the server accepts a source move the copy expires, so hydrate again.
+- **A whole number Marfa would serve back with other digits** is refused `validation` with the code `invalid_properties` before anything is queued, as [Field kinds](/catalog/field-kinds) explains.
+- **An `EdgeEdit`** changes an edge's properties, moves one end with `.source(id)` or `.target(id)`, or both. A move is refused `validation` when the end that stays can hold more than one edge of the type, or when the edge would point to itself. An edit that changes nothing returns `nil`. Once the server accepts a source move the copy expires, so hydrate again.
 
 ## Declare an app type
 
@@ -219,7 +219,7 @@ Its `FolderEvent` values are `.watching` when it starts and `.passed` after a pa
 
 ## Handle errors
 
-Every call throws a `MarfaError`, whose `message` is fit to show a person.
+Every call on a working copy or `Folders` throws a `MarfaError`, whose `message` is fit to show a person. `Keychain` throws `Keychain.Failure`, and `Server.fromEnvironment()` throws `Server.EnvironmentError`.
 
 | Case | Meaning |
 | --- | --- |
@@ -230,6 +230,6 @@ Every call throws a `MarfaError`, whose `message` is fit to show a person.
 | `wrongServer` | The server at the copy's address is another instance than the copy recorded. The copy sends it no credential or data: [Troubleshooting](/guides/troubleshooting) explains. |
 | `copyExpired`, `hydrationIncomplete`, `readingHandle`, `firstSyncWaiting`, `noServer`, `closed` | States covered on this page. |
 
-Every other case carries a message that says what happened. The [marfa-swift repository](https://github.com/withmarfa/marfa-swift) holds the source.
+The other cases (`unknownType`, `io`, `decoding`, `store`, `storageFull`, `signedOut`, `noKeychain`, `redirected`, `noCursor`, `noCatalog`, `wrongSchema`, `bytesAbsent`, `streamIncomplete`, `canceled` and `invalid`) each carry a message that says what happened. The [marfa-swift repository](https://github.com/withmarfa/marfa-swift) holds the source.
 
 The rules behind this page are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) and [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapters of the contract.
