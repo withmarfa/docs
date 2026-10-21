@@ -5,9 +5,14 @@ description: Keep a directory on your Mac and a set of items in step, so each no
 
 A folder lets you work on your items in the tools you already use. A file you add becomes an item, and a change on either side reaches the other. If you stop following the folder, the files stay behind as plain files.
 
-A folder is a [device](/devices) whose working copy is a directory. **Its settings live on the instance** as a `system.folder` item, so every computer that follows the folder shares them, and each keeps its own copy and queue of writes. You run a folder with the CLI's `marfa folders` commands, or in a Mac app with the Swift SDK's `Folders`, which [the Swift SDK](/swift-sdk) covers. [Folder safeguards](/guides/folder-safeguards) says when a folder removes a file or an item, and how to undo it.
+A folder is a [device](/devices) whose working copy is a directory. **Its settings live on the instance** as a `system.folder` item, so every computer that follows the folder shares them, and each keeps its own copy and queue of writes. [Folder safeguards](/guides/folder-safeguards) says when a folder removes a file or an item, and how to undo it.
 
-## Make a key for the folder
+This tutorial uses the CLI's `marfa folders` commands. A Mac app does the same with the Swift SDK, as [Use a folder from a Mac app](#use-a-folder-from-a-mac-app) shows.
+
+<Steps paged>
+<Step>
+
+### Make a key for the folder
 
 The folder needs a key that reaches what it holds. Make one as the owner, on the instance's machine. This key suits a folder of notes and files:
 
@@ -26,59 +31,39 @@ marfa --socket /srv/marfa/data/control/marfa.sock keys create \
 
 `folders add` is refused without read on `system.folder`, naming `system.folder:read`, and without write on `in-folder`, naming `edge.in-folder:write`. [Manage keys](/guides/manage-keys) explains each flag.
 
-## Set up a folder
-
-<Steps>
+</Step>
 <Step>
 
 ### Create the folder's settings
 
 The settings say which items the folder holds, through a search, and what a new file becomes. This folder holds every note:
 
-```bash tab="CLI" tab-group="client"
+<Terminal>
+
+```bash
 marfa folders create --title Notes --search '{"types":["core.note"]}'
 ```
-
-```http tab="HTTP"
-POST /folders
-Authorization: Bearer <key>
-Content-Type: application/json
-
-{ "title": "Notes", "search": { "types": ["core.note"] } }
-```
-
-```ts tab="TypeScript"
-const { data: folder, error } = await marfa.POST("/folders", {
-  body: { title: "Notes", search: { types: ["core.note"] } },
-});
-if (error) throw new Error(error.error.message);
-```
-
-```swift tab="Swift"
-let folder = try await copy.createFolder(
-    FolderSettings(title: "Notes", search: FolderSearch(types: ["core.note"])))
-```
-
-The answer is the `system.folder` item. **Keep its ID**, because the next step binds a directory to it.
 
 ```text
 01a1232d-949d-758c-b244-70057174b96a  system.folder  2026-10-10T00:19:12.157Z  Notes
 ```
 
-**The search decides every item the folder takes in.** A search that names only a type holds every active and archived item of that type in the library tier, and the first sync writes all of them to disk. With no `types`, it holds every type the key reads except `system.*`. Narrow it with `filter`, `tier`, `state` or `beneath` before you confirm the first sync, as [list, filter and search](/guides/list-filter-search) describes.
+</Terminal>
+
+The first column is the `system.folder` item's ID. **Keep it**, because the next step binds a directory to it.
 
 </Step>
 <Step>
 
 ### Add the directory
 
-Bind a directory to the folder. It can be empty or hold files already, and the CLI makes it if it isn't there.
+Bind a directory to the folder. It can be empty or hold files already, and the CLI makes it if it isn't there:
 
-```bash tab="CLI" tab-group="client"
+<Terminal>
+
+```bash
 marfa folders add Notes --folder 01a1232d-949d-758c-b244-70057174b96a
 ```
-
-**Nothing is written into the directory or sent to the instance until you confirm the first sync.** The command says what the sync will do:
 
 ```text
 Notes follows the folder 01a1232d-949d-758c-b244-70057174b96a
@@ -86,25 +71,29 @@ the first sync will write and send nothing until you confirm it: 2 file(s) to wr
 `marfa folders confirm Notes` lets it go; `marfa folders remove Notes` drops the folder and leaves the files
 ```
 
-Here the instance holds two notes and the directory held one file, `Ideas.md`. In a script, pass `--yes` to skip the question the command asks at a terminal. Where an item's file would land on a file already there, one of the two gets a number added to its name, and **neither is written over** ([`folders/placement-collision-number`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersplacement-collision-number)).
+</Terminal>
 
-**Keep the directory out of a location another program syncs**, such as iCloud Drive, a folder a cloud service syncs, or network storage. `marfa folders add` warns on standard error and goes on. Two programs syncing the same files can overwrite each other's changes or leave conflicting copies. On network storage, Marfa may also miss a change made from another computer.
+**Nothing is written into the directory or sent to the instance until you confirm the first sync.** Here the instance holds two notes and the directory held one file, `Ideas.md`. In a script, pass `--yes` to skip the question the command asks at a terminal.
+
+Where an item's file would land on a file already there, one of the two gets a number added to its name, and **neither is written over**. A directory inside a folder you already added, or around one, is refused.
+
+Keep the directory out of a location another program syncs, such as iCloud Drive, a folder a cloud service syncs, or network storage. `marfa folders add` warns on standard error and goes on, because two programs syncing the same files can overwrite each other's changes. On network storage, Marfa may also miss a change made from another computer.
 
 </Step>
 <Step>
 
 ### Confirm the first sync
 
-Confirm it, then sync once:
+Check the plan first. **The search decides every item the folder takes in.** A search that names only a type holds every active and archived item of that type in the library tier, and the first sync writes all of them to disk. With no `types`, it holds every type the key reads except `system.*`. To narrow it, use `filter`, `tier`, `state` or `beneath`, as [list, filter and search](/guides/list-filter-search) describes.
 
-```bash tab="CLI" tab-group="client"
+Then confirm, and sync once:
+
+```bash
 marfa folders confirm Notes
 marfa folders push Notes
 ```
 
-`marfa folders push` does everything a folder does, once: it sends what changed in the directory, catches up with the instance, and writes out what changed there. To keep the folder in step, [keep folders running](/guides/keep-folders-running). That watch reads its key from the keychain, so run `marfa keys keep` first, as [the CLI](/cli#connect-to-a-server) shows.
-
-In the Swift SDK, `sync(_:)` returns `.awaitingConfirmation` with the plan until you call `confirmFirstSync(in:)`.
+`marfa folders push` does everything a folder does, once: it sends what changed in the directory, catches up with the instance, and writes out what changed there. To keep the folder in step without running it by hand, [keep folders running](/guides/keep-folders-running).
 
 </Step>
 </Steps>
@@ -122,27 +111,6 @@ The directory now holds a file for each note, and `Ideas.md` is an item:
   </Folder>
 </Files>
 
-## Replace a folder's key
-
-A new key with the same `--source` is refused `409 conflict` while the old key is live. Reuse the `--source` after you revoke the old key.
-
-<Steps>
-<Step>
-
-### Revoke the old key and make the new one
-
-[Revoke the old key](/guides/manage-keys#revoke-a-key), run the `keys create` command above again, then run `marfa keys keep` so the folder reads the new key from the keychain.
-
-</Step>
-<Step>
-
-### Push again
-
-Run `marfa folders push Notes`. If the new key reads something other than the old one did, the instance refuses the folder's working copy and the push stops with `read_view_changed` ([`device/view-changed`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#deviceview-changed)). Run the push again: it builds the copy again itself, and its report starts with `hydrated 3 item(s) first`. Writes waiting in the queue are kept.
-
-</Step>
-</Steps>
-
 ## How items appear as files
 
 A note is a Markdown file named after its title, or after its ID if it has none. Here's `Reading list.md`:
@@ -158,13 +126,24 @@ marfa_version: 1
 Start with the essays, then the letters.
 ```
 
-The lines between the `---` fences are the frontmatter. `type`, `tier`, `tags`, `state` and `occurred_at` are the item's own fields. A line named after an edge type, such as `references`, is an edge, and every other line is a property. The text after the fences is the body. `marfa_id` and `marfa_version` name the item and the version the file was written from: **leave them to Marfa**.
+The lines between the `---` fences are the frontmatter. The text after them is the body.
 
-**A new Markdown file needs no frontmatter.** It takes its type and tier from the folder's `defaults` or its search, and its title from `defaults` or, without one, its file name. Once the instance creates the item, Marfa writes the frontmatter and `marfa_id` into the file. A `.txt` file is all body. Any other file the search admits, such as a photo, becomes a file item with its bytes uploaded as a blob, as [Handle files](/guides/handle-files) describes.
+- **`type`, `tier`, `tags`, `state` and `occurred_at`:** the item's own fields.
+- **A line named after an edge type,** such as `references`: an edge.
+- **Every other line:** a property.
+- **`marfa_id` and `marfa_version`:** the item and the version the file was written from. Leave them to Marfa.
 
-## Edits on either side
+A new Markdown file needs no frontmatter. It takes its type and tier from the folder's `defaults` or its search, and its title from `defaults` or, without one, its file name. Once the instance creates the item, Marfa writes the frontmatter and `marfa_id` into the file. A `.txt` file is all body. Any other file the search admits, such as a photo, becomes a file item with its bytes uploaded as a blob, as [Handle files](/guides/handle-files) describes.
+
+## Edit on either side
 
 Edit a file and sync, and the edit reaches its item:
+
+<Terminal>
+
+```bash
+marfa folders push Notes
+```
 
 ```text
 0 created, 1 updated, 0 renamed, 2 unchanged, 0 missing, 0 deleted, 0 skipped
@@ -172,9 +151,11 @@ answered 1, held 0
 1 file(s) written
 ```
 
+</Terminal>
+
 An edit is a write based on the `marfa_version` the file names. If another app changed the same note meanwhile, the instance settles the two as [Versions](/versions) explains: changes to different fields merge, and a collision the type can't merge leaves a conflicted copy, which appears as a second file.
 
-**A note's file name and its title stay in step.** Rename the file and the new name, without its extension, becomes the title. Change the title anywhere else and the next sync renames the file, numbering the name if another file has it. The folder leaves a name alone when it can't tell whether you chose it ([`folders/title-drift-kept`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#folderstitle-drift-kept)).
+A note's file name and its title stay in step. Rename the file and the new name, without its extension, becomes the title. Change the title anywhere else and the next sync renames the file, numbering the name if another file has it. The folder leaves a name alone when it can't tell whether you chose it.
 
 ## Change a folder's settings
 
@@ -191,7 +172,9 @@ search:
     - core.note
 ```
 
-Edit the file and the next sync sends your change to the instance through [Update a folder](/api-reference/folders/updateFolder), so **it reaches every computer that follows the folder**. `marfa folders change` and the Swift SDK's `changeFolder(_:_:baseVersion:)` change the settings without the file. `folder` and `version` are Marfa's to write. [Folder](/catalog/folder) lists every other setting. This edit leaves a `drafts` directory alone and tags every new note:
+Edit the file and the next sync sends your change to the instance through [Update a folder](/api-reference/folders/updateFolder), so **it reaches every computer that follows the folder**. `marfa folders change` changes the settings without the file. `folder` and `version` are Marfa's to write. [Folder](/catalog/folder) lists every other setting.
+
+This edit leaves a `drafts` directory alone and tags every new note:
 
 ```yaml title="Notes/.marfa/folder.yaml"
 ignore:
@@ -201,6 +184,32 @@ defaults:
     - from-folder
 ```
 
+## Replace a folder's key
+
+A new key with the same `--source` is refused `409 conflict` while the old key is live. [Revoke the old key](/guides/manage-keys#revoke-a-key), run the `keys create` command from the first step again, then run `marfa keys keep` so the folder reads the new key from the keychain.
+
+Then run `marfa folders push Notes`. If the new key reads something other than the old one did, the instance refuses the folder's working copy and the push stops with `read_view_changed`. Run the push again: it builds the copy again itself, and its report starts with `hydrated 3 item(s) first`. Writes waiting in the queue are kept.
+
+## Stop following a folder
+
 To stop following a folder on one computer, run `marfa folders remove Notes`. It is refused while writes wait, apart from a first sync still waiting for confirmation. The folder's own state goes, and **the files stay where they are, as plain files**.
 
-The rules behind this guide are in the [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapter of the contract.
+## Use a folder from a Mac app
+
+A Mac app runs the same folder with the Swift SDK's `Folders`, which shares the Mac's list of folders with `marfa folders`. This creates the folder, binds a directory, and confirms the first sync. Until it is confirmed, `sync(_:)` returns `.awaitingConfirmation` with the plan:
+
+```swift
+let folder = try await copy.createFolder(
+    FolderSettings(title: "Notes", search: FolderSearch(types: ["core.note"])))
+
+let folders = Folders(server: server)
+let directory = URL(filePath: "/Users/sam/Notes")
+_ = try await folders.add(directory, following: folder.id)
+_ = try await folders.sync(directory)               // .awaitingConfirmation(plan)
+_ = try await folders.confirmFirstSync(in: directory)
+_ = try await folders.sync(directory)
+```
+
+`changeFolder(_:_:baseVersion:)` changes the settings. [Folders on a Mac](/swift-sdk#folders-on-a-mac) lists every call. A client without the SDK calls [Create a folder](/api-reference/folders/createFolder) and the other folder operations directly.
+
+The rules behind this guide are in the [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) and [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) chapters of the contract.

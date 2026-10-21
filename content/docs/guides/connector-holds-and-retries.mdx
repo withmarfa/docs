@@ -5,7 +5,20 @@ description: Keep one process of a connector writing at a time, keep its place b
 
 A connector can be started twice by mistake, lose the network in the middle of a write, or crash between two requests. The connector kit handles all three for you. The operations below do the same for a connector built directly on the API.
 
-The examples follow a connector for a task manager and use its own key. In the TypeScript examples, `marfa` is a [TypeScript SDK](/typescript-sdk) client made with that key, `connectorId` is the registration's ID and `processName` is the process's name.
+The examples follow a task manager connector with a key of its own. In the TypeScript examples, `marfa` is a [TypeScript SDK](/typescript-sdk) client made with that key, `connectorId` is the registration's ID and `processName` is the process's name.
+
+## Order a run
+
+This order survives a stop at any step:
+
+1. [Take the hold](#take-the-hold), and [renew it](#renew-it-while-the-process-runs) for as long as the run lasts.
+2. Read the [state document](#keep-your-place-in-the-state-document) and the [agreements](#record-agreements) you need.
+3. Read the vendor, and write the items.
+4. Write the agreements for what you wrote or carried.
+5. Replace the state document with the new place.
+6. [Report the run](#report-a-run), then release the hold.
+
+Each step below says why it sits where it does.
 
 ## Take the hold
 
@@ -96,17 +109,23 @@ await marfa.PUT("/connectors/{id}/state", {
 { "state": { "sync_token": "abc123" }, "problems": {}, "updated_at": "2026-10-09T23:51:10.032Z" }
 ```
 
+### Replace, don't merge
+
 The request **replaces the whole document**; it doesn't merge into it. To change one value, read the document, change the value, and send it all.
 
-The same state write can carry a `problems` map: opaque keys with messages about work that remains unresolved. It replaces that map together with the state, under the live hold.
+### Save the state last
 
-Omit `problems` to keep the existing messages, or send `problems: {}` to clear them. A refused write changes neither.
+Write the new place only after everything it covers has landed in Marfa. A run that stops before the save leaves the old place, so the next run reads that part of the vendor again and writes it again, which the natural key makes harmless. A place saved first would skip what the run never wrote.
 
-Problems are visible in the connector's registration, but the private state document is not. A heartbeat or a succeeded run **never clears them**, so explicitly remove a problem when it is resolved. They survive a registration change, a key replacement and a restart.
+### Report problems
 
-Save the state **last**. Write the new place only after everything it covers has landed in Marfa.
+The same state write can carry a `problems` map: opaque keys with messages about work that remains unresolved.
 
-A run that stops before the save leaves the old place, so the next run reads that part of the vendor again and writes it again, which the natural key makes harmless. A place saved first would skip what the run never wrote.
+- **It replaces the map** together with the state, under the live hold. Omit `problems` to keep the existing messages, or send `problems: {}` to clear them. A refused write changes neither.
+- **The registration shows problems,** but not the private state document.
+- **Nothing clears them for you.** A heartbeat or a succeeded run never clears a problem, so remove it explicitly when it is resolved. Problems survive a registration change, a key replacement and a restart.
+
+### When the document is empty
 
 Expect to find the document empty. The owner, or a key that holds `connectors.manage`, can [delete it](/api-reference/connectors/deleteConnectorState), and the agreements and current problems go with it. A connector that finds no state reads the vendor whole.
 
@@ -196,16 +215,9 @@ A write to the vendor is **yours to make safe**. Send the vendor an idempotency 
 
 [Write safely](/guides/write-safely) covers versions and idempotency keys in full.
 
-## Put a run in order
+## Report a run
 
-This order survives a stop at any step:
-
-1. Take the hold, and renew it for as long as the run lasts.
-2. Read the state document and the agreements you need.
-3. Read the vendor, and write the items.
-4. Write the agreements for what you wrote or carried.
-5. Replace the state document with the new place.
-6. [Report the run](/api-reference/connectors/reportConnectorRun), then release the hold.
+[Report the run](/api-reference/connectors/reportConnectorRun) when it ends:
 
 ```http tab="HTTP" tab-group="client"
 POST /connectors/01a12313-d219-7e92-8869-1f6546b43dbc/runs
