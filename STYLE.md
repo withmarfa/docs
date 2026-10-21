@@ -10,9 +10,9 @@ How every page on this site is written. This file is the one place the writing r
 
 ## Who reads the docs
 
-Write for a reader who is new to Marfa. Most know software; some don't, and more of them will as apps built on Marfa reach people. The Overview and the concepts must make sense to both. Five readers come most often, and each needs something different first:
+Write for a reader who is new to Marfa. Most know software; some don't, and more of them will as apps built on Marfa reach people. The Introduction and the concepts must make sense to both. Five readers come most often, and each needs something different first:
 
-- **Someone deciding whether Marfa is for them** needs to know what it is, what it's for and what it isn't: the Overview, then How Marfa works.
+- **Someone deciding whether Marfa is for them** needs to know what it is, what it's for and what it isn't: the Introduction, then How Marfa works.
 - **An app builder** needs a credential, then reading and writing items, then the model: the Quickstart, the concepts, then the Build apps and agents guides.
 - **Someone running an instance** needs to start it, claim it and keep it safe: the Quickstart, then the Run Marfa guides.
 - **A connector author** needs what the instance keeps for a connector, then the tutorial and the connector guides.
@@ -131,7 +131,7 @@ Use a component for what it's for, and only where it helps the reader.
 | `Accordion` | Entries a reader opens one at a time, such as troubleshooting. Never a reference list: a list a reader looks up is a plain table on its Catalog or Reference page |
 | `Files` | A directory a reader will see on disk |
 | `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data, or the Overview's one-line warning that Marfa is early |
-| `Cards` | Where to go next: the Overview, which is an index of the docs, and the end of a tutorial or the Introduction |
+| `Cards` | Where to go next: the Overview, an index of the docs, and the end of a tutorial or of the Introduction |
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
 
