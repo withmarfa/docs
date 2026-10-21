@@ -23,9 +23,17 @@ describe('buildDocsMap', () => {
     expect(guides.some((line) => line.startsWith('- [Troubleshooting](/guides/troubleshooting)'))).toBe(true);
 
     const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Reference'));
-    expect(catalog.filter((line) => line.startsWith('### '))).toEqual(['### Types', '### Edges, events and permissions']);
+    expect(catalog.filter((line) => line.startsWith('### '))).toEqual(['### Types']);
+    const ungrouped = catalog.slice(0, catalog.indexOf('### Types'));
+    expect(ungrouped.filter((line) => line.startsWith('- ')).map((line) => line.replace(/\]\(.*$/, '').replace(/^- \[/, ''))).toEqual([
+      'Catalog',
+      'Items',
+      'Edges',
+      'Events',
+      'Permissions',
+    ]);
     // The two families are folders in the sidebar, so each is a label with its pages nested under it, in the sidebar's order.
-    const types = catalog.slice(catalog.indexOf('### Types'), catalog.indexOf('### Edges, events and permissions'));
+    const types = catalog.slice(catalog.indexOf('### Types'));
     expect(types.filter((line) => /^(- |  - )/.test(line)).map((line) => line.replace(/\]\(.*$/, ']').replace(/^( *- )\[/, '$1'))).toEqual([
       '- Core types',
       ...['Bookmark', 'Entity', 'Event', 'File', 'Highlight', 'Media', 'Message', 'Note', 'Task'].map((title) => `  - ${title}]`),
