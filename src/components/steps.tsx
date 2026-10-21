@@ -10,6 +10,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
+import { flushSync } from 'react-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 export const Step = BaseStep;
@@ -49,6 +50,8 @@ function PagedSteps({ children }: { children: ReactNode }) {
   const steps = Children.toArray(children).filter(isValidElement) as ReactElement<WithChildren>[];
   const titles = steps.map(titleOf);
   const [current, setCurrent] = useState(0);
+  // Set when a link or a find opens a step, so the target can scroll into view once the step shows.
+  const [reveal, setReveal] = useState<{ target: HTMLElement } | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const panels = useRef<(HTMLDivElement | null)[]>([]);
@@ -69,6 +72,8 @@ function PagedSteps({ children }: { children: ReactNode }) {
     const from = before.current;
     before.current = null;
     if (!element || from === null) return;
+    // A move made while the last one still runs would otherwise measure the animated height.
+    element.getAnimations().forEach((animation) => animation.cancel());
     const to = element.offsetHeight;
     if (from === to || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     element.style.overflow = 'clip';
@@ -76,23 +81,38 @@ function PagedSteps({ children }: { children: ReactNode }) {
       .animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 200, easing: 'cubic-bezier(0.2, 0, 0, 1)' })
       .finished.catch(() => {})
       .finally(() => {
-        element.style.overflow = '';
+        // A cancelled animation settles after its successor starts, which still needs the clip.
+        if (element.getAnimations().length === 0) element.style.overflow = '';
       });
   }, [current]);
+
+  // `scroll-margin-top` holds only when the browser did not scroll before the step showed.
+  useLayoutEffect(() => {
+    reveal?.target.scrollIntoView({ block: 'start' });
+  }, [reveal]);
 
   // A find or a link that lands in a hidden step opens it.
   useEffect(() => {
     const cleanups = panels.current.map((panel, index) => {
       if (!panel) return () => {};
-      const open = () => setCurrent(index);
+      // Chrome scrolls right after this event, so the step must show by then.
+      const open = () => flushSync(() => setCurrent(index));
       panel.addEventListener('beforematch', open);
       return () => panel.removeEventListener('beforematch', open);
     });
     const fromHash = () => {
-      const id = decodeURIComponent(window.location.hash.slice(1));
+      let id = '';
+      try {
+        id = decodeURIComponent(window.location.hash.slice(1));
+      } catch {
+        // A hash such as #100% names no heading.
+      }
       const target = id ? document.getElementById(id) : null;
       const index = target ? panels.current.findIndex((panel) => panel?.contains(target)) : -1;
-      if (index >= 0) setCurrent(index);
+      if (target && index >= 0) {
+        setCurrent(index);
+        setReveal({ target });
+      }
     };
     fromHash();
     window.addEventListener('hashchange', fromHash);
@@ -157,7 +177,7 @@ function PagedSteps({ children }: { children: ReactNode }) {
             className="marfa-paged-step"
             hidden={index !== current}
             role="group"
-            aria-label={`Step ${index + 1} of ${steps.length}`}
+            aria-label={titles[index] || undefined}
             tabIndex={-1}
           >
             {step.props.children}
