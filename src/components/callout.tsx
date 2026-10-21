@@ -5,7 +5,7 @@ import { cn } from '../lib/cn';
 // shadow or icon: the tint says what kind of note it is, and the title, when
 // there is one, says the rest. `icon` is accepted and not drawn.
 
-type CalloutType = 'info' | 'warn' | 'warning' | 'error' | 'success' | 'tip';
+type CalloutType = 'info' | 'warn' | 'warning' | 'error' | 'success' | 'tip' | 'idea';
 
 const TINTS = {
   info: 'bg-fd-info/6',
@@ -16,7 +16,7 @@ const TINTS = {
 
 function resolve(type: CalloutType) {
   if (type === 'warn') return 'warning';
-  if (type === 'tip') return 'info';
+  if (type === 'tip' || type === 'idea') return 'info';
   return type;
 }
 
