@@ -234,7 +234,7 @@ export function checkFrontmatter(file: string, text: string): Violation[] {
 }
 
 /** Pages that may still say "coming soon", relative to content/docs. */
-const COMING_SOON_ALLOWED = new Set(['(overview)/overview.mdx']);
+const COMING_SOON_ALLOWED = new Set(['(overview)/introduction.mdx']);
 
 export function checkComingSoon(file: string, text: string): Violation[] {
   if (COMING_SOON_ALLOWED.has(file)) return [];
@@ -244,7 +244,7 @@ export function checkComingSoon(file: string, text: string): Violation[] {
       file,
       line: lineOf(text, match.index),
       rule: 'coming-soon',
-      detail: '"coming soon" is allowed only on the Overview page',
+      detail: '"coming soon" is allowed only on the Introduction page',
     });
   }
   return out;
@@ -622,7 +622,7 @@ describe('content lint: each rule fires on a bad sample', () => {
 
   it('coming-soon', () => {
     expect(rules(checkComingSoon('guides/x.mdx', 'This is Coming Soon.'))).toEqual(['coming-soon']);
-    expect(checkComingSoon('(overview)/overview.mdx', 'Coming soon.')).toEqual([]);
+    expect(checkComingSoon('(overview)/introduction.mdx', 'Coming soon.')).toEqual([]);
     expect(rules(checkComingSoon('(overview)/run-an-instance.mdx', 'Coming soon.'))).toEqual(['coming-soon']);
   });
 

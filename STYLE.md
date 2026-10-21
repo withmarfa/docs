@@ -24,9 +24,9 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 
 | Tab | Sidebar groups | Kind of page |
 | --- | --- | --- |
-| Overview | Get started: Overview, Quickstart | Explanation, then a tutorial |
+| Overview | Get started: the Overview, an index of the docs; the Introduction; the Quickstart | Navigation, explanation, then a tutorial |
 | Overview | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation, then reference |
-| Overview | Using these docs: the Docs MCP server and Docs as Markdown | How-to |
+| Overview | AI tools: the Docs MCP server and Docs as Markdown | How-to |
 | Guides | Tutorials, Build apps and agents, Build connectors, Run Marfa (ending with Troubleshooting) | Tutorial, how-to |
 | Catalog | The Catalog and Items pages, then Core types and System types (one page each), Your own types (Type rules and Field kinds), and Edges, events and permissions | Reference |
 | Reference | SDKs and CLI: one page each, and the file the CLI keeps for other programs | How-to and reference for each client, then reference |
@@ -90,7 +90,7 @@ Don't restate what the API reference says. A page explains what the reference ca
 
 - No em dashes. Use a colon to introduce, a comma to separate, parentheses for an aside, or a new sentence.
 - Present tense, active voice, second person for the reader.
-- "Coming soon" appears only on the Overview. Anywhere else, describe only what exists.
+- "Coming soon" appears only on the Introduction. Anywhere else, describe only what exists.
 - Sentence case for titles and headings. Headings are plain text: no code, links or other markup.
 - Inline code is for text a reader would type or copy: type IDs, field names, paths, header names, flags, values. A product name in prose is plain text (the TypeScript SDK, not `@withmarfa/client`).
 - Internal links are paths from the site root, such as `/files`, so the Markdown copy of each page resolves them. Link text says where the link goes.
@@ -131,7 +131,7 @@ Use a component for what it's for, and only where it helps the reader.
 | `Accordion` | Entries a reader opens one at a time, such as troubleshooting. Never a reference list: a list a reader looks up is a plain table on its Catalog or Reference page |
 | `Files` | A directory a reader will see on disk |
 | `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data, or the Overview's one-line warning that Marfa is early |
-| `Cards` | Where to go next, at the end of a tutorial and on the Overview |
+| `Cards` | Where to go next: the Overview, which is an index of the docs, and the end of a tutorial or the Introduction |
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
 
