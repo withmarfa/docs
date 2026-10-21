@@ -81,14 +81,20 @@ describe('the server image commands', () => {
 });
 
 describe('the Glossary page', () => {
-  it('defines only words marfa\'s glossary uses', () => {
+  it('defines only words marfa uses, in its glossary or its contract\'s rule names', () => {
     const glossary = readFileSync(path.join(ROOT, 'src/generated/GLOSSARY.md'), 'utf8').toLowerCase();
+    const { chapters } = JSON.parse(readFileSync(path.join(ROOT, 'src/generated/contract-index.json'), 'utf8'));
+    // GLOSSARY.md leaves out some words the contract names its rules with, such as "drain".
+    const ruleNames = Object.values(chapters as Record<string, Record<string, string>>)
+      .flatMap((rules) => Object.keys(rules))
+      .join(' ')
+      .replace(/[-/]/g, ' ');
     const page = ALL_PAGES.find(({ file }) => file === path.join('(overview)', 'glossary.mdx'))!;
-    const words = [...page.text.matchAll(/^\| \*\*([^*]+)\*\* \|/gm)].map((match) => match[1]);
+    const words = [...page.text.matchAll(/^\| \[\*\*([^*]+)\*\*\]\([^)]+\) \|/gm)].map((match) => match[1].replace(/`/g, ''));
     expect(words.length).toBeGreaterThan(20);
     for (const word of words) {
       const pattern = new RegExp(`\\b${word.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
-      expect(pattern.test(glossary), `"${word}" is not in GLOSSARY.md`).toBe(true);
+      expect(pattern.test(glossary) || pattern.test(ruleNames), `marfa never uses "${word}"`).toBe(true);
     }
   });
 });
