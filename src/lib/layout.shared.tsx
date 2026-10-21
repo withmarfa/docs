@@ -1,41 +1,24 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import { appName, gitConfig } from './shared';
-import { SectionNav } from '@/components/section-nav';
-import { StatusIndicator } from '@/components/status-indicator';
+import { NpmIcon } from '@/components/site-header';
 import { ThemeSwitch } from '@/components/theme-switch';
 
-// npm wordmark (simple-icons), monochrome via currentColor so it sits beside the
-// GitHub icon. The navbar's icon button handles sizing.
-const NpmIcon = (
-  <svg role="img" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M1.763 0C.786 0 0 .786 0 1.763v20.474C0 23.214.786 24 1.763 24h20.474c.977 0 1.763-.786 1.763-1.763V1.763C24 .786 23.214 0 22.237 0zM5.13 5.323l13.837.019-.009 13.836h-3.464l.01-10.382h-3.456L12.04 19.17H5.113z" />
-  </svg>
-);
-
+// The top bar is the layouts' `header` slot (DocsHeader), which places its own
+// links. These options feed what the layouts still draw themselves: the phone
+// menu's footer, which shows the icon links and the appearance control.
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
-      // The wordmark is the home affordance, linking to the Overview.
       title: appName,
       url: '/overview',
     },
-    // The section tabs render as pills in the navbar (OpenAI-style), in
-    // place of the central search. The native notebook tab row is hidden via
-    // CSS but still scopes the sidebar by URL.
     links: [
-      { type: 'custom', children: <SectionNav /> },
-      // Whether Marfa is up, linking to the status page. It renders nothing at
-      // all when it cannot get an answer, so this site never depends on that
-      // one being reachable.
-      { type: 'custom', secondary: true, children: <StatusIndicator /> },
-      // npm org link, paired with the GitHub icon on the navbar's right edge.
-      // The GitHub org and npm scope share the same slug.
       {
         type: 'icon',
         label: 'npm',
         text: 'npm',
         url: `https://www.npmjs.com/org/${gitConfig.user}`,
-        icon: NpmIcon,
+        icon: <NpmIcon />,
         external: true,
       },
     ],

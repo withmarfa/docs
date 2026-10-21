@@ -20,9 +20,10 @@ function isUnder(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
-// The top-level sections, rendered as OpenAI-style pills in the navbar. `href`
-// is the section's landing page. The native notebook tab row is hidden (CSS),
-// but it still scopes the sidebar by URL; these pills are the visible switcher.
+// The top-level sections, drawn as pills in the middle of the top bar
+// (DocsHeader). `href` is the section's landing page. The notebook layout's own
+// tabs aren't drawn, since the header slot replaces them, but they still scope
+// the sidebar by URL; these pills are the visible switcher.
 const SECTIONS: { label: string; href: string; matches: ((pathname: string) => boolean) | null }[] = [
   { label: 'Overview', href: '/overview', matches: null },
   { label: 'Guides', href: '/guides/swift-app', matches: (pathname) => isUnder(pathname, '/guides') },
