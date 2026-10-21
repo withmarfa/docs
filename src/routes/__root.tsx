@@ -2,6 +2,7 @@ import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-r
 import * as React from 'react';
 import appCss from '@/styles/app.css?url';
 import { Analytics } from '@/components/analytics';
+import { PointerFocus } from '@/components/pointer-focus';
 import { RootProvider } from 'fumadocs-ui/provider/tanstack';
 
 export const Route = createRootRoute({
@@ -49,6 +50,7 @@ function RootComponent() {
         </RootProvider>
         <Scripts />
         <Analytics site="docs" />
+        <PointerFocus />
       </body>
     </html>
   );

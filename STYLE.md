@@ -55,6 +55,7 @@ A page that needs a list the Catalog holds, such as the types, edge types, permi
 
 - **Answer first.** The `description` shows as the lead under the title. The first paragraph adds what the description can't: the idea, the reason it matters, or what the reader will have at the end. Never restate the description, and never open with "This page explains" or "This guide shows".
 - **Short paragraphs.** One to three sentences, about 20 to 30 words each on average. One idea per paragraph.
+- **Bold the names of things on screen**, such as a button or a menu item, and write a menu path with `>` between bolded items: **File** > **New** > **Project**. Keys are written as on the keyboard: Command-R.
 - **Bold the key fact.** In each section, bold the few words a skimming reader must not miss. In a list a reader scans, bold the lead-in of each item, then explain it after a full stop or a colon. Never bold whole sentences.
 - **A list carries items that are parallel**: steps, options, things to check. A page never opens with a list, and a list never stands in for an explanation of why.
 - **A table compares things or holds what a reader looks up**: fields, settings, commands, options, a choice between two ways. Keep cells short.
@@ -113,7 +114,8 @@ Don't restate what the API reference says. A page explains what the reference ca
   ````
 
 - **Raw HTTP goes in `http` blocks,** with the method, path, the headers that matter and the body.
-- **A block holds code a reader would run or copy, and nothing else.** Output goes in its own block, as `text` or `json`.
+- **A block holds code a reader would run or copy, and nothing else.** What a command prints goes with it in `<Terminal>`: the command's block, then the output's block as `text` or `json`. The page shows them as one block with the output muted, and folds output longer than six lines behind "Output". An HTTP response is not output: it is the shape a reader gets back, so it keeps its own block after the request.
+- **Show the code a step adds, not the whole file again.** A block over 24 lines folds to its first lines on the page, which keeps a page readable, but a long block is still a long block. Cut it to what the reader needs, and link the complete source when there is one.
 - **Give a block a `title`** when the reader needs to know where the code goes, such as a file name.
 - **Every example runs.** Check each against a real instance before it's published.
 
@@ -125,7 +127,9 @@ Use a component for what it's for, and only where it helps the reader.
 
 | Component | Use it for |
 | --- | --- |
-| `Steps` | An ordered procedure: the Quickstart, the tutorials, a how-to with an order |
+| `Steps` | An ordered procedure: the Quickstart, the tutorials, a how-to with an order. Each step opens with a `###` heading |
+| `Steps paged` | A tutorial: one step on screen at a time, with a progress bar and Previous and Next. Keep its steps close in length, since the panel is as tall as the longest. A how-to's few short steps stay a plain `Steps` list |
+| `Terminal` | A command and what it prints (see Examples) |
 | Code tabs | The same example in more than one client (see Examples) |
 | `Tabs` | Alternatives that aren't code, such as two ways to claim an instance |
 | `Accordion` | Entries a reader opens one at a time, such as troubleshooting. Never a reference list: a list a reader looks up is a plain table on its Catalog or Reference page |
@@ -135,7 +139,7 @@ Use a component for what it's for, and only where it helps the reader.
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
 
-The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence` and `Files` as plain Markdown, and leaves the visuals out (`source.config.ts`). A component outside those lists is left out of the copy too, so add it there before a page relies on it.
+The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence`, `Files` and `Terminal` (the command, then "Output:" and its output) as plain Markdown, and leaves the visuals out (`source.config.ts`). A component outside those lists is left out of the copy too, so add it there before a page relies on it.
 
 ## Visuals
 

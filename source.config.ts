@@ -15,7 +15,18 @@ type JsxElement = {
 const WRAPPERS = new Set(['Tabs', 'CodeBlockTabs', 'Steps', 'Step', 'Accordions', 'Cards', 'ReferenceList']);
 
 /** Components the Markdown copy writes in a Markdown form of its own. */
-const REWRITTEN = new Set(['Tab', 'CodeBlockTab', 'Accordion', 'Card', 'Callout', 'Sequence', 'Files', 'Folder', 'File']);
+const REWRITTEN = new Set([
+  'Tab',
+  'CodeBlockTab',
+  'Accordion',
+  'Card',
+  'Callout',
+  'Sequence',
+  'Files',
+  'Folder',
+  'File',
+  'Terminal',
+]);
 
 /** Node types that start a block, as opposed to text within one. */
 const FLOW = new Set([
@@ -104,6 +115,13 @@ const llms: LLMsOptions = {
           .split('\n')
           .map((line) => (line ? `> ${line}` : '>'))
           .join('\n');
+      }
+      case 'Terminal': {
+        // The command, then what it prints, labelled so an agent doesn't take the output for more commands.
+        const [command, ...output] = node.children.filter((child) => child.type === 'code');
+        const flow = (children: { type: string }[]) =>
+          state.containerFlow({ type: 'root', children } as never, info).trim();
+        return output.length ? `${flow([command])}\n\nOutput:\n\n${flow(output)}` : flow([command]);
       }
       case 'Files':
         return ['```text', ...fileTree(node), '```'].join('\n');
