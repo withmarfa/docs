@@ -11,7 +11,7 @@ describe('buildDocsMap', () => {
 
   it('groups each tab as the sidebar does', () => {
     const overview = lines.slice(lines.indexOf('## Overview'), lines.indexOf('## Guides'));
-    expect(overview.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Concepts', '### Using these docs']);
+    expect(overview.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Concepts', '### AI tools']);
     expect(overview.some((line) => line.startsWith('- [Docs MCP server](/docs-mcp-server)'))).toBe(true);
     expect(overview.some((line) => line.startsWith('- [Overview](/overview)'))).toBe(true);
     expect(overview.some((line) => line.startsWith('- [Glossary](/glossary)'))).toBe(true);
