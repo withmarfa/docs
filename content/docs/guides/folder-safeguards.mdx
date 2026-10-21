@@ -3,7 +3,7 @@ title: Folder safeguards
 description: What removes a file or an item in a folder, what a folder refuses to touch, and how to tell when a push has stopped.
 ---
 
-A folder deletes in both directions: a file you remove can send its item to the bin, and an item that leaves the folder can remove its file. This page covers when that happens, what holds it back, and how to put it right. [Sync a folder](/guides/sync-a-folder) sets a folder up.
+A folder deletes in both directions: a file you remove can send its item to the bin, and an item that leaves the folder can remove its file. [Sync a folder](/guides/sync-a-folder) sets a folder up.
 
 ## What removes a file or an item
 
@@ -15,7 +15,7 @@ A folder deletes in both directions: a file you remove can send its item to the 
 
 ## A large removal waits for you
 
-When many files go at once, such as when a directory is moved away or a disk isn't mounted, **the folder doesn't move their items to the bin**. It pauses the removal and waits for you:
+When many files go at once, such as when a directory inside the folder is moved away, **the folder doesn't move their items to the bin**. It pauses the removal and waits for you:
 
 ```text
 0 created, 0 updated, 0 renamed, 4 unchanged, 12 missing, 0 deleted, 0 skipped
@@ -24,13 +24,20 @@ answered 0, held 0
 0 file(s) written
 ```
 
-A removal pauses when it takes **more than 10 files and more than a quarter of the folder's files**. The `removal_threshold` setting changes both. The pause also holds the removal of files whose items left the folder elsewhere, such as notes another app archived.
+A removal pauses when it takes **more than 10 files and more than a quarter of the folder's files**. The `removal_threshold` setting changes both. The pause also holds the removal of files whose items left the folder elsewhere, such as notes another app moved to the bin.
 
 Cancel the removal to write the missing files back, or confirm it to move their items to the bin at the next sync:
 
-```bash
+```bash tab="CLI" tab-group="client"
 marfa folders restore Notes
 marfa folders confirm Notes
+```
+
+```swift tab="Swift"
+let status = try await folders.status(of: notes)
+if status.paused.isPaused {
+    _ = try await folders.restoreRemoval(in: notes)   // or confirmRemoval(in:)
+}
 ```
 
 `restore` counts only the files it wrote back. A file it couldn't write, such as one whose bytes it couldn't fetch, is listed with the reason. Its item stays, and every later pull tries again ([`folders/restore-not-written-listed`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersrestore-not-written-listed)).
@@ -38,6 +45,8 @@ marfa folders confirm Notes
 `marfa folders status Notes` shows where every file stands, and whether a removal waits, without asking the instance. `marfa folders health` takes the folder's ID and reads the server's latest report from each sign-in and local copy. A report's age says when it arrived, not whether that copy is reachable now.
 
 ## A missing or unreadable directory
+
+**While the folder's directory is missing, such as on a disk that isn't connected, Marfa trashes none of its items** ([`folders/root-gone-no-delete`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersroot-gone-no-delete)). `marfa folders status`, `confirm` and `restore` say the directory can't be found.
 
 **A scan that can't read or identify an entry deletes nothing.** Marfa trashes no items for files it failed to see, and it holds deletions already waiting until a complete scan succeeds. Fix the directory or disk access and sync again.
 
@@ -75,6 +84,8 @@ the server asked for 60s before the next drain; push again after that to send th
 ```
 
 Run the push again after that wait. A large first sync takes one push for each window. **A watch waits on its own** and then sends the rest.
+
+**Exit `0` doesn't mean the server took every edit.** When the server refuses an edit, the file keeps your change and the report flags it `refused` with the server's reason. Marfa doesn't send that change again until you replace it in the file ([`folders/refused-edit-no-repeat`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersrefused-edit-no-repeat)).
 
 The first line of a report counts a file whose write is sent but not yet answered as **waiting**, not unchanged, and adds `; 2 queued earlier and not delivered yet`. With `--json`, the count is `waiting` ([`folders/scan-waiting`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersscan-waiting)).
 
