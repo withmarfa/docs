@@ -23,7 +23,7 @@ function CentredLayout({ main, rail }: { main: ReactNode; rail: ReactNode }) {
       <div className="mx-auto w-full max-w-[680px] @5xl:col-start-2 @5xl:mx-0 @5xl:max-w-none">
         {main}
       </div>
-      <div className="mx-auto w-full max-w-[680px] @5xl:col-start-3 @5xl:mx-0 @5xl:w-[400px] @5xl:max-w-none @5xl:sticky @5xl:top-[calc(var(--fd-docs-row-1,2rem)+1rem)]">
+      <div className="mx-auto flex w-full max-w-[680px] flex-col gap-5 @5xl:col-start-3 @5xl:mx-0 @5xl:w-[400px] @5xl:max-w-none @5xl:sticky @5xl:top-[calc(var(--fd-docs-row-1,2rem)+1rem)]">
         {rail}
       </div>
     </div>

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { cn } from '@/lib/cn';
+import { iconButton } from './site-header';
 import { PUBLIC_MONITORS, statusUrl } from '@/lib/shared';
 
 type ApiResponse = {
@@ -26,7 +28,7 @@ type ApiResponse = {
  * binding on the documentation site for a decoration, and this has to fail
  * closed regardless, which makes the extra round trip harmless.
  */
-export function StatusIndicator() {
+export function StatusIndicator({ className }: { className?: string }) {
   const [allUp, setAllUp] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -66,24 +68,16 @@ export function StatusIndicator() {
     <a
       href={statusUrl}
       rel="noreferrer"
-      // `title` rather than a tooltip component: this is the last item before
-      // the icon row and it has to match those visually, and they are plain
-      // anchors too.
+      // `title` rather than a tooltip component: the icons beside it are plain
+      // anchors with titles too.
       title={label}
       aria-label={label}
-      // The notebook navbar's own icon buttons, written out. They are styled by
-      // the layout rather than by anything importable, so matching them means
-      // repeating them: ghost button, `icon-sm` padding, muted until hover.
-      className="inline-flex items-center justify-center rounded-md p-1.5 text-fd-muted-foreground transition-colors duration-100 hover:bg-fd-accent hover:text-fd-accent-foreground max-lg:hidden"
+      className={cn(iconButton, className)}
     >
-      {/* Sized to the icons beside it so the row keeps one baseline, with the
-          dot centred inside rather than filling it. */}
-      <span className="flex size-4.5 items-center justify-center">
-        <span
-          className={`size-2 rounded-full ${allUp ? 'bg-emerald-500' : 'bg-red-500'}`}
-          aria-hidden
-        />
-      </span>
+      <span
+        className={`size-2 rounded-full ${allUp ? 'bg-emerald-500' : 'bg-red-500'}`}
+        aria-hidden
+      />
     </a>
   );
 }

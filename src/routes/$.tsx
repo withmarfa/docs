@@ -9,11 +9,12 @@ import {
   DocsDescription,
   DocsPage,
   DocsTitle,
-  PageFooter,
 } from 'fumadocs-ui/layouts/notebook/page';
 import { baseOptions } from '@/lib/layout.shared';
 import { appName, gitConfig } from '@/lib/shared';
+import { DocsHeader } from '@/components/docs-header';
 import { PageActions } from '@/components/page-actions';
+import { PageFooter } from '@/components/page-footer';
 import { SidebarFooter } from '@/components/release-label';
 import {
   useFumadocsLoader,
@@ -21,6 +22,7 @@ import {
   type SerializedPageTree,
 } from 'fumadocs-core/source/client';
 import { Suspense } from 'react';
+import { cn } from '@/lib/cn';
 import { useMDXComponents } from '@/components/mdx';
 import { APIPage } from '@/components/api-page';
 import {
@@ -31,6 +33,10 @@ import {
 // Folders collapse to their headers by default and the active trail opens. The
 // footer holds the release label at the bottom of the sidebar, on desktop and
 // in the phone menu.
+// The page title and lead at the website's sizes, a step down on phones.
+const titleClass = 'text-[1.375rem] leading-tight tracking-[-0.01em] sm:text-[1.625rem]';
+const descriptionClass = 'mb-6 text-[0.9375rem] leading-relaxed sm:text-base';
+
 const sidebarOptions = {
   defaultOpenLevel: 0,
   collapsible: false,
@@ -124,12 +130,12 @@ const clientLoader = browserCollections.docs.createClientLoader({
           enabled: toc.length > 1,
           component: <PageTableOfContentsPopover />,
         }}
-        footer={{ component: <PageFooter className="mt-12" /> }}
+        footer={{ component: <PageFooter className="mt-14" /> }}
       >
         {/* Title and the Copy button share the top row; the description spans the
             full content width on its own line below, like a lead paragraph. */}
         <div className="flex flex-row items-start justify-between gap-4">
-          <DocsTitle className="min-w-0">{frontmatter.title}</DocsTitle>
+          <DocsTitle className={cn(titleClass, 'min-w-0')}>{frontmatter.title}</DocsTitle>
           <div className="flex flex-row gap-2 items-center shrink-0">
             <PageActions
               markdownUrl={markdownUrl}
@@ -138,7 +144,7 @@ const clientLoader = browserCollections.docs.createClientLoader({
           </div>
         </div>
         {frontmatter.description ? (
-          <DocsDescription className={frontmatter.identifier ? 'mb-0' : undefined}>
+          <DocsDescription className={cn(descriptionClass, frontmatter.identifier && 'mb-0')}>
             {frontmatter.description}
           </DocsDescription>
         ) : null}
@@ -181,6 +187,7 @@ function OpenAPIView({
     <DocsLayout
       {...baseOptions()}
       nav={{ ...baseOptions().nav, mode: 'top' }}
+      slots={{ ...baseOptions().slots, header: DocsHeader }}
       tree={pageTree}
       tabMode="navbar"
       sidebar={sidebarOptions}
@@ -194,7 +201,7 @@ function OpenAPIView({
         // centred body and extends into this reserved space.
         tableOfContent={{ enabled: true }}
         toc={[]}
-        footer={{ component: <PageFooter className="mt-12" /> }}
+        footer={{ component: <PageFooter className="mt-14" /> }}
       >
         {/* The breadcrumb, title, body, and footer are each centred at 680px (in
             app.css) so they sit screen-centred like a narrative page; the code
@@ -202,7 +209,7 @@ function OpenAPIView({
             Copy Markdown button at the body's top-right. */}
         <div className="flex flex-row items-start justify-between gap-4">
           <div className="min-w-0">
-            <DocsTitle>{data.title}</DocsTitle>
+            <DocsTitle className={titleClass}>{data.title}</DocsTitle>
           </div>
           <div className="shrink-0">
             <PageActions markdownUrl={data.markdownUrl} />
@@ -238,6 +245,7 @@ function DocsView({
     <DocsLayout
       {...baseOptions()}
       nav={{ ...baseOptions().nav, mode: 'top' }}
+      slots={{ ...baseOptions().slots, header: DocsHeader }}
       tree={pageTree}
       tabMode="navbar"
       sidebar={sidebarOptions}

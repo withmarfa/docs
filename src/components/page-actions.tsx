@@ -16,20 +16,21 @@ export function PageActions({
   githubUrl?: string;
 }) {
   return (
-    // No `overflow-hidden` on the wrapper: it would clip the inner buttons'
-    // focus ring. Instead the two halves round their own outer corners (5px to
-    // nest inside the 1px border) so they still read as one pill.
-    <div className="inline-flex items-center rounded-md border bg-fd-secondary/30 backdrop-blur-sm text-fd-muted-foreground">
+    // One outline control, the console's: a hairline border, the control
+    // radius and a 32px height. No `overflow-hidden` on the wrapper, which
+    // would clip the halves' focus rings, so each half rounds its own outer
+    // corners, a pixel inside the border.
+    <div className="inline-flex h-8 items-center rounded-md border bg-fd-card text-fd-foreground">
       <MarkdownCopyButton
         markdownUrl={markdownUrl}
-        className="rounded-none rounded-l-[5px] border-0 bg-transparent hover:bg-fd-accent"
+        className="h-full gap-1.5 rounded-none rounded-l-[9px] border-0 bg-transparent px-3 text-[0.8125rem] font-medium hover:bg-fd-accent"
       />
-      <div className="h-5 w-px shrink-0 bg-fd-border" aria-hidden />
+      <div className="h-4 w-px shrink-0 bg-fd-border" aria-hidden />
       <ViewOptionsPopover
         markdownUrl={markdownUrl}
         githubUrl={githubUrl}
         aria-label="More options"
-        className="rounded-none rounded-r-[5px] border-0 bg-transparent px-2 hover:bg-fd-accent"
+        className="h-full rounded-none rounded-r-[9px] border-0 bg-transparent px-2 text-fd-muted-foreground hover:bg-fd-accent hover:text-fd-foreground"
       >
         {''}
       </ViewOptionsPopover>
