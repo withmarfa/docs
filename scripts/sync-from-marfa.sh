@@ -19,9 +19,6 @@
 #                                     environment settings, written from the
 #                                     server's own setting list, included by
 #                                     the Settings guide
-#   src/generated/edge-types.md       the contract's table of the edge types
-#                                     every instance ships, written from the
-#                                     server's type registry
 #   src/generated/permissions.md      the same for the twelve permissions
 #   src/generated/event-types.md      the same for the event types
 #   src/generated/contract-index.json every rule ID in the contract's chapters
@@ -34,7 +31,10 @@
 #                                     top-level types, linked to their pages),
 #                                     one Markdown file per top-level type with
 #                                     its subtypes inside (core.media.md,
-#                                     system.folder.md), edges.md,
+#                                     system.folder.md), edges.md, edge-types.md
+#                                     (a table of the edge types, with a Source
+#                                     types column only if one edge type
+#                                     constrains its source),
 #                                     the three name lists (reserved-type-roots.md,
 #                                     reserved-field-names.md, searched-field-names.md)
 #                                     and, from the spec's schemas, item-fields.md,
@@ -107,12 +107,11 @@ COMMANDS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marfa-cli.XXXXXX")"
 ERRORS="$(mktemp "${TMPDIR:-/tmp}/marfa-errors.XXXXXX")"
 HOUSEKEEPING="$(mktemp "${TMPDIR:-/tmp}/marfa-housekeeping.XXXXXX")"
 SETTINGS="$(mktemp "${TMPDIR:-/tmp}/marfa-settings.XXXXXX")"
-EDGE_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-edge-types.XXXXXX")"
 PERMISSIONS="$(mktemp "${TMPDIR:-/tmp}/marfa-permissions.XXXXXX")"
 EVENT_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-event-types.XXXXXX")"
 INDEX="$(mktemp "${TMPDIR:-/tmp}/marfa-contract-index.XXXXXX")"
 CATALOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marfa-catalog.XXXXXX")"
-cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$ERRORS" "$HOUSEKEEPING" "$SETTINGS" "$EDGE_TYPES" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$CATALOG_DIR"; }
+cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$ERRORS" "$HOUSEKEEPING" "$SETTINGS" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$CATALOG_DIR"; }
 trap cleanup EXIT
 
 # The overview page includes this file under its own level-2 heading, so every
@@ -227,7 +226,7 @@ chmod 755 "$COMMANDS_DIR"
 # Each table is the part of a contract chapter between its two markers, which
 # the monorepo's CI holds to what the server defines: the code table to the
 # server's list of codes, the settings table to its settings schema, and the
-# edge types, permissions and event types to the definitions it ships.
+# permissions and event types to the definitions it ships.
 # extract_table <chapter> <marker name> <output file> <what the table lists>
 extract_table() {
   if ! python3 - "$MARFA_ROOT/conformance/spec/$1" "$2" "$3" <<'PY'
@@ -259,7 +258,6 @@ PY
 extract_table errors.md errors "$ERRORS" code
 extract_table housekeeping.md housekeeping "$HOUSEKEEPING" "housekeeping jobs"
 extract_table instance.md settings "$SETTINGS" settings
-extract_table edges.md edge-types "$EDGE_TYPES" "edge types"
 extract_table keys-and-oauth.md permissions "$PERMISSIONS" permissions
 extract_table events.md event-types "$EVENT_TYPES" "event types"
 
@@ -398,6 +396,8 @@ EDGE_KEYS = {
     "cascade_on_delete", "reverse_name", "written_at", "property_schema", "shipped",
 }
 STRATEGIES = {"last_writer_wins", "keep_both_copies"}
+CARDINALITIES = {"one-to-one", "one-to-many", "many-to-one", "many-to-many"}
+CASCADES = {"orphan", "cascade"}
 ROLES = {"container"}
 HINT_KEYS = ("title_field", "body_field")
 RULES = "/catalog/your-own-types"
@@ -428,6 +428,8 @@ def check_fields(owner, fields, allowed):
     for name, field in fields.items():
         if not isinstance(field, dict) or not isinstance(field.get("type"), str) or not isinstance(field.get("description"), str):
             refuse(catalog_path, f"has a field {owner}.{name} without a type and a description")
+        if not isinstance(field.get("required", False), bool):
+            refuse(catalog_path, f"has a field {owner}.{name} whose required is not true or false")
         if set(field) - allowed:
             refuse(catalog_path, f"has a key {sorted(set(field) - allowed)[0]!r} on {owner}.{name} that the sync does not write")
         if field["type"] == "enum" and not field.get("enum_values"):
@@ -518,7 +520,7 @@ def render_types(types):
     def fields_table(t, parent):
         """A subtype lists only the fields it adds or changes."""
         rows = [
-            [code(n), kind(f), "Yes" if f.get("required") else "", with_values(f["description"], f.get("enum_values"))]
+            [code(n), kind(f), "Yes" if f.get("required") else "No", with_values(f["description"], f.get("enum_values"))]
             for n, f in t["fields"].items()
             if parent is None or parent["fields"].get(n) != f
         ]
@@ -566,7 +568,51 @@ def render_types(types):
     write("types.md", index)
 
 
-def render_edges(edges):
+def constraint(edge, key, type_ids):
+    """The types an edge type's end takes, in the contract's wording: Any type, Any type with the
+    role `container`, or the type itself. Several are joined with "or"."""
+    values = edge.get(key)
+    if not isinstance(values, list) or not values or not all(isinstance(v, str) for v in values):
+        refuse(catalog_path, f"has the edge type {edge['id']} with no {key} list")
+    if "*" in values:
+        if values != ["*"]:
+            refuse(catalog_path, f"has the edge type {edge['id']} with a {key} that mixes * with other entries")
+        return "Any type"
+    out = []
+    for value in values:
+        role = value.partition("role:")[2] if value.startswith("role:") else None
+        if role is not None and role in ROLES:
+            out.append(f"Any type with the role {code(role)}")
+        elif role is None and value in type_ids:
+            out.append(code(value))
+        else:
+            refuse(catalog_path, f"has the edge type {edge['id']} with a {key} entry {value!r} that the sync does not write")
+    return " or ".join(out)
+
+
+def edge_table(edges, type_ids):
+    """One row for each edge type. The Source types column appears only when some edge type constrains its source.
+    Cardinality and On delete are values, so they are code: a code span keeps `many-to-many` on one line."""
+    for e in edges:
+        if e.get("cardinality") not in CARDINALITIES:
+            refuse(catalog_path, f"has the edge type {e['id']} with a cardinality the sync does not know")
+        if e.get("cascade_on_delete") not in CASCADES:
+            refuse(catalog_path, f"has the edge type {e['id']} with a cascade_on_delete the sync does not know")
+        if "reverse_name" in e and not (isinstance(e["reverse_name"], str) and e["reverse_name"]):
+            refuse(catalog_path, f"has the edge type {e['id']} with a reverse_name that is not a name")
+    sources = [constraint(e, "source_type_constraints", type_ids) for e in edges]
+    targets = [constraint(e, "target_type_constraints", type_ids) for e in edges]
+    constrained = any(source != "Any type" for source in sources)
+    header = ["Edge type", "Reverse name", "Cardinality", "On delete", *(["Source types"] if constrained else []), "Target types"]
+    rows = [
+        [code(e["id"]), code(e["reverse_name"]) if e.get("reverse_name") else "None", code(e["cardinality"]), code(e["cascade_on_delete"]),
+         *([source] if constrained else []), target]
+        for e, source, target in zip(edges, sources, targets)
+    ]
+    return table(header, rows)
+
+
+def render_edges(edges, type_ids):
     sections = []
     for e in edges:
         if not isinstance(e, dict) or not isinstance(e.get("id"), str) or not isinstance(e.get("description"), str):
@@ -587,6 +633,7 @@ def render_edges(edges):
             lines += [table(["Property", "Kind", "Description"], rows), ""]
         sections += lines
     write("edges.md", sections)
+    write("edge-types.md", [edge_table(edges, type_ids)])
 
 
 def render_catalog():
@@ -605,7 +652,7 @@ def render_catalog():
         if not isinstance(catalog.get(key), list) or not catalog[key] or not all(isinstance(v, str) for v in catalog[key]):
             refuse(catalog_path, f"has no {key} list")
     render_types(types)
-    render_edges(edges)
+    render_edges(edges, {t["id"] for t in types if isinstance(t, dict)})
     # Each name list is one paragraph, which the page puts a sentence above.
     for key, stem in (
         ("reserved_type_roots", "reserved-type-roots"),
@@ -787,7 +834,6 @@ mv "$COMMANDS_DIR" "$GENERATED/cli"
 mv "$ERRORS" "$GENERATED/error-codes.md"
 mv "$HOUSEKEEPING" "$GENERATED/housekeeping.md"
 mv "$SETTINGS" "$GENERATED/settings.md"
-mv "$EDGE_TYPES" "$GENERATED/edge-types.md"
 mv "$PERMISSIONS" "$GENERATED/permissions.md"
 mv "$EVENT_TYPES" "$GENERATED/event-types.md"
 mv "$INDEX" "$GENERATED/contract-index.json"
@@ -816,4 +862,4 @@ docker run --name marfa -d --restart unless-stopped -p 127.0.0.1:8600:8600 \\
 \`\`\`
 IMAGE
 
-echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE), its CLI download and its server image commands synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE), its CLI download and its server image commands synced from $MARFA_ROOT"

@@ -2,17 +2,17 @@
 
 | Field          | Kind               | Required | Description                                       |
 | -------------- | ------------------ | -------- | ------------------------------------------------- |
-| `url`          | `url`              |          | The saved URL                                     |
-| `body`         | `string`           |          | Captured text (a highlight, excerpt, or clipping) |
-| `title`        | `string`           |          | Title of the saved content                        |
-| `description`  | `string`           |          | Summary                                           |
-| `source_url`   | `url`              |          | Where the content was sourced from                |
-| `source_title` | `string`           |          | Title of the source                               |
-| `author`       | `string`           |          | Who created the original content                  |
-| `published_at` | `datetime`         |          | When the original content was published           |
-| `image_url`    | `url`              |          | Preview image                                     |
-| `language`     | `string` (`bcp47`) |          | BCP 47 language code                              |
-| `notes`        | `string`           |          | Personal annotations                              |
+| `url`          | `url`              | No       | The saved URL                                     |
+| `body`         | `string`           | No       | Captured text (a highlight, excerpt, or clipping) |
+| `title`        | `string`           | No       | Title of the saved content                        |
+| `description`  | `string`           | No       | Summary                                           |
+| `source_url`   | `url`              | No       | Where the content was sourced from                |
+| `source_title` | `string`           | No       | Title of the source                               |
+| `author`       | `string`           | No       | Who created the original content                  |
+| `published_at` | `datetime`         | No       | When the original content was published           |
+| `image_url`    | `url`              | No       | Preview image                                     |
+| `language`     | `string` (`bcp47`) | No       | BCP 47 language code                              |
+| `notes`        | `string`           | No       | Personal annotations                              |
 
 ## Settings
 

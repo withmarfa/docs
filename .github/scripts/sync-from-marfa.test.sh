@@ -9,14 +9,13 @@
 # into src/generated/cli/global-options.md and exit-codes.md and nothing else
 # from it, and it takes the code table from the errors chapter into
 # src/generated/error-codes.md and the settings table from the instance chapter
-# into src/generated/settings.md, the tables of the shipped edge types,
-# permissions and event types from their chapters into src/generated/edge-types.md,
-# permissions.md and event-types.md, and it hashes every rule of
+# into src/generated/settings.md, the tables of the permissions and event types
+# from their chapters into src/generated/permissions.md and event-types.md, and it hashes every rule of
 # the contract's chapters into src/generated/contract-index.json. It writes the
 # Catalog's files into src/generated/catalog, replaced whole: a Markdown file per
 # top-level type from the monorepo's type catalog, with its subtypes inside, an
 # index of those types, the
-# edge types, three name lists, and the item, edge and event fields from the
+# edge types (a section for each, and a table), three name lists, and the item, edge and event fields from the
 # spec's schemas. A description
 # that is missing, blank or the wrong type, a spec whose top level or `info` is
 # not an object, or a command reference that is missing, empty, not UTF-8, with a
@@ -205,8 +204,8 @@ instance_expected="$(cat <<'EOF'
 EOF
 )"
 
-# The four catalogue chapters every fixture holds, and the table the script
-# takes from the three it reads tables from. The types chapter only feeds the
+# The catalogue chapters every fixture holds, and the table the script
+# takes from the two it reads tables from. The types chapter only feeds the
 # contract index.
 catalogue_chapter() { # catalogue_chapter <marker> <header> <row>
   printf '# Chapter\n\n<!-- %s-table:start -->\n\n%s\n| --- | --- |\n%s\n\n<!-- %s-table:end -->\n' "$1" "$2" "$3" "$1"
@@ -214,9 +213,9 @@ catalogue_chapter() { # catalogue_chapter <marker> <header> <row>
 catalogue_expected() { # catalogue_expected <header> <row>
   printf '%s\n| --- | --- |\n%s' "$1" "$2"
 }
+# The edges chapter holds rules for the contract index and no table the script reads.
+edges_chapter="$(printf '# Edges\n\nNo table here.\n')"
 types_chapter="$(catalogue_chapter types '| Type | Family |' '| `core.note` | core |')"
-edges_chapter="$(catalogue_chapter edge-types '| Edge type | On delete |' '| `parent-of` | cascade |')"
-edges_expected="$(catalogue_expected '| Edge type | On delete |' '| `parent-of` | cascade |')"
 permissions_chapter="$(catalogue_chapter permissions '| Permission | Lets |' '| `keys.mint` | Minting keys. |')"
 permissions_expected="$(catalogue_expected '| Permission | Lets |' '| `keys.mint` | Minting keys. |')"
 events_chapter="$(catalogue_chapter event-types '| Event | Sent to |' '| `item.created` | Streams |')"
@@ -401,8 +400,8 @@ note_expected="$(cat <<'EOF'
 | Field      | Kind               | Required | Description       |
 | ---------- | ------------------ | -------- | ----------------- |
 | `body`     | `string`           | Yes      | The text \<raw>   |
-| `title`    | `string`           |          | A title \| or not |
-| `language` | `string` (`bcp47`) |          | A language        |
+| `title`    | `string`           | No       | A title \| or not |
+| `language` | `string` (`bcp47`) | No       | A language        |
 
 ## Settings
 
@@ -426,8 +425,8 @@ A memo (for a team) with a level.
 | ------- | ------------------- | -------- | ---------------------------------- |
 | `body`  | `string`            | Yes      | The memo text                      |
 | `title` | `string`            | Yes      | A title \| or not                  |
-| `level` | `enum`              |          | How urgent. Values: `low`, `high`. |
-| `to`    | `array` of `string` |          | Who it is for                      |
+| `level` | `enum`              | No       | How urgent. Values: `low`, `high`. |
+| `to`    | `array` of `string` | No       | Who it is for                      |
 EOF
 )"
 folder_expected="$(cat <<'EOF'
@@ -436,6 +435,14 @@ folder_expected="$(cat <<'EOF'
 | Field   | Kind     | Required | Description       |
 | ------- | -------- | -------- | ----------------- |
 | `title` | `string` | Yes      | The folder's name |
+EOF
+)"
+edge_table_expected="$(cat <<'EOF'
+| Edge type       | Reverse name | Cardinality    | On delete | Target types                       |
+| --------------- | ------------ | -------------- | --------- | ---------------------------------- |
+| `in-collection` | None         | `many-to-many` | `orphan`  | Any type with the role `container` |
+| `parent-of`     | `child-of`   | `one-to-many`  | `cascade` | Any type                           |
+| `in-folder`     | None         | `many-to-many` | `orphan`  | `system.folder`                    |
 EOF
 )"
 catalog_edges_expected="$(cat <<'EOF'
@@ -573,7 +580,6 @@ fixture() {
   printf 'stale codes\n' > "${dir}/docs/src/generated/error-codes.md"
   printf 'stale housekeeping\n' > "${dir}/docs/src/generated/housekeeping.md"
   printf 'stale settings\n' > "${dir}/docs/src/generated/settings.md"
-  printf 'stale edge types\n' > "${dir}/docs/src/generated/edge-types.md"
   printf 'stale permissions\n' > "${dir}/docs/src/generated/permissions.md"
   printf 'stale events\n' > "${dir}/docs/src/generated/event-types.md"
   printf 'stale index\n' > "${dir}/docs/src/generated/contract-index.json"
@@ -727,7 +733,7 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the edge type, permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3), its CLI download and its server image commands synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3), its CLI download and its server image commands synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -751,8 +757,6 @@ check "the error codes are the rows between the markers, and nothing else" \
   "${errors_expected}" "$(cat "${work}/good/docs/src/generated/error-codes.md")"
 check "the settings are the rows between the markers, and nothing else" \
   "${instance_expected}" "$(cat "${work}/good/docs/src/generated/settings.md")"
-check "the edge types are the rows between the markers, and nothing else" \
-  "${edges_expected}" "$(cat "${work}/good/docs/src/generated/edge-types.md")"
 check "the permissions are the rows between the markers, and nothing else" \
   "${permissions_expected}" "$(cat "${work}/good/docs/src/generated/permissions.md")"
 check "the event types are the rows between the markers, and nothing else" \
@@ -769,7 +773,7 @@ check "the server image commands name that release's image, on loopback" \
   "$(sed -n 2p "${work}/good/docs/src/generated/server-image.md")|$(sed -n 3p "${work}/good/docs/src/generated/server-image.md")|$(sed -n 4p "${work}/good/docs/src/generated/server-image.md")"
 check "the server image commands are one bash block" '```bash|```' "$(head -1 "${work}/good/docs/src/generated/server-image.md")|$(tail -1 "${work}/good/docs/src/generated/server-image.md")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md catalog cli cli-download.md contract-index.json edge-types.md error-codes.md event-types.md housekeeping.md marfa-release.json permissions.md server-image.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md catalog cli cli-download.md contract-index.json error-codes.md event-types.md housekeeping.md marfa-release.json permissions.md server-image.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 
 # The Catalog's files: a Markdown file for each top-level type with its subtypes
@@ -777,7 +781,7 @@ check "nothing else is left in the generated folder" \
 # schemas give an item, an edge and an event. The directory is replaced whole.
 catalog_dir="${work}/good/docs/src/generated/catalog"
 check "the catalog directory holds what the script writes, and the stale files are gone" \
-  "builtin-catalog.json core.note.md edge-fields.md edges.md event-fields.md item-fields.md reserved-field-names.md reserved-type-roots.md searched-field-names.md system.folder.md types.md" \
+  "builtin-catalog.json core.note.md edge-fields.md edge-types.md edges.md event-fields.md item-fields.md reserved-field-names.md reserved-type-roots.md searched-field-names.md system.folder.md types.md" \
   "$(ls "${catalog_dir}" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 check "the folder can be read by anyone who can read the checkout" \
   755 "$(python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "${catalog_dir}")"
@@ -787,6 +791,8 @@ check "a core type's file has its fields and settings, a subtype's section only 
   "${note_expected}" "$(cat "${catalog_dir}/core.note.md")"
 check "a system type's file has its fields, as a core type's does" \
   "${folder_expected}" "$(cat "${catalog_dir}/system.folder.md")"
+check "the edge types are a table, with a Source types column only when an edge type constrains its source, a reverse name or None, and the contract's wording for a target" \
+  "${edge_table_expected}" "$(cat "${catalog_dir}/edge-types.md")"
 check "each edge type is a section with its properties, and where it is written only when that is its target" \
   "${catalog_edges_expected}" "$(cat "${catalog_dir}/edges.md")"
 check "the index lists each family's top-level types, linked to their pages, with a subtype linked to its section and a pipe escaped" \
@@ -993,7 +999,6 @@ refuse_table_cases instance.md settings settings Setting
 refuse_table_cases housekeeping.md housekeeping "housekeeping jobs" Job
 refuse_table housekeeping housekeeping.md housekeeping "housekeeping jobs" "duplicate start marker" "${housekeeping_chapter}\n<!-- housekeeping-table:start -->"
 refuse_table housekeeping housekeeping.md housekeeping "housekeeping jobs" "duplicate end marker" "${housekeeping_chapter}\n<!-- housekeeping-table:end -->"
-refuse_table_cases edges.md edge-types "edge types" "Edge type"
 refuse_table_cases keys-and-oauth.md permissions permissions Permission
 refuse_table_cases events.md event-types "event types" Event
 
@@ -1098,17 +1103,28 @@ refuse_catalog "an edge type with no description" "${cat_file} has an edge type 
 refuse_catalog "an edge type with a key the sync does not write" "${cat_file} has a key 'weight' on the edge type in-collection that the sync does not write. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["weight"] = 1')"
 refuse_catalog "an edge type written nowhere the sync knows" "${cat_file} has the edge type in-collection with a written_at the sync does not know. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["written_at"] = "both"')"
 refuse_catalog "an edge type written at its target with no reverse name" "${cat_file} has the edge type parent-of written at its target with no reverse_name. Nothing has changed." "$(catalog_with 'del c["edge_types"][1]["reverse_name"]')"
+refuse_catalog "an edge type with a cardinality the sync does not know" "${cat_file} has the edge type in-collection with a cardinality the sync does not know. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["cardinality"] = "some-to-some"')"
+refuse_catalog "an edge type with a cascade the sync does not know" "${cat_file} has the edge type in-collection with a cascade_on_delete the sync does not know. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["cascade_on_delete"] = "restrict"')"
+refuse_catalog "an edge type with no target constraints" "${cat_file} has the edge type in-collection with no target_type_constraints list. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["target_type_constraints"] = []')"
+refuse_catalog "an edge type that mixes any type with another" "${cat_file} has the edge type in-collection with a source_type_constraints that mixes * with other entries. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["source_type_constraints"] = ["*", "core.note"]')"
+refuse_catalog "an edge type that names a type the catalog lacks" "${cat_file} has the edge type in-collection with a target_type_constraints entry 'core.recipe' that the sync does not write. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["target_type_constraints"] = ["core.recipe"]')"
+refuse_catalog "an edge type that names a role the sync does not know" "${cat_file} has the edge type in-collection with a target_type_constraints entry 'role:archive' that the sync does not write. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["target_type_constraints"] = ["role:archive"]')"
+refuse_catalog "an edge type with a reverse name that is not a name" "${cat_file} has the edge type parent-of with a reverse_name that is not a name. Nothing has changed." "$(catalog_with 'c["edge_types"][1]["reverse_name"] = 7')"
+refuse_catalog "a field whose required is not true or false" "${cat_file} has a field core.note.body whose required is not true or false. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["required"] = "yes"')"
 
 # Shapes the sync writes without a rule of its own: a default of both copies says which fields do not
 # keep them, and a type with nothing to add has no table.
 echo "a type catalog in other shapes"
 fixture shapes "${work}/untagged.json"
-catalog_with 'c["types"][0]["merge_policy"] = {"default": "keep_both_copies", "fields": {"title": "last_writer_wins", "language": "last_writer_wins"}}; c["types"].append({"id": "core.note.bare", "parent": "core.note", "label": "Bare", "description": "A note.", "version": 0, "fields": c["types"][0]["fields"]})' \
+catalog_with 'c["types"][0]["merge_policy"] = {"default": "keep_both_copies", "fields": {"title": "last_writer_wins", "language": "last_writer_wins"}}; c["types"].append({"id": "core.note.bare", "parent": "core.note", "label": "Bare", "description": "A note.", "version": 0, "fields": c["types"][0]["fields"]}); c["edge_types"][2]["source_type_constraints"] = ["core.note", "core.note.memo"]' \
   > "${work}/shapes/marfa/core/marfa-core/src/builtin_catalog.json"
 sync shapes
 check "a default of both copies and a subtype with no field to add: the script succeeds" 0 "${status}"
 check "a default of both copies names the fields that do not keep both, as values" 1 \
   "$(grep -cF '| [`merge_policy`](/catalog/your-own-types#merge-policy) | `last_writer_wins` for `title` and `language`; `keep_both_copies` for every other field |' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
+check "an edge type that constrains its source adds a Source types column, and several types are joined with or" \
+  "$(printf '%s\n%s\n%s\n%s\n%s' '| Edge type       | Reverse name | Cardinality    | On delete | Source types                    | Target types                       |' '| --------------- | ------------ | -------------- | --------- | ------------------------------- | ---------------------------------- |' '| `in-collection` | None         | `many-to-many` | `orphan`  | Any type                        | Any type with the role `container` |' '| `parent-of`     | `child-of`   | `one-to-many`  | `cascade` | Any type                        | Any type                           |' '| `in-folder`     | None         | `many-to-many` | `orphan`  | `core.note` or `core.note.memo` | `system.folder`                    |')" \
+  "$(cat "${work}/shapes/docs/src/generated/catalog/edge-types.md")"
 check "a subtype with nothing to add is a heading and its description" \
   "$(printf '### core.note.bare [#core-note-bare]\n\nA note.')" "$(sed -n '/^### core.note.bare \[#core-note-bare\]$/,$p' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
 

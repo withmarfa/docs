@@ -45,7 +45,7 @@ function isWebhookPage(node: PageTree.Node): boolean {
 
 // A folder of operations generated for one tag. The Reference tab may hold
 // other folders, which keep their place and their pages' order.
-function isTagFolder(node: PageTree.Node): node is PageTree.Folder {
+export function isTagFolder(node: PageTree.Node): node is PageTree.Folder {
   return (
     node.type === 'folder' &&
     node.children.some((child) => child.type === 'page' && child.url.startsWith('/api-reference/'))

@@ -4,7 +4,7 @@
 | ------ | ------------------- | -------- | ---------------------------------------------------------------------- |
 | `body` | `string`            | Yes      | The message text                                                       |
 | `from` | `string`            | Yes      | Sender identifier: format-agnostic (phone number, email, handle, etc.) |
-| `to`   | `array` of `string` |          | Recipient identifiers: same format-agnostic shape as from              |
+| `to`   | `array` of `string` | No       | Recipient identifiers: same format-agnostic shape as from              |
 
 ## Settings
 

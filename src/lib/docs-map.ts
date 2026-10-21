@@ -1,5 +1,5 @@
 import type * as PageTree from 'fumadocs-core/page-tree';
-import { regroupApiReference } from '@/lib/api-reference-tree';
+import { isTagFolder, regroupApiReference } from '@/lib/api-reference-tree';
 import { source } from '@/lib/source';
 
 /**
@@ -62,7 +62,8 @@ function buildIndex(header: string[], link: (url: string, page: Page | undefined
   };
 
   // Pages under a heading. A folder with a landing page is that page with the
-  // folder's pages nested under it.
+  // folder's pages nested under it, and a folder without one is a label with its
+  // pages nested under it.
   const walk = (nodes: PageTree.Node[], out: string[], indent = '') => {
     for (const node of nodes) {
       if (node.type === 'page') out.push(indent + pageLine(node));
@@ -71,7 +72,8 @@ function buildIndex(header: string[], link: (url: string, page: Page | undefined
           out.push(indent + pageLine(node.index));
           walk(node.children, out, `${indent}  `);
         } else {
-          walk(node.children, out, indent);
+          out.push(`${indent}- ${text(node.name)}`);
+          walk(node.children, out, `${indent}  `);
         }
       }
     }
@@ -91,10 +93,10 @@ function buildIndex(header: string[], link: (url: string, page: Page | undefined
       if (node.type === 'separator') {
         flush();
         if (node.name) lines.push(`### ${text(node.name)}`, '');
-      } else if (node.type === 'folder' && !node.index) {
+      } else if (isTagFolder(node)) {
         flush();
         lines.push(`### ${text(node.name)}`, '');
-        walk([node], group);
+        walk(node.children, group);
         flush();
       } else {
         walk([node], group);

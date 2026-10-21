@@ -32,11 +32,11 @@ describe('bin cascade figure', () => {
 
   // `edges/types-shipped-cascade`: parent-of cascades and the other nine shipped types orphan.
   it('draws the on-delete behavior the synced edge type table gives each edge type', () => {
-    const table = readFileSync(new URL('../../generated/edge-types.md', import.meta.url), 'utf8');
+    const table = readFileSync(new URL('../../generated/catalog/edge-types.md', import.meta.url), 'utf8');
     for (const edge of edges) {
       const row = table.split('\n').find((line) => line.startsWith(`| \`${edge.type}\``));
       expect(row, edge.type).toBeDefined();
-      expect(row!.split('|').map((cell) => cell.trim())).toContain(edge.onDelete);
+      expect(row!.split('|').map((cell) => cell.trim())).toContain(`\`${edge.onDelete}\``);
     }
   });
 });
