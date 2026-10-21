@@ -525,7 +525,18 @@ describe('the Field kinds page', () => {
 
 // ── Links ────────────────────────────────────────────────────────────────
 
-const RULE_LINK = /github\.com\/withmarfa\/marfa\/blob\/main\/conformance\/spec\/([a-z-]+)\.md#([a-z0-9-]+)/g;
+// A link to a contract chapter, or to one rule in it.
+const RULE_LINK = /github\.com\/withmarfa\/marfa\/blob\/main\/conformance\/spec\/([a-z-]+)\.md(?:#([a-z0-9-]+))?/g;
+
+// The pages that set out rules name the chapters behind them in a footer, in place of a link on each rule.
+describe('the rule pages', () => {
+  it.each(['your-own-types', 'field-kinds'])('%s ends with a footer naming the contract chapters behind its rules', (name) => {
+    const text = PAGES.find((candidate) => candidate.slug === name)!.text;
+    const footer = text.trimEnd().split('\n').at(-1)!;
+    expect(footer).toMatch(/^The rules behind this page are in /);
+    expect([...footer.matchAll(RULE_LINK)].length).toBeGreaterThan(0);
+  });
+});
 
 describe('the links', () => {
   it('point at rules the contract holds', () => {
@@ -536,11 +547,11 @@ describe('the links', () => {
     const missing: string[] = [];
     for (const { file, text } of PAGES) {
       for (const [, chapter, anchor] of text.matchAll(RULE_LINK)) {
-        found.push(`${chapter}#${anchor}`);
-        if (!anchors.get(chapter)?.has(anchor)) missing.push(`${file}: ${chapter}#${anchor}`);
+        found.push(anchor ? `${chapter}#${anchor}` : chapter);
+        if (!anchors.has(chapter) || (anchor && !anchors.get(chapter)?.has(anchor))) missing.push(`${file}: ${chapter}${anchor ? `#${anchor}` : ''}`);
       }
     }
-    expect(found.length).toBeGreaterThan(0);
+    expect(found.length).toBeGreaterThan(10);
     expect(missing).toEqual([]);
   });
 
