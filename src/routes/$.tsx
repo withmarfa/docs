@@ -9,12 +9,12 @@ import {
   DocsDescription,
   DocsPage,
   DocsTitle,
+  PageFooter,
 } from 'fumadocs-ui/layouts/notebook/page';
 import { baseOptions } from '@/lib/layout.shared';
 import { appName, gitConfig } from '@/lib/shared';
 import { DocsHeader } from '@/components/docs-header';
 import { PageActions } from '@/components/page-actions';
-import { PageFooter } from '@/components/page-footer';
 import { SidebarFooter } from '@/components/release-label';
 import {
   useFumadocsLoader,
@@ -130,7 +130,7 @@ const clientLoader = browserCollections.docs.createClientLoader({
           enabled: toc.length > 1,
           component: <PageTableOfContentsPopover />,
         }}
-        footer={{ component: <PageFooter className="mt-14" /> }}
+        footer={{ component: <PageFooter className="mt-12" /> }}
       >
         {/* Title and the Copy button share the top row; the description spans the
             full content width on its own line below, like a lead paragraph. */}
@@ -201,7 +201,7 @@ function OpenAPIView({
         // centred body and extends into this reserved space.
         tableOfContent={{ enabled: true }}
         toc={[]}
-        footer={{ component: <PageFooter className="mt-14" /> }}
+        footer={{ component: <PageFooter className="mt-12" /> }}
       >
         {/* The breadcrumb, title, body, and footer are each centred at 680px (in
             app.css) so they sit screen-centred like a narrative page; the code

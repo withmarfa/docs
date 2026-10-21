@@ -1,25 +1,18 @@
-import { CircleCheck, CircleX, Info, TriangleAlert } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '../lib/cn';
 
-// Fumadocs' Callout with the same props, drawn as the console draws a notice:
-// a filled panel with no border or shadow, the type carried by the icon's
-// color alone.
+// Fumadocs' Callout with the same props, drawn as a faint wash of its type's
+// color with no border, shadow or icon: the tint says what kind of note it is,
+// and the title says the rest. `icon` is accepted for compatibility and not
+// drawn.
 
 type CalloutType = 'info' | 'warn' | 'warning' | 'error' | 'success' | 'tip';
 
-const ICONS = {
-  info: Info,
-  warning: TriangleAlert,
-  error: CircleX,
-  success: CircleCheck,
-};
-
-const COLORS = {
-  info: 'text-fd-info',
-  warning: 'text-fd-warning',
-  error: 'text-fd-error',
-  success: 'text-fd-success',
+const TINTS = {
+  info: 'bg-fd-info/8',
+  warning: 'bg-fd-warning/12',
+  error: 'bg-fd-error/8',
+  success: 'bg-fd-success/8',
 };
 
 function resolve(type: CalloutType) {
@@ -31,7 +24,7 @@ function resolve(type: CalloutType) {
 export function Callout({
   type = 'info',
   title,
-  icon,
+  icon: _icon,
   children,
   className,
   ...props
@@ -40,26 +33,17 @@ export function Callout({
   title?: ReactNode;
   icon?: ReactNode;
 }) {
-  const kind = resolve(type);
-  const Icon = ICONS[kind];
-
   return (
     <div
       {...props}
       className={cn(
-        'my-6 flex gap-3 rounded-xl bg-fd-muted px-4 py-3.5 text-sm leading-relaxed',
+        'my-6 flex flex-col gap-1 rounded-xl px-4 py-3.5 text-sm leading-relaxed',
+        TINTS[resolve(type)],
         className,
       )}
     >
-      <span className={cn('mt-0.5 shrink-0 [&_svg]:size-4', COLORS[kind])} aria-hidden>
-        {icon ?? <Icon strokeWidth={2} />}
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {title ? <p className="my-0! font-medium text-fd-foreground">{title}</p> : null}
-        <div className="prose-no-margin text-fd-muted-foreground">
-          {children}
-        </div>
-      </div>
+      {title ? <p className="my-0! font-medium text-fd-foreground">{title}</p> : null}
+      <div className="prose-no-margin text-fd-foreground/75">{children}</div>
     </div>
   );
 }

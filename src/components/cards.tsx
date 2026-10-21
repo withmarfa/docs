@@ -1,5 +1,4 @@
 import Link from 'fumadocs-core/link';
-import { ArrowRight } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '../lib/cn';
 
@@ -30,15 +29,7 @@ export function Card({ title, description, icon, href, children, className, ...p
       {icon ? (
         <div className="mb-1 w-fit text-fd-muted-foreground [&_svg]:size-4">{icon}</div>
       ) : null}
-      <h3 className="flex items-center justify-between gap-2 text-[0.9375rem] font-medium leading-snug text-fd-foreground">
-        {title}
-        {href ? (
-          <ArrowRight
-            aria-hidden
-            className="size-4 shrink-0 -translate-x-1 text-fd-muted-foreground opacity-0 transition-[opacity,transform] duration-150 group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:opacity-100"
-          />
-        ) : null}
-      </h3>
+      <h3 className="text-[0.9375rem] font-medium leading-snug text-fd-foreground">{title}</h3>
       {description || children ? (
         <div className="text-sm leading-relaxed text-fd-muted-foreground">
           {description}
@@ -49,7 +40,7 @@ export function Card({ title, description, icon, href, children, className, ...p
   );
 
   const shared = cn(
-    'group flex flex-col gap-1 rounded-xl border bg-fd-card px-4 py-3.5 @max-lg:col-span-full',
+    'flex flex-col gap-1 rounded-xl border bg-fd-card px-4 py-3.5 @max-lg:col-span-full',
     className,
   );
 
@@ -62,7 +53,7 @@ export function Card({ title, description, icon, href, children, className, ...p
       {...props}
       className={cn(
         shared,
-        'transition-colors duration-150 hover:bg-fd-accent/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fd-ring',
+        'transition-colors duration-150 hover:bg-fd-accent/50',
       )}
     >
       {body}
