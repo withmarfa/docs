@@ -3,11 +3,11 @@ title: List, filter and search
 description: Read the items you need from an instance, a page at a time, narrowed by type, tags and properties, or found by the words they hold.
 ---
 
-Most of what an app reads, it reads as a listing: the notes tagged `reading`, the tasks due this week, everything changed since it last looked. Each operation reads only the items your key or token can read, and [List items](/api-reference/items/listItems) in the API reference describes every parameter. The TypeScript examples use a client made as [the TypeScript SDK](/typescript-sdk) shows.
+Most of what an app reads, it reads as a listing: the notes tagged `reading`, the tasks due this week, everything changed since it last looked. Each operation reads only the items your key or token can read. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows.
 
 ## List a page at a time
 
-[List items](/api-reference/items/listItems) answers one page. Name the type, and narrow it further as the next section shows:
+[List items](/api-reference/items/listItems) answers one page and describes every parameter. Name the type, and narrow it as the next section shows:
 
 ```bash tab="CLI" tab-group="client"
 marfa items list --type core.note --tag reading --limit 20
@@ -73,9 +73,10 @@ marfa items list --type core.task \
   --filter 'properties.priority eq "high" OR properties.priority eq "urgent"'
 ```
 
-```http tab="HTTP"
-GET /items?type=core.task&filter=properties.priority%20eq%20%22high%22%20OR%20properties.priority%20eq%20%22urgent%22
-Authorization: Bearer <key>
+```bash tab="HTTP"
+curl -G "$MARFA_API_URL/items" -H "Authorization: Bearer $MARFA_API_KEY" \
+  --data-urlencode "type=core.task" \
+  --data-urlencode 'filter=properties.priority eq "high" OR properties.priority eq "urgent"'
 ```
 
 ```ts tab="TypeScript"
@@ -89,17 +90,19 @@ const { data } = await marfa.GET("/items", {
 });
 ```
 
-Strings go in double quotes, and the whole filter is URL-encoded in a query string. A filter can test tags and an item's own fields too, with operators such as `eq`, `neq`, `gt`, `lt`, `contains`, `starts_with`, `exists` and `not_exists`.
+Strings go in double quotes, and a query string needs the filter URL-encoded, as `--data-urlencode` does. A filter can test tags and an item's own fields too, with operators such as `eq`, `neq`, `gt`, `lt`, `contains`, `starts_with`, `exists` and `not_exists`.
 
-To find items where a property is missing or `null`, use **`not_exists`**: Marfa refuses a comparison with `null`, because it would never match. The [search and filters](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md) chapter of the contract has the whole grammar.
+To find items where a property is missing or `null`, use **`not_exists`**: Marfa refuses a comparison with `null`. The [search and filters](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md) chapter of the contract has the whole grammar.
 
 ## Sort
 
-A listing comes **newest first** by default. `sort` orders it by `created_at`, `updated_at`, `occurred_at` or a property, and `direction` takes `asc` or `desc`. This lists tasks due before October 21, soonest first:
+A listing comes **newest first**. `sort` orders it by `created_at`, `updated_at`, `occurred_at` or a property, and `direction` takes `asc` or `desc`. This lists tasks due before October 21, soonest first:
 
-```http tab="HTTP" tab-group="client"
-GET /items?type=core.task&filter=properties.due_at%20lt%20%222026-10-21T00%3A00%3A00Z%22&sort=properties.due_at&direction=asc
-Authorization: Bearer <key>
+```bash tab="HTTP" tab-group="client"
+curl -G "$MARFA_API_URL/items" -H "Authorization: Bearer $MARFA_API_KEY" \
+  --data-urlencode "type=core.task" \
+  --data-urlencode 'filter=properties.due_at lt "2026-10-21T00:00:00Z"' \
+  --data-urlencode "sort=properties.due_at" --data-urlencode "direction=asc"
 ```
 
 ```ts tab="TypeScript"
@@ -136,7 +139,7 @@ const { data } = await marfa.GET("/items", {
 });
 ```
 
-The bound includes items changed at that instant, so **skip the ones you already hold by `id`**: items written together share an `updated_at`. This listing is always ordered oldest change first, and Marfa refuses it with any other `sort` or `direction`. A listing **can't report a purged item**; to hear of every change, purges included, follow the event stream as [Keep a copy in sync](/guides/keep-in-sync) shows.
+The bound includes items changed at that instant, so **skip the ones you already hold by `id`**: items written together share an `updated_at`. This listing is always oldest change first, and any other `sort` or `direction` is refused. A listing **can't report a purged item**: to hear of every change, purges included, follow the event stream as [Keep a copy in sync](/guides/keep-in-sync) shows.
 
 ## Search
 
@@ -168,7 +171,7 @@ Each entry in `data` holds the `item`, its `metadata`, a `relevance_score`, and 
 
 **Every word** in `q` must match, in any order, in the item's [searched fields](/catalog/items#searched-fields) or its tags. Words match by their stem, so `tides` finds `tide`, and the last word matches as the start of a word, so a search as the person types finds results.
 
-Put a query in double quotes to match it as a phrase. A search takes most of a listing's parameters too, such as `type`, `tags` and `filter`.
+Put a query in double quotes to match a phrase. A search takes a listing's parameters too, such as `type`, `tags` and `filter`.
 
 ## Count items
 
@@ -193,7 +196,7 @@ const { data } = await marfa.GET("/items/stats", {
 { "core.event": 2, "core.note": 10, "core.task": 5 }
 ```
 
-Over HTTP and in the TypeScript SDK, a count takes the same narrowing parameters as a listing, such as `tags=reading`. Unlike a listing, **it includes every state unless you name one**, the bin included.
+Over HTTP and in the TypeScript SDK, a count takes a listing's narrowing parameters, such as `tags=reading`. Unlike a listing, **it includes every state unless you name one**, the bin included.
 
 ## Read a calendar
 
@@ -214,7 +217,7 @@ const { data } = await marfa.GET("/occurrences", {
 });
 ```
 
-Each entry has a `starts_at`, an `ends_at` where the event has one, and the `item`. An occurrence of a recurring event also carries a `series_id`, the `id` of the one `core.event` whose `recurrence` rule made it:
+Each entry has a `starts_at`, an `ends_at` where the event has one, and the `item`. An occurrence of a recurring event also carries a `series_id`, the `id` of the `core.event` whose `recurrence` rule made it:
 
 ```json
 {
@@ -224,14 +227,14 @@ Each entry has a `starts_at`, an `ends_at` where the event has one, and the `ite
 }
 ```
 
-The whole window comes in one page, in order of `starts_at`. A window spans at most **400 days**, and Marfa refuses one that holds too many occurrences rather than trim it, so narrow the window. If the answer carries `expansion_incomplete: true`, a series couldn't be unfolded and **the calendar is missing something**: `series_errors` names the series.
+The whole window comes in one page, in order of `starts_at`. A window spans at most **400 days**, and Marfa refuses one with too many occurrences rather than trim it, so narrow the window. If the answer carries `expansion_incomplete: true`, **the calendar is missing something**: `series_errors` names the series that couldn't be unfolded.
 
 ## When a query is refused
 
 Marfa refuses a query it can't answer exactly, rather than answer a different one:
 
 - **A parameter the operation doesn't take**, such as `tag` for `tags`, answers `400 validation_error` and lists it in `details.unknown_parameters`. Marfa ignores any parameter that starts with `_`, so use that prefix for your own.
-- **A `type`, `tags`, `source` or `filter` sent empty** answers `400 validation_error`, so a query built from a variable you never set doesn't read everything.
+- **A `type`, `tags`, `source` or `filter` sent empty** answers `400 validation_error`, so an unset variable doesn't read everything.
 - **A `type` nothing registers** answers `400 unknown_type`.
 - **A `type` you can't read** answers `403 type_not_permitted`.
 
