@@ -3,9 +3,9 @@
 | Field      | Kind               | Required | Description          |
 | ---------- | ------------------ | -------- | -------------------- |
 | `body`     | `string`           | Yes      | The note text        |
-| `title`    | `string`           |          | Heading or title     |
-| `language` | `string` (`bcp47`) |          | BCP 47 language code |
-| `notes`    | `string`           |          | Personal annotations |
+| `title`    | `string`           | No       | Heading or title     |
+| `language` | `string` (`bcp47`) | No       | BCP 47 language code |
+| `notes`    | `string`           | No       | Personal annotations |
 
 ## Settings
 

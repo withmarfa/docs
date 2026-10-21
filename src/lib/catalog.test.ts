@@ -34,8 +34,18 @@ interface CatalogType {
   fields: Record<string, Field>;
 }
 
+interface CatalogEdgeType {
+  id: string;
+  cardinality: string;
+  cascade_on_delete: string;
+  reverse_name?: string;
+  source_type_constraints: string[];
+  target_type_constraints: string[];
+}
+
 interface Catalog {
   types: CatalogType[];
+  edge_types: CatalogEdgeType[];
   field_types: string[];
 }
 
@@ -205,10 +215,12 @@ function plain(text: string): string {
   return parts.join(': ');
 }
 
-const PAGES = readdirSync(CATALOG_PAGES)
+// The core and system types sit in folder groups, which add nothing to a page's address.
+const PAGES = (readdirSync(CATALOG_PAGES, { recursive: true }) as string[])
   .filter((file) => file.endsWith('.mdx'))
   .map((file) => ({
-    slug: file.replace(/\.mdx$/, ''),
+    slug: path.basename(file, '.mdx'),
+    group: path.dirname(file),
     file: `content/docs/catalog/${file}`,
     text: readFileSync(path.join(CATALOG_PAGES, file), 'utf8'),
   }));
@@ -252,12 +264,36 @@ describe('the tab', () => {
     for (const { file, text } of PAGES) expect(String(frontmatter(text).description), file).not.toContain('`');
   });
 
-  it('lists exactly those pages in its meta.json', () => {
-    const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, 'meta.json'), 'utf8'));
+  it('lists exactly those pages in its meta.json files', () => {
+    const readMeta = (dir: string) => JSON.parse(readFileSync(path.join(CATALOG_PAGES, dir, 'meta.json'), 'utf8'));
+    const meta = readMeta('.');
     expect(meta.root).toBe(true);
     const listed = meta.pages.filter((entry: string) => !entry.startsWith('---'));
-    expect(listed.sort()).toEqual(PAGES.map((page) => page.slug).sort());
-    expect(listed.length).toBe(new Set(listed).size);
+    const groups = listed.filter((entry: string) => entry.startsWith('('));
+    const direct = listed.filter((entry: string) => !entry.startsWith('('));
+    expect(groups).toEqual(['(core)', '(system)']);
+    const inGroup = groups.flatMap((group: string) => readMeta(group).pages as string[]);
+    const all = [...direct, ...inGroup];
+    expect(all.sort()).toEqual(PAGES.map((page) => page.slug).sort());
+    expect(all.length).toBe(new Set(all).size);
+  });
+
+  it('puts each family of types in a closed folder named for it, with a page for each of its types', () => {
+    const expected = [
+      ['(core)', 'Core types', CORE_SLUGS],
+      ['(system)', 'System types', SYSTEM_SLUGS],
+    ] as const;
+    for (const [dir, title, slugs] of expected) {
+      const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, dir, 'meta.json'), 'utf8'));
+      expect(meta.title).toBe(title);
+      expect(meta.defaultOpen).toBe(false);
+      expect([...meta.pages].sort()).toEqual([...slugs].sort());
+      expect(PAGES.filter((page) => page.group === dir).map((page) => page.slug).sort()).toEqual([...slugs].sort());
+    }
+  });
+
+  it('keeps the other pages directly in the tab', () => {
+    expect(PAGES.filter((page) => page.group === '.').map((page) => page.slug).sort()).toEqual([...OTHER_PAGES].sort());
   });
 
   it('shows each generated file on exactly one page', () => {
@@ -320,6 +356,98 @@ describe('a system type page', () => {
       });
     });
   }
+});
+
+describe('the generated type tables', () => {
+  const files = readdirSync(GENERATED).filter((file) => /^(core|system)\.[a-z]+\.md$/.test(file));
+
+  /** The rows of each table that has a Required column, as cell lists. */
+  function requiredRows(text: string): string[][] {
+    const rows: string[][] = [];
+    let required = -1;
+    for (const line of text.split('\n')) {
+      if (!line.startsWith('|')) {
+        required = -1;
+        continue;
+      }
+      const cells = line.split(/(?<!\\)\|/).slice(1, -1).map((cell) => cell.trim());
+      if (cells[0] === 'Field') required = cells.indexOf('Required');
+      else if (required >= 0 && !/^-+$/.test(cells[0])) rows.push(cells);
+    }
+    return rows;
+  }
+
+  it('say Yes or No in the Required column, never leave it empty', () => {
+    expect(files.length).toBe(TOP_LEVEL.length);
+    let seen = 0;
+    for (const file of files) {
+      for (const cells of requiredRows(readFileSync(path.join(GENERATED, file), 'utf8'))) {
+        seen += 1;
+        expect(['Yes', 'No'], `${file}: ${cells[0]}`).toContain(cells[2]);
+      }
+    }
+    expect(seen).toBeGreaterThan(30);
+  });
+
+  it('say Yes for the fields a type requires and No for the others', () => {
+    for (const type of TOP_LEVEL) {
+      const text = readFileSync(path.join(GENERATED, `${type.id}.md`), 'utf8');
+      const own = text.slice(0, text.includes('## Subtypes') ? text.indexOf('## Subtypes') : undefined);
+      const shown = Object.fromEntries(requiredRows(own).map((cells) => [cells[0].replace(/`/g, ''), cells[2]]));
+      expect(shown, type.id).toEqual(
+        Object.fromEntries(Object.entries(type.fields).map(([name, field]) => [name, field.required ? 'Yes' : 'No'])),
+      );
+    }
+  });
+});
+
+describe('the edge type table', () => {
+  const table = readFileSync(path.join(GENERATED, 'edge-types.md'), 'utf8');
+  const lines = table.trimEnd().split('\n');
+  const cells = (line: string) => line.split('|').slice(1, -1).map((cell) => cell.trim());
+  const header = cells(lines[0]);
+  const rows = lines.slice(2).map(cells);
+  const edgesPage = PAGES.find((page) => page.slug === 'edges')!.text;
+
+  /** The contract's wording for an end of an edge type. */
+  function wording(constraints: string[]): string {
+    if (constraints[0] === '*') return 'Any type';
+    return constraints
+      .map((value) => (value.startsWith('role:') ? `Any type with the role \`${value.slice(5)}\`` : `\`${value}\``))
+      .join(' or ');
+  }
+
+  it('has a row for each edge type, in the catalog\'s order, with the contract\'s wording', () => {
+    const constrained = catalog.edge_types.some((edge) => edge.source_type_constraints[0] !== '*');
+    expect(header).toEqual([
+      'Edge type',
+      'Reverse name',
+      'Cardinality',
+      'On delete',
+      ...(constrained ? ['Source types'] : []),
+      'Target types',
+    ]);
+    expect(rows).toEqual(
+      catalog.edge_types.map((edge) => [
+        `\`${edge.id}\``,
+        edge.reverse_name ? `\`${edge.reverse_name}\`` : 'None',
+        `\`${edge.cardinality}\``,
+        `\`${edge.cascade_on_delete}\``,
+        ...(constrained ? [wording(edge.source_type_constraints)] : []),
+        wording(edge.target_type_constraints),
+      ]),
+    );
+  });
+
+  it('writes a cardinality as code with plain hyphens, so one line holds it and the Markdown copy matches the contract and the API', () => {
+    for (const row of rows) expect(row[2]).toMatch(/^`(one|many)-to-(one|many)`$/);
+  });
+
+  it('is included by the Edges page, which says that any type is a source exactly when the table has no column for it', () => {
+    expect(edgesPage).toContain('<include cwd>src/generated/catalog/edge-types.md</include>');
+    const sentence = 'Any type can be the source of every edge type.';
+    expect(edgesPage.includes(sentence)).toBe(!header.includes('Source types'));
+  });
 });
 
 describe('the example check', () => {
@@ -465,7 +593,9 @@ describe('the links', () => {
     for (const { file, text } of sources) {
       for (const [, target, id] of text.matchAll(/\]\((\/[a-z0-9/-]+)#([a-z0-9-]+)\)/g)) {
         if (!file.includes('/catalog/') && !target.startsWith('/catalog')) continue;
-        const page = `content/docs${target.startsWith('/catalog') || target.startsWith('/guides') ? target : `/(overview)${target}`}.mdx`;
+        const page = target.startsWith('/catalog')
+          ? PAGES.find((candidate) => candidate.slug === (target.split('/')[2] ?? 'index'))?.file ?? target
+          : `content/docs${target.startsWith('/guides') ? target : `/(overview)${target}`}.mdx`;
         const ids = headingIds(page);
         checked += 1;
         if (!ids?.has(id)) broken.push(`${file}: ${target}#${id}`);

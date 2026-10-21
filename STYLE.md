@@ -28,7 +28,7 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 | Overview | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation, then reference |
 | Overview | Using these docs: the Docs MCP server and Docs as Markdown | How-to |
 | Guides | Tutorials, Build apps and agents, Build connectors, Run Marfa (ending with Troubleshooting) | Tutorial, how-to |
-| Catalog | The Catalog and Items pages, then Core types and System types (one page each), Your own types (Type rules and Field kinds), and Edges, events and permissions | Reference |
+| Catalog | The Catalog and Items pages, then Types (the Core types and System types folders with one page per type, then Type rules and Field kinds), and Edges, events and permissions | Reference |
 | Reference | SDKs and CLI: one page each, and the file the CLI keeps for other programs | How-to and reference for each client, then reference |
 | Reference | HTTP API: the overview, Errors, and the operations generated from the API description | Reference |
 | Reference | Resources: the Changelog and the contract | Reference |
