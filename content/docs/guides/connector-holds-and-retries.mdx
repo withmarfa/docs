@@ -3,9 +3,9 @@ title: Holds and retries
 description: Keep one process of a connector writing at a time, keep its place between runs, and send a failed request again without harm.
 ---
 
-A connector can be started twice by mistake, lose the network in the middle of a write, or crash between two requests. **The connector kit does all of this for you.** The operations below are for a connector built directly on the API, and show what the kit relies on.
+A connector can be started twice by mistake, lose the network in the middle of a write, or crash between two requests. The connector kit handles all three for you. The operations below do the same for a connector built directly on the API.
 
-The examples follow a connector for a task manager, and every request is made with the connector's own key. The TypeScript examples use the [TypeScript SDK](/typescript-sdk), made with that key, as `marfa`, with the registration's ID in `connectorId` and the process's name in `processName`.
+The examples follow a connector for a task manager and use its own key. In the TypeScript examples, `marfa` is a [TypeScript SDK](/typescript-sdk) client made with that key, `connectorId` is the registration's ID and `processName` is the process's name.
 
 ## Take the hold
 
@@ -32,9 +32,9 @@ const { data, error } = await marfa.POST("/connectors/{id}/hold", {
 { "expires_at": "2026-10-09T23:54:09.991Z", "ttl_ms": 180000, "renewed": false }
 ```
 
-**Make the name unique to the process**, such as a UUID made when it starts. Two processes that share a name look like one process to Marfa. The hold lasts `ttl_ms` from each take or renewal, three minutes unless the instance sets another window.
+Make the name **unique to the process**, such as a UUID made when it starts. Two processes that share a name look like one process to Marfa. The hold lasts `ttl_ms` from each take or renewal, three minutes unless the instance sets another window.
 
-If another process holds a live hold, Marfa answers `409 connector_held` and leaves that hold alone. `details.expires_at` says when it ends:
+If another process holds a live hold, Marfa refuses the take and leaves that hold alone. `details.expires_at` says when it ends:
 
 ```json
 {
@@ -54,9 +54,9 @@ Renew the hold by sending the same request, under the same name, **well before `
 
 `renewed` tells you whether anything could have happened in between. `true` means your hold was live when the request arrived, so no other process wrote. `false` is expected on a first take.
 
-But `false` when you believed you held the hold means it lapsed, and another process may have written since: **read the state document and the agreements again** before you write anything.
+But `false` when you believed you held the hold means it lapsed, and another process may have written since: read the state document and the agreements **again** before you write anything.
 
-If a renewal doesn't land, because the network is down or Marfa is busy, you can't know whether the hold is still yours once `expires_at` passes. **Stop writing until a renewal succeeds.** Marfa refuses a state or agreement write from a process without a live hold, but it can't stop that process changing the vendor, so stop it yourself.
+If a renewal doesn't land, because the network is down or Marfa is busy, you can't know whether the hold is still yours once `expires_at` passes. **Stop writing** until a renewal succeeds. Marfa can't stop a process without a live hold from changing the vendor, so stop it yourself.
 
 When the process ends cleanly, [release the hold](/api-reference/connectors/releaseConnectorHold), so that the next process can start at once:
 
@@ -96,7 +96,7 @@ await marfa.PUT("/connectors/{id}/state", {
 { "state": { "sync_token": "abc123" }, "problems": {}, "updated_at": "2026-10-09T23:51:10.032Z" }
 ```
 
-**The request replaces the whole document**; it doesn't merge into it. To change one value, read the document, change the value, and send it all. A process without a live hold is refused `409 connector_held`, and the document stays as it was.
+The request **replaces the whole document**; it doesn't merge into it. To change one value, read the document, change the value, and send it all.
 
 The same state write can carry a `problems` map: opaque keys with messages about work that remains unresolved. It replaces that map together with the state, under the live hold.
 
@@ -104,7 +104,7 @@ Omit `problems` to keep the existing messages, or send `problems: {}` to clear t
 
 Problems are visible in the connector's registration, but the private state document is not. A heartbeat or a succeeded run **never clears them**, so explicitly remove a problem when it is resolved. They survive a registration change, a key replacement and a restart.
 
-**Save the state last.** Write the new place only after everything it covers has landed in Marfa.
+Save the state **last**. Write the new place only after everything it covers has landed in Marfa.
 
 A run that stops before the save leaves the old place, so the next run reads that part of the vendor again and writes it again, which the natural key makes harmless. A place saved first would skip what the run never wrote.
 
@@ -157,7 +157,7 @@ await marfa.POST("/connectors/{id}/agreements", {
 
 Each entry of `set` replaces the item's agreement, and `record` holds whatever you need to tell later what the two sides agreed.
 
-An ID is `skipped`, and **the rest of the request goes through**, when no item has it or its type is one the key can't read. Here the item to clear had been purged, which removed its agreement already. A trashed item keeps its agreement.
+An ID is `skipped`, and the rest of the request **goes through**, when no item has it or its type is one the key can't read. Here the item to clear had been purged, which removed its agreement already. A trashed item keeps its agreement.
 
 ## Send a request again
 
@@ -165,7 +165,7 @@ Each failure has a safe response:
 
 | Answer | What it means | What to do |
 | --- | --- | --- |
-| `409 connector_held` | The process holds no live hold. Nothing was written. | Take the hold. If `renewed` is `false`, read the state and agreements again before you write. |
+| `409 connector_held` | Another process holds a live hold, or this process holds none, so a take or a write was refused. Nothing was written. | Take the hold, after `details.expires_at` if the answer has one. If `renewed` is `false`, read the state and agreements again before you write. |
 | `429 rate_limited` | The key sent too many requests. | Wait the seconds `Retry-After` names, then send the same request. |
 | `503 write_contention` | The database was busy. Nothing changed. | Send the same request again. |
 | `500 internal_error` | The request may or may not have completed. | Read what you changed before you send a write again. |
@@ -192,7 +192,7 @@ await marfa.POST("/items", {
 });
 ```
 
-**A write to the vendor is yours to make safe.** Send the vendor an idempotency key, if it takes one, made from something that doesn't change between attempts, such as the item's ID. Record the vendor's ID for a record you made as soon as you have it, in the type's `link_field`, so a retry updates that record instead of making another.
+A write to the vendor is **yours to make safe**. Send the vendor an idempotency key, if it takes one, made from something that doesn't change between attempts, such as the item's ID. Record the vendor's ID for a record you made as soon as you have it, in the type's `link_field`, so a retry updates that record instead of making another.
 
 [Write safely](/guides/write-safely) covers versions and idempotency keys in full.
 
@@ -202,7 +202,7 @@ This order survives a stop at any step:
 
 1. Take the hold, and renew it for as long as the run lasts.
 2. Read the state document and the agreements you need.
-3. Read the vendor, and write the items. The natural key makes a repeat harmless.
+3. Read the vendor, and write the items.
 4. Write the agreements for what you wrote or carried.
 5. Replace the state document with the new place.
 6. [Report the run](/api-reference/connectors/reportConnectorRun), then release the hold.
