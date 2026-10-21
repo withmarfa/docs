@@ -20,7 +20,7 @@ export const Route = createRootRoute({
       {
         name: 'description',
         content:
-          'A shared, typed data layer for your apps that you run yourself, and the pieces that work with it.',
+          'Marfa is a shared data layer for your apps, and you run it yourself. These docs cover it and the pieces that work with it.',
       },
     ],
     links: [
