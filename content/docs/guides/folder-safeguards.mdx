@@ -1,0 +1,92 @@
+---
+title: Folder safeguards
+description: What removes a file or an item in a folder, what a folder refuses to touch, and how to tell when a push has stopped.
+---
+
+A folder deletes in both directions: a file you remove can send its item to the bin, and an item that leaves the folder can remove its file. [Sync a folder](/guides/sync-a-folder) sets a folder up.
+
+## What removes a file or an item
+
+**A file you delete moves its item to the bin** after a five-second grace, so a save that replaces a file isn't taken for a delete. The item stays in the bin until you restore or purge it.
+
+**An item that leaves the folder takes its file with it.** When an item is moved to the bin or purged, or leaves the states the search holds, the next sync removes its file. A file you changed since Marfa wrote it stays ([`folders/departed-edited-file-kept`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersdeparted-edited-file-kept)). An item that only stops matching the search keeps its file, and edits to the file still reach it. `marfa folders unmatched` lists these files.
+
+**A file moved to another folder on the same Mac stays the same item.** The file carries its `marfa_id`, so the folder it left doesn't take the move for a delete ([`folders/moved-file-not-trashed`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersmoved-file-not-trashed)).
+
+## A large removal waits for you
+
+When many files go at once, such as when a directory inside the folder is moved away, **the folder doesn't move their items to the bin**. It pauses the removal and waits for you:
+
+```text
+0 created, 0 updated, 0 renamed, 4 unchanged, 12 missing, 0 deleted, 0 skipped
+a large removal waits: 12 delete(s) not sent; `folders confirm` sends them, `folders restore` writes the files back
+answered 0, held 0
+0 file(s) written
+```
+
+A removal pauses when it takes **more than 10 files and more than a quarter of the folder's files**. The `removal_threshold` setting changes both. The pause also holds the removal of files whose items left the folder elsewhere, such as notes another app moved to the bin.
+
+Cancel the removal to write the missing files back, or confirm it to move their items to the bin at the next sync:
+
+```bash tab="CLI" tab-group="client"
+marfa folders restore Notes
+marfa folders confirm Notes
+```
+
+```swift tab="Swift"
+let status = try await folders.status(of: notes)
+if status.paused.isPaused {
+    _ = try await folders.restoreRemoval(in: notes)   // or confirmRemoval(in:)
+}
+```
+
+`restore` counts only the files it wrote back. A file it couldn't write, such as one whose bytes it couldn't fetch, is listed with the reason. Its item stays, and every later pull tries again ([`folders/restore-not-written-listed`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersrestore-not-written-listed)).
+
+`marfa folders status Notes` shows where every file stands, and whether a removal waits, without asking the instance. `marfa folders health` takes the folder's ID and reads the server's latest report from each sign-in and local copy. A report's age says when it arrived, not whether that copy is reachable now.
+
+## A missing or unreadable directory
+
+**While the folder's directory is missing, such as on a disk that isn't connected, Marfa trashes none of its items** ([`folders/root-gone-no-delete`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersroot-gone-no-delete)). `marfa folders status`, `confirm` and `restore` say the directory can't be found.
+
+**A scan that can't read or identify an entry deletes nothing.** Marfa trashes no items for files it failed to see, and it holds deletions already waiting until a complete scan succeeds. Fix the directory or disk access and sync again.
+
+Each directory has its own working copy and queue, which the machine's folder registry lists. Adding a folder inside a registered folder, or around one, is refused.
+
+**A folder stays listed when another directory takes its place.** If a restore or a sync tool puts a different directory at the path, Marfa keeps the folder's entry and doesn't read the new directory as the folder. When the original directory returns, a watch of every folder carries on with it, and you don't add the folder again.
+
+## What a folder never takes in
+
+A folder never takes in a file whose name is one a secret goes by, **whatever its settings say**: `.env` and `.env.*`, `*.pem`, `*.key`, SSH keys such as `id_ed25519`, and credential files such as `.netrc` and `.npmrc`. It names each one it leaves out:
+
+```text
+server.pem: not taken, because its name is one a secret goes by
+```
+
+It also leaves out the files a Mac or an editor writes for itself, such as `.DS_Store` and `*.swp`, and takes a name that starts with a period only where an `include` pattern names it. **Symbolic links are neither admitted nor followed**, and a placement that would write through one is reported as `outside` without changing its target. The exact names are in [`folders/builtin-secret-names`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersbuiltin-secret-names), [`folders/builtin-machine-names`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersbuiltin-machine-names) and [`folders/builtin-temporary-names`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersbuiltin-temporary-names).
+
+## Know whether a push finished
+
+`marfa folders push` ends with an exit code, so a script need not read the report:
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | The push finished. |
+| `3` | A write is left unsent, or the catch-up with the instance failed. Try again. |
+| `5` | The server refused the credential. Use a valid key. |
+
+`marfa folders push --send-only` follows the same rule for a write left unsent and for a refused credential.
+
+**A push under a rate limit doesn't wait.** When the key is over its rate limit, the push leaves its writes queued, names how long the server asked for, and exits `3`:
+
+```text
+2 write(s) not delivered, waiting for the next drain
+the server asked for 60s before the next drain; push again after that to send the rest
+```
+
+Run the push again after that wait. A large first sync takes one push for each window. **A watch waits on its own** and then sends the rest.
+
+**Exit `0` doesn't mean the server took every edit.** When the server refuses an edit, the file keeps your change and the report flags it `refused` with the server's reason. Marfa doesn't send that change again until you replace it in the file ([`folders/refused-edit-no-repeat`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersrefused-edit-no-repeat)).
+
+The first line of a report counts a file whose write is sent but not yet answered as **waiting**, not unchanged, and adds `; 2 queued earlier and not delivered yet`. With `--json`, the count is `waiting` ([`folders/scan-waiting`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersscan-waiting)).
+
+The rules behind this page are in the [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapter of the contract.
