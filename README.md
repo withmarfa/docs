@@ -45,7 +45,7 @@ script passes the config its own build emitted, which is why it is the safe one.
 
 ## Local development
 
-Node 22.12 or later and pnpm.
+Node 22.22.2 or later (24.15 or later on Node 24) and pnpm.
 
 ```bash
 pnpm install
