@@ -3,7 +3,7 @@ title: Build an app with Swift
 description: Build an iOS and macOS app that lists your notes, keeps working without a connection, and stays in step with your instance.
 ---
 
-In this tutorial you build Reading List, a SwiftUI app for iPhone and Mac that lists the notes on your instance and lets you add and rename them. It keeps a working copy of your notes on the device, so it opens instantly and keeps working when the server can't be reached, and it sends what you changed when the server comes back. By the end you'll have seen each part of a [device](/devices) at work: the working copy, the queue of writes, the stream of changes, and the verdict the instance gives a write.
+In this tutorial you build Reading List, a SwiftUI app for iPhone and Mac that lists the notes on your instance and lets you add and rename them. It keeps a working copy of your notes on the device, so it opens instantly and keeps working when the server can't be reached. It sends what you changed when the server comes back. By the end you'll have seen each part of a [device](/devices) at work: the working copy, the queue of writes, the stream of changes, and the verdict the instance gives a write.
 
 You need the instance from the [Quickstart](/quickstart), running at `http://localhost:8600`, and the terminal where you set `MARFA_API_URL` and `MARFA_API_KEY`. You also need Xcode 27 on a Mac with Apple silicon.
 
@@ -23,7 +23,7 @@ marfa_k1_574dab5427c4fff7a7116a65f942c0c5603dd1f5dbbdf2d59cb4598f1c1ae8f9
 key 01a12326-1bd2-71b0-abb4-8ec9af723a95 (Reading List); the plaintext is shown once, keep it now
 ```
 
-Copy the key: **Marfa shows it only once**. `--type-permission core.note=write` lets the key read and write notes, and `--source` names the app as the writer of every note it creates. [Access](/access) explains what a key can hold.
+Copy the key: Marfa shows it **only once**. `--type-permission core.note=write` lets the key read and write notes, and `--source` names the app as the writer of every note it creates. [Access](/access) explains what a key can hold.
 
 </Step>
 <Step>
@@ -106,9 +106,9 @@ final class ReadingList {
 
 `connect(url:key:)` opens the working copy with `WorkingCopy.open(store:server:)`. The copy keeps its data in a SQLite file in the app's Application Support directory, and makes the file the first time. `Server(url:key:)` names the instance and the key the copy sends.
 
-**The copy holds the key in memory only**, so `signIn(address:key:)` keeps the key in the keychain with `Keychain.system`, and the address in `UserDefaults`. On the next launch, `resume()` reads both back and connects without asking. If the instance refuses the key later, `signIn` gives the open copy a new one with `useKey(_:)`.
+The copy holds the key **in memory only** and never writes it to its store. So `signIn(address:key:)` saves the key in the keychain with `Keychain.system`, and the address in `UserDefaults`. On the next launch, `resume()` reads both back and connects without asking. If the instance refuses the key later, `signIn` gives the open copy a new one with `useKey(_:)`.
 
-**The project doesn't build yet**: the next three steps add the functions `connect` calls. Add each inside the class, before its closing brace.
+The project **doesn't build yet**: the next three steps add the functions `connect` calls. Add each inside the class, before its closing brace.
 
 </Step>
 <Step>
@@ -147,7 +147,7 @@ A new working copy is empty. Add these two functions:
 
 After that, `catchUp()` **applies only what changed since**. Either way, it then sends anything the app queued.
 
-`refresh()` reads the notes, and the writes still in the queue, from the working copy. **It makes no request, so it works without a connection.**
+`refresh()` reads the notes, and the writes still in the queue, from the working copy. It makes **no request**, so it works without a connection.
 
 </Step>
 <Step>
@@ -218,13 +218,13 @@ Add the functions that write, and the one that sends the queue:
     }
 ```
 
-`items.create` and `items.update` **return at once**: the change shows in the working copy, and the write waits in the queue. An `Edit` carries the version of the note the app read, so the instance can tell whether someone else changed it since, and it changes only the title.
+`items.create` and `items.update` **return at once**: the change shows in the working copy, and the write waits in the queue. An `Edit` carries the version of the note the app read, so the instance can tell whether someone else changed it since. It changes only the title.
 
-If you add numeric properties, **a whole number Marfa would serve back with other digits throws `MarfaError.validation` with code `invalid_properties`**, before it queues the write. Send a value that must keep every digit as a string; `handle(_:)` shows the validation message.
+If you add numeric properties, a whole number Marfa would serve back with other digits throws `MarfaError.validation` with code `invalid_properties` before it queues the write. Send a value that must keep every digit as a string.
 
-`send()` drains the queue: it sends the writes in order and reports what the instance answered. If the server can't be reached, the report says so in `unavailable`, and **the writes stay queued for later**.
+`send()` drains the queue: it sends the writes in order and reports what the instance answered. If the server can't be reached, the report says so in `unavailable`, and **the writes stay queued**.
 
-Each answered write has a verdict, and the app tells you about the three that change what you see: `merged`, `conflicted` and `refused`. Then `forgetAnswered()` clears the answered writes, so `unsent` holds only what's still to send or needs attention. `apply(_:)` reads a report, so the next step can reuse it for the drains the follow runs.
+Each answered write has a verdict, and `apply(_:)` tells you about the three that change what you see: `merged`, `conflicted` and `refused`. Then `forgetAnswered()` clears the answered writes, so `unsent` holds only what's still to send or needs attention.
 
 </Step>
 <Step>
@@ -275,9 +275,13 @@ Add the last two functions:
     }
 ```
 
-`follow(_:)` holds a `changes()` stream, which tells the app about every change to the working copy, whether the app made it or another device did. It also says when the server goes away, `.serverUnreachable`, and when it comes back, `.serverReachable`. **The stream sends what waited by itself**, once each time the server is back and once more after a drain left a write undelivered, so the app starts no drain on `.serverReachable`. It tells how the drain ended: `.queueDrained` with the drain's report, which `apply(_:)` reads like the one from `send()`, or `.queueNotDrained` with the error that stopped it. A drain that stopped leaves the rest of the writes queued. The stream sends them at its next contact with the server after the drain, such as after a catch-up or when the server returns, and `send()` after the next write sends them sooner.
+`follow(_:)` holds a `changes()` stream, which tells the app about every change to the working copy, whether the app made it or another device did. It also says when the server goes away, `.serverUnreachable`, and when it comes back, `.serverReachable`.
 
-`.stopped` means the stream can't go on without the app's help, and `handle(_:)` gives errors from any call the same treatment. A `copyExpired` copy can't be kept current from where it stands, for example because the server at its address is now another instance (`instance_changed`), so it hydrates again; `unauthorized` and `signedOut` mean the instance refused the key, so the app asks for a new one. **The queue survives all of these.**
+The stream **sends what waited by itself**, so the app starts no drain on `.serverReachable`. It reports how each drain ended: `.queueDrained` with the report, which `apply(_:)` reads like the one from `send()`, or `.queueNotDrained` with the error that stopped it. A drain that stopped leaves the rest of the writes queued, and the stream sends them at its next contact with the server.
+
+`.stopped` means the stream can't go on without the app's help, and `handle(_:)` treats errors from any call the same way.
+
+A `copyExpired` copy can't be kept current from where it stands, so the app hydrates again. `unauthorized` and `signedOut` mean the instance refused the key, so the app asks for a new one. The **queue survives** all of these. The [Swift SDK reference](/swift-sdk) lists the other errors.
 
 </Step>
 <Step>
@@ -408,11 +412,9 @@ struct NoteRow: View {
 
 Press Command-B to build. The project builds for both My Mac and the iOS simulators.
 
-**A write blocked as `BlockedReason.failingAlone` needs attention**: it keeps failing while the server answers other writes. `describe(_:)` shows its reason. Release the write to try again, or withdraw it.
+A write blocked as `BlockedReason.failingAlone` keeps failing while the server answers other writes, and `describe(_:)` shows it as stopped. Release the write to try again, or withdraw it. [Show a failing write](/swift-sdk#show-a-failing-write) says how to show what it met.
 
-To show what happened, read `QueuedWrite.lastFailure`, an optional `LastFailure` with `status` and `text`; `environmentalStreak` counts the qualifying drains. The [Swift SDK reference](/swift-sdk#show-a-failing-write) gives their meaning and when they clear.
-
-If you replace the reason's text with a switch over `BlockedReason`, handle `.failingAlone`: **an added enum case breaks an exhaustive switch** without a default.
+If you replace the reason's text with a switch over `BlockedReason`, handle `.failingAlone`: **an added case breaks** an exhaustive switch without a default.
 
 </Step>
 <Step>
@@ -451,7 +453,7 @@ Start the server again with `pnpm dev`. When the changes stream reaches the serv
 
 Now make two devices change one note. Stop the server again. In the app, rename a note you added and haven't renamed, such as Bleak House, and quit the app.
 
-The rename waits in the queue, which **survives the app quitting**.
+The rename waits in the queue, which **survives** the app quitting.
 
 Start the server. In the Quickstart terminal, change the same note's title as another device would, using its ID from `marfa items list`. The note is still at version 1 on the instance, since the app's rename hasn't reached it:
 

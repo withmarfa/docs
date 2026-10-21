@@ -7,6 +7,8 @@ A file comes in two parts: a blob, which is the bytes, and a file item that name
 
 To upload, your credential needs write on at least one type outside `system.*`, or the `blobs.manage` permission. To create the file item, it needs write on the item's type, such as `core.file`. The TypeScript examples use a client made as [the TypeScript SDK](/typescript-sdk) shows, and the Swift examples an open working copy, `copy`, as in [the Swift SDK](/swift-sdk).
 
+A working copy queues an upload like any other write and sends it when the app drains its queue, but the hash is known at once. If the key changes after a file's bytes were uploaded and before its write is sent, the copy uploads the bytes again under the current key, ahead of the write.
+
 ## Upload the bytes
 
 [Upload a blob](/api-reference/blobs/uploadBlob) takes the bytes as the request body, **as they are rather than as a form**, with their media type as the `Content-Type`:
@@ -48,11 +50,13 @@ Marfa answers with the blob's `hash`, the media type it will serve the bytes und
 }
 ```
 
-The same bytes always give the same hash, so **uploading them again stores nothing new** and answers the same hash. **An upload has no size cap and no total time limit.** Marfa ends one with `408 request_timeout`, storing no blob, only when no bytes arrive for `MARFA_UPLOAD_IDLE_TIMEOUT_MS`, 60 seconds unless the instance sets it. The Swift SDK queues the upload like any other write and sends it when the app drains its queue; the hash is known at once.
+The same bytes always give the same hash, so uploading them again **stores nothing new** and answers the same hash.
+
+An upload has **no size cap and no total time limit**. Marfa ends one with `408 request_timeout`, storing no blob, only when no bytes arrive for `MARFA_UPLOAD_IDLE_TIMEOUT_MS`, 60 seconds unless the instance sets it.
 
 ## Point an item at the bytes
 
-**Create a file item whose `blob_ref` is the hash.** `core.file` takes any file; use `core.file.image`, `core.file.audio` or `core.file.video` where they fit, or a type of your own that inherits from `core.file`.
+Create a file item whose **`blob_ref`** is the hash. `core.file` takes any file; use `core.file.image`, `core.file.audio` or `core.file.video` where they fit, or a type of your own that inherits from `core.file`.
 
 ```bash tab="CLI" tab-group="client"
 marfa items create --type core.file --prop title=reading-list.txt \
@@ -92,11 +96,13 @@ _ = try await copy.items.create(Draft(
 
 Marfa sets the item's `size_bytes` from the stored bytes. Soon after, a housekeeping job reads the bytes and adds what it finds, such as a document's `extracted_text` or an image's `width` and `height`, which moves the item's version.
 
-`marfa items add reading-list.txt` uploads the bytes and creates the item in one command. To make a file belong to another item, such as a photo attached to a note, link the two with an `attached-to` edge from the file item: `marfa items attach <id> photo.jpg` and the Swift SDK's `attach(to:file:)` do all three steps.
+`marfa items add reading-list.txt` uploads the bytes and creates the item in one command. To make a file belong to another item, such as a photo attached to a note, link the two with an `attached-to` edge from the file item: `marfa items attach <id> photo.jpg` does all three steps.
 
-**Until an item names the hash, the bytes can't be read**, even by the credential that uploaded them; only the owner and a credential with `blobs.manage` can. **A file item may name only bytes its writer uploaded or can already read.** A write that names another hash in `blob_ref`, such as one copied from elsewhere or uploaded with another key, is refused `404 blob_not_found` and writes nothing. It is the answer a hash that nothing holds gets, so it never tells you whether the instance has the bytes. **Upload the bytes with the same credential that writes the item, then write again.** Uploading bytes the instance already holds stores nothing new. A hash in any other property, such as an image link in a note's body, is text: the write is taken and the hash lends nothing.
+Until an item names the hash, the bytes **can't be read**, even by the credential that uploaded them; only the owner and a credential with `blobs.manage` can. A file item may name **only bytes** its writer uploaded or can already read.
 
-A working copy follows the same rule for you. If the key changes after a file's bytes were uploaded and before its write is sent, the copy uploads the bytes again under the current key, ahead of the write.
+A write that names another hash in `blob_ref`, such as one copied from elsewhere or uploaded with another key, is refused `404 blob_not_found` and writes nothing. It is the answer a hash that nothing holds gets, so it never tells you whether the instance has the bytes. Upload the bytes with the **same credential** that writes the item, then write again.
+
+Uploading bytes the instance already holds stores nothing new. A hash in any other property, such as an image link in a note's body, is text: the write is taken and the hash lends nothing.
 
 ## Download the bytes
 
@@ -125,9 +131,9 @@ await writeFile("reading-list.txt", Buffer.from(bytes!));
 let local = try await copy.blobs.get(hash)
 ```
 
-In the Swift SDK, `get` answers a file on the device, and fetches the bytes first if the working copy doesn't hold them yet.
+In the Swift SDK, `get` answers a file on the device, fetching the bytes first if the copy doesn't hold them. Marfa sends the bytes as an attachment named after the hash, never as a page a browser would show, so take the file's name from the item's **`title`**. A `Range` header such as `bytes=0-1023` gets part of a blob.
 
-Marfa sends the bytes as an attachment named after the hash, never as a page a browser would show, so **take the file's name from the item's `title`**. A `Range` header such as `bytes=0-1023` gets part of a blob. A blob you may not read answers `404 blob_not_found`, exactly as a hash that doesn't exist does. When a store that holds the blob can't answer and no other store returns the bytes, Marfa answers `503 blob_store_unavailable` instead, because it can't tell whether the bytes are gone: try again later.
+A blob you may not read answers `404 blob_not_found`, exactly as a hash that doesn't exist does. When a store that holds the blob can't answer and no other store returns the bytes, Marfa answers `503 blob_store_unavailable` instead, because it can't tell whether the bytes are gone: try again later.
 
 ## Hand out a time-limited link
 
@@ -155,7 +161,7 @@ const { data: link } = await marfa.GET("/blobs/{hash}/url", {
 }
 ```
 
-**Marfa checks your read when it makes the link, not when someone fetches it.** Revoking your key, or deleting every item that names the blob, doesn't end a link early. So ask for a link when you need one, with the shortest `ttl` that serves, and **don't store it**.
+Marfa checks your read **when it makes the link**, not when someone fetches it. Revoking your key, or deleting every item that names the blob, doesn't end a link early. So ask for a link when you need one, with the shortest `ttl` that serves, and **don't store it**.
 
 ## Replace a file's bytes
 
@@ -197,6 +203,6 @@ guard let newHash = replacement.blob, let item = try await copy.items.get(id) el
 _ = try await copy.items.update(id, Edit(properties: ["blob_ref": .string(newHash)], baseVersion: item.version))
 ```
 
-Marfa sets the new `size_bytes`, and the housekeeping job reads the new bytes and replaces what it added from the old ones. **The old blob stays as long as an earlier version of the item names it.** Once nothing names it, a housekeeping job removes it after a day's grace.
+Marfa sets the new `size_bytes`, and the housekeeping job reads the new bytes and replaces what it added from the old ones. The old blob stays **as long as an earlier version** of the item names it. Once nothing names it, a housekeeping job removes it after a day's grace.
 
 The rules behind this guide are in the [blobs](https://github.com/withmarfa/marfa/blob/main/conformance/spec/blobs.md) chapter of the contract.

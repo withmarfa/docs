@@ -5,11 +5,11 @@ description: Register a webhook, check that each delivery came from your instanc
 
 A webhook lets a service react to changes in your instance without holding a connection open: you register a URL, and Marfa posts each event you chose to it as it happens. [Events and webhooks](/events) explains when to use a webhook rather than the event stream.
 
-You need a credential with the `webhooks.manage` permission. **The webhook belongs to that key, or to the app that registered it**: Marfa sends it nothing once the key is revoked or expires, and deletes it when the app's access is revoked.
+You need a credential with the `webhooks.manage` permission. The webhook **belongs to that key**, or to the app that registered it: Marfa sends it nothing once the key is revoked or expires, and deletes it when the app's access is revoked.
 
 ## Register a webhook
 
-[Create a webhook](/api-reference/webhooks/createWebhook) takes the `url` to post to and the `events` you want, such as `item.created`, from the [events](/catalog/events). **There's no wildcard: name each event.** `type_filter` limits item events to one type and its subtypes, and leaves edge events as they are.
+[Create a webhook](/api-reference/webhooks/createWebhook) takes the `url` to post to and the `events` you want, such as `item.created`, from the [events](/catalog/events). There's **no wildcard**: name each event. `type_filter` limits item events to one type and its subtypes, and leaves edge events as they are.
 
 ```bash tab="CLI" tab-group="client"
 marfa webhooks create --to https://example.com/marfa \
@@ -54,17 +54,17 @@ Marfa answers with the webhook, its `secret` included:
 }
 ```
 
-**This is the only time Marfa shows the secret.** Every later read shows `****` and its last four characters. Keep it where your receiver can read it and nothing else can, as you would a password.
+Marfa shows the secret **only this once**. Every later read shows `****` and its last four characters. Keep it where your receiver can read it and nothing else can, as you would a password.
 
 To use a secret of your own instead, send `secret` with at least 32 characters.
 
 The webhook receives events written after you registered it, and **nothing earlier**.
 
-**Marfa refuses a `url` that points at a private address**, at registration and when you change the `url` of a webhook. [Receive deliveries on a private network](#receive-deliveries-on-a-private-network) says which addresses and how to allow them.
+Marfa refuses a `url` that points at a **private address**. [Receive deliveries on a private network](#receive-deliveries-on-a-private-network) says which addresses, and how to allow them.
 
 ## Check each delivery
 
-A delivery is a `POST` whose body is the event, as the stream would send it, with three more members: `event_id`, the event's ID in the log; `delivery_id`, which stays the same on every attempt to deliver this event; and `delivered_at`, when Marfa sent this attempt. Here's one, as it arrives:
+A delivery is a `POST` whose body is the event, as the stream would send it, with three more members. `event_id` is the event's ID in the log, `delivery_id` stays the same on every attempt to deliver this event, and `delivered_at` is when Marfa sent this attempt. Here's one, as it arrives:
 
 ```http
 POST /marfa
@@ -75,7 +75,7 @@ X-Marfa-Signature: t=1791591307,v1=80bc920e57a1e1bee2f839cc2d8eb62841069e5da0e5b
 {"item":{"id":"01a12329-d2ca-71a2-871d-772152cdb003","type":"core.note","state":"active","tier":"library","properties":{"body":"Start with the essays, then the letters.","title":"Reading list"},"created_at":"2026-10-10T00:15:05.930Z","updated_at":"2026-10-10T00:15:05.957Z","occurred_at":"2026-10-10T00:15:05.930Z","version":2,"source":"laptop","schema_version":0},"metadata":{"item_id":"01a12329-d2ca-71a2-871d-772152cdb003","tags":[],"extensions":{}},"event_type":"item.updated","event_id":"252","delivery_id":"01a12329-d546-703a-8b86-845703c6e005","delivered_at":"2026-10-10T00:15:07.573Z"}
 ```
 
-Anyone can post to your URL, so **check `X-Marfa-Signature` before you trust a delivery**. It reads `t=<unix seconds>,v1=<hex>`, where `v1` is the HMAC-SHA-256, under your secret, of `t`, a period, and the raw body. **Compute it over the bytes exactly as they arrived**: parsing the JSON and serializing it again changes them.
+Anyone can post to your URL, so check **`X-Marfa-Signature`** before you trust a delivery. It reads `t=<unix seconds>,v1=<hex>`, where `v1` is the HMAC-SHA-256, under your secret, of `t`, a period, and the raw body. Compute it over the bytes **exactly as they arrived**: parsing the JSON and serializing it again changes them.
 
 This receiver uses only Node.js's own modules, and Node.js 22.18 or later runs it as it is. It checks the signature, refuses one older than five minutes so a captured delivery can't be replayed later, and answers before it does any work:
 
@@ -135,15 +135,15 @@ Answer with a `2xx` status, and **answer quickly**: do slow work after you've an
 
 ## Expect deliveries out of order
 
-**Marfa doesn't deliver events in the order they happened.** It sends waiting deliveries at the same time, and it retries a failed one later while newer events go through, so the delivery for an item's second update can arrive before the one for its first.
+Marfa doesn't deliver events **in the order they happened**. It sends waiting deliveries at the same time and retries a failed one later while newer events go through. So the delivery for an item's second update can arrive before the one for its first.
 
 Each delivery's `event_id` is the event's ID in the log, and IDs rise with every event. It's a string of decimal digits, so compare IDs as numbers: as text, `"99"` sorts after `"252"`. Keep the highest `event_id` you've applied for each item and **ignore a delivery with a lower one**. Alternatively, treat a delivery as a prompt and [get the item](/api-reference/items/getItem) again, which always shows its current state.
 
 ## When a delivery fails
 
-Marfa tries a delivery again when your receiver can't be reached, doesn't answer in time, or answers `5xx`, `408` or `429`. It waits longer before each attempt, starting at a second, and **makes eight attempts over about five hours**; a `Retry-After` header asks it to wait longer, up to five minutes. **Any other `4xx`, or a redirect, ends the delivery at once.**
+Marfa tries a delivery again when your receiver can't be reached, doesn't answer in time, or answers `5xx`, `408` or `429`. It waits longer before each attempt, starting at a second, and **makes eight attempts over about five hours**; a `Retry-After` header asks it to wait longer, up to five minutes. Any other `4xx`, or a redirect, **ends the delivery at once**.
 
-A delivery Marfa gives up on is `dead_letter`. A delivery whose receiver's address isn't public is one: see [Receive deliveries on a private network](#receive-deliveries-on-a-private-network). That's why the receiver above answers `401` for a bad signature: if you've configured the wrong secret, Marfa stops at once rather than retrying for hours, and you can send the deliveries again once you've fixed it.
+A delivery Marfa gives up on is `dead_letter`. The receiver above answers `401` for a bad signature, so a wrong secret ends the delivery at once instead of being retried for hours. Once you've fixed it, you can send the deliveries again.
 
 [List webhook deliveries](/api-reference/webhooks/listWebhookDeliveries) shows each delivery, newest first, with its `status` and the last answer your receiver gave:
 
@@ -198,23 +198,23 @@ await marfa.POST("/webhooks/{id}/deliveries/{delivery_id}/redeliver", {
 });
 ```
 
-**Only a `dead_letter` delivery can be sent again**; any other answers `409 conflict`. A delivery's record is kept for as long as the instance keeps its audit log.
+Only a **`dead_letter`** delivery can be sent again; any other answers `409 conflict`. A delivery's record is kept for as long as the instance keeps its audit log.
 
 ## Change what a webhook sends
 
-[Update a webhook](/api-reference/webhooks/updateWebhook) changes its `url`, its `events`, its `type_filter` or whether it is `active`. **A change ends the pending deliveries it no longer allows**, so a receiver is never sent an event the owner has since excluded.
+[Update a webhook](/api-reference/webhooks/updateWebhook) changes its `url`, its `events`, its `type_filter` or whether it is `active`. A change **ends the pending deliveries** it no longer allows, so a receiver is never sent an event the owner has since excluded.
 
 - **Narrowing `events` or `type_filter`** settles each pending delivery they no longer select as `canceled`, with the error `The subscription's events or type filter no longer select this event.`, before the update answers. A delivery being sent when the change commits ends the same way. Widening them again revives nothing already settled, and a change that still selects an event settles nothing.
 - **Changing the `url` or setting `active` to `false`** settles every pending delivery as `canceled`, so none goes to the old address.
 
 ## Receive deliveries on a private network
 
-By default, **Marfa posts only to public addresses**. A host that isn't public is a loopback address such as `localhost`, a private address, a link-local or unique-local address, or a carrier-grade NAT address such as the `100.64.0.0/10` range that Tailscale uses. Marfa refuses a webhook whose `url` has such a host, both when you register it and when you change its `url`, with `400 validation_error`. The message names the setting that allows it, `MARFA_WEBHOOK_ALLOW_PRIVATE_ADDRESSES`.
+By default, Marfa posts **only to public addresses**. A host that isn't public is a loopback address such as `localhost`, a private address, a link-local or unique-local address, or a carrier-grade NAT address such as the `100.64.0.0/10` range that Tailscale uses. Marfa refuses a webhook whose `url` has such a host, both when you register it and when you change its `url`, with `400 validation_error`. The message names the setting that allows it, `MARFA_WEBHOOK_ALLOW_PRIVATE_ADDRESSES`.
 
-**A name counts as well as an address.** Marfa looks up a host written as a name and refuses it when any address it resolves to isn't public. A receiver that you reach by a Tailscale name, or by a name on your home network, resolves to a private address, so this is the refusal you meet first. It needs `MARFA_WEBHOOK_ALLOW_PRIVATE_ADDRESSES=true` in the instance's environment, and a restart. [Deploy](/guides/deploy#the-address) describes reaching an instance over Tailscale, and [Settings](/guides/settings) the setting.
+A **name** counts as well as an address. Marfa looks up a host written as a name and refuses it when any address it resolves to isn't public. A receiver that you reach by a Tailscale name, or by a name on your home network, resolves to a private address, so this is the refusal you meet first. It needs `MARFA_WEBHOOK_ALLOW_PRIVATE_ADDRESSES=true` in the instance's environment, and a restart. [Deploy](/guides/deploy#the-address) describes reaching an instance over Tailscale, and [Settings](/guides/settings) the setting.
 
-To try a receiver on your own machine, start a development instance with the setting on, register `http://localhost:3000/marfa`, and run the receiver above. **Leave the setting off on an instance you keep**, unless its receivers run on a private network.
+To try a receiver on your own machine, start a development instance with the setting on, register `http://localhost:3000/marfa`, and run the receiver above. **Leave the setting off** on an instance you keep, unless its receivers run on a private network.
 
-Marfa accepts a name that doesn't resolve, or that its lookup doesn't answer within three seconds, because the receiver may not exist yet. It checks the name again at each delivery. **A delivery to a name that resolves to an address that isn't public is never sent.** It's recorded as `dead_letter` at that attempt, with the error "The receiver's address is not public.", and not retried. Once you've allowed private addresses or fixed the name, [redeliver it](#when-a-delivery-fails).
+Marfa accepts a name that doesn't resolve, or whose lookup doesn't finish in time, because the receiver may not exist yet. It checks the name again at each delivery. A delivery to a name that resolves to an address that isn't public is **never sent**. It's recorded as `dead_letter` at that attempt, with the error "The receiver's address is not public.", and not retried. Once you've allowed private addresses or fixed the name, [redeliver it](#when-a-delivery-fails).
 
-The rules behind this guide are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) chapter of the contract.
+The rules behind this guide are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) chapter of the contract. [`events/address-name-unresolved`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md#eventsaddress-name-unresolved) gives the lookup limit at registration.
