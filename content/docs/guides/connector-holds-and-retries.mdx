@@ -18,8 +18,6 @@ This order survives a stop at any step:
 5. Replace the state document with the new place.
 6. [Report the run](#report-a-run), then release the hold.
 
-Each step below says why it sits where it does.
-
 ## Take the hold
 
 The hold lets **one process at a time** write the connector's state document and agreements. Before it writes either, a process [takes the hold](/api-reference/connectors/holdConnector) under a name of its own:
@@ -45,7 +43,7 @@ const { data, error } = await marfa.POST("/connectors/{id}/hold", {
 { "expires_at": "2026-10-09T23:54:09.991Z", "ttl_ms": 180000, "renewed": false }
 ```
 
-Make the name **unique to the process**, such as a UUID made when it starts. Two processes that share a name look like one process to Marfa. The hold lasts `ttl_ms` from each take or renewal, three minutes unless the instance sets another window.
+Make the name **unique to the process**, such as a UUID made when it starts: two processes that share a name look like one to Marfa. The hold lasts `ttl_ms` from each take or renewal, three minutes unless the instance sets another window.
 
 If another process holds a live hold, Marfa refuses the take and leaves that hold alone. `details.expires_at` says when it ends:
 
@@ -65,11 +63,9 @@ Wait until then and try again. Once a hold lapses, any process can take it, so a
 
 Renew the hold by sending the same request, under the same name, **well before `expires_at`**. Marfa moves `expires_at` a full window on and answers `renewed: true`. Use `ttl_ms` to time the next renewal, rather than comparing your clock with Marfa's: the kit renews every third of a window.
 
-`renewed` tells you whether anything could have happened in between. `true` means your hold was live when the request arrived, so no other process wrote. `false` is expected on a first take.
+`renewed: true` means your hold was live when the request arrived, so no other process wrote. `false` is expected on a first take, but when you believed you held the hold it means the hold lapsed and another process may have written: read the state document and the agreements **again** before you write anything.
 
-But `false` when you believed you held the hold means it lapsed, and another process may have written since: read the state document and the agreements **again** before you write anything.
-
-If a renewal doesn't land, because the network is down or Marfa is busy, you can't know whether the hold is still yours once `expires_at` passes. **Stop writing** until a renewal succeeds. Marfa can't stop a process without a live hold from changing the vendor, so stop it yourself.
+If a renewal doesn't land, you can't know whether the hold is still yours once `expires_at` passes. **Stop writing**, to Marfa and to the vendor, until a renewal succeeds: Marfa can't stop a process without a live hold from changing the vendor.
 
 When the process ends cleanly, [release the hold](/api-reference/connectors/releaseConnectorHold), so that the next process can start at once:
 
@@ -88,7 +84,7 @@ Marfa answers `{ "ok": true }` whether or not that process held the hold, and ne
 
 ## Keep your place in the state document
 
-The state document is where a connector keeps its place at the vendor, such as a sync token or a cursor, so that a restart, even on another machine, resumes instead of reading everything again. [Get the state document](/api-reference/connectors/getConnectorState) answers an empty `state`, empty `problems` and `updated_at: null` until state is written. [Replace the state document](/api-reference/connectors/replaceConnectorState) under the hold:
+The state document keeps a connector's place at the vendor, such as a sync token, so that a restart, even on another machine, resumes instead of reading everything again. [Get the state document](/api-reference/connectors/getConnectorState) answers an empty `state`, empty `problems` and `updated_at: null` until state is written. [Replace the state document](/api-reference/connectors/replaceConnectorState) under the hold:
 
 ```http tab="HTTP" tab-group="client"
 PUT /connectors/01a12313-d219-7e92-8869-1f6546b43dbc/state
@@ -123,7 +119,7 @@ The same state write can carry a `problems` map: opaque keys with messages about
 
 - **It replaces the map** together with the state, under the live hold. Omit `problems` to keep the existing messages, or send `problems: {}` to clear them. A refused write changes neither.
 - **The registration shows problems,** but not the private state document.
-- **Nothing clears them for you.** A heartbeat or a succeeded run never clears a problem, so remove it explicitly when it is resolved. Problems survive a registration change, a key replacement and a restart.
+- **Nothing clears them for you:** not a heartbeat, a succeeded run, a registration change, a new key or a restart. Remove a problem when it is resolved.
 
 ### When the document is empty
 
@@ -189,7 +185,7 @@ Each failure has a safe response:
 | `503 write_contention` | The database was busy. Nothing changed. | Send the same request again. |
 | `500 internal_error` | The request may or may not have completed. | Read what you changed before you send a write again. |
 
-A write whose answer you never saw is the hard case, and a connector's writes differ in how they take a repeat:
+A write whose answer you never saw is the hard case:
 
 - **The state document and agreements replace what's there**, so sending one again under the hold leaves the same result.
 - **Items written by natural key land on the same items when repeated**, and can't make a second one, though each repeat raises the items' `version`.
