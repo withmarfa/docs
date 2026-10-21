@@ -4,6 +4,7 @@ import appCss from '@/styles/app.css?url';
 import { Analytics } from '@/components/analytics';
 import { PointerFocus } from '@/components/pointer-focus';
 import { RootProvider } from 'fumadocs-ui/provider/tanstack';
+import { translations } from '@/lib/translations';
 
 export const Route = createRootRoute({
   head: () => ({
@@ -45,7 +46,7 @@ function RootComponent() {
         <HeadContent />
       </head>
       <body className="flex flex-col min-h-screen">
-        <RootProvider>
+        <RootProvider i18n={{ translations }}>
           <Outlet />
         </RootProvider>
         <Scripts />
