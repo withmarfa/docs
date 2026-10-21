@@ -166,6 +166,8 @@ Marfa compares a stale write against the snapshot it kept of the version you rea
 }
 ```
 
+`current` is trimmed here; it carries the same fields as in a conflict.
+
 Make your change again **on top of `current`**, and send it at the version `current` holds. Sending your old values at the new version overwrites whatever arrived since.
 
 ## Retry with an Idempotency-Key
@@ -197,7 +199,7 @@ const send = () =>
   });
 ```
 
-If Marfa already answered that request, it returns the first answer again, with the header `Idempotency-Replayed: true`, and writes nothing. A repeat of a request refused `409 version_conflict` gets the same `409`.
+If Marfa already answered that request, it returns the first answer again, with the header `Idempotency-Replayed: true`, and writes nothing. A repeat of a request refused `409 version_conflict` gets the same `409`. A repeat of one that failed with a `5xx` runs again.
 
 A key names **one request**. The same key on another request, such as the resolved write after a conflict, answers `422 idempotency_key_reused` and writes nothing, so send each new write under a new key. A repeat that arrives while the first is still running answers `409 idempotency_key_in_flight`: wait, then send it again. [Errors](/api-reference/errors#retrying) says which refusals to retry.
 
@@ -205,7 +207,7 @@ The item operations that write one item, the edge and folder operations, and [Ap
 
 ### Rare replay answers
 
-- A repeat of a request that failed with a `5xx` runs again. So does a repeat of one refused `404 blob_not_found` because a file item named bytes its writer hadn't uploaded: Marfa keeps no answer for that refusal, so the same key works after you upload the bytes.
+- A request refused `404 blob_not_found` because a file item named bytes its writer hadn't uploaded keeps no answer, so the same key works after you upload the bytes.
 - Marfa keeps only the **status** of a first answer larger than 1,048,576 bytes. A repeat answers `422 idempotency_result_not_retained`, writes nothing, and gives that status in `details.original_status`. A status from `200` to `299` there means the first write landed, so read what it changed instead of sending it again.
 
 The rules behind this guide are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md) and [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#idempotency-keys) chapters of the contract, and the idempotency rules in its [errors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/errors.md#errorsidem-not-retained) chapter.
