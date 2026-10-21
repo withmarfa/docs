@@ -3,7 +3,7 @@ title: Write safely
 description: Change an item without overwriting someone else's change, handle a conflict when one happens, and retry a write without making it twice.
 ---
 
-When your app changes an item, another app or device may have changed it since you read it. Marfa can tell, as long as your write names the **version** it read. Then you handle the conflict Marfa returns when two changes collide, and retry a write whose answer you never got without applying it twice. [Versions](/versions) explains what the version counts and why Marfa works this way. The TypeScript examples use a client made as [the TypeScript SDK](/typescript-sdk) shows.
+When your app changes an item, another app or device may have changed it since you read it. Marfa can tell, as long as your write names the **version** it read. Then you handle the conflict Marfa returns when two changes collide, and retry a write whose answer you never got without applying it twice. [Versions](/versions) explains what the version counts and why Marfa works this way. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows.
 
 ## Send the version you read
 
@@ -66,7 +66,7 @@ Here another app changed the note's body after you read version 3:
 }
 ```
 
-The answer has more fields than this, including the type's `merge_policy`. In the TypeScript SDK, the refusal comes back as `error`, with `error.error.code` set to `version_conflict`. The CLI prints the conflicting fields and exits with status 1; read the item again with `marfa items get` to see what it holds now.
+The answer has more fields, including the type's `merge_policy`. In the TypeScript SDK, the refusal comes back as `error`, with `error.error.code` set to `version_conflict`. The CLI prints the conflicting fields and exits with status 1; read the item again with `marfa items get` to see what it holds now.
 
 </Step>
 <Step>
@@ -101,7 +101,7 @@ await marfa.PATCH("/items/{id}", {
 });
 ```
 
-Someone may write again before you do, and Marfa answers the same way. Retry a few times, then **show the person the conflict**.
+If someone writes again first, Marfa answers the same way. After a few tries, **show the person the conflict**.
 
 </Step>
 </Steps>
@@ -166,9 +166,7 @@ Marfa compares a stale write against the snapshot it kept of the version you rea
 }
 ```
 
-`current` carries the same fields as in a conflict; this one is trimmed.
-
-Make your change again **on top of `current`**, and send it at the version `current` holds. Don't send your old values at the new version unchanged: that overwrites whatever arrived since. An app that holds an edit for a long time does well to read the item again before it writes.
+Make your change again **on top of `current`**, and send it at the version `current` holds. Sending your old values at the new version overwrites whatever arrived since.
 
 ## Retry with an Idempotency-Key
 
@@ -199,12 +197,15 @@ const send = () =>
   });
 ```
 
-If Marfa already answered that request, it returns the first answer again, with the header `Idempotency-Replayed: true`, and writes nothing. A repeat of a request refused `409 version_conflict` gets the same `409`. A repeat of one that failed with a `5xx` runs again. So does a repeat of one refused `404 blob_not_found` because a file item named bytes its writer hadn't uploaded: Marfa keeps no answer for that refusal, so the same key works after you upload the bytes.
-
-Marfa keeps only the **status** of a first answer larger than 1,048,576 bytes. A repeat answers `422 idempotency_result_not_retained`, writes nothing, and gives that status in `details.original_status`. A status from `200` to `299` there means the first write landed, so read what it changed instead of sending it again.
+If Marfa already answered that request, it returns the first answer again, with the header `Idempotency-Replayed: true`, and writes nothing. A repeat of a request refused `409 version_conflict` gets the same `409`.
 
 A key names **one request**. The same key on another request, such as the resolved write after a conflict, answers `422 idempotency_key_reused` and writes nothing, so send each new write under a new key. A repeat that arrives while the first is still running answers `409 idempotency_key_in_flight`: wait, then send it again. [Errors](/api-reference/errors#retrying) says which refusals to retry.
 
 The item operations that write one item, the edge and folder operations, and [Apply a bulk action](/api-reference/bulk-actions/applyBulkAction) take a key.
+
+### Rare replay answers
+
+- A repeat of a request that failed with a `5xx` runs again. So does a repeat of one refused `404 blob_not_found` because a file item named bytes its writer hadn't uploaded: Marfa keeps no answer for that refusal, so the same key works after you upload the bytes.
+- Marfa keeps only the **status** of a first answer larger than 1,048,576 bytes. A repeat answers `422 idempotency_result_not_retained`, writes nothing, and gives that status in `details.original_status`. A status from `200` to `299` there means the first write landed, so read what it changed instead of sending it again.
 
 The rules behind this guide are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md) and [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#idempotency-keys) chapters of the contract, and the idempotency rules in its [errors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/errors.md#errorsidem-not-retained) chapter.

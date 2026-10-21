@@ -3,9 +3,9 @@ title: Housekeeping
 description: See the work an instance does on itself, read what each housekeeping job last did, and run one now.
 ---
 
-An instance looks after itself on a schedule: it purges the bin, thins old versions, moves expired feed items to the bin, clears old log entries, sends webhook deliveries, and copies and checks blobs. Each piece of that work is a housekeeping job, and one scheduler runs them all from one table. Reading what each job last did is how you check that an instance is keeping up, and running one yourself applies a new retention without waiting for its schedule.
+An instance looks after itself on a schedule: it purges the bin, thins old versions, moves expired feed items to the bin, clears old log entries, sends webhook deliveries, and copies and checks blobs. Each piece of that work is a housekeeping job. Reading what each job last did shows whether the instance is keeping up, and running one applies a new retention without waiting for its schedule.
 
-Listing needs the **`instance.read`** permission, and running needs **`instance.maintain`**. The owner needs no key for either, through the private socket or signed in. The Health page, at `/auth/owner/health`, lists every job with when it last ran and its error if it failed, and runs one with Run now.
+Listing needs the `instance.read` permission, and running needs `instance.maintain`. The owner needs neither, through the private socket or signed in. The **Health** page, at `/auth/owner/health`, lists every job with when it last ran and its error if it failed, and **Run now** runs one.
 
 ## List the housekeeping jobs
 
@@ -18,40 +18,42 @@ GET /housekeeping
 Authorization: Bearer <key>
 ```
 
-The answer holds every housekeeping job the instance runs, in one page. Each entry gives its schedule, whether it's running now, and what its last run did. This shows one:
+The answer is one page with every job the instance runs, as `data`. Each entry gives its schedule, whether it is running now, and what its last run did:
 
 ```json
 {
-  "data": [
-    {
-      "name": "audit-cleanup",
-      "interval_ms": 86400000,
-      "next_run_at": "2026-10-10T23:48:29.141Z",
-      "running_since": null,
-      "last_started_at": "2026-10-09T23:48:29.138Z",
-      "last_finished_at": "2026-10-09T23:48:29.141Z",
-      "last_outcome": "ok",
-      "last_error": null,
-      "last_result": { "deleted": 0, "deliveries": 0 }
-    }
-  ],
-  "next_cursor": null
+  "name": "audit-cleanup",
+  "interval_ms": 86400000,
+  "next_run_at": "2026-10-22T15:45:40.513Z",
+  "running_since": null,
+  "last_started_at": "2026-10-21T15:45:40.438Z",
+  "last_finished_at": "2026-10-21T15:45:40.513Z",
+  "last_outcome": "ok",
+  "last_error": null,
+  "last_result": {
+    "deleted": 0,
+    "deliveries": 0
+  }
 }
 ```
 
-## Read what a housekeeping job did
+## Read what a job did
 
-`running_since` holds the time the current run started, and is `null` when nothing is running. `last_outcome` is `null` until a run finishes, then `ok` or `error`, with the reason in `last_error`. `last_result` holds what the run reported, in counts of its own: `deleted` for a cleanup, `copied` and `remaining` for `blob-replicate`, `pruned` for `version-thinning`.
+- `running_since` is the time the current run started, or `null` when nothing is running.
+- `last_outcome` is `null` until a run finishes, then `ok` or `error`, with the reason in `last_error`.
+- `last_result` holds counts of the job's own: `deleted` for a cleanup, `copied` and `remaining` for `blob-replicate`, `pruned` for `version-thinning`.
 
-A housekeeping job whose `last_outcome` stays `error`, or whose `next_run_at` is long past, is **the place to look when an instance falls behind**. Every run has a deadline, so a run that hangs is recorded as an `error` once the deadline passes, and the housekeeping job is free to run again. [List housekeeping jobs](/api-reference/instance/listHousekeeping) has every field.
+A job whose `last_outcome` stays `error`, or whose `next_run_at` is long past, is **the place to look when an instance falls behind**. A run that hangs is recorded as an `error` once its deadline passes, and the job can run again. [List housekeeping jobs](/api-reference/instance/listHousekeeping) has every field.
 
 ## The housekeeping jobs
 
-The listing shows each registered job's schedule. [Settings](/guides/settings#every-environment-setting) lists the environment settings that change configurable intervals and retention windows.
+[Settings](/guides/settings#every-environment-setting) lists the environment settings that change intervals and retention windows.
 
 <include cwd>src/generated/housekeeping.md</include>
 
-`feed-expiry` acts only on a type that has a `feed_days` window in its [retention policy](/catalog/your-own-types#retention-policy), set on the type or taken from a parent. It moves an active feed item to the bin, as a delete does, once more than that many days have passed since the item arrived. **Library items, archived items and items brought back from the bin are kept**, and a type with no window keeps its items. A moved item can be restored until the bin's retention ends, and `trash-purge` then deletes it for good. [Settings](/guides/settings#every-environment-setting) names `FEED_EXPIRY_INTERVAL_MS`.
+### Feed expiry
+
+`feed-expiry` acts only on a type with a `feed_days` window in its [retention policy](/catalog/your-own-types#retention-policy), set on the type or taken from a parent. Once more than that many days have passed since an active feed item arrived, the job moves it to the bin, as a delete does. A type with no window keeps its items, and so does the job for **library items, archived items and items brought back from the bin**. A moved item can be restored until the bin's retention ends, and then `trash-purge` deletes it. The interval is `FEED_EXPIRY_INTERVAL_MS`.
 
 Each run reports `moved` and `held` in `last_result`. `moved` includes items a cascade took with them. `held` counts expired items the job left alone because:
 
@@ -59,13 +61,18 @@ Each run reports `moved` and `held` in `last_result`. `moved` includes items a c
 - An edge with `cascade_on_delete` set to `block` refuses the delete.
 - The delete failed.
 
-A setting can switch a housekeeping job off, and **one that's off isn't listed**. [Settings](/guides/settings#every-environment-setting) gives the switch for most jobs, such as a blank `MARFA_HEARTBEAT_URL` or an interval or retention of `0`. It doesn't tie two switches to their jobs: `enrichment-sweep` is off when `MARFA_ENRICHMENT_ENABLED` is `false`, and `grant-inactivity-retirement` is off when `MARFA_GRANT_INACTIVITY_DAYS` is `0`.
+### Switch a job off
 
-The retentions that `audit-cleanup`, `trash-purge`, `event-log-cleanup` and `inbound-delivery-cleanup` read can also be changed while the server runs, in the [configuration](/guides/settings#change-settings-while-it-runs).
+A setting can switch a job off, and **a job that's off isn't listed**. [Settings](/guides/settings#every-environment-setting) gives the switch for most jobs, such as a blank `MARFA_HEARTBEAT_URL` or an interval or retention of `0`. Two switches aren't tied to their jobs there:
+
+- `enrichment-sweep` is off when `MARFA_ENRICHMENT_ENABLED` is `false`.
+- `grant-inactivity-retirement` is off when `MARFA_GRANT_INACTIVITY_DAYS` is `0`.
+
+The retentions that `audit-cleanup`, `trash-purge`, `event-log-cleanup` and `inbound-delivery-cleanup` read can also change while the server runs, in the [configuration](/guides/settings#change-settings-while-it-runs).
 
 ## Run a housekeeping job now
 
-Name the housekeeping job as the listing shows it:
+Name the job as the listing shows it:
 
 ```bash tab="CLI" tab-group="client"
 marfa housekeeping run trash-purge
@@ -81,31 +88,50 @@ Authorization: Bearer <key>
 ```json
 {
   "name": "trash-purge",
-  "started_at": "2026-10-09T23:50:54.872Z",
-  "finished_at": "2026-10-09T23:50:54.872Z",
+  "started_at": "2026-10-21T15:45:49.651Z",
+  "finished_at": "2026-10-21T15:45:49.653Z",
   "outcome": "ok",
-  "result": { "deleted": 0 },
+  "result": {
+    "deleted": 0
+  },
   "error": null
 }
 ```
 
 **A run that fails still answers `200`**, with `outcome` set to `error` and the reason in `error`. The listing then shows this run as the last one, and a run on demand never makes the next scheduled run later.
 
-The server refuses `409 housekeeping_job_running` while a run of the same housekeeping job is already in progress, so try again when it finishes. One that's switched off, or a name it doesn't run, is refused `404 housekeeping_job_not_found`. [Run a housekeeping job](/api-reference/instance/runHousekeeping) lists every answer.
+Marfa refuses `409 housekeeping_job_running` while a run of the same job is in progress. A job that's switched off, or a name it doesn't run, is refused `404 housekeeping_job_not_found`. [Run a housekeeping job](/api-reference/instance/runHousekeeping) lists every answer.
 
 ## Empty the bin
 
-An item stays in the bin until it is purged. Left alone, the `trash-purge` job purges each item once it has been in the bin longer than `TRASH_RETENTION_DAYS`, which is 60 days unless you change it. `trash_retention_days` in the [configuration](/guides/settings#change-settings-while-it-runs) overrides that while the server runs, and a retention of `0` keeps every item. A run removes a limited number of items. While items past the retention remain after a run that removed some, the job runs again at once rather than waiting for its interval.
+An item stays in the bin until it is purged. Left alone, `trash-purge` purges each item once it has been in the bin longer than `TRASH_RETENTION_DAYS`, which is 60 days unless you change it. `trash_retention_days` in the [configuration](/guides/settings#change-settings-while-it-runs) overrides that while the server runs, and a retention of `0` keeps every item. A run removes a limited number of items, and while items past the retention remain after a run that removed some, the job runs again at once.
 
 <Callout type="warn">A purge deletes items and their history for good. To see what it would take first, add `--dry-run` to the CLI command, or `"dry_run": true` to the HTTP body. A dry run changes nothing.</Callout>
 
-To empty the bin now, purge every item whose state is `trashed`. A key needs the `items.purge` permission, and **the private socket can't do it**, because it carries no key:
+To empty the bin now, purge every item whose state is `trashed`. A key needs the `items.purge` permission, and **the private socket can't do it**, because it carries no key. This dry run counts what a purge would take:
 
-```bash tab="CLI" tab-group="client"
-marfa items bulk-action purge --state trashed --confirm PURGE
+<Terminal>
+
+```bash
+marfa items bulk-action purge --state trashed --confirm PURGE --dry-run
 ```
 
-```http tab="HTTP"
+```json
+{
+  "action": "purge",
+  "matched": 0,
+  "succeeded": 0,
+  "errored": 0,
+  "dry_run": true,
+  "ids": []
+}
+```
+
+</Terminal>
+
+Without `--dry-run`, Marfa queues the purge as a job and answers with its `id`, `status` (`queued`) and the `matched` count. The HTTP request is:
+
+```http
 POST /items/bulk-actions
 Authorization: Bearer <a key holding items.purge>
 Content-Type: application/json
@@ -113,34 +139,22 @@ Content-Type: application/json
 { "action": "purge", "confirm": "PURGE", "filter": { "state": "trashed" } }
 ```
 
-Marfa answers that it queued the purge as a job:
-
-```json
-{
-  "id": "01a150c0-71c7-7ea5-b5a4-68b6267b988a",
-  "action": "purge",
-  "status": "queued",
-  "matched": 3,
-  "processed": 0,
-  "succeeded": 0,
-  "errored": 0
-}
-```
-
-`marfa items bulk-action job <id>` shows the job again, and its `status` is `completed` once the purge has finished. A bin of more than 10,000 items is refused with `400 bulk_cap_exceeded` unless you raise `--max-items`, which Marfa counts as 50,000 at most: purge what's left with a second run. To purge one item, run `marfa items purge <id>`.
+`marfa items bulk-action job <id>` shows the job again, and its `status` is `completed` once the purge has finished. A bin of more than 10,000 items is refused `400 bulk_cap_exceeded` unless you raise `--max-items`, which Marfa caps at 50,000: purge what's left with a second run. To purge one item, run `marfa items purge <id>`.
 
 ## Try feed expiry with a moved clock
 
-A test server can move its clock forward, so you can watch `feed-expiry` act without waiting a day. Start the server with `MARFA_TEST_HOOKS=true`. **Never** set it on an instance that holds real data. The server refuses it when `NODE_ENV` is `production`, which the container sets ([`instance/test-hooks-production-refused`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#instancetest-hooks-production-refused)).
+A test server can move its clock forward, so you can watch `feed-expiry` act without waiting a day. Start it with `MARFA_TEST_HOOKS=true`, and **never** on an instance that holds real data: the server refuses it when `NODE_ENV` is `production`, which the container sets.
 
-The hooks sit at `/_control/test` on the private socket only. `GET /_control/test/clock` answers the `offset_ms` and the server's `now`. `POST /_control/test/clock` with `{ "advance_ms": 172800000 }` moves the clock forward by that many milliseconds. It never moves back, and everything that reads the time moves with it. `MARFA_TEST_CLOCK_OFFSET_MS` starts the clock that far ahead, and needs `MARFA_TEST_HOOKS`.
+The hooks sit at `/_control/test` on the private socket only, so run these steps on the instance's machine. `GET /_control/test/clock` answers `offset_ms` and the server's `now`. `POST /_control/test/clock` with `{ "advance_ms": 172800000 }` moves the clock forward by that many milliseconds, never back, and everything that reads the time moves with it. `MARFA_TEST_CLOCK_OFFSET_MS` starts the clock that far ahead and needs `MARFA_TEST_HOOKS`.
 
-**Two credentials are in play**: a key runs the `marfa types register` and `marfa items create` commands, because the private socket refuses item operations, and the socket alone reaches the clock.
+A key runs the `marfa` commands, because the private socket refuses item operations, and the socket alone reaches the clock.
 
 <Steps>
 <Step>
 
-With a key in `MARFA_API_KEY`, register a type whose feed items expire after one day, and put one in the feed:
+### Put an expiring item in the feed
+
+With a key in `MARFA_API_KEY`, register a type whose feed items expire after one day, and create one item in the feed:
 
 ```bash
 marfa types register --body '{"id":"user.headline","fields":{"title":{"type":"string","required":true}},"retention_policy":{"feed_days":1}}'
@@ -150,7 +164,9 @@ marfa items create --type user.headline --prop title="Today" --tier feed
 </Step>
 <Step>
 
-Move the clock two days forward, through the socket:
+### Move the clock two days forward
+
+Through the socket:
 
 ```bash
 curl --unix-socket /srv/marfa/data/control/marfa.sock \
@@ -161,20 +177,21 @@ curl --unix-socket /srv/marfa/data/control/marfa.sock \
 </Step>
 <Step>
 
-Run the job, in place of waiting for its next turn, and read the item from the bin:
+### Run the job and read the bin
+
+Run `feed-expiry` now. `moved` is `1` when the job found the item:
 
 <Terminal>
 
 ```bash
 marfa housekeeping run feed-expiry
-marfa items list --state trashed --type user.headline
 ```
 
 ```json
 {
   "name": "feed-expiry",
-  "started_at": "2026-10-22T20:42:52.014Z",
-  "finished_at": "2026-10-22T20:42:52.016Z",
+  "started_at": "2026-10-23T15:45:53.273Z",
+  "finished_at": "2026-10-23T15:45:53.282Z",
   "outcome": "ok",
   "result": {
     "moved": 1,
@@ -188,7 +205,13 @@ marfa items list --state trashed --type user.headline
 
 </Terminal>
 
+Then list the bin, which now holds the item:
+
+```bash
+marfa items list --state trashed --type user.headline
+```
+
 </Step>
 </Steps>
 
-The rules behind this page are in the [housekeeping chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md) of the contract.
+The rules behind this page are in the [housekeeping](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md) chapter of the contract, and the test hooks in the [instance](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md) chapter.
