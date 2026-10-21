@@ -130,7 +130,7 @@ Use a component for what it's for, and only where it helps the reader.
 | `Tabs` | Alternatives that aren't code, such as two ways to claim an instance |
 | `Accordion` | Entries a reader opens one at a time, such as troubleshooting. Never a reference list: a list a reader looks up is a plain table on its Catalog or Reference page |
 | `Files` | A directory a reader will see on disk |
-| `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data |
+| `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data, or the Overview's one-line warning that Marfa is early |
 | `Cards` | Where to go next, at the end of a tutorial and on the Overview |
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.

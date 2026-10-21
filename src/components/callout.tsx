@@ -3,16 +3,16 @@ import { cn } from '../lib/cn';
 
 // Fumadocs' Callout with the same props, drawn as a faint wash of its type's
 // color with no border, shadow or icon: the tint says what kind of note it is,
-// and the title says the rest. `icon` is accepted for compatibility and not
+// and the title, when there is one, says the rest. `icon` is accepted for compatibility and not
 // drawn.
 
 type CalloutType = 'info' | 'warn' | 'warning' | 'error' | 'success' | 'tip';
 
 const TINTS = {
-  info: 'bg-fd-info/8',
-  warning: 'bg-fd-warning/12',
-  error: 'bg-fd-error/8',
-  success: 'bg-fd-success/8',
+  info: 'bg-fd-info/6',
+  warning: 'bg-fd-warning/8',
+  error: 'bg-fd-error/6',
+  success: 'bg-fd-success/6',
 };
 
 function resolve(type: CalloutType) {
@@ -37,13 +37,15 @@ export function Callout({
     <div
       {...props}
       className={cn(
-        'my-6 flex flex-col gap-1 rounded-xl px-4 py-3.5 text-sm leading-relaxed',
+        'my-6 flex flex-col gap-1 rounded-xl px-4 py-3 text-sm leading-relaxed',
         TINTS[resolve(type)],
         className,
       )}
     >
       {title ? <p className="my-0! font-medium text-fd-foreground">{title}</p> : null}
-      <div className="prose-no-margin text-fd-foreground/75">{children}</div>
+      <div className={cn('prose-no-margin', title ? 'text-fd-foreground/75' : 'text-fd-foreground/85')}>
+        {children}
+      </div>
     </div>
   );
 }
