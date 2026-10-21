@@ -1,4 +1,5 @@
 import { defineConfig, defineDocs } from 'fumadocs-mdx/config';
+import { rehypeCodeDefaultOptions } from 'fumadocs-core/mdx-plugins';
 import { pageSchema } from 'fumadocs-core/source/schema';
 import { z } from 'zod';
 import type { LLMsOptions } from 'fumadocs-core/mdx-plugins/remark-llms';
@@ -143,4 +144,13 @@ export const docs = defineDocs({
   },
 });
 
-export default defineConfig();
+// Shiki loads a language the first time a block uses it, and Markdown colours
+// its frontmatter with YAML only when YAML is already loaded. The server and
+// the browser compile pages in different orders, so a Markdown block could be
+// coloured differently on each and fail hydration. Loading both up front gives
+// every build the same highlighting.
+export default defineConfig({
+  mdxOptions: {
+    rehypeCodeOptions: { ...rehypeCodeDefaultOptions, langs: ['yaml', 'markdown'] },
+  },
+});
