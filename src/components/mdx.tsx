@@ -7,6 +7,7 @@ import { TypeTable } from 'fumadocs-ui/components/type-table';
 import type { MDXComponents } from 'mdx/types';
 import { Callout } from './callout';
 import { Card, Cards } from './cards';
+import { CodeBlockTabs } from './code-tabs';
 import { ReferenceList } from './reference-list';
 import { visualComponents } from './visuals';
 
@@ -15,6 +16,7 @@ export function getMDXComponents(components?: MDXComponents) {
     ...defaultMdxComponents,
     Callout,
     Card,
+    CodeBlockTabs,
     Cards,
     Accordion,
     Accordions,
