@@ -3,9 +3,7 @@ title: CLI
 description: Install the marfa program, see how it finds your instance and credential, and look up its options and exit codes.
 ---
 
-The CLI is the `marfa` program, Marfa's command-line tool. **Every operation in the API has a command**, such as `marfa items list`, and most AI agents work with Marfa through it.
-
-It also does work the API doesn't:
+The CLI is the `marfa` program. **Every operation in the API has a command**, such as `marfa items list`, and most AI agents work with Marfa through it. It also does work the API doesn't:
 
 - `marfa device` keeps a [working copy](/devices) of part of an instance.
 - `marfa folders` keeps part of an instance as files in a directory, as [Sync a folder](/guides/sync-a-folder) shows.
@@ -19,7 +17,7 @@ Each release of Marfa carries the CLI for macOS on Apple silicon. On Linux, buil
 <Tabs items={["macOS", "Linux"]}>
 <Tab value="macOS">
 
-Download it from the terminal, as below.
+Download the release in the terminal:
 
 <include cwd>src/generated/cli-download.md</include>
 
@@ -35,76 +33,56 @@ cargo install --locked --path core/marfa-cli
 marfa --version
 ```
 
-Cargo puts `marfa` in `~/.cargo/bin`, which rustup adds to your `PATH`.
+Cargo puts `marfa` in `~/.cargo/bin`, which rustup adds to your `PATH`. A clone follows `main`, which can be ahead of the release these docs describe.
 
 </Tab>
 </Tabs>
 
-These docs follow Marfa's `main` branch, which can be ahead of the latest release. If the CLI says a command doesn't exist, build it from source to get it.
-
 ## Connect to a server
 
-A command that talks to an instance needs the server's address and a credential. **The CLI keeps both in your keychain**, so a bare command such as `marfa status` knows where to go. The server you last signed in to, or kept a key for, is the current server.
-
-For each command, the CLI takes the first server and the first credential that's set, in this order:
+A command that talks to an instance needs the server's address and a credential. For each, the CLI takes the first one that's set:
 
 | What it needs | First | Then | Then |
 | --- | --- | --- | --- |
-| A server | `--url` | `MARFA_API_URL`, when it isn't empty | The current server |
+| A server | `--url` | `MARFA_API_URL`, when it isn't empty | The current server: the one you last signed in to or kept a key for |
 | A credential | `--key` | `MARFA_API_KEY` | What the keychain holds for that server |
 
-The keychain holds one credential for each server. A key from `--key` or `MARFA_API_KEY` belongs to the server you name with it: with no server named, the command is refused with exit code 2, and the key is never sent to the current server. Prefer the variables to `--key`, because a command line is readable by other users of the machine and stays in your shell history.
+**A key from `--key` or `MARFA_API_KEY` needs its server named** with `--url` or `MARFA_API_URL`. Without one, the command ends with exit code 2 and the key is never sent to the current server. Prefer the variable to `--key`: a command line is readable by other users of the machine and stays in your shell history.
 
-Four commands put a credential in the keychain or take it out:
+### Keep a credential in the keychain
+
+The keychain holds one credential for each server, and only what these commands put there:
 
 | Command | What it does |
 | --- | --- |
-| `marfa login` | Signs in as an app. It shows a code and opens a page on the server, where you sign in as the owner and approve what the app may reach. It keeps the app's token. |
+| `marfa login` | Signs in as an app with the [device grant](/guides/authenticate#connect-a-command-line-app): you approve what it may reach on a page on the server, and it keeps the app's token. It refuses while a key is kept for that server. |
 | `marfa logout` | Revokes the token and forgets it. |
-| `marfa keys keep` | Checks a key you already have with the server, then keeps it. |
+| `marfa keys keep` | Checks a key you already have with the server, then keeps it. It sends the key, so a key from `MARFA_API_KEY` needs the server named. |
 | `marfa keys forget` | Forgets a kept key, without revoking it. |
 
 ```bash
 marfa login --url https://marfa.example.com
-marfa keys keep --url https://marfa.example.com
 ```
 
-`marfa login`, `logout` and `keys forget` send no key, so they use `--url`, then `MARFA_API_URL`, then the current server. `marfa keys keep` sends the key it checks, so a key from `MARFA_API_KEY` needs the server named too. `marfa login` refuses while a key is kept for the server, so run `marfa keys forget` first. [Authenticate](/guides/authenticate#connect-a-command-line-app) explains the device grant `marfa login` uses, and [Manage keys](/guides/manage-keys#give-a-key-to-a-script-or-agent) covers `marfa keys keep`.
-
-**The keychain holds only what `marfa login` or `marfa keys keep` put there.** The CLI never keeps a password or a credential it was only passed. The token `marfa login` keeps holds the scopes you approve, and the command ends by printing them in the words the approval page uses.
-
-### Use another keychain file
-
-On macOS, `MARFA_KEYCHAIN` names a keychain file to use instead of your own, for a run with nobody there to answer a prompt. **The file must already exist.** The CLI doesn't create it, and a missing file ends the command with exit code 4 and `no keychain file is there`. Make an empty one with `security`, then keep the key in it:
-
-```bash
-security create-keychain -p '' "$HOME/marfa.keychain-db"
-export MARFA_KEYCHAIN="$HOME/marfa.keychain-db"
-MARFA_API_KEY=<the key> marfa keys keep --url https://marfa.example.com
-```
-
-On other systems the CLI refuses the variable with exit code 4.
-
-A watch that runs without you reads the keychain too: `marfa folders watch` with no directory, and the login agent `marfa folders autostart` sets up, take each folder's credential from it. Run `marfa keys keep` or `marfa login` for the instance first. The login agent starts outside your shell, so it doesn't see `MARFA_KEYCHAIN`, `MARFA_API_URL`, `MARFA_API_KEY`, `--url` or `--key`, and reads your own keychain. [Keep folders running](/guides/keep-folders-running) covers the watch.
+[Manage keys](/guides/manage-keys#give-a-key-to-a-script-or-agent) covers `marfa keys keep`, and how to give a script a key from a secrets manager.
 
 ### Run without the keychain
 
-Pass `--no-keychain` or set `MARFA_NO_KEYCHAIN=1` (`1`, `true`, `yes` or `on`) and the CLI treats the keychain as absent: it reads nothing from it and writes nothing to it, so it can't raise a system prompt. A script, a CI job or an agent then takes the server and the key from `--url` and `--key`, or from `MARFA_API_URL` and `MARFA_API_KEY`.
+For a script, a CI job or an agent, pass `--no-keychain` or set `MARFA_NO_KEYCHAIN` to `1`, `true`, `yes` or `on`. **The CLI then reads nothing from the keychain and writes nothing to it**, so it can't raise a system prompt. Every command needs `--url` or `MARFA_API_URL`, and the credential from `--key` or `MARFA_API_KEY`.
 
-There is no current server to fall back to, so every command needs `--url` or `MARFA_API_URL`. A command that has to keep or remove something refuses: `marfa keys keep`, `marfa keys forget`, `marfa logout` and `marfa login` without `--print-token`. `marfa login --print-token` prints the token set instead of keeping it, and turns the keychain off for that run.
+A command that keeps or removes a credential refuses: `marfa keys keep`, `keys forget`, `logout`, and `login` without `--print-token`. `marfa login --print-token` prints the token set instead of keeping it.
 
-[Manage keys](/guides/manage-keys#give-a-key-to-a-script-or-agent) shows how to give a script a key from 1Password or Infisical.
+### Use another keychain file
+
+On macOS, `MARFA_KEYCHAIN` names a keychain file to use instead of your own, for a run with nobody there to answer a prompt. **The file must already exist**: `marfa login`, `logout`, `keys keep` and `keys forget` refuse a missing one with exit code 4 and `no keychain file is there`, and other commands find nothing kept in it. Make one with `security create-keychain -p '' <path>`. On other systems the CLI refuses the variable with exit code 4.
+
+`marfa folders watch` with no directory, and the login agent `marfa folders autostart` sets up, read each folder's credential from the keychain. The login agent starts outside your shell, so it never sees the variables or options above and reads your own keychain. [Keep folders running](/guides/keep-folders-running) covers it.
 
 ## Find a command
 
-**The CLI explains its own commands.** `marfa --help` lists them, and `marfa <command> --help` shows what a command does and every option it takes, for the version you have:
+`marfa --help` lists the commands, and `marfa <command> --help` shows what a command does and every option it takes, for the version you have. `marfa operations` lists each operation in the [API reference](/api-reference) beside the command that reaches it:
 
-```bash
-marfa items --help
-marfa items list --help
-```
-
-To find the command for an operation in the [API reference](/api-reference), `marfa operations` lists each operation beside the command that reaches it:
+<Terminal>
 
 ```bash
 marfa operations
@@ -115,11 +93,17 @@ getInstance                      marfa status
 getServerMetrics                 marfa metrics
 createItem                       marfa items create
 listItems                        marfa items list
+getItemStats                     marfa items stats
+getItem                          marfa items get
 ```
+
+</Terminal>
 
 ## Check what a command will use
 
-`marfa whoami` asks the server a command would reach, and says which instance answered and where the credential came from:
+**When a command reaches the wrong instance or is refused, start with `marfa whoami`.** It asks the server a command would reach, and prints the server, the instance with its name, release and build commit, and where the credential came from:
+
+<Terminal>
 
 ```bash
 marfa whoami
@@ -127,19 +111,19 @@ marfa whoami
 
 ```text
 server https://marfa.example.com
-instance 01a12312-7e62-70f2-a656-1c9eef418991 (Marfa 0.0.20, build 03dd201)
-a key from the keychain
+instance 01a15f23-b450-79e7-90ac-978f5ec4b38b (Marfa 0.0.20, build 03dd2018d3621d73465b9ea1d1fbb38c1ea756af)
+a key from MARFA_API_KEY
 ```
 
-The instance name comes from its live configuration and defaults to Marfa. [Settings](/guides/settings#change-settings-while-it-runs) shows how to change it. After the name comes the release the server was built as, then the commit it was built from. `marfa status` names them the same way. A server built from a clone shows only the commit, because it has no release.
+</Terminal>
 
-**Access is printed in the words the approval page uses.** Under an app's token, `marfa whoami` lists what the owner approved, and `marfa keys list`, `current`, `create` and `update` list what a key holds. Each item type shows as No access, Read only or Read and edit, named by its identifier, and each permission by its title, such as "See health, metrics, storage and job status". `--json` prints structured output.
-
-When a command reaches the wrong instance, or is refused, start here.
+The instance name defaults to Marfa, and [Settings](/guides/settings#change-settings-while-it-runs) changes it. A server built from a clone shows only the commit. Under an app's token, `marfa whoami` also lists what the owner approved, in the words of the approval page: each type as No access, Read only or Read and edit, and each permission by its title. `marfa keys list`, `current`, `create` and `update` print a key's access the same way, and `--json` prints it structured.
 
 ## Use the private socket
 
-On the computer that runs the instance, logged in as the account that runs the server, the CLI can act with the machine's own authority instead of a credential. Pass `--socket` with the path of the server's private socket, which is `control/marfa.sock` in the server's data directory:
+On the computer that runs the instance, logged in as the account that runs the server, the CLI can act with the machine's own authority instead of a credential. Pass `--socket` with the server's private socket, `control/marfa.sock` in its data directory:
+
+<Terminal>
 
 ```bash
 marfa --socket /path/to/data/control/marfa.sock setup status
@@ -148,28 +132,26 @@ marfa --socket /path/to/data/control/marfa.sock setup status
 ```json
 {
   "claimed": true,
-  "owner_id": "pBOgdR5hPFLKrgGqkgKcIsRXxFtBNS6o",
+  "owner_id": "mPfnOasjLXnMRG6AG6qclGUhdhBetUn6",
   "generation": null
 }
 ```
 
-That's how the owner makes the first key, as in the [Quickstart](/quickstart). A few commands work only through the socket:
+</Terminal>
+
+That's how the owner makes the first key in the [Quickstart](/quickstart). These commands work only through the socket:
 
 | Command | What it does | Guide |
 | --- | --- | --- |
 | `marfa setup status`, `setup code`, `setup open` | Check whether the instance is claimed, replace the setup code, and open the browser handoff. | [Quickstart](/quickstart) |
-| `marfa owner recover` | Set a new owner password. | [Manage keys](/guides/manage-keys#recover-the-owners-password) |
-| `marfa owner update` | Change the owner's email and name. | [Sign in as the owner](/guides/sign-in-as-the-owner#change-the-owners-email-or-name) |
+| `marfa owner recover` | Set a new owner password. | [Sign in as the owner](/guides/sign-in-as-the-owner#recover-the-owners-password) |
+| `marfa owner update` | Change the owner's email and name. | [Sign in as the owner](/guides/sign-in-as-the-owner#change-the-owners-profile) |
 | `marfa owner passkeys` | Add, list, rename and remove passkeys. | [Sign in as the owner](/guides/sign-in-as-the-owner#manage-passkeys-and-sign-ins) |
 | `marfa sign-ins` | List, rename and end the sign-ins that can reach the server. | [Sign in as the owner](/guides/sign-in-as-the-owner#manage-passkeys-and-sign-ins) |
 
-`marfa profile update --name "Reader"` uses a key or app token with profile write access instead. It can change name and avatar, never email, as [Authenticate](/guides/authenticate#change-profile-fields-with-a-credential) explains.
-
-**The socket carries no key.** `--socket` conflicts with `--url` and `--key`, and a command given it refuses to run while `MARFA_API_URL` or `MARFA_API_KEY` is set. An operation that needs a key or a token, such as `marfa events` or `marfa export`, ends with exit code 5. Run those without `--socket`, with a key. `marfa login`, `logout`, `device`, `folders`, `docs` and `types scaffold` refuse `--socket`.
+**The socket carries no key.** `--socket` can't be combined with `--url`, `--key`, `MARFA_API_URL` or `MARFA_API_KEY`. An operation that needs a key, such as `marfa events` or `marfa export`, ends with exit code 5, so run it with a key instead. `marfa login`, `logout`, `device`, `folders`, `docs` and `types scaffold` refuse `--socket`.
 
 ## Exit codes
-
-The exit code says what to do next:
 
 <include cwd>src/generated/cli/exit-codes.md</include>
 
