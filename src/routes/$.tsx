@@ -9,12 +9,12 @@ import {
   DocsDescription,
   DocsPage,
   DocsTitle,
-  PageFooter,
 } from 'fumadocs-ui/layouts/notebook/page';
 import { baseOptions } from '@/lib/layout.shared';
 import { appName, gitConfig } from '@/lib/shared';
 import { DocsHeader } from '@/components/docs-header';
 import { PageActions } from '@/components/page-actions';
+import { PageFooter } from '@/components/page-footer';
 import { SidebarFooter } from '@/components/release-label';
 import {
   useFumadocsLoader,
