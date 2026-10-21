@@ -34,9 +34,9 @@ For running an instance:
 
 For apps and devices:
 
-- **`PATCH /config` changes only the settings it names.** A setting set to `null` goes back to its default, and `enforcement` is one setting, so naming it replaces all three levers. [Update the configuration](/guides/settings#update-the-configuration) covers it.
+- **`PATCH /config` changes only the settings it names.** A setting in the body replaces the stored one, a setting set to `null` goes back to its default, and every other setting stays. `enforcement` is one setting, so naming it replaces all three levers. It takes the same fields and refusals as `PUT /config`. [Update the configuration](/guides/settings#update-the-configuration) covers it.
 - **`marfa config update` sends `PATCH /config`**, with `--body` or `--file`.
-- **`GET /audit` filters by `kind` and `q`.** `kind` is `access`, `data`, `settings` or `housekeeping`, and `q` keeps the entries that hold every word you give. [Filter it](/guides/audit-log#filter-it) covers both.
+- **`GET /audit` filters by `kind` and `q`.** `kind` is `access`, `data`, `settings` or `housekeeping`, and `q` keeps the entries that hold every word you give, in any order, ignoring ASCII case. Any other `kind` is refused `400 validation_error`. [Filter it](/guides/audit-log#filter-it) covers both.
 - **`GET /export?format=archive&files=false` leaves out file bytes.** The manifest names each file it left out under `missing_blobs`, and a restore reports those the instance doesn't hold in `blobs_missing`. [Leave out the files](/guides/export-and-restore#leave-out-the-files) covers it.
 
 ## v0.0.18
@@ -59,32 +59,32 @@ For running an instance:
 
 For apps and devices:
 
-- **The owner chooses what an app gets.** The approval screen sets each type to No access, Read only or Read and edit, then the profile, then the powers over Marfa, which start off. Access the app already holds shows as Already allowed. [What the owner chooses](/guides/authenticate#what-the-owner-chooses) covers it.
+- **The owner chooses what an app gets.** The approval screen sets each type to No access, Read only or Read and edit, then the profile, then the powers over Marfa, which start off; three powers that can't be undone are marked. Access the app already holds shows as Already allowed. [What the owner approves](/access#what-the-owner-approves) covers it.
 - **The owner can narrow a request for all data to types.** The approval screen shows Choose types, and if the owner picks types, the token names them instead of all data.
 - **Turning off all the new access refuses the request.** The app gets `access_denied` and keeps what it held. A request for nothing but `openid` and `offline_access` offers nothing to turn off, so the owner can approve it.
 - **A device code is easier to type.** It shows as `XXXX-XXXX`, is accepted in any case with or without the hyphen, and ends after 10 minutes.
-- **Confirming it's you happens in a dialog, not a redirect.** `POST /auth/confirm` takes the owner's password or a passkey and replaces the session, so the browser stays on the same page. [When approval needs a recent sign-in](/guides/authenticate#when-approval-needs-a-recent-sign-in) covers it.
+- **Confirming it's you happens in a dialog, not a redirect.** `POST /auth/confirm` takes the owner's password or a passkey and replaces the session, so the browser stays on the same page. [What the owner approves](/access#what-the-owner-approves) covers it.
 - **A wrong password at `POST /auth/confirm` counts against the sign-in limits.** It answers `401 unauthorized`, then `429 rate_limited` with `Retry-After` once the attempts are spent, and a refused confirmation keeps the session.
 - **`POST /auth/confirm` answers `401` without a live owner session**, and to a request that carries a key.
 - **A program refused for want of a recent sign-in gets `403 forbidden`**, with "Sign in again to perform this operation". A browser can always end its own sign-in.
 - **`narrow_only` keeps a key from gaining access.** `PATCH /keys/{id}` with `narrow_only: true` refuses a change that adds access, and the API keys pages send it. [Narrow a key](/guides/manage-keys#narrow-a-key) covers it.
 - **`POST /keys` answers `Cache-Control: no-store`**, so the new secret isn't cached.
-- **Marfa keeps a whole number exact, or refuses it.** A `number` or `integer` value that Marfa can't serve back with the same digits, such as `1500000000000000001`, is refused `400 invalid_properties`. [Field kinds](/catalog/field-kinds) covers it.
+- **Marfa keeps a whole number exact, or refuses it.** A `number` or `integer` value that Marfa can't serve back with the same digits, such as `1500000000000000001`, is refused `400 invalid_properties`, and `details.errors` names the field. [Field kinds](/catalog/field-kinds) covers it.
 - **A `url` value is judged as the WHATWG URL Standard does.** It's trimmed first, and for a special scheme such as `http`, a non-ASCII host must be valid IDNA and a host with a forbidden code point is refused.
 - **A tag of `.` or `..` is refused** with `400 validation_error`, as an empty, blank or over-long tag is. A restore still accepts what an archive holds.
-- **Narrowing a webhook cancels the pending deliveries it no longer selects.** Changing its `url` or setting `active: false` cancels all of them, and widening revives none. [Change what a webhook sends](/guides/receive-webhooks#change-what-a-webhook-sends) covers it.
+- **Narrowing a webhook cancels the pending deliveries it no longer selects.** They end `canceled`. Changing its `url` or setting `active: false` cancels all of them, and widening revives none. [Change what a webhook sends](/guides/receive-webhooks#change-what-a-webhook-sends) covers it.
 - **The CLI prints access in the words the approval page uses.** `marfa login`, `whoami` and `keys list`, `current`, `create` and `update` show No access, Read only or Read and edit for each type, and name powers by their titles; `--json` is unchanged. [CLI](/cli) covers it.
-- **A queued write that fails alone is set aside.** When a write keeps failing like an outage while the server answers other writes, a device tests it and then blocks it as `failing_alone`; the writes that depend on it wait as `awaiting_dependency`. [Devices](/devices#verdicts) covers it.
+- **A queued write that fails alone is set aside.** When a write keeps failing like an outage while the server answers other writes, a device tests it by sending another write that doesn't depend on it, and blocks it as `failing_alone` only if it fails the same way when sent once more; the writes that depend on it wait as `awaiting_dependency`. [Devices](/devices#verdicts) covers it.
 - **`marfa device queue` prints the last answer a write met**, after `last answer:`.
-- **A file item's file at a document name is sent as bytes.** A file bound to a file item, at a name ending `.md`, `.markdown` or `.txt`, is sent as bytes with no frontmatter read, and waits while it's empty. A file at such a name that isn't bound to a file item is still read as a document.
+- **A file item's file at a document name is sent as bytes.** A file bound to a file item, at a name ending `.md`, `.markdown` or `.txt`, is sent as bytes whatever they hold, with no frontmatter read. If it's empty it waits, and the rest of the scan goes on. A file at such a name that isn't bound to a file item is still read as a document.
 - **A `marfa_id` over 256 bytes isn't read as an item ID.**
 - **`--no-keychain` keeps the CLI off the keychain.** It, or `MARFA_NO_KEYCHAIN=1`, makes every command treat the keychain as absent, and `marfa login --print-token` no longer reads or writes it. [CLI](/cli) covers it.
 - **A key sent with no server named is refused.** A command that sends a key from `--key` or `MARFA_API_KEY` without naming a server is refused `no_server`.
 - **Two types with the same label are told apart on the approval screen.** Each shows its identifier under the label, and the type search matches the identifier.
-- **A lock file the CLI can't write is refused with a message** that says to check that the file is writable.
-- **A repeat of a write whose first answer was large is refused.** Marfa keeps only the status of a first answer over 1,048,576 bytes, so a repeat under the same `Idempotency-Key` answers `422 idempotency_result_not_retained` and writes nothing. [Write safely](/guides/write-safely#retry-with-an-idempotency-key) covers it.
+- **A lock file the CLI can't write is refused with a message.** When the lock file opens read-only, the CLI stops with `<file> cannot be opened for writing, so it cannot be locked: check that it is writable`.
+- **A repeat of a write whose first answer was large is refused.** Marfa keeps only the status of a first answer over 1,048,576 bytes, so a repeat under the same `Idempotency-Key` answers `422 idempotency_result_not_retained` with `details.original_status` and writes nothing. [Write safely](/guides/write-safely#retry-with-an-idempotency-key) covers it.
 - **A device counts such a repeat's `2xx` status as accepted**, except for a create that names no `id`, which it refuses.
-- **A waiting edge edit or delete stays in view through a catch-up.** When a catch-up brings in an item with its edges, the device lays its own waiting writes over them, as hydration does.
+- **A waiting edge edit or delete stays in view through a catch-up.** When a catch-up brings in an item with its edges, the device lays its own waiting writes over them, as hydration does, instead of showing the server's version until the server answers.
 
 ## v0.0.17
 
@@ -93,25 +93,25 @@ Released October 20, 2026. [v0.0.17 on GitHub](https://github.com/withmarfa/marf
 For running an instance:
 
 - **A blob folder that has gone reads as down, not empty.** When the disk store's folder or its `.marfa-store` marker is missing, as on an unmounted drive, `GET /health` reports `blob_storage` as `down` with status `503`. [Deploy](/guides/deploy#keep-it-running) covers the health check.
-- **Housekeeping passes over a store it can't reach.** `blob-integrity` strikes none of its copies and counts it in `unreachable`, replication carries on past it, and `enrichment-sweep` doesn't count the attempt against the file.
+- **Housekeeping passes over a store it can't reach.** `blob-integrity` strikes none of its copies, counts it in `unreachable` and still checks the stores it can reach, replication carries on past it, and `enrichment-sweep` doesn't count the attempt against the file.
 - **A blob read answers `503 blob_store_unavailable` when no store returns the bytes** and a store that holds a copy can't answer, rather than `404 blob_not_found`. A restore that finds the disk store's marker missing, or naming another store, answers the same and writes nothing.
 - **The bin purge keeps going through a backlog.** While items past the retention remain, `trash-purge` runs again at once instead of waiting for its interval. [Empty the bin](/guides/housekeeping#empty-the-bin) covers it.
 - **A restore keeps an item as the archive holds it.** An item whose type the instance no longer registers, or that lacks a field its type later required, keeps its archived properties and `schema_version`; an item of a `core` or `system` type the build ships is still held to its shape. [Restore an archive](/guides/export-and-restore#restore-an-archive) covers it.
 - **A restore keeps an edge whose edge type was force-deleted**, and no longer judges an end of a force-deleted type against the edge type's constraints. Such an edge is still skipped for the other reasons, such as a missing end.
 - **An instance that holds such rows can be exported again.** An export no longer refuses them with `409 export_rows_unrestorable`.
-- **A restore refuses an archive that lacks one of its four files.** An archive without `manifest.json`, `items.ndjson`, `edges.ndjson` or `types.ndjson` is refused `400 validation_error`, with the missing entries in `details.entries`, where before it answered `200` with counts of zero.
+- **A restore refuses an archive that lacks one of its four files.** An archive without `manifest.json`, `items.ndjson`, `edges.ndjson` or `types.ndjson` is refused `400 validation_error`, naming each missing entry in the message and in `details.entries`, where before it answered `200` with counts of zero.
 - **An upload or a restore has no total time limit.** `MARFA_UPLOAD_IDLE_TIMEOUT_MS`, 60000 milliseconds unless set, ends one that receives no bytes for that long with `408 request_timeout`, and nothing is stored. [Every environment setting](/guides/settings#every-environment-setting) lists the setting.
 - **A restore's recent sign-in is judged when it starts.** A restore that starts within five minutes of the owner's sign-in isn't refused for finishing later; an older session is refused `403 forbidden` at once, and one that ends during the upload gets `401 unauthorized`.
-- **`marfa export --output` keeps the last whole archive.** When the new archive lacks blobs, the CLI leaves the file at the path, keeps the new archive beside it as `<path>.incomplete`, and exits `1` with `blobs_missing`. [When an archive lacks a file's bytes](/guides/export-and-restore#when-an-archive-lacks-a-files-bytes) covers it.
-- **Claiming in a browser signs the owner in.** A claim that carries the instance's own `Origin` leaves the browser signed in, which counts as a recent sign-in; a claim with no `Origin`, such as a script's, or a refused claim sets no session. [Claim the instance](/quickstart#claim-the-instance) covers it.
+- **`marfa export --output` keeps the last whole archive.** When the new archive lacks blobs, the CLI leaves the file at the path, keeps the new archive beside it as `<path>.incomplete`, replacing only an earlier file of that name, and exits `1` with `blobs_missing`. The message says whether the path still holds an earlier file. If the CLI can't write that name, it keeps the archive in a hidden file beside the path and names it. [When an archive lacks a file's bytes](/guides/export-and-restore#when-an-archive-lacks-a-files-bytes) covers it.
+- **Claiming in a browser signs the owner in.** A claim that carries the instance's own `Origin` leaves the browser signed in, which counts as a sign-in within the last five minutes, so adding a passkey needs no second prompt; a claim with no `Origin`, such as a script's, or a refused claim sets no session. [Claim the instance](/quickstart#claim-the-instance) covers it.
 - **A failed sign-in after a claim leaves the owner claimed**, to sign in at the page that follows.
 - **Setup runs as six steps:** the setup code, the owner's details, a passkey, a name for the instance, connecting, and backups.
-- **The sign-in page says how long a lockout lasts.** When password sign-in or a device code lookup is refused for too many attempts, the page gives the wait in whole minutes and says that a passkey still signs in. [Troubleshooting](/guides/troubleshooting) covers it.
-- **The sign-in page links to Forgot password,** at `/auth/forgot-password`, which gives the command that recovers the owner on the instance's machine. [Recover the owner's password](/guides/manage-keys#recover-the-owners-password) covers the command.
+- **The sign-in page says how long a lockout lasts.** When password sign-in or a device code lookup is refused for too many attempts, the page gives the wait in whole minutes, rounded up, and says that a passkey still signs in. [Troubleshooting](/guides/troubleshooting) covers it.
+- **The sign-in page links to Forgot password,** at `/auth/forgot-password`, which gives the command that recovers the owner on the instance's machine. [Recover the owner's password](/guides/sign-in-as-the-owner#recover-the-owners-password) covers the command.
 
 For apps and devices:
 
-- **An export ends with an error when its credential ends.** If the key or app that started `GET /export` is revoked, expires, is disconnected, or is narrowed so it can't read what's left to send, the response ends with an error instead of ending cleanly. [What an export checks](/guides/export-and-restore#what-an-export-checks) covers it.
+- **An export ends with an error when its credential ends.** If the key or app that started `GET /export` is revoked, expires, is disconnected, or is narrowed so it can't read what's left to send, the response ends with an error instead of ending cleanly, in both formats and while an archive sends a blob. A narrowing that takes away nothing left to send changes nothing. [What an export checks](/guides/export-and-restore#what-an-export-checks) covers it.
 - **An archive export whose key is revoked before the response begins** gets `401 unauthorized`.
 
 ## v0.0.16
@@ -121,18 +121,18 @@ Released October 19, 2026. [v0.0.16 on GitHub](https://github.com/withmarfa/marf
 For running an instance:
 
 - **An archive export is checked against a restore before it's sent.** Marfa checks the whole archive as a restore into an empty instance does, so the archive restores into an empty instance of the same build without skipping an item or an edge. [What an export checks](/guides/export-and-restore#what-an-export-checks) covers it.
-- **An export that fails the check is refused.** A row that fails twice without changing answers `409 export_rows_unrestorable`, named in `details.row`; a row or type that changed meanwhile answers `503 export_unrestorable`, so export again.
+- **An export that fails the check is refused.** A row that fails twice without changing answers `409 export_rows_unrestorable`, named in `details.row`; a row or type that changed meanwhile, or a second read that refused a different row, answers `503 export_unrestorable`, so export again.
 - **An export's temporary files count against `MARFA_DISK_RESERVE_BYTES`.**
-- **Text that isn't well-formed UTF-16 is refused.** A string or property name with a lone surrogate, such as an emoji cut in the middle, is refused `400 validation_error`, and a restore refuses an archive that holds one. [Troubleshooting](/guides/troubleshooting) covers the refusal.
+- **Text that isn't well-formed UTF-16 is refused.** A string or property name with a lone surrogate, such as an emoji cut in the middle, is refused `400 validation_error`, and `details.errors[].path` names the text by its JSON pointer. A restore refuses an archive that holds one, and names the row. [Troubleshooting](/guides/troubleshooting) covers the refusal.
 - **Text extracted from a file is never cut through a character.** It's cut at `MARFA_ENRICHMENT_MAX_TEXT_CHARS` UTF-16 code units.
 - **The body checks apply whatever `Content-Type` a request states.** The UTF-16 check and the limit of 64 nested levels apply to every body except on `POST /blobs`, `POST /restore` and inbound webhooks.
 
 For apps and devices:
 
-- **Approving an app for more than reading needs a recent sign-in.** A browser signed in more than five minutes ago can approve reading only; for write access or a permission the app wasn't approved for before, Marfa asks the owner to sign in again. [When approval needs a recent sign-in](/guides/authenticate#when-approval-needs-a-recent-sign-in) covers it.
+- **Approving an app for more than reading needs a recent sign-in.** On the approval screen and the device approval screen, a browser signed in more than five minutes ago can approve reading only; for write access or a permission the app wasn't approved for before, Marfa asks the owner to sign in again and returns them to the screen. [Access](/access#what-the-owner-approves) covers it.
 - **Revoking a key or disconnecting an app in a browser needs a recent sign-in** too. A key, an app token and the private socket aren't affected.
-- **A write is judged by the key as it stands when it commits.** If a key is narrowed or revoked while one of its item writes waits, the write is refused with `403 type_not_permitted`, `404 item_not_found` or `401 unauthorized`. In a bulk write, an atomic page is refused and a best-effort entry is `errored`.
-- **A device keeps its working copy when the server sends an answer it can't read.** A hydration, catch-up or follow whose answer isn't JSON ends with `decoding` and keeps the copy and its place in the event stream, where before the copy expired.
+- **A write is judged by the key as it stands when it commits.** If a key is narrowed or revoked while one of its item writes waits, the write is refused with `403 type_not_permitted`, `404 item_not_found` when the key can no longer read the type, or `401 unauthorized`. This covers creating, updating, deleting, restoring, transitioning and purging an item. In a bulk write, an atomic page is refused and a best-effort entry is `errored`.
+- **A device keeps its working copy when the server sends an answer it can't read.** A hydration, catch-up or follow whose answer or event isn't JSON ends with `decoding` and keeps the copy and its place in the event stream, where before the copy expired.
 - **A stream cut in the middle of an event is an interruption.** A catch-up ends `stream_incomplete`, and a follow opens the stream again from its place.
 
 ## v0.0.15
@@ -141,12 +141,12 @@ Released October 19, 2026. [v0.0.15 on GitHub](https://github.com/withmarfa/marf
 
 For running an instance:
 
-- **A restore keeps the edges of items in the bin.** An archive made with `--state any` carries them, and a restore no longer skips them. [Restore an archive](/guides/export-and-restore#restore-an-archive) covers it.
+- **A restore keeps the edges of items in the bin.** An archive made with `--state any` carries them, and a restore used to skip them as `item_not_found`. [Restore an archive](/guides/export-and-restore#restore-an-archive) covers it.
 - **`edges_skipped_reasons` names only four kinds of reason:** `already_present`, `endpoint_missing`, `malformed`, or the error code `POST /edges` would answer for that edge.
 - **A backup restores when its types refer to each other.** Types that name each other in `compatible_with`, or whose display hints, links or merge fields name fields they inherit, restore in any order.
 - **A key's first request no longer waits behind a long job.** Marfa records a key's last use in the background, so a first request during a restore or bulk job no longer fails with `503 write_contention`, and `last_used_at` can lag or stay `null` after a busy moment.
 - **A bulk job ends when the key that started it is revoked.** It ends `failed` and writes nothing more, where before it stayed `in_progress`.
-- **A text-extraction or webhook scheduling run started by hand finishes** when the key that started it is revoked.
+- **A text-extraction or webhook scheduling run started by hand no longer fails** when the key that started it is revoked.
 
 For apps and devices:
 
@@ -158,7 +158,7 @@ For apps and devices:
 
 Released October 19, 2026. [v0.0.14 on GitHub](https://github.com/withmarfa/marfa/releases/tag/v0.0.14)
 
-**Before you update, if your container keeps its database in a bucket:** the replica moves from `db` at the bucket's root to `<S3_PREFIX>/db`. On its next start, an existing deployment streams its database to the new path and takes a full snapshot there, and you can delete the old `db/` objects once it has. **Every instance on a shared bucket needs its own `S3_PREFIX`**: before this release, they shared one replica, and a new volume of one could start on another's database. [With a bucket](/guides/back-up-and-restore#with-a-bucket) and [An object store](/guides/deploy#an-object-store) explain the prefix.
+**Before you update, if your container keeps its database in a bucket:** the replica moves from `db` at the bucket's root to `<S3_PREFIX>/db`. On its next start, an existing deployment streams its database to the new path and takes a full snapshot there, and the old `db/` objects are no longer read or pruned, so you can delete them once it has. **Every instance on a shared bucket needs its own `S3_PREFIX`**: before this release, they shared one replica, and a new volume of one could start on another's database. [With a bucket](/guides/back-up-and-restore#with-a-bucket) and [An object store](/guides/deploy#an-object-store) explain the prefix.
 
 For running an instance:
 
@@ -166,9 +166,9 @@ For running an instance:
 - **An instance names its release.** `GET /` answers `release` beside `version`, and `marfa status` and `marfa whoami` show both; a build made from a clone has no `release`.
 - **The container's port is published on the loopback address only**, because Docker publishes a bare port on every interface.
 - **A proxy on the container's machine needs `TRUSTED_PROXY_CIDRS`.** Set it to the container network's range, or every caller shares one address and sign-in lockouts apply to everyone together. [The address](/guides/deploy#the-address) explains it.
-- **A webhook to a private address is refused when you register it.** A `url` whose host is, or resolves to, a private address, such as a Tailscale name, is refused `400 validation_error` naming `MARFA_WEBHOOK_ALLOW_PRIVATE_ADDRESSES`. [Receive deliveries on a private network](/guides/receive-webhooks#receive-deliveries-on-a-private-network) covers it.
+- **A webhook to a private address is refused when you register it.** A `url` whose host is, or resolves to, a private address, such as a Tailscale name, is refused `400 validation_error` naming `MARFA_WEBHOOK_ALLOW_PRIVATE_ADDRESSES`, and so is a change of `url` to one. [Receive deliveries on a private network](/guides/receive-webhooks#receive-deliveries-on-a-private-network) covers it.
 - **A delivery refused for its address is `dead_letter` at once** and not retried, so redeliver it after you allow private addresses.
-- **An outbound webhook reaches only global IPv6 addresses.**
+- **An outbound webhook reaches only global IPv6 addresses**, and other IPv6 blocks are refused.
 - **Telemetry names the instance.** Every log record, span and reported exception carries `service.instance.id`, the `instance_id` that `GET /` answers. [Tell instances apart](/guides/telemetry#tell-instances-apart) covers it.
 - **`OTEL_RESOURCE_ATTRIBUTES` marks an instance** for the server and the CLI, such as `deployment.environment=staging` for a test one, and `OTEL_SERVICE_NAME` wins over a `service.name` in it.
 - **The bare-metal start loads the telemetry preload.** [Run it without a container](/guides/deploy#run-it-without-a-container) shows it.
@@ -194,10 +194,10 @@ For apps and devices:
 
 Released October 18, 2026. [v0.0.13 on GitHub](https://github.com/withmarfa/marfa/releases/tag/v0.0.13)
 
-- **An instance has a name.** Its live configuration holds a display name, Marfa by default, which the instance description and the owner's pages show; changing it needs no restart and keeps the instance ID. [Change settings while it runs](/guides/settings#change-settings-while-it-runs) covers it.
-- **The owner can change their sign-in email and name.** `PATCH /owner` does it from a browser session signed in within the last five minutes, and `marfa owner update` through the private socket. [Change the owner's email or name](/guides/sign-in-as-the-owner#change-the-owners-email-or-name) covers it.
+- **An instance has a name.** Its live configuration holds a display name, Marfa by default, which the instance description returns and existing pages show; changing it needs no restart and keeps the instance ID. [Change settings while it runs](/guides/settings#change-settings-while-it-runs) covers it.
+- **The owner can change their sign-in email and name.** `PATCH /owner` does it from a browser session signed in within the last five minutes, and `marfa owner update` through the private socket. [Change the owner's profile](/guides/sign-in-as-the-owner#change-the-owners-profile) covers it.
 - **An email change needs no confirmation**, and the owner's password, passkeys, sessions, keys and app grants keep working.
-- **A key or an app can change the profile's name and avatar.** `PATCH /profile` and `marfa profile update` need profile write access for each field sent, and email stays the owner's alone. [Change profile fields with a credential](/guides/authenticate#change-profile-fields-with-a-credential) covers it.
+- **A key or an app can change the profile's name and avatar.** `PATCH /profile` and `marfa profile update` need profile write access for each field sent, and email stays the owner's alone. [Change the owner's profile](/guides/sign-in-as-the-owner#change-the-owners-profile) covers it.
 - **A grant to write the email is refused**, and the approval screen names profile write access.
 - **A folder watch yields only to a command that asks for the folder.** Watches no longer take each other for such a command, so they don't take a folder from each other.
 
@@ -286,7 +286,7 @@ Released October 16, 2026. [v0.0.9 on GitHub](https://github.com/withmarfa/marfa
 For running an instance:
 
 - **A web page can connect with one approval and no pasted key.** The discovery documents and `POST /auth/oauth2/register` answer any origin, and once the owner approves the page, the origins of its redirect URIs may call the API from a browser with no `CORS_ORIGINS` entry. [Connect a web page](/guides/connect-a-web-page) covers it.
-- **A registration that never receives a grant is removed after 1 day,** not 30 (`MARFA_DCR_CLIENT_RETENTION_DAYS`).
+- **A registration that never receives a grant is removed 1 day after its registration or the last time its approval page was offered,** not 30 (`MARFA_DCR_CLIENT_RETENTION_DAYS`).
 - **A registration takes a body of at most 32,768 bytes** and at most 10 redirect URIs.
 - **Registering a client that uses `private_key_jwt` is refused** with `400 invalid_client_metadata`, and the discovery documents list the client authentication methods the instance accepts.
 - **A connector-only operation answers an owner session `403 forbidden`**, not `401`, and so does the private socket.
@@ -315,13 +315,13 @@ For the CLI:
 - **A refused `marfa folders add` leaves behind no directory it made.**
 - **`marfa folders push --send-only` sends without touching files.** It sends what a folder holds and writes or removes no file in it. [Send without pulling](/guides/keep-folders-running#send-without-pulling) covers it.
 - **`marfa folders unmatched <DIR>` lists files the folder's search no longer matches,** and `--remove` takes them away after a confirmation or with `--yes`. [Remove files a folder keeps but no longer holds](/guides/keep-folders-running#remove-files-a-folder-keeps-but-no-longer-holds) covers it.
-- **A Markdown document's file name and title stay in step.** Renaming the file sets the title, and a new title renames a file whose name still matches the old title; a name you chose, or an empty title, leaves the file name as it is. [Edits on either side](/guides/sync-a-folder#edits-on-either-side) covers it.
+- **A Markdown document's file name and title stay in step.** Renaming the file sets the title, and a new title renames a file whose name still matches the old title; a name you chose, or an empty title, leaves the file name as it is. [Edit on either side](/guides/sync-a-folder#edit-on-either-side) covers it.
 - **The CLI can send telemetry.** With `OTEL_EXPORTER_OTLP_ENDPOINT` set, it exports one trace for each command, and with `MARFA_POSTHOG_HOST` and `MARFA_POSTHOG_PROJECT_TOKEN` too, a failed command goes to PostHog error tracking; with none set, it sends nothing. [What the CLI sends](/guides/telemetry#what-the-cli-sends) covers it.
 
 For apps and devices:
 
 - **A body link keeps naming the item its edge was made to** when other links are added to the body or taken out. A link by an item's ID always names that item, whatever other items are titled.
-- **An app can forget only the answered writes it names**, so an answer recorded between its read and its clear isn't lost unread. Use `forgetAnswered(ids:)` in the Swift SDK from v0.0.17, `forgetAnsweredIds` in the Node module, or `marfa device forget --id <ID>`, which you can repeat.
+- **An app can forget only the answered writes it names**, so an answer recorded between its read and its clear isn't lost unread. Use `forgetAnswered(ids:)` in the Swift SDK from v0.0.17, `forgetAnsweredIds` in the Node module, or `marfa device forget --id <ID>`, which you can repeat. Without ids, `marfa device forget` still clears every answered write it can.
 - **A working copy that holds the event stream drains when the server comes back.** A copy such as `marfa device follow` drains once and reports `queue.drained` or `queue.not_drained`, so an app no longer has to drain itself.
 - **A working copy refuses a write to a `system.*` item** with `403 type_not_permitted`, before it saves or queues anything.
 - **A row the slice holds in the trash stays in the copy after a drain reads it back.**
@@ -390,7 +390,7 @@ For the API and the CLI:
 - **The CLI warns once before it sends a credential over plain `http`** to a host other than this machine, and `--allow-http` says that's intended.
 - **A device client that can't refresh its token is refused `offline_access`**, rather than approved without a refresh token.
 - **Version history names the sign-in that wrote each version**, and carries a cursor to continue its pages. [History](/versions#history) covers it.
-- **`POST /types/normalize` and `marfa types normalize` compare a candidate with the registered type** without writing it. [Compare a definition without registering it](/guides/define-a-type#compare-a-definition-without-registering-it) covers it.
+- **`POST /types/normalize` and `marfa types normalize` compare a candidate with its registered declared and resolved definitions** without writing it. [Compare a definition without registering it](/guides/define-a-type#compare-a-definition-without-registering-it) covers it.
 - **Unknown type and edge type schema keys are refused.**
 - **A connector registration shows persistent problems apart from its state and runs.** A connector replaces or clears its problems under its hold.
 
