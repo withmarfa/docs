@@ -1,4 +1,5 @@
 import { defineConfig, defineDocs } from 'fumadocs-mdx/config';
+import { rehypeCodeDefaultOptions } from 'fumadocs-core/mdx-plugins';
 import { pageSchema } from 'fumadocs-core/source/schema';
 import { z } from 'zod';
 import type { LLMsOptions } from 'fumadocs-core/mdx-plugins/remark-llms';
@@ -150,6 +151,6 @@ export const docs = defineDocs({
 // every build the same highlighting.
 export default defineConfig({
   mdxOptions: {
-    rehypeCodeOptions: { langs: ['yaml', 'markdown'] },
+    rehypeCodeOptions: { ...rehypeCodeDefaultOptions, langs: ['yaml', 'markdown'] },
   },
 });
