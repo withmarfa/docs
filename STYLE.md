@@ -28,7 +28,7 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 | Overview | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation, then reference |
 | Overview | AI tools: the Docs MCP server and Docs as Markdown | How-to |
 | Guides | Tutorials, Build apps and agents, Build connectors, Run Marfa (ending with Troubleshooting) | Tutorial, how-to |
-| Catalog | The Catalog and Items pages, then Types (the Core types and System types folders with one page per type, then Type rules and Field kinds), and Edges, events and permissions | Reference |
+| Catalog | The Catalog, Items, Edges, Events and Permissions pages, then Types (the Core types and System types folders with one page per type, then Type rules and Field kinds) | Reference |
 | Reference | SDKs and CLI: one page each, and the file the CLI keeps for other programs | How-to and reference for each client, then reference |
 | Reference | HTTP API: the overview, Errors, and the operations generated from the API description | Reference |
 | Reference | Resources: the Changelog and the contract | Reference |
@@ -128,7 +128,7 @@ Use a component for what it's for, and only where it helps the reader.
 | Component | Use it for |
 | --- | --- |
 | `Steps` | An ordered procedure: the Quickstart, the tutorials, a how-to with an order. Each step opens with a `###` heading |
-| `Steps paged` | A tutorial: one step on screen at a time, with a progress bar and Previous and Next arrows above it. Keep its steps close in length, so the page doesn't grow and shrink as the reader moves through them. A how-to's few short steps stay a plain `Steps` list |
+| `Steps paged` | A tutorial: one step on screen at a time in a card, with a step indicator and Previous and Next buttons above it. The card takes each step's height, so keep its steps close in length. A how-to's few short steps stay a plain `Steps` list |
 | `Terminal` | A command and what it prints (see Examples) |
 | Code tabs | The same example in more than one client (see Examples) |
 | `Tabs` | Alternatives that aren't code, such as two ways to claim an instance |
