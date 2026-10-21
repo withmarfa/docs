@@ -103,10 +103,11 @@ describe('fetchDocsPage', () => {
     expect(await fetchDocsPage('/overview.md')).toMatch(/^# Overview \(\/overview\)\n/);
     expect(await fetchDocsPage('/cli')).toContain('marfa items list');
     expect(await fetchDocsPage('/typescript-sdk')).toMatch(/^# TypeScript SDK \(\/typescript-sdk\)\n/);
-    // Code tabs keep their examples, under each tab's label.
+    // A command keeps its output, and code tabs keep their examples under each tab's label.
     const quickstart = await fetchDocsPage('/quickstart');
     expect(quickstart).toContain('marfa items create --type core.note');
-    expect(quickstart).toContain('**TypeScript**');
+    expect(quickstart).toContain('Output:');
+    expect(await fetchDocsPage('/guides/write-safely')).toContain('**TypeScript**');
     expect(await fetchDocsPage('/cli-reference')).toBeNull();
     expect(await fetchDocsPage('/docs-for-agents')).toBeNull();
     expect(await fetchDocsPage('/cli/items')).toBeNull();
