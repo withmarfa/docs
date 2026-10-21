@@ -56,7 +56,7 @@ types.ndjson
 blobs/sha256:a0feecd7233d9f5f3ec784c6bdb36587c651e2ec60437c27b4bf135de39149d7
 ```
 
-An export that was cut short doesn't unpack. With `--output`, the CLI writes to a hidden file beside the path and renames it over the path only when the export ended whole and lacks no files, so the file at the path is **always the last whole backup**. Any other ending leaves it as it was and exits with a nonzero [exit code](/cli#exit-codes), so a script notices.
+An export that was cut short doesn't unpack. With `--output`, the CLI writes to a hidden file beside the path and renames it over the path only when the export ended whole and lacks no files, so a file at the path is **always the last whole archive** the command wrote there. Any other ending leaves the path as it was and exits with a nonzero [exit code](/cli#exit-codes), so a script notices.
 
 </Step>
 </Steps>
@@ -65,7 +65,7 @@ An export that was cut short doesn't unpack. With `--output`, the CLI writes to 
 
 An export never claims a blob it doesn't hold. When no store holds a whole copy of a blob, such as after a disk lost the file, the archive **leaves the blob out** and the manifest names it under `missing_blobs`, with its `mime_type` and `size_bytes`. One lost file costs the backup that file, not everything else.
 
-With `--output`, the CLI keeps such an archive as `<path>.incomplete`. Over HTTP the answer is still `200`. In both, read the manifest:
+With `--output`, the CLI keeps such an archive as `<path>.incomplete` and exits with code 1 and `blobs_missing`. Over HTTP the answer is still `200`. In both, read the manifest:
 
 ```bash
 tar -xzOf marfa-archive.tar.gz.incomplete manifest.json
@@ -92,7 +92,7 @@ An empty `missing_blobs` means the archive holds every blob its items name. A fi
 marfa blobs upload <file>
 ```
 
-A store that fails, or doesn't answer within 15 seconds, is not a lost file. The export is refused with `503 blob_store_unavailable` before it begins, so try again once the store answers.
+A store that fails, or doesn't answer within 15 seconds, is not a lost file. Unless another store holds the blob whole, the export is refused with `503 blob_store_unavailable` before it begins, so try again once the store answers.
 
 ### Leave out the files
 
@@ -108,16 +108,16 @@ The manifest then names every file under `missing_blobs`, and a restore reports 
 ### What an export checks
 
 - **It isn't taken at one instant.** An item created while it runs may not be in it, so stop your apps first if the archive must hold every write.
-- **It ends when its credential does.** If the key or app that started it is revoked, expires or is narrowed below what is left to send, the response ends with an error and the file doesn't unpack. Export again.
-- **It is checked against a restore.** Before it sends a byte, Marfa checks that the archive restores into an empty instance of the same build without skipping a row. A row that would not restore refuses the export, and `409 export_rows_unrestorable` names it in `details.row`. Correct the row or its type, then export again.
-- **It needs room.** The server prepares the archive on the data volume first, so leave that volume room for about as much as the archive's text takes uncompressed.
+- **It ends when its credential does.** If the key or app that started it is revoked, expires, is disconnected or is narrowed below what is left to send, the response ends with an error and the file doesn't unpack. Export again.
+- **It is checked against a restore.** Before it sends a byte, Marfa checks that the archive restores into an empty instance of the same build without skipping a row, and reads the selection once more if a row fails. A row that fails both times unchanged refuses the export with `409 export_rows_unrestorable`, named in `details.row`: correct the row or its type, then export again. If writes changed it between the reads, the answer is `503 export_unrestorable`: export again once the writes stop.
+- **It needs room.** The server prepares the archive in the blob folder first, so leave that disk room for about as much as the archive's text takes uncompressed. An export that would take it below `MARFA_DISK_RESERVE_BYTES` is refused `507 insufficient_storage`.
 - **A source filter hides items.** [A source filter](/guides/settings#what-the-enforcement-levers-do) leaves items out of an export, the owner's too. Check that neither the instance nor the export key carries one that hides what you want kept.
 
 [Export items and edges](/api-reference/export-and-restore/exportData) lists every answer.
 
 ## Restore an archive
 
-A restore **adds and replaces nothing**. An item the instance already holds is counted in `duplicates` and left as it is, so replaying an archive never overwrites work done since. The target can be a new instance or the one the archive came from.
+A restore **adds what the instance lacks and replaces nothing**. An item the instance already holds is counted in `duplicates` and left as it is, so replaying an archive never overwrites work done since. The target can be a new instance or the one the archive came from.
 
 **Only the owner can restore**, through the private socket or signed in to the instance within the five minutes before the restore starts. A key is refused `403 forbidden`, whatever it holds.
 
@@ -155,9 +155,9 @@ A restore writes in one transaction. If it's refused, fails or is interrupted, i
 ### What a restore leaves for you
 
 - **Keys, webhooks and configuration.** Make keys, register webhooks and set the configuration again on the new instance.
-- **Connected apps.** A restored `system.connection` item for an app has `status: revoked`. It records past access rather than reconnecting the app, so sign the app in again. Items the app wrote keep a `restored:` source.
-- **Rows as the archive holds them.** A restore takes an item whose type is no longer registered, or whose type has since changed its fields, exactly as archived, so an export of your instance always restores. An item of a `core` or `system` type that the build ships is still held to its shape.
+- **Connected apps.** A restored `system.connection` item for an app has `status: revoked`. It records past access rather than reconnecting the app, so sign the app in again. An item an app wrote gets `restored:` in front of its source, so a later sign-in can't overwrite it.
+- **Rows as the archive holds them.** A restore takes an item whose type is no longer registered, or whose type has since changed its fields, exactly as archived, so an archive of your instance restores into an empty instance of the same build. An item of a `core` or `system` type that the build ships is still held to its shape.
 
-A restore refuses the whole archive, and writes nothing, when the file isn't a valid archive, lacks one of its four files, was written by another build, or conflicts with what the instance registers. [Restore from an archive](/api-reference/export-and-restore/restoreArchive) lists each refusal. If a newer build refuses your archive, [keep running the old build](/guides/upgrade#if-the-new-build-refuses-the-archive).
+A restore refuses the whole archive, and writes nothing, when the file isn't a valid archive, lacks one of its four files, names another format version, or conflicts with what the instance registers. [Restore from an archive](/api-reference/export-and-restore/restoreArchive) lists each refusal. If a newer build refuses your archive, [keep running the old build](/guides/upgrade#if-the-new-build-refuses-the-archive).
 
 The rules behind this page are in the [export](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#export) and [restore](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#restore) sections of the search and filters chapter of the contract.
