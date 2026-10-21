@@ -3,15 +3,13 @@ title: Devices
 description: How an app keeps a copy of your data on a phone or a Mac, works without a connection, and sends its changes when it can.
 ---
 
-An app on your phone shouldn't stop working on a train. A **device** is a client that keeps a **working copy** of part of an instance on the machine it runs on. It reads from that copy, and puts its writes in a queue that it sends when it can reach the server.
+An app on your phone shouldn't stop working on a train. A **device** is a client that keeps a **working copy** of part of an instance on the machine it runs on. It reads from that copy, and puts its writes in a **queue** that it sends when it can reach the server.
 
-An app built on the [Swift SDK](/swift-sdk) is a device, and so is the [CLI](/cli) when it runs its `marfa device` commands.
-
-The instance is always the **source of truth**. A working copy is a copy, not a peer: two devices never sync with each other, only with the instance.
+An app built on the [Swift SDK](/swift-sdk) is a device, and so is the [CLI](/cli) when it runs its `marfa device` commands. A device syncs only with the instance, never with another device, because the instance is the [source of truth](/how-marfa-works#the-instance).
 
 ## The working copy
 
-A device chooses the slice of the instance it keeps, such as every `core.note` and `core.task` in the library. It fills its copy once by reading every item in the slice, then keeps it current from the instance's [event stream](/events).
+A device chooses the **slice** of the instance it keeps: a list of types, a tier, and the edge types it holds. For example, every `core.note` and `core.task` in the library. It fills its copy once by reading every item in the slice, then keeps it current from the instance's [event stream](/events).
 
 Reads come from the copy, with no connection needed. A file's bytes are there once the device has fetched them.
 
@@ -19,21 +17,23 @@ Sometimes a copy can't be brought up to date, for example after the device was a
 
 ## A write made offline
 
-Every write a device makes shows in its copy at once, and waits in the queue until the instance answers it.
+Every write a device makes shows in its copy at once, and waits in the queue until the instance answers it. Sending the queue is a **drain**. The timeline follows one note through it.
 
 <Sequence title="A note edited on a train">
 
 1. You edit a note in an app, offline. The app writes to its working copy, and the note shows your change at once.
 2. The write waits in the queue, with the version of the note it was based on.
-3. The app tries to send the queue and can't reach the server. Nothing is lost: the write stays queued.
+3. The app tries to drain the queue and can't reach the server. Nothing is lost: the write stays queued.
 4. Back online, the app sends its queued writes in the order they were made. If an answer is lost on the way, the retry is recognized, so the instance never applies a write twice.
-5. The instance answers each write with a verdict, and the device brings its copy into line with what the instance now holds.
+5. The instance answers each write, the device gives it a verdict, and the device brings its copy into line with what the instance now holds.
 
 </Sequence>
 
+A device sends every update with `conflict=auto`, so the instance settles most collisions itself, as [Versions](/versions#when-two-apps-write-the-same-item) explains.
+
 ## Verdicts
 
-Each write the instance answers gets one verdict:
+Each write the device settles gets one verdict:
 
 | Verdict | What happened |
 | --- | --- |
@@ -42,33 +42,26 @@ Each write the instance answers gets one verdict:
 | `conflicted` | The two changes collided, and the instance kept both: the item keeps its value, and the write's value goes to a conflicted copy. |
 | `refused` | The instance refused the write, for example because it broke the item's type. The device keeps its content so an app can offer it back. |
 | `blocked` | Something has to change before the write can go, such as an expired credential. |
-| `dead` | The write failed five times in ways that count against it, such as an answer the device couldn't read. A lost connection or a server error never counts. |
+| `dead` | The write failed five times in ways that count against it, such as an answer the device couldn't read. A lost connection, a timeout or a server error never counts. |
 
-Only `refused`, `blocked` and `dead` need an **app's attention**. An app decides what to do with each: send it again, withdraw it, or let the person decide. [Versions](/versions) explains how the instance settles two changes to one item.
+Only `refused`, `blocked` and `dead` need an **app's attention**. A write with no answer yet has no verdict.
 
-A `blocked` write carries one of six reasons:
+A `blocked` write carries one of six reasons. Five hold it until something changes:
 
-| Reason | What holds the write |
-| --- | --- |
-| `credential_refused` | The credential was refused, or it lacks access the write needs. |
-| `key_spent` | The instance already answered the write's idempotency key for a different request. |
-| `ancestor_unavailable` | The instance no longer holds the version the write was based on. |
-| `conflict_unresolved` | A newer change collided with the write, and the instance didn't settle the two. |
-| `awaiting_dependency` | The write depends on another that isn't through yet. |
-| `failing_alone` | The write keeps failing like an outage while others go through. |
+| Reason | What holds the write | What clears it |
+| --- | --- | --- |
+| `credential_refused` | The instance refused the credential, or the credential lacks access the write needs. | A new credential or the missing access. The next drain sends the write again by itself. |
+| `key_spent` | The instance already answered the write's idempotency key for a different request. | A release. |
+| `ancestor_unavailable` | The instance no longer holds the version the write was based on. | A withdrawal. Sent again, the write is refused the same way. |
+| `conflict_unresolved` | A newer change collided with the write, and the instance didn't settle the two. | A withdrawal. Sent again, the write is refused the same way. |
+| `failing_alone` | The write keeps failing as if the server were down, while the writes behind it go through. | A release or a withdrawal. |
 
-A gateway can refuse one write in the words of an outage, such as an HTML `413` page for a large upload, and hold back every write behind it. So once a write has failed this way in several drains over some minutes, the device tests it: it sends another write that doesn't depend on it and, if the server answers in a way that lets the device go on, sends the failing write once more.
+A **release** sends the write again in the next drain, under a fresh idempotency key. A **withdrawal** takes the write out of the queue and puts the copy back to what the instance holds. Withdrawing a create, or a write blocked `failing_alone`, also refuses the writes that wait on it. The Swift SDK's [queue](/swift-sdk#send-writes-and-read-verdicts) and the CLI's `marfa device release` and `marfa device withdraw` do both.
 
-If that fails in the same way, the device blocks the write as `failing_alone` and carries on with the rest of the queue. The contract has the rules for [when a write becomes a suspect](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsstuck-write-suspect) and for [an answer that ends the test](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsstuck-write-test-refused).
-
-Releasing the write gives it a fresh try, and withdrawing it refuses the writes that wait on it. `marfa device queue` prints the last answer a write met after `last answer:`, as `HTTP <status>` with the start of a text body, or `no answer`.
+The sixth reason, `awaiting_dependency`, marks a write waiting behind another that has no answer yet, such as an edit of a note whose create hasn't been answered. Nothing needs to be done: the Swift SDK shows it as waiting, and the answer to the write it waits for releases it.
 
 ## Folders
 
-A device's working copy can also be a directory of files on your computer: **a folder**. Each item the folder holds is a file, a note becomes a Markdown file, and an edit to either the file or the item reaches the other.
-
-A file moved to another folder on the same computer stays the same item, because the file carries its item's ID.
-
-A folder keeps a working copy and a queue like any device. [Sync a folder](/guides/sync-a-folder) sets one up, and [Keep folders running](/guides/keep-folders-running) keeps every folder in step from login.
+A device's working copy can also be **a folder**, a directory of files on your computer in which each item is a file, such as a note as a Markdown file. [Sync a folder](/guides/sync-a-folder) explains how a folder works and sets one up.
 
 The rules behind this page are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) and [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapters of the contract.

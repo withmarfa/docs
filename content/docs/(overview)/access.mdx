@@ -7,37 +7,46 @@ Your instance holds everything about you, so each **credential** reaches only wh
 
 ## Who can act
 
-Three kinds of caller act on an instance. The owner manages it and hands access down to keys and apps:
+Three kinds of caller act on an instance:
 
 | Caller | How it acts | What it reaches |
 | --- | --- | --- |
-| The owner | Signs in to the instance in a browser | Managing the instance, reading item counts, and exporting data. |
+| The owner | Signs in to the instance in a browser | Managing the instance, reading item counts, and exporting data |
 | A key | Sent with each request, as `Authorization: Bearer marfa_k1_…` | What it was made with |
 | An app | Signs in through OAuth, and sends its access token, `marfa_at_…` | What the owner approved |
 
-Through a **browser session**, the owner can read item counts and export data without making a key or signing in again within the last five minutes. Source filtering still applies. Every other item operation needs a key or an app token. A request that also sends a key or a token is judged by that credential alone, and no key or app ever gets the owner's authority. [Sign in as the owner](/guides/sign-in-as-the-owner) shows how.
+Every other item operation needs a key or an app's token. A request that sends one is judged by that credential alone, even from a signed-in browser, and no key or app gets the owner's authority. [Sign in as the owner](/guides/sign-in-as-the-owner) shows how.
+
+Some owner actions need a **recent sign-in**, one from the last five minutes, such as revoking a key or an app, adding or changing a passkey, or approving an app's request to write or to hold a permission.
 
 The computer the instance runs on has an authority of its own. The CLI uses it through a private socket, reachable only by the account running the server, to claim an instance, make the first key and recover the owner's password.
 
 ## What a credential reaches
 
-A key or an app's token is limited in two ways. Its **maps** say which data it reads and writes, and its **permissions** say which other operations it may use.
+A credential is limited in two ways. Its **maps** say which data it reads and writes, and its **permissions** say which other operations it may use.
 
-There are five maps. Each names things at a level, `read` or `write`, which also covers reading. Email takes only `read`. Anything a map doesn't name is out of reach:
+A map names things at a level, `read` or `write`, and `write` includes reading. Anything a map doesn't name is out of reach. A key has five:
 
-| Map | What it names | Example |
-| --- | --- | --- |
-| Type | Item types, by identifier or pattern | `"core.*": "write"` |
-| Edge | Edge types | `"about": "read"` |
-| Extension | Extension namespaces | `"com.example.reader": "write"` |
-| Metadata | Whether it may register types and edge types | `"types": "write"` |
-| Profile | The owner's name, email and avatar | `"email": "read"` |
+| Map | Field | What it names | Example |
+| --- | --- | --- | --- |
+| Type | `type_permissions` | Item types, by identifier or pattern | `"core.*": "write"` |
+| Edge | `edge_permissions` | Edge types | `"about": "read"` |
+| Extension | `extension_permissions` | Extension namespaces | `"com.example.reader": "write"` |
+| Metadata | `metadata_permissions` | Registering types and edge types | `"types": "write"` |
+| Profile | `profile_permissions` | The owner's name, email and avatar | `"email": "read"` |
 
-Profile write access changes only the owner's **name and avatar**, never the sign-in email. An app asks for it explicitly, as [Sign in as the owner](/guides/sign-in-as-the-owner#change-the-owners-profile) shows.
+A few rules apply to single maps:
 
-The type map matters most, and only it takes a third level, `none`, which shuts out a type its wildcard covers. An item of a type the credential **can't read** answers `404 item_not_found`, as an item that doesn't exist does, so a refusal never reveals what it can't see. An item it can read but not write is refused `403 type_not_permitted`.
+- **The type map** matters most. Only it takes a third level, `none`, which shuts out a type its wildcard covers.
+- **The metadata map** covers the definitions on your instance, not an item's tags and extensions.
+- **The extension map** is a key's alone: an app reaches no extensions.
+- **The profile map** can write only the owner's name and avatar, never the sign-in email.
 
-Pick a key and a kind of item to see the answer for reading and changing it:
+## What a refusal reveals
+
+An item of a type the credential **can't read** answers `404 item_not_found`, as an item that doesn't exist does, so a refusal reveals nothing. An edge from such an item, and a blob only such items name, answer as missing too, though a readable edge still names a hidden target's ID. An item the credential can read but not write is refused with `403 type_not_permitted`.
+
+The figure shows four keys, each with a different type map. Pick a key and a kind of item to see what Marfa answers to a read and to a change.
 
 <KeyReach />
 
@@ -47,15 +56,11 @@ A permission opens a group of operations, such as reading the audit log or makin
 
 The Catalog's [Permissions](/catalog/permissions) page lists them all.
 
-## Sources
-
-Every key has a source of its own, chosen when it's made, such as `laptop` or `todoist`. Marfa stamps the **source** on each item the key creates, so you can tell who wrote it. With the item's `source_id`, it also identifies the item at that writer, which is how a connector finds a record again instead of making a second one.
-
 ## How a key or an app gets access
 
-You make a key as the owner, or with a key that holds the `keys.mint` permission, and say what it holds. A key made by another key holds at most what its maker holds. It doesn't take its maker's `enforcement_override`: unless it names one, it follows the instance's [levers](/guides/settings#what-the-enforcement-levers-do), so it can list items its maker's levers hide. [Manage keys](/guides/manage-keys) shows how to make, narrow and revoke keys.
+You make a key as the owner, or with a key that holds the `keys.mint` permission, and say what it holds. A key made by another key can hold only the permissions and maps its maker holds, and can't outlive its maker's expiry. [Manage keys](/guides/manage-keys) shows how.
 
-An app is never given a key: it registers itself and sends the owner to approve it.
+An app is never given a key: it registers itself and sends the owner to approve it. [Authenticate](/guides/authenticate) shows the app's side.
 
 ## What the owner approves
 
@@ -66,6 +71,6 @@ The **Approve access** page, or the device approval page for an app with no brow
 - **Your profile:** only when the app asks for it.
 - **More control over Marfa:** each permission starts off. `instance.maintain`, `schema.write` and `items.purge` are marked because they can't be undone.
 
-Approving with everything new off **is declining**: the app gets `access_denied` and keeps what it held. Approving a write or a permission the app doesn't hold **needs a sign-in from the last five minutes**. The page asks the owner to [confirm it's them](/guides/sign-in-as-the-owner#confirm-its-you), and a program without a recent sign-in gets `403 forbidden` and no code. The approval stands until the owner revokes it, or the app goes unused for a year.
+Approving with everything new off **is declining**: the app gets `access_denied` and keeps what it held. Approving a write or a permission the app doesn't hold needs a [recent sign-in](#who-can-act), so the page asks the owner to [confirm it's them](/guides/sign-in-as-the-owner#confirm-its-you), and a program without one gets `403 forbidden` and no code. The approval stands until the owner revokes it, or the app goes unused for a year, a limit [Settings](/guides/settings) can change with `MARFA_GRANT_INACTIVITY_DAYS`.
 
 The rules behind this page are in the [keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md), [authentication](https://github.com/withmarfa/marfa/blob/main/conformance/spec/authentication.md), [owner counts and exports](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#search-and-filtersowner-count-export), and [instance claim](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance-claim.md) chapters of the contract.
