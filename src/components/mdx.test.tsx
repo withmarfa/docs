@@ -59,7 +59,8 @@ describe('MDX components', () => {
     expect(html).toContain('Make a key');
     expect(html).toContain('Create the project');
     expect(html).toContain('1 of 2');
-    expect(html).toContain('Next<span>Create the project</span>');
+    expect(html).toContain('Next: Create the project');
+    expect(html).toContain('aria-label="Next step"');
   });
 
   it('folds a long code block and leaves a short one whole', () => {

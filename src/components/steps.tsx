@@ -10,16 +10,17 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { cn } from '@/lib/cn';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { iconButton } from './site-header';
 
 export const Step = BaseStep;
 
 /**
  * Fumadocs' Steps, or with `paged` one step at a time: a progress bar with the
- * count, the step, and Previous and Next. Every step stays in the page, hidden
- * with `hidden="until-found"`, so the browser's find and a link to a heading
- * inside one still reach it, and the Markdown copy keeps them all. The panel
- * is as tall as the tallest step, so the buttons don't move from step to step.
+ * count and Previous and Next arrows above the step, and a quiet link to the
+ * next step after it. Every step stays in the page, hidden with
+ * `hidden="until-found"`, so the browser's find and a link to a heading inside
+ * one still reach it, and the Markdown copy keeps them all.
  */
 export function Steps({ paged, children }: { paged?: boolean; children: ReactNode }) {
   if (!paged) return <BaseSteps>{children}</BaseSteps>;
@@ -45,41 +46,16 @@ function PagedSteps({ children }: { children: ReactNode }) {
   const steps = Children.toArray(children).filter(isValidElement) as ReactElement<WithChildren>[];
   const titles = steps.map(titleOf);
   const [current, setCurrent] = useState(0);
-  const [height, setHeight] = useState<number>();
-  const [measuring, setMeasuring] = useState(true);
   const root = useRef<HTMLDivElement>(null);
   const panels = useRef<(HTMLDivElement | null)[]>([]);
-
-  // Lay every step out once, unseen, to find the tallest; again when the width changes.
-  useLayoutEffect(() => {
-    if (!measuring) return;
-    const tallest = Math.max(0, ...panels.current.map((panel) => panel?.offsetHeight ?? 0));
-    // A step taller than the screen pushes the buttons out of view anyway, so
-    // the floor stops at most of a screen rather than leaving short steps
-    // with a screen of empty space.
-    setHeight(Math.min(tallest, Math.round(window.innerHeight * 0.7)) || undefined);
-    setMeasuring(false);
-  }, [measuring]);
-
-  useEffect(() => {
-    let width = window.innerWidth;
-    const onResize = () => {
-      if (window.innerWidth === width) return;
-      width = window.innerWidth;
-      setMeasuring(true);
-    };
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
+  const last = steps.length - 1;
 
   // React writes `hidden` as a boolean, so the until-found value is set here.
   useLayoutEffect(() => {
     panels.current.forEach((panel, index) => {
-      if (!panel) return;
-      if (measuring || index === current) panel.removeAttribute('hidden');
-      else panel.setAttribute('hidden', 'until-found');
+      if (panel && index !== current) panel.setAttribute('hidden', 'until-found');
     });
-  }, [current, measuring]);
+  }, [current]);
 
   // A find or a link that lands in a hidden step opens it.
   useEffect(() => {
@@ -105,13 +81,13 @@ function PagedSteps({ children }: { children: ReactNode }) {
 
   const go = useCallback((index: number) => {
     setCurrent(index);
-    const top = root.current?.getBoundingClientRect().top ?? 0;
     // Back to the top of the steps when the reader has scrolled past it, under the sticky header.
+    const top = root.current?.getBoundingClientRect().top ?? 0;
     if (top < 64) root.current?.scrollIntoView({ block: 'start' });
   }, []);
 
   return (
-    <div ref={root} className="marfa-paged" data-measuring={measuring || undefined}>
+    <div ref={root} className="marfa-paged">
       <div className="marfa-paged-head">
         <div className="marfa-paged-track">
           {titles.map((title, index) => (
@@ -130,32 +106,45 @@ function PagedSteps({ children }: { children: ReactNode }) {
         <span className="marfa-paged-count" aria-live="polite">
           {current + 1} of {steps.length}
         </span>
-      </div>
-      <div className="marfa-paged-body" style={{ minHeight: height }}>
-        {steps.map((step, index) => (
-          <div
-            key={index}
-            ref={(element) => {
-              panels.current[index] = element;
-            }}
-            className={cn('marfa-paged-step', index === current && 'marfa-paged-current')}
-            aria-label={`Step ${index + 1} of ${steps.length}`}
-            role="group"
-          >
-            {step.props.children}
-          </div>
-        ))}
-      </div>
-      <div className="marfa-paged-nav">
-        <button type="button" className="marfa-paged-prev" disabled={current === 0} onClick={() => go(current - 1)}>
-          Previous
+        <button
+          type="button"
+          className={iconButton}
+          aria-label="Previous step"
+          disabled={current === 0}
+          onClick={() => go(current - 1)}
+        >
+          <ChevronLeft strokeWidth={1.75} />
         </button>
-        {current < steps.length - 1 ? (
-          <button type="button" className="marfa-paged-next" onClick={() => go(current + 1)}>
-            Next<span>{titles[current + 1]}</span>
-          </button>
-        ) : null}
+        <button
+          type="button"
+          className={iconButton}
+          aria-label="Next step"
+          disabled={current === last}
+          onClick={() => go(current + 1)}
+        >
+          <ChevronRight strokeWidth={1.75} />
+        </button>
       </div>
+      {steps.map((step, index) => (
+        <div
+          key={index}
+          ref={(element) => {
+            panels.current[index] = element;
+          }}
+          className="marfa-paged-step"
+          hidden={index !== current}
+          aria-label={`Step ${index + 1} of ${steps.length}`}
+          role="group"
+        >
+          {step.props.children}
+        </div>
+      ))}
+      {current < last ? (
+        <button type="button" className="marfa-paged-next" onClick={() => go(current + 1)}>
+          Next: {titles[current + 1]}
+          <ChevronRight strokeWidth={1.75} aria-hidden="true" />
+        </button>
+      ) : null}
     </div>
   );
 }

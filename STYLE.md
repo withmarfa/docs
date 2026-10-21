@@ -128,7 +128,7 @@ Use a component for what it's for, and only where it helps the reader.
 | Component | Use it for |
 | --- | --- |
 | `Steps` | An ordered procedure: the Quickstart, the tutorials, a how-to with an order. Each step opens with a `###` heading |
-| `Steps paged` | A tutorial: one step on screen at a time, with a progress bar and Previous and Next. Keep its steps close in length, since the panel is as tall as the longest. A how-to's few short steps stay a plain `Steps` list |
+| `Steps paged` | A tutorial: one step on screen at a time, with a progress bar and Previous and Next arrows above it. Keep its steps close in length, so the page doesn't grow and shrink as the reader moves through them. A how-to's few short steps stay a plain `Steps` list |
 | `Terminal` | A command and what it prints (see Examples) |
 | Code tabs | The same example in more than one client (see Examples) |
 | `Tabs` | Alternatives that aren't code, such as two ways to claim an instance |
