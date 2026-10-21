@@ -90,7 +90,8 @@ describe('the Glossary page', () => {
       .join(' ')
       .replace(/[-/]/g, ' ');
     const page = ALL_PAGES.find(({ file }) => file === path.join('(overview)', 'glossary.mdx'))!;
-    const words = [...page.text.matchAll(/^\| \[\*\*([^*]+)\*\*\]\([^)]+\) \|/gm)].map((match) => match[1].replace(/`/g, ''));
+    // A row whose word lost its link is still checked.
+    const words = [...page.text.matchAll(/^\| \[?\*\*([^*]+)\*\*/gm)].map((match) => match[1].replace(/`/g, ''));
     expect(words.length).toBeGreaterThan(20);
     for (const word of words) {
       const pattern = new RegExp(`\\b${word.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
