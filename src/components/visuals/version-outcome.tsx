@@ -157,7 +157,7 @@ export function VersionOutcome({ caption }: { caption?: ReactNode }) {
             subtitle={
               result === 'copy' ? (
                 <>
-                  A new note with your body, linked by <code>derived-from</code>
+                  Your body, linked by <code>derived-from</code>
                 </>
               ) : result === 'conflict' ? (
                 <>
