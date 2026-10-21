@@ -5,7 +5,7 @@ description: See the work an instance does on itself, read what each housekeepin
 
 An instance looks after itself on a schedule: it purges the bin, thins old versions, moves expired feed items to the bin, clears old log entries, sends webhook deliveries, and copies and checks blobs. Each piece of that work is a housekeeping job, and one scheduler runs them all from one table. Reading what each job last did is how you check that an instance is keeping up, and running one yourself applies a new retention without waiting for its schedule.
 
-**Listing needs the `instance.read` permission, and running needs `instance.maintain`.** These permissions apply to housekeeping operations. Item routes use their own permissions. The owner needs no key for either, through the private socket or signed in to the Health page, at `/auth/owner/health`, which lists every job with when it last ran and its error if it failed, and runs one with Run now.
+Listing needs the **`instance.read`** permission, and running needs **`instance.maintain`**. The owner needs no key for either, through the private socket or signed in. The Health page, at `/auth/owner/health`, lists every job with when it last ran and its error if it failed, and runs one with Run now.
 
 ## List the housekeeping jobs
 
@@ -18,7 +18,7 @@ GET /housekeeping
 Authorization: Bearer <key>
 ```
 
-The answer holds every housekeeping job the instance runs, in one page. Each entry gives its schedule, whether it's running now, and what its last run did:
+The answer holds every housekeeping job the instance runs, in one page. Each entry gives its schedule, whether it's running now, and what its last run did. This shows one:
 
 ```json
 {
@@ -39,8 +39,6 @@ The answer holds every housekeeping job the instance runs, in one page. Each ent
 }
 ```
 
-The answer has an entry for every housekeeping job; this shows one.
-
 ## Read what a housekeeping job did
 
 `running_since` holds the time the current run started, and is `null` when nothing is running. `last_outcome` is `null` until a run finishes, then `ok` or `error`, with the reason in `last_error`. `last_result` holds what the run reported, in counts of its own: `deleted` for a cleanup, `copied` and `remaining` for `blob-replicate`, `pruned` for `version-thinning`.
@@ -49,15 +47,19 @@ A housekeeping job whose `last_outcome` stays `error`, or whose `next_run_at` is
 
 ## The housekeeping jobs
 
-**The listing shows each registered job's schedule.** [Settings](/guides/settings#every-environment-setting) lists the environment settings that change configurable intervals and retention windows.
+The listing shows each registered job's schedule. [Settings](/guides/settings#every-environment-setting) lists the environment settings that change configurable intervals and retention windows.
 
 <include cwd>src/generated/housekeeping.md</include>
 
-`feed-expiry` acts only on a type that has a `feed_days` window in its [retention policy](/catalog/your-own-types#retention-policy), set on the type or taken from a parent. It moves an active feed item to the bin, as a delete does, once more than that many days have passed since the item arrived. **Library items, archived items and items brought back from the bin are kept**, and a type with no window keeps its items. A moved item can be restored until the bin's retention ends, and `trash-purge` then deletes it for good. Each run reports `moved` and `held` in `last_result`; `moved` includes items a cascade took with them. `held` counts expired items it left alone because deleting them would also delete an item that hasn't expired, isn't a feed item or was brought back from the bin, because an edge with `cascade_on_delete` set to `block` refuses the delete, or because the delete failed. [Settings](/guides/settings#every-environment-setting) names `FEED_EXPIRY_INTERVAL_MS`.
+`feed-expiry` acts only on a type that has a `feed_days` window in its [retention policy](/catalog/your-own-types#retention-policy), set on the type or taken from a parent. It moves an active feed item to the bin, as a delete does, once more than that many days have passed since the item arrived. **Library items, archived items and items brought back from the bin are kept**, and a type with no window keeps its items. A moved item can be restored until the bin's retention ends, and `trash-purge` then deletes it for good. [Settings](/guides/settings#every-environment-setting) names `FEED_EXPIRY_INTERVAL_MS`.
 
-A setting can switch a housekeeping job off, and **one that's off isn't listed**.
+Each run reports `moved` and `held` in `last_result`. `moved` includes items a cascade took with them. `held` counts expired items the job left alone because:
 
-`heartbeat` is off until `MARFA_HEARTBEAT_URL` names a receiver, so a new instance doesn't list it. `enrichment-sweep` is off when `MARFA_ENRICHMENT_ENABLED` is `false`. `blob-orphans`, `bulk-action-gc`, `dcr-client-cleanup`, `grant-inactivity-retirement` and `revoked-grant-purge` are off when the interval or retention that drives them is `0`.
+- Deleting one would also delete an item that hasn't expired, isn't a feed item or was brought back from the bin.
+- An edge with `cascade_on_delete` set to `block` refuses the delete.
+- The delete failed.
+
+A setting can switch a housekeeping job off, and **one that's off isn't listed**. [Settings](/guides/settings#every-environment-setting) gives the switch for most jobs, such as a blank `MARFA_HEARTBEAT_URL` or an interval or retention of `0`. It doesn't tie two switches to their jobs: `enrichment-sweep` is off when `MARFA_ENRICHMENT_ENABLED` is `false`, and `grant-inactivity-retirement` is off when `MARFA_GRANT_INACTIVITY_DAYS` is `0`.
 
 The retentions that `audit-cleanup`, `trash-purge`, `event-log-cleanup` and `inbound-delivery-cleanup` read can also be changed while the server runs, in the [configuration](/guides/settings#change-settings-while-it-runs).
 
@@ -93,7 +95,7 @@ The server refuses `409 housekeeping_job_running` while a run of the same housek
 
 ## Empty the bin
 
-**An item stays in the bin until it is purged, and a purge is permanent.** Left alone, the `trash-purge` job purges each item once it has been in the bin longer than `TRASH_RETENTION_DAYS`, which is 60 days unless you change it. `trash_retention_days` in the [configuration](/guides/settings#change-settings-while-it-runs) overrides that while the server runs, and a retention of `0` keeps every item. A run removes a limited number of items, and while items past the retention remain after a run that removed some, the job runs again at once rather than waiting for its interval.
+An item stays in the bin until it is purged, and **a purge is permanent**. Left alone, the `trash-purge` job purges each item once it has been in the bin longer than `TRASH_RETENTION_DAYS`, which is 60 days unless you change it. `trash_retention_days` in the [configuration](/guides/settings#change-settings-while-it-runs) overrides that while the server runs, and a retention of `0` keeps every item. A run removes a limited number of items. While items past the retention remain after a run that removed some, the job runs again at once rather than waiting for its interval.
 
 To empty the bin now, purge every item whose state is `trashed`. A key needs the `items.purge` permission, and **the private socket can't do it**, because it carries no key:
 
@@ -127,7 +129,7 @@ Marfa answers that it queued the purge as a job:
 
 ## Try feed expiry with a moved clock
 
-A test server can move its clock forward, so you can watch `feed-expiry` act without waiting a day. Start the server with `MARFA_TEST_HOOKS=true`. **Never set it on an instance that holds real data.** The server refuses it when `NODE_ENV` is `production`, which the container sets ([`instance/test-hooks-production-refused`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#instancetest-hooks-production-refused)).
+A test server can move its clock forward, so you can watch `feed-expiry` act without waiting a day. Start the server with `MARFA_TEST_HOOKS=true`. **Never** set it on an instance that holds real data. The server refuses it when `NODE_ENV` is `production`, which the container sets ([`instance/test-hooks-production-refused`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#instancetest-hooks-production-refused)).
 
 The hooks sit at `/_control/test` on the private socket only. `GET /_control/test/clock` answers the `offset_ms` and the server's `now`. `POST /_control/test/clock` with `{ "advance_ms": 172800000 }` moves the clock forward by that many milliseconds. It never moves back, and everything that reads the time moves with it. `MARFA_TEST_CLOCK_OFFSET_MS` starts the clock that far ahead, and needs `MARFA_TEST_HOOKS`.
 
