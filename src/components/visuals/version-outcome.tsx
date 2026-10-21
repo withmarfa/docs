@@ -1,7 +1,7 @@
 import { StickyNote } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { Arrow, Box, Figure } from './figure';
+import { Box, Figure } from './figure';
 import { Choices, Controls, Result } from './interactive';
 
 /** What the other app changed since the version your write names. */
@@ -59,9 +59,9 @@ export function answer(state: State) {
 
 export const messages: Record<Outcome, string> = {
   merged:
-    'Both changes stand. Only the title changed since version 3 and your write changes only the body, so nothing collides, with or without `conflict=auto`.',
+    'Both changes stand. The other app changed only the title and you changed only the body, so nothing collides, with or without `conflict=auto`.',
   conflict:
-    'Marfa refuses the write with `409 version_conflict`. Both apps changed the body, so it sends back the note as it is now for you to combine and send again.',
+    'Both apps changed the body, so Marfa refuses your write with `409 version_conflict` and sends back the note as it is now, for you to combine and send again.',
   copy: "Marfa keeps both bodies. The note keeps the other app's body, and yours goes into a conflicted copy, a new note linked to the original.",
 };
 
@@ -115,52 +115,50 @@ export function VersionOutcome({ caption }: { caption?: ReactNode }) {
                 <dt>
                   <code>{field}</code>
                 </dt>
-                <dd>{changed(field) ? 'Changed since version 3' : 'Not changed'}</dd>
+                <dd>{changed(field) ? 'Changed by the other app' : 'As you read it'}</dd>
               </div>
             ))}
           </dl>
         </Box>
-        <Box
-          className="marfa-ix-box"
-          tone={result === 'conflict' ? 'dashed' : 'default'}
-          highlight={result !== 'conflict'}
-          title={<code>{after.status}</code>}
-          aside={
-            <span className="marfa-ix-pill" data-lit={result !== 'conflict' || undefined}>
-              version {after.version}
-            </span>
-          }
-          subtitle="To your write: change the body, at version 3"
-        >
-          <dl className="marfa-ix-rows">
-            <div>
-              <dt>
-                <code>title</code>
-              </dt>
-              <dd>{after.title}</dd>
-            </div>
-            <div>
-              <dt>
-                <code>body</code>
-              </dt>
-              <dd>{after.body}</dd>
-            </div>
-          </dl>
-        </Box>
-      </div>
-
-      <div className="marfa-ix-edges">
-        <div className="marfa-ix-edge" data-pending={result !== 'copy' || undefined}>
-          <Arrow axis="across" direction="back" dashed={result !== 'copy'} label={<code>derived-from</code>} />
+        <div className="marfa-vo-after">
+          <Box
+            className="marfa-ix-box"
+            tone={result === 'conflict' ? 'dashed' : 'default'}
+            highlight={result !== 'conflict'}
+            title={<code>{after.status}</code>}
+            aside={
+              <span className="marfa-ix-pill" data-lit={result !== 'conflict' || undefined}>
+                version {after.version}
+              </span>
+            }
+            subtitle="Your write: a new body, based on version 3"
+          >
+            <dl className="marfa-ix-rows">
+              <div>
+                <dt>
+                  <code>title</code>
+                </dt>
+                <dd>{after.title}</dd>
+              </div>
+              <div>
+                <dt>
+                  <code>body</code>
+                </dt>
+                <dd>{after.body}</dd>
+              </div>
+            </dl>
+          </Box>
           <Box
             className="marfa-ix-box"
             tone={result === 'copy' ? 'default' : 'dashed'}
             highlight={result === 'copy'}
             icon={StickyNote}
-            title={result === 'copy' ? 'Conflicted copy' : 'No conflicted copy'}
+            title={result === 'copy' ? 'A conflicted copy' : 'No conflicted copy'}
             subtitle={
               result === 'copy' ? (
-                'Holds your body, at version 1'
+                <>
+                  Your body, linked by <code>derived-from</code>
+                </>
               ) : result === 'conflict' ? (
                 <>
                   Written only with <code>conflict=auto</code>
