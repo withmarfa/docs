@@ -3,9 +3,12 @@ import { mcpRateLimited } from '@/lib/mcp/server';
 import type { Stage } from '@/lib/worker';
 
 /**
- * A per-client limit on the two public addresses that run a search or a tool
- * and need no credential: `/mcp` and `/api/docs/search`. The MCP tools
- * specification says a server MUST rate limit tool invocations.
+ * A per-client limit on the three public addresses that run a search or a tool
+ * and need no credential: `/mcp`, `/api/docs/search` and the site's own search
+ * box, `/api/search`. The MCP tools specification says a server MUST rate limit
+ * tool invocations. The search box has a limit of its own, far above what a
+ * person typing reaches, because its answer costs the same as the JSON
+ * address's.
  *
  * The limit is Cloudflare's Workers rate limiting binding (`ratelimits` in
  * `wrangler.jsonc`). The client's address is the key. Cloudflare counts it in
@@ -17,10 +20,10 @@ import type { Stage } from '@/lib/worker';
 /** The minimal shape of a rate limiting binding. */
 export type Limiter = { limit(options: { key: string }): Promise<{ success: boolean }> };
 
-export type Limiters = { mcp?: Limiter; search?: Limiter };
+export type Limiters = { mcp?: Limiter; search?: Limiter; siteSearch?: Limiter };
 
 /**
- * The window of both bindings, in seconds, and the `Retry-After` a refused
+ * The window of every binding, in seconds, and the `Retry-After` a refused
  * client gets: the longest it can wait before its count starts again.
  * `wrangler.jsonc` must say the same; `wrangler-config.test.ts` checks it.
  */
@@ -38,7 +41,13 @@ export function rateLimit(limiters: Limiters): Stage {
 
     const { pathname } = new URL(request.url);
     const mcp = pathname === '/mcp';
-    const limiter = mcp ? limiters.mcp : pathname === '/api/docs/search' ? limiters.search : undefined;
+    const limiter = mcp
+      ? limiters.mcp
+      : pathname === '/api/docs/search'
+        ? limiters.search
+        : pathname === '/api/search'
+          ? limiters.siteSearch
+          : undefined;
     const client = request.headers.get('CF-Connecting-IP');
     if (!limiter || !client) return next(request);
 

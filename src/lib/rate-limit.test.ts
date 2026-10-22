@@ -55,6 +55,14 @@ describe('the refusal', () => {
     expect(body.error.message).toContain('Too many requests');
   });
 
+  it('answers the site search box over its limit with the same JSON 429, which its dialog shows as no results', async () => {
+    const { limiter } = fakeLimiter(0);
+    const res = await createWorkerHandler({ app, limiters: { siteSearch: limiter } })(request('/api/search?query=files'));
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe(String(RATE_LIMIT_PERIOD_SECONDS));
+    expect(((await res.json()) as { error: string }).error).toBe('rate_limited');
+  });
+
   it('never reaches the router for a refused request', async () => {
     reached.length = 0;
     const { limiter } = fakeLimiter(0);
@@ -87,9 +95,31 @@ describe('who is limited', () => {
     expect((await handle(request('/api/docs/search?q=a'))).status).toBe(200);
   });
 
+  it('limits the site search box with its own limiter, apart from the JSON address and /mcp', async () => {
+    const mcp = fakeLimiter(0);
+    const search = fakeLimiter(0);
+    const site = fakeLimiter(1);
+    const handle = createWorkerHandler({
+      app,
+      limiters: { mcp: mcp.limiter, search: search.limiter, siteSearch: site.limiter },
+    });
+    expect((await handle(request('/api/search?query=a'))).status).toBe(200);
+    expect((await handle(request('/api/search?query=a'))).status).toBe(429);
+    expect(site.keys).toEqual(['203.0.113.7', '203.0.113.7']);
+    expect(mcp.keys).toEqual([]);
+    expect(search.keys).toEqual([]);
+  });
+
+  it('keeps the limit on the JSON address from reaching the site search box', async () => {
+    const search = fakeLimiter(0);
+    const site = fakeLimiter(10);
+    const handle = createWorkerHandler({ app, limiters: { search: search.limiter, siteSearch: site.limiter } });
+    expect((await handle(request('/api/docs/search?q=a'))).status).toBe(429);
+    expect((await handle(request('/api/search?query=a'))).status).toBe(200);
+  });
+
   it.each([
     '/api/docs/topics',
-    '/api/search',
     '/files.md',
     '/llms.txt',
     '/llms-full.txt',
@@ -98,7 +128,7 @@ describe('who is limited', () => {
     '/version.json',
   ])('does not limit %s', async (path) => {
     const { limiter, keys } = fakeLimiter(0);
-    const res = await createWorkerHandler({ app, limiters: { mcp: limiter, search: limiter } })(request(path));
+    const res = await createWorkerHandler({ app, limiters: { mcp: limiter, search: limiter, siteSearch: undefined } })(request(path));
     expect(res.status).toBe(200);
     expect(keys).toEqual([]);
   });
@@ -117,6 +147,7 @@ describe('a limit that is not there', () => {
     for (let i = 0; i < 5; i++) {
       expect((await handle(request('/api/docs/search?q=a'))).status).toBe(200);
       expect((await handle(request('/mcp', '203.0.113.1', 'POST'))).status).toBe(200);
+      expect((await handle(request('/api/search?query=a'))).status).toBe(200);
     }
   });
 

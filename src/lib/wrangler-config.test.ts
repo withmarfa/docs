@@ -25,10 +25,23 @@ describe('wrangler.jsonc', () => {
     expect(config.assets.run_worker_first[0]).toBe('/*');
   });
 
-  // `src/server.ts` reads these two names from `env`. A renamed binding would
+  // `src/server.ts` reads these names from `env`. A renamed binding would
   // leave the limiter unbound, and an unbound limiter is skipped without a sound.
-  it('binds the two limiters the Worker reads', () => {
-    expect(config.ratelimits.map((limiter) => limiter.name).sort()).toEqual(['DOCS_MCP_LIMITER', 'DOCS_SEARCH_LIMITER']);
+  it('binds the four limiters the Worker reads', () => {
+    expect(config.ratelimits.map((limiter) => limiter.name).sort()).toEqual([
+      'DOCS_COUNT_LIMITER',
+      'DOCS_MCP_LIMITER',
+      'DOCS_SEARCH_LIMITER',
+      'DOCS_SITE_SEARCH_LIMITER',
+    ]);
+  });
+
+  // The two that guard a cost sit below the two that must not stop a person or
+  // bound the count of honest reads.
+  it('sets the site search box and the count above the limits that guard the search', () => {
+    const limit = (name: string) => config.ratelimits.find((entry) => entry.name === name)?.simple.limit ?? 0;
+    expect(limit('DOCS_SITE_SEARCH_LIMITER')).toBeGreaterThan(limit('DOCS_SEARCH_LIMITER'));
+    expect(limit('DOCS_COUNT_LIMITER')).toBeGreaterThan(limit('DOCS_MCP_LIMITER'));
   });
 
   it('gives each limiter its own namespace, so their counts stay apart', () => {

@@ -99,15 +99,15 @@ export function staticAssets(assets: Assets | undefined): Stage {
 export type WorkerOptions = {
   assets?: Assets;
   app: Next;
-  /** Counts agent reads in PostHog. Left out, nothing is counted. */
+  /** Counts agent reads in PostHog, bounded by its own limiter. Left out, nothing is counted. */
   analytics?: AgentReadOptions;
   /** The rate limiting bindings. A limiter left out is not applied. */
   limiters?: Limiters;
 };
 
 /**
- * Counting runs outside the limit, so a refused request is counted with its
- * `429`. The limit runs before negotiation and the files, so a refused client
+ * Counting runs outermost, so it sees the final response, and sends nothing for
+ * a `429`. The limit runs before negotiation and the files, so a refused client
  * costs the Worker nothing else.
  */
 export function createWorkerHandler({ assets, app, analytics, limiters = {} }: WorkerOptions): Next {

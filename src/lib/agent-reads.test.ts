@@ -4,6 +4,7 @@ import { handleDocsSearch } from './docs-api';
 import { createDocsServer } from './mcp/tools';
 import { DOCS_TOOL_NAMES } from './mcp/tools';
 import { handleMcpRequest } from './mcp/server';
+import type { Limiter } from './rate-limit';
 import { createWorkerHandler, type Next } from './worker';
 
 const HOST = 'https://docs.example';
@@ -437,5 +438,229 @@ describe('the MCP facts and hits readers', () => {
     expect(hitsIn('{"result":{"structuredContent":{"hits":[{},{},{}]}}}', true)).toBe(3);
     expect(hitsIn('not json', false)).toBeUndefined();
     expect(hitsIn('{"error":"x"}', false)).toBeUndefined();
+  });
+});
+
+/** A limiter that allows `allowed` calls per key, then refuses, and records every key it was given. */
+function fakeLimiter(allowed: number) {
+  const keys: string[] = [];
+  const counts = new Map<string, number>();
+  const limiter: Limiter = {
+    async limit({ key }) {
+      keys.push(key);
+      const count = (counts.get(key) ?? 0) + 1;
+      counts.set(key, count);
+      return { success: count <= allowed };
+    },
+  };
+  return { limiter, keys };
+}
+
+const ADDRESS = { 'CF-Connecting-IP': '203.0.113.7' };
+
+describe('a refused request', () => {
+  it.each([
+    ['/api/docs/search?q=files', 'search'],
+    ['/mcp', 'mcp'],
+  ])('sends no event for %s when the rate limit answers 429', async (path, name) => {
+    const capture = fakeCapture();
+    const refuse = fakeLimiter(0).limiter;
+    const handle = createWorkerHandler({
+      app,
+      limiters: { [name]: refuse },
+      analytics: { key: KEY, fetch: capture.send, waitUntil: capture.waitUntil },
+    });
+    const response = await handle(path === '/mcp' ? mcpPost({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, ADDRESS) : get(path, ADDRESS));
+    await capture.settled();
+    expect(response.status).toBe(429);
+    expect(capture.sent).toEqual([]);
+  });
+
+  it('still counts a request the router refuses for another reason', async () => {
+    const capture = fakeCapture();
+    await handlerWith(capture)(get('/api/docs/search'));
+    await capture.settled();
+    expect(capture.sent[0].event.properties).toMatchObject({ status: 400 });
+  });
+});
+
+describe('the limit on counting', () => {
+  function counting(limiter: Limiter | undefined, capture: ReturnType<typeof fakeCapture>) {
+    return createWorkerHandler({ app, analytics: { key: KEY, fetch: capture.send, waitUntil: capture.waitUntil, limiter } });
+  }
+
+  it('sends events until an address passes its limit, then serves the request and sends none', async () => {
+    const capture = fakeCapture();
+    const { limiter } = fakeLimiter(2);
+    const handle = counting(limiter, capture);
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i++) statuses.push((await handle(get('/llms.txt', ADDRESS))).status);
+    await capture.settled();
+    expect(statuses).toEqual([200, 200, 200, 200]);
+    expect(capture.sent).toHaveLength(2);
+  });
+
+  it('keeps addresses apart, so one flooding address cannot silence another', async () => {
+    const capture = fakeCapture();
+    const handle = counting(fakeLimiter(1).limiter, capture);
+    await handle(get('/llms.txt', { 'CF-Connecting-IP': '203.0.113.1' }));
+    await handle(get('/llms.txt', { 'CF-Connecting-IP': '203.0.113.1' }));
+    await handle(get('/llms.txt', { 'CF-Connecting-IP': '203.0.113.2' }));
+    await capture.settled();
+    expect(capture.sent).toHaveLength(2);
+  });
+
+  it.each(['/files.md', '/llms.txt', '/llms-full.txt', '/docs-map.md', '/api/docs/topics', '/api/docs/search?q=files', '/mcp'])(
+    'covers %s',
+    async (path) => {
+      const capture = fakeCapture();
+      const { limiter, keys } = fakeLimiter(0);
+      const response = await counting(limiter, capture)(get(path, ADDRESS));
+      await capture.settled();
+      expect(response.status).toBe(path === '/mcp' ? 405 : 200);
+      expect(keys).toEqual(['203.0.113.7']);
+      expect(capture.sent).toEqual([]);
+    },
+  );
+
+  it('keys the limit on the address alone, and puts it in no event', async () => {
+    const capture = fakeCapture();
+    const { limiter, keys } = fakeLimiter(5);
+    await counting(limiter, capture)(get('/api/docs/search?q=needle', { ...ADDRESS, 'User-Agent': 'curl/8' }));
+    await capture.settled();
+    expect(keys).toEqual(['203.0.113.7']);
+    expect(String(capture.sent[0].init.body)).not.toContain('203.0.113');
+  });
+
+  it('sends nothing when the limiter fails or the request has no address, since nothing then bounds the count', async () => {
+    const broken: Limiter = {
+      async limit() {
+        throw new Error('binding unavailable');
+      },
+    };
+    const capture = fakeCapture();
+    expect((await counting(broken, capture)(get('/llms.txt', ADDRESS))).status).toBe(200);
+    expect((await counting(fakeLimiter(5).limiter, capture)(get('/llms.txt'))).status).toBe(200);
+    await capture.settled();
+    expect(capture.sent).toEqual([]);
+  });
+
+  it('counts freely where no limiter is bound, as in a test or a local run', async () => {
+    const capture = fakeCapture();
+    await counting(undefined, capture)(get('/llms.txt'));
+    await capture.settled();
+    expect(capture.sent).toHaveLength(1);
+  });
+
+  it('does not wait for the limiter to answer the client', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const slow: Limiter = {
+      async limit() {
+        await gate;
+        return { success: true };
+      },
+    };
+    const capture = fakeCapture();
+    const response = await counting(slow, capture)(get('/llms.txt', ADDRESS));
+    expect(await response.text()).toBe('index');
+    release();
+    await capture.settled();
+    expect(capture.sent).toHaveLength(1);
+  });
+
+  it('never counts, or limits for counting, the site search box', async () => {
+    const capture = fakeCapture();
+    const { limiter, keys } = fakeLimiter(5);
+    const response = await counting(limiter, capture)(get('/api/search?query=files', ADDRESS));
+    await capture.settled();
+    expect(response.status).toBe(200);
+    expect(keys).toEqual([]);
+    expect(capture.sent).toEqual([]);
+  });
+});
+
+describe('the response copy the count reads', () => {
+  /** A response whose clone records whether its body was cancelled. */
+  function withWatchedClone(body: string, init?: ResponseInit) {
+    const state = { cancelled: false };
+    const original = new Response(body, init);
+    original.clone = () => {
+      const copy = new Response(body, init);
+      const stream = copy.body as ReadableStream;
+      const cancel = stream.cancel.bind(stream);
+      stream.cancel = (reason) => {
+        state.cancelled = true;
+        return cancel(reason);
+      };
+      return copy;
+    };
+    return { original, state };
+  }
+
+  function mcpCall(name: string) {
+    return mcpPost({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name } });
+  }
+
+  async function run(request: Request, response: Response, limiter?: Limiter) {
+    const capture = fakeCapture();
+    const handle = createWorkerHandler({
+      app: async () => response,
+      analytics: { key: KEY, fetch: capture.send, waitUntil: capture.waitUntil, limiter },
+    });
+    await handle(request);
+    await capture.settled();
+    return capture;
+  }
+
+  it.each(['docs_fetch', 'docs_list_topics'])('is cancelled for an MCP call to %s, which reads no hits', async (tool) => {
+    const { original, state } = withWatchedClone('data: {}');
+    const capture = await run(mcpCall(tool), original);
+    expect(state.cancelled).toBe(true);
+    expect(capture.sent).toHaveLength(1);
+  });
+
+  it('is cancelled for tools/list and for a body that is not JSON', async () => {
+    const list = withWatchedClone('data: {}');
+    await run(mcpPost({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), list.original);
+    const junk = withWatchedClone('data: {}');
+    await run(new Request(`${HOST}/mcp`, { method: 'POST', body: '{nope' }), junk.original);
+    expect(list.state.cancelled).toBe(true);
+    expect(junk.state.cancelled).toBe(true);
+  });
+
+  it('is read, not cancelled, for docs_search and for a JSON search', async () => {
+    const tool = withWatchedClone('data: {"result":{"structuredContent":{"hits":[{}]}}}');
+    const first = await run(mcpCall('docs_search'), tool.original);
+    expect(tool.state.cancelled).toBe(false);
+    expect(first.sent[0].event.properties.hits).toBe(1);
+
+    const json = withWatchedClone('{"hits":[{},{}]}');
+    const second = await run(get('/api/docs/search?q=files'), json.original);
+    expect(json.state.cancelled).toBe(false);
+    expect(second.sent[0].event.properties.hits).toBe(2);
+  });
+
+  it('is cancelled when the count limit refuses the event, even for a search', async () => {
+    const { original, state } = withWatchedClone('{"hits":[{}]}');
+    const capture = await run(get('/api/docs/search?q=files', ADDRESS), original, fakeLimiter(0).limiter);
+    expect(state.cancelled).toBe(true);
+    expect(capture.sent).toEqual([]);
+  });
+});
+
+describe('the method of an event', () => {
+  it.each(['GET', 'HEAD', 'POST', 'DELETE'])('keeps %s', async (method) => {
+    const capture = fakeCapture();
+    await handlerWith(capture)(new Request(`${HOST}/llms.txt`, { method }));
+    await capture.settled();
+    expect(capture.sent[0].event.properties.method).toBe(method);
+  });
+
+  it.each(['PUT', 'PATCH', 'PROPFIND'])('reports %s as other, so a client never names a value', async (method) => {
+    const capture = fakeCapture();
+    await handlerWith(capture)(new Request(`${HOST}/llms.txt`, { method }));
+    await capture.settled();
+    expect(capture.sent[0].event.properties.method).toBe('other');
   });
 });

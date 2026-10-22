@@ -1,5 +1,6 @@
 import { POSTHOG_API_HOST } from '@/lib/analytics';
 import { DOCS_TOOL_NAMES } from '@/lib/mcp/tools';
+import type { Limiter } from '@/lib/rate-limit';
 import { markdownPathToSlugs, pageForPath, source } from '@/lib/source';
 import type { Stage } from '@/lib/worker';
 
@@ -215,6 +216,9 @@ export type AgentReadEvent = {
   properties: Record<string, string | number | boolean>;
 };
 
+/** The methods an event names. Any other, which a client could invent, is `other`. */
+const METHODS = ['GET', 'HEAD', 'POST', 'DELETE'];
+
 export function buildEvent(key: string, fields: {
   read: Read;
   method: string;
@@ -236,7 +240,7 @@ export function buildEvent(key: string, fields: {
       $geoip_disable: true,
       site: 'docs',
       surface: read.surface,
-      method: fields.method,
+      method: METHODS.includes(fields.method) ? fields.method : 'other',
       status: fields.status,
       client: fields.client,
       ...(read.path !== undefined && { path: read.path }),
@@ -255,19 +259,53 @@ export type AgentReadOptions = {
   waitUntil: (promise: Promise<unknown>) => void;
   /** Where the event goes. Tests pass a fake; the Worker uses `fetch`. */
   fetch?: typeof fetch;
+  /**
+   * Bounds how many events one client address can cause, so that counting has
+   * a cost ceiling of its own. Over its limit an address is still served, and
+   * its request sends no event. Left out, as in tests and local runs, nothing
+   * is bounded.
+   */
+  limiter?: Limiter;
 };
 
 const SEND_TIMEOUT_MS = 5000;
 
 /**
- * The stage that counts agent reads. It sits outside the others, so a request
- * the rate limit refuses is counted too, with its `429`.
+ * Drops a response copy that nobody will read. The promise of a cancelled
+ * branch settles only when the other branch is cancelled or read to its end,
+ * which is the client's to do, so waiting on it can hold the Worker open.
+ */
+function discard(copy: Response | undefined): void {
+  copy?.body?.cancel().catch(() => {});
+}
+
+/**
+ * Whether the count may send one more event for this address. With a limiter
+ * bound, an address the limiter cannot name or a limiter that fails sends
+ * nothing: the point of the limit is a ceiling, and a count is worth less than
+ * an unbounded bill.
+ */
+async function mayCount(limiter: Limiter | undefined, address: string | null): Promise<boolean> {
+  if (!limiter) return true;
+  if (!address) return false;
+  try {
+    return (await limiter.limit({ key: address })).success;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The stage that counts agent reads. It sits outside the others, so it sees
+ * the final response, but it sends nothing for a request the rate limit
+ * refused with `429`: a flood then costs the Worker no more than the refusal.
+ * The `limiter` bounds the events that any one address can cause.
  *
  * Nothing in it can fail the request: every step that touches the event is
- * inside a `try`, the send runs after the response is returned, and a failed
- * send is dropped.
+ * inside a `try`, the limit check and the send run after the response is
+ * returned, and a failed send is dropped.
  */
-export function agentReads({ key, waitUntil, fetch: send = fetch }: AgentReadOptions): Stage {
+export function agentReads({ key, waitUntil, fetch: send = fetch, limiter }: AgentReadOptions): Stage {
   return async (request, next) => {
     if (!key) return next(request);
 
@@ -284,6 +322,8 @@ export function agentReads({ key, waitUntil, fetch: send = fetch }: AgentReadOpt
 
     const response = await next(request);
 
+    if (response.status === 429) return response;
+
     try {
       read ??= describeNegotiated(request, response);
       if (!read) return response;
@@ -293,12 +333,19 @@ export function agentReads({ key, waitUntil, fetch: send = fetch }: AgentReadOpt
           ? response.clone()
           : undefined;
       const userAgent = clientClass(request.headers.get('User-Agent'));
+      const address = request.headers.get('CF-Connecting-IP');
 
       waitUntil(
         (async () => {
           try {
+            if (!(await mayCount(limiter, address))) {
+              discard(answer);
+              return;
+            }
             const mcp = counted.surface === 'mcp' && request.method === 'POST' ? mcpFacts((await body) ?? null) : undefined;
             const wantsHits = counted.surface === 'search' || mcp?.tool === DOCS_TOOL_NAMES[0];
+            // A copy nobody reads can make the runtime buffer the whole body.
+            if (answer && !wantsHits) discard(answer);
             const hits = answer && wantsHits ? hitsIn(await answer.text(), counted.surface === 'mcp') : undefined;
             const client = mcp?.client && mcp.client !== 'other' ? mcp.client : userAgent;
 

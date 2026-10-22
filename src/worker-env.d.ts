@@ -19,6 +19,10 @@ declare module 'cloudflare:workers' {
     DOCS_MCP_LIMITER?: RateLimiter;
     /** The limit on `/api/docs/search`, bound by `ratelimits` in `wrangler.jsonc`. */
     DOCS_SEARCH_LIMITER?: RateLimiter;
+    /** The limit on `/api/search`, the site's search box, bound by `ratelimits` in `wrangler.jsonc`. */
+    DOCS_SITE_SEARCH_LIMITER?: RateLimiter;
+    /** The limit on how many agent reads one address can cause to be counted, bound by `ratelimits` in `wrangler.jsonc`. */
+    DOCS_COUNT_LIMITER?: RateLimiter;
   };
 
   /** Keeps the Worker running until the promise settles, without holding the response. */
