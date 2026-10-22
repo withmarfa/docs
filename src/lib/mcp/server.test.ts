@@ -11,7 +11,7 @@
 
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 import { describe, expect, it } from 'vitest';
-import { handleMcpRequest } from './server';
+import { handleMcpRequest, mcpRateLimited } from './server';
 
 const ENDPOINT = 'https://docs.example/mcp';
 
@@ -493,5 +493,27 @@ describe('docs_fetch takes an optional section', () => {
     const result = await callTool('docs_fetch', { path: '/definitely/not/a/page', section: HEADING });
     expect(result.isError).toBe(true);
     expect((JSON.parse(result.content![0]!.text) as { error: string }).error).toBe('not_found');
+  });
+});
+
+describe('a client over its limit', () => {
+  // The tools specification says servers MUST rate limit tool invocations and
+  // clients SHOULD respect it. The limit runs in the Worker (`src/lib/rate-limit.ts`),
+  // ahead of this handler, and answers with this response.
+  it('gets 429 with Retry-After and a JSON-RPC error that carries no id', async () => {
+    const res = mcpRateLimited(60);
+    expect(res.status).toBe(429);
+    expect(res.headers.get('retry-after')).toBe('60');
+    expect(res.headers.get('content-type')).toBe('application/json');
+    const body = (await res.json()) as { jsonrpc: string; id: unknown; error: { code: number; message: string } };
+    expect(body).toMatchObject({ jsonrpc: '2.0', id: null });
+    expect(body.error.code).toBe(-32000);
+    expect(body.error.message).toContain('60 seconds');
+  });
+
+  it('is readable by a browser client, which sees Retry-After only when it is exposed', () => {
+    const res = mcpRateLimited(60);
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    expect(res.headers.get('access-control-expose-headers')).toContain('Retry-After');
   });
 });

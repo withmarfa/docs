@@ -14,6 +14,19 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+/**
+ * The answer to a client over its limit, in the same `{ error, message }` shape
+ * as the other errors here. `Retry-After` is in seconds.
+ */
+export function rateLimited(retryAfterSeconds: number): Response {
+  const response = json(
+    { error: 'rate_limited', message: `Too many requests. Try again in ${retryAfterSeconds} seconds.` },
+    429,
+  );
+  response.headers.set('Retry-After', String(retryAfterSeconds));
+  return response;
+}
+
 /** `GET /api/docs/search?q=<query>&limit=<n>` */
 export async function handleDocsSearch(request: Request): Promise<Response> {
   const params = new URL(request.url).searchParams;

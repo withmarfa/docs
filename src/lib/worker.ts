@@ -1,4 +1,6 @@
 import { prefersMarkdown } from '@/lib/accept';
+import { agentReads, type AgentReadOptions } from '@/lib/agent-reads';
+import { rateLimit, type Limiters } from '@/lib/rate-limit';
 import { markdownResponse, pageForPath } from '@/lib/source';
 
 /**
@@ -94,6 +96,23 @@ export function staticAssets(assets: Assets | undefined): Stage {
   };
 }
 
-export function createWorkerHandler({ assets, app }: { assets?: Assets; app: Next }): Next {
-  return compose([markdownNegotiation, staticAssets(assets)], app);
+export type WorkerOptions = {
+  assets?: Assets;
+  app: Next;
+  /** Counts agent reads in PostHog, bounded by its own limiter. Left out, nothing is counted. */
+  analytics?: AgentReadOptions;
+  /** The rate limiting bindings. A limiter left out is not applied. */
+  limiters?: Limiters;
+};
+
+/**
+ * Counting runs outermost, so it sees the final response, and sends nothing for
+ * a `429`. The limit runs before negotiation and the files, so a refused client
+ * costs the Worker nothing else.
+ */
+export function createWorkerHandler({ assets, app, analytics, limiters = {} }: WorkerOptions): Next {
+  const stages: Stage[] = [];
+  if (analytics?.key) stages.push(agentReads(analytics));
+  stages.push(rateLimit(limiters), markdownNegotiation, staticAssets(assets));
+  return compose(stages, app);
 }
