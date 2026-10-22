@@ -16,7 +16,7 @@ Source was produced from the target (imports, AI generation, transformations). B
 
 ## in-collection
 
-Source item is a member of the target container. The target may be any type declaring the `container` role (a collection, an ongoing series, an album, a publisher's own container type) rather than a fixed list of type names, so a connector writing its own vocabulary can express containment without the platform naming its types first. An item may belong to any number of containers, and a container holds any number of members. A container may not itself be a member: containment here is flat, and `parent-of` is what hierarchy is for. Deleting the container leaves its members in place. Carries position for ordering within the container.
+Source item is a member of the target container. The target may be any type declaring the `container` role, such as a collection, an ongoing series, an album or a publisher's own container type, rather than a fixed list of type names, so a connector writing its own vocabulary can express containment without the platform naming its types first. An item may belong to any number of containers, and a container holds any number of members. A container may not itself be a member: containment here is flat, and `parent-of` is what hierarchy is for. Deleting the container leaves its members in place. Carries position for ordering within the container.
 
 | Property   | Kind     | Description                               |
 | ---------- | -------- | ----------------------------------------- |

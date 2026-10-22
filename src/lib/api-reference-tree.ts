@@ -13,34 +13,43 @@ import spec from '../../openapi.json';
 // API's tag folders are the only folders in that tab.
 const REFERENCE_TITLE = 'reference';
 
-// The groups in the order the API description lists them, not alphabetically.
-const TAG_ORDER = new Map(spec.tags.map((tag, index) => [tag.name, index]));
+// The description's tags: the groups in the order it lists them, each with the
+// order of its operations. An operation page lives at
+// /api-reference/<tag-slug>/<operationId>, with the slug fumadocs-openapi
+// makes from the tag's name, so a folder is matched to its tag by that slug and
+// not by the folder's display name, which the loader derives from the slug
+// ("Api keys" for the tag "API keys").
+type Tag = { name: string; 'x-operation-order'?: string[] };
+
+const tagSlug = (name: string) => name.replace(/\s+/g, '-').toLowerCase();
+
+const TAGS = new Map(
+  (spec.tags as Tag[]).map((tag, index) => [
+    tagSlug(tag.name),
+    { name: tag.name, index, order: new Map((tag['x-operation-order'] ?? []).map((id, position) => [id, position])) },
+  ]),
+);
+
+function folderTag(folder: PageTree.Folder) {
+  for (const child of folder.children) {
+    if (child.type !== 'page' || !child.url.startsWith('/api-reference/')) continue;
+    return TAGS.get(child.url.split('/')[2] ?? '');
+  }
+  return undefined;
+}
 
 function tagRank(node: PageTree.Node): number {
   if (node.type !== 'folder') return -1;
-  return TAG_ORDER.get(nodeName(node.name).trim()) ?? TAG_ORDER.size;
+  return folderTag(node)?.index ?? TAGS.size;
 }
 
-// A webhook is what Marfa sends, not a call you make, so it leads its group.
-type Webhooks = Record<string, Record<string, { operationId?: string }>>;
-
-const WEBHOOK_SLUGS = new Set(
-  Object.entries((spec as { webhooks?: Webhooks }).webhooks ?? {})
-    .flatMap(([name, item]) => [
-      name,
-      ...Object.values(item).map((op) => op.operationId ?? ''),
-    ])
-    .filter((slug) => slug.length > 0),
-);
-
-function webhookFirst(a: PageTree.Node, b: PageTree.Node): number {
-  return Number(isWebhookPage(b)) - Number(isWebhookPage(a));
-}
-
-function isWebhookPage(node: PageTree.Node): boolean {
-  return (
-    node.type === 'page' && WEBHOOK_SLUGS.has(node.url.split('/').pop() ?? '')
-  );
+// An operation the tag's x-operation-order leaves out sorts last, in the order
+// the loader gave it. The tests name it.
+function orderOperations(folder: PageTree.Folder): PageTree.Node[] {
+  const order = folderTag(folder)?.order;
+  const rank = (node: PageTree.Node) =>
+    (node.type === 'page' ? order?.get(node.url.split('/').pop() ?? '') : undefined) ?? Number.MAX_SAFE_INTEGER;
+  return [...folder.children].sort((a, b) => rank(a) - rank(b));
 }
 
 // A folder of operations generated for one tag. The Reference tab may hold
@@ -106,8 +115,9 @@ function decorateOperation(node: PageTree.Node): PageTree.Node {
 
 /**
  * Return a copy of the page tree where each tag folder in the Reference tab is
- * collapsed by default, ordered as the description lists its tags, lists its
- * webhooks first, and shows a method badge beside every operation.
+ * collapsed by default, ordered and named as the description lists its tags,
+ * lists its operations in the tag's `x-operation-order` (webhooks included), and
+ * shows a method badge beside every operation.
  */
 export function regroupApiReference(tree: PageTree.Root): PageTree.Root {
   return {
@@ -121,10 +131,9 @@ export function regroupApiReference(tree: PageTree.Root): PageTree.Root {
               isTagFolder(child)
                 ? {
                     ...child,
+                    name: folderTag(child)?.name ?? child.name,
                     defaultOpen: false,
-                    children: [...child.children]
-                      .sort(webhookFirst)
-                      .map(decorateOperation),
+                    children: orderOperations(child).map(decorateOperation),
                   }
                 : child,
             ),

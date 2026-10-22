@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { buildDocsMap, buildLlmsTxt } from '@/lib/docs-map';
+import spec from '../../openapi.json';
+
+// The operationIds listed under a group's heading, in the order the index gives them.
+function operationsUnder(text: string, heading: string): string[] {
+  const lines = text.split('\n');
+  const start = lines.indexOf(`### ${heading}`, lines.indexOf('## Reference'));
+  const end = lines.findIndex((line, index) => index > start && line.startsWith('#'));
+  return lines
+    .slice(start + 1, end === -1 ? undefined : end)
+    .flatMap((line) => /\]\((?:https:\/\/docs\.marfa\.so)?\/api-reference\/[^/]+\/([^/)]+)\)/.exec(line)?.[1] ?? []);
+}
+
+const orders = (spec.tags as { name: string; 'x-operation-order'?: string[] }[]).map(
+  (tag) => [tag.name, tag['x-operation-order'] ?? []] as const,
+);
 
 describe('buildDocsMap', () => {
   const map = buildDocsMap();
@@ -69,6 +84,10 @@ describe('buildDocsMap', () => {
     expect(api.some((line) => line.startsWith('### Items'))).toBe(true);
     expect(api.some((line) => line.startsWith('- [Create an item](/api-reference/items/createItem)'))).toBe(true);
   });
+
+  it("lists each group's operations in the order its tag gives", () => {
+    for (const [name, order] of orders) expect(operationsUnder(map, name), name).toEqual(order);
+  });
 });
 
 describe('buildLlmsTxt', () => {
@@ -90,5 +109,9 @@ describe('buildLlmsTxt', () => {
   it('links an API operation to its HTML page, which holds the request and answers', () => {
     expect(text).toContain('(https://docs.marfa.so/api-reference/items/createItem)');
     expect(text).not.toContain('createItem.md');
+  });
+
+  it("lists each group's operations in the order its tag gives", () => {
+    for (const [name, order] of orders) expect(operationsUnder(text, name), name).toEqual(order);
   });
 });
