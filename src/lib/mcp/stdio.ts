@@ -6,7 +6,8 @@
  * stdio and a real MCP client against the HTTP endpoint, forwarding calls
  * between them. Both halves are the SDK's, so the stdio surface cannot drift
  * from the HTTP one: the tool list is discovered from the remote server at
- * startup rather than restated here.
+ * startup rather than restated here, with its output schemas and its
+ * instructions.
  *
  * It bridges rather than mounting the tools directly because the Fumadocs
  * source layer is resolved through the bundler's path aliases and does not
@@ -36,7 +37,11 @@ async function main(): Promise<void> {
   const upstream = new Client({ name: `${BRIDGE_NAME}-bridge`, version: BRIDGE_VERSION });
   await upstream.connect(new StreamableHTTPClientTransport(new URL(MCP_URL)));
 
-  const server = new McpServer({ name: BRIDGE_NAME, version: BRIDGE_VERSION });
+  const instructions = upstream.getInstructions();
+  const server = new McpServer(
+    { name: BRIDGE_NAME, version: BRIDGE_VERSION },
+    instructions ? { instructions } : undefined,
+  );
 
   // Mirror whatever the remote advertises. Discovering the list keeps this file
   // out of the business of knowing which tools exist.
@@ -51,6 +56,9 @@ async function main(): Promise<void> {
         // `tools/list` returns the schema as loosely-typed JSON, which is what
         // `fromJsonSchema` exists to accept; the wire type is just wider.
         inputSchema: fromJsonSchema(tool.inputSchema as Parameters<typeof fromJsonSchema>[0]),
+        ...(tool.outputSchema
+          ? { outputSchema: fromJsonSchema(tool.outputSchema as Parameters<typeof fromJsonSchema>[0]) }
+          : {}),
       },
       async (args) => upstream.callTool({ name: tool.name, arguments: args as Record<string, unknown> }),
     );

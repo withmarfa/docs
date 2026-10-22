@@ -21,7 +21,7 @@ The source of the public documentation site at `docs.marfa.so` and the status pa
 ## Layout
 
 - `content/docs/`: the pages, one folder per tab, ordered by `meta.json` files.
-- `src/routes/`, `src/lib/` and `src/components/`: the docs site, including the Markdown copies, `llms.txt`, the docs MCP server at `/mcp` and the JSON addresses under `/api/docs/`.
+- `src/routes/`, `src/lib/` and `src/components/`: the docs site, including the Worker entry `src/server.ts`, the Markdown copies, `llms.txt`, the docs MCP server at `/mcp` and the JSON addresses under `/api/docs/`.
 - `src/status/`: the status page, a second Vite target built by `vite.status.config.ts` into `dist-status/` and deployed from `wrangler.status.jsonc`.
 - `src/generated/` and `openapi.json`: written only by the sync script. Never edit them by hand.
 - `scripts/`: the sync from marfa, the staleness report and the page-growth report. The two reports use only Node built-ins, because CI runs them without installing anything. Their tests are in `src/lib/`, the only place Vitest looks.
@@ -54,6 +54,7 @@ MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh   # defaults to ../marfa
 - After an API, glossary, CLI, contract table or release change lands in marfa, run the sync and open a sync pull request. A code change gets no other docs pull request (`STYLE.md`, "Keeping pages current").
 - Fix a gap in `openapi.json` or a generated table in marfa's generator, never here.
 - The script takes only what marfa generates and commits: a file of its own, Markdown between markers, or a committed data file such as `builtin_catalog.json` and the schemas in `openapi.json`, which it renders into tables and lists under labels with no sentence of its own. What a value means is written on the page that includes the file. A list marfa does not generate gets a source there first.
+- The script also writes the command tree, `src/generated/cli-commands.json`, from the same `COMMANDS.md`: every command with its options. `src/lib/command-check.test.ts` checks the pages' commands and options against it (`STYLE.md`, "Examples"), so a CLI change that renames or removes a command fails the next sync pull request on every page that still names it.
 - After changing the script, run `.github/scripts/sync-from-marfa.test.sh`. It pins what the script writes and every input it refuses.
 
 ## Docs pass at each release

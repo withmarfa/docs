@@ -6,8 +6,8 @@
 # copies. It turns the spec's info.description into
 # src/generated/api-overview.md, moving each heading down a level, and takes the
 # command reference's global options and exit codes, each without its heading,
-# into src/generated/cli/global-options.md and exit-codes.md and nothing else
-# from it, and it takes the code table from the errors chapter into
+# into src/generated/cli/global-options.md and exit-codes.md, writes every command
+# with its options into src/generated/cli-commands.json, and it takes the code table from the errors chapter into
 # src/generated/error-codes.md and the settings table from the instance chapter
 # into src/generated/settings.md, the tables of the permissions and event types
 # from their chapters into src/generated/permissions.md and event-types.md, and it hashes every rule of
@@ -577,6 +577,7 @@ fixture() {
   mkdir -p "${dir}/docs/src/generated/cli"
   printf 'stale status\n' > "${dir}/docs/src/generated/cli/status.md"
   printf 'stale old command\n' > "${dir}/docs/src/generated/cli/old-command.md"
+  printf 'stale tree\n' > "${dir}/docs/src/generated/cli-commands.json"
   printf 'stale codes\n' > "${dir}/docs/src/generated/error-codes.md"
   printf 'stale housekeeping\n' > "${dir}/docs/src/generated/housekeeping.md"
   printf 'stale settings\n' > "${dir}/docs/src/generated/settings.md"
@@ -733,7 +734,7 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3), its CLI download and its server image commands synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, its command tree, the error codes, the housekeeping jobs, the settings, the permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3), its CLI download and its server image commands synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -753,6 +754,11 @@ check "only the two sections are written, and the stale command files are gone" 
   "exit-codes.md global-options.md" "$(ls "${cli}" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 check "the folder can be read by anyone who can read the checkout" \
   755 "$(python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "${cli}")"
+check "the command tree holds each command with its options, and the global options apart" \
+  '{"commands": {"": {"options": [], "subcommands": true}, "owner": {"options": [], "subcommands": true}, "owner recover": {"options": [{"flag": "--stdin"}]}, "owner show": {"options": []}, "search items": {"options": [], "positional": true}, "status": {"options": []}}, "global": [{"flag": "--json"}]}' \
+  "$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1])), sort_keys=True))' "${work}/good/docs/src/generated/cli-commands.json")"
+check "the command tree ends with exactly one newline" True \
+  "$(python3 -c 'import sys; t = open(sys.argv[1]).read(); print(t.endswith("}\n") and not t.endswith("\n\n"))' "${work}/good/docs/src/generated/cli-commands.json")"
 check "the error codes are the rows between the markers, and nothing else" \
   "${errors_expected}" "$(cat "${work}/good/docs/src/generated/error-codes.md")"
 check "the settings are the rows between the markers, and nothing else" \
@@ -773,7 +779,7 @@ check "the server image commands name that release's image, on loopback" \
   "$(sed -n 2p "${work}/good/docs/src/generated/server-image.md")|$(sed -n 3p "${work}/good/docs/src/generated/server-image.md")|$(sed -n 4p "${work}/good/docs/src/generated/server-image.md")"
 check "the server image commands are one bash block" '```bash|```' "$(head -1 "${work}/good/docs/src/generated/server-image.md")|$(tail -1 "${work}/good/docs/src/generated/server-image.md")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md catalog cli cli-download.md contract-index.json error-codes.md event-types.md housekeeping.md marfa-release.json permissions.md server-image.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md catalog cli cli-commands.json cli-download.md contract-index.json error-codes.md event-types.md housekeeping.md marfa-release.json permissions.md server-image.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 
 # The Catalog's files: a Markdown file for each top-level type with its subtypes
@@ -826,6 +832,8 @@ awk '{ printf "%s\r\n", $0 }' "${work}/crlf/marfa/core/marfa-cli/COMMANDS.md" > 
 cp "${work}/crlf.md" "${work}/crlf/marfa/core/marfa-cli/COMMANDS.md"
 sync crlf
 check "Windows line endings: the script succeeds" 0 "${status}"
+check "Windows line endings: the command tree is the same" \
+  "$(cat "${work}/good/docs/src/generated/cli-commands.json")" "$(cat "${work}/crlf/docs/src/generated/cli-commands.json")"
 check "Windows line endings: the files are the same" \
   "$(cat "${cli}/global-options.md" "${cli}/exit-codes.md")" \
   "$(cat "${work}/crlf/docs/src/generated/cli/global-options.md" "${work}/crlf/docs/src/generated/cli/exit-codes.md")"
@@ -933,16 +941,29 @@ refuse_commands "global options with nothing under them" \
 refuse_commands "exit codes with only blank lines under them" \
   "${cli_file} has nothing under '## Exit codes'. Nothing has changed." "${cli_head}${cli_global}## Exit codes\n\n\n\n${cli_status}"
 
-# What is not the two sections is not read: a command section can be called
-# anything, repeat, hold nothing or be absent, and the script still writes the
-# two files and nothing else.
-echo "a command reference with odd or no command sections"
+# The command tree needs every command to be named once, with a usage and
+# options it can read, and at least one command to be there.
+refuse_commands "no command sections" \
+  "${cli_file} has no '### marfa' command sections. Nothing has changed." "${cli_head}${cli_global}${cli_exit}"
+refuse_commands "a command that repeats" \
+  "${cli_file} repeats the command '### marfa status'. Nothing has changed." "${cli_head}${cli_global}${cli_exit}${cli_status}${cli_status}"
+refuse_commands "a command with no usage" \
+  "${cli_file} gives no usage under '### marfa status'. Nothing has changed." "${cli_head}${cli_global}${cli_exit}## status\n\nAbout.\n\n### marfa status\n\nAbout.\n\n"
+refuse_commands "an option that is not a flag" \
+  "${cli_file} has an option this sync cannot read: --Bad. Nothing has changed." \
+  "${cli_head}${cli_global}${cli_exit}${cli_status}| Option | Description |\n| --- | --- |\n| \`--Bad\` | No. |\n\n"
+refuse_commands "an option row that is not code" \
+  "${cli_file} has an option row this sync cannot read: | plain | No. |. Nothing has changed." \
+  "${cli_head}${cli_global}${cli_exit}${cli_status}| Option | Description |\n| --- | --- |\n| plain | No. |\n\n"
+
+# What is not a command, the global options or the exit codes is not read: a
+# section can be called anything or hold nothing, and the script still writes
+# the two files and the tree.
+echo "a command reference with odd sections"
 fixture odd "${work}/untagged.json"
-printf '%b' "${cli_head}${cli_global}${cli_exit}## Status\n\n## sign_ins\n\nAbout.\n\n## 2fa\n\n## sign ins\n\n## exit-codes\n\nAbout.\n\n${cli_status}${cli_status}" \
+printf '%b' "${cli_head}${cli_global}${cli_exit}## Status\n\n## sign_ins\n\nAbout.\n\n## 2fa\n\n## sign ins\n\n## exit-codes\n\nAbout.\n\n${cli_status}" \
   > "${work}/odd/marfa/core/marfa-cli/COMMANDS.md"
-fixture bare "${work}/untagged.json"
-printf '%b' "${cli_head}${cli_global}${cli_exit}" > "${work}/bare/marfa/core/marfa-cli/COMMANDS.md"
-for name in odd bare; do
+for name in odd; do
   sync "${name}"
   check "${name} command sections: the script succeeds" 0 "${status}"
   check "${name} command sections: the global options are written" \
@@ -951,6 +972,9 @@ for name in odd bare; do
     "$(printf '%b' '| Code | Meaning |\n| --- | --- |\n| 0 | Done. |')" "$(cat "${work}/${name}/docs/src/generated/cli/exit-codes.md")"
   check "${name} command sections: no other file is written" \
     "exit-codes.md global-options.md" "$(ls "${work}/${name}/docs/src/generated/cli" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  check "${name} command sections: the tree is the one command" \
+    '{"": {"options": [], "subcommands": true}, "status": {"options": []}}' \
+    "$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1]))["commands"], sort_keys=True))' "${work}/${name}/docs/src/generated/cli-commands.json")"
 done
 
 # refuse_table <heading> <chapter file> <marker> <noun> <label> <chapter text, or
