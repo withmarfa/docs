@@ -25,6 +25,7 @@ The code of the docs site and the status page. The root `AGENTS.md` still applie
 ## Tests
 
 - Tests sit beside the code as `*.test.ts` or `*.test.tsx`. Each content lint rule has a test that proves it fires on a bad sample; give a new rule one.
+- `src/lib/command-check.ts` holds the command check and `command-check.test.ts` runs it over every page. Its exceptions are in `src/lib/command-check-allowlist.json`, each with a reason; add one only for what is not a `marfa` command or option, and fix a page that names one that does not exist.
 
 ## Code Review Rules
 

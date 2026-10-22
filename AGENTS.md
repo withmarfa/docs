@@ -54,6 +54,7 @@ MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh   # defaults to ../marfa
 - After an API, glossary, CLI, contract table or release change lands in marfa, run the sync and open a sync pull request. A code change gets no other docs pull request (`STYLE.md`, "Keeping pages current").
 - Fix a gap in `openapi.json` or a generated table in marfa's generator, never here.
 - The script takes only what marfa generates and commits: a file of its own, Markdown between markers, or a committed data file such as `builtin_catalog.json` and the schemas in `openapi.json`, which it renders into tables and lists under labels with no sentence of its own. What a value means is written on the page that includes the file. A list marfa does not generate gets a source there first.
+- The script also writes the command tree, `src/generated/cli-commands.json`, from the same `COMMANDS.md`: every command with its options. `src/lib/command-check.test.ts` checks the pages' commands and options against it (`STYLE.md`, "Examples"), so a CLI change that renames or removes a command fails the next sync pull request on every page that still names it.
 - After changing the script, run `.github/scripts/sync-from-marfa.test.sh`. It pins what the script writes and every input it refuses.
 
 ## Docs pass at each release

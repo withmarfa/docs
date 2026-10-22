@@ -118,6 +118,7 @@ Don't restate what the API reference says. A page explains what the reference ca
 - **Show the code a step adds, not the whole file again.** A block over 24 lines folds to its first lines on the page, which keeps a page readable, but a long block is still a long block. Cut it to what the reader needs, and link the complete source when there is one.
 - **Give a block a `title`** when the reader needs to know where the code goes, such as a file name.
 - **Every example runs.** Check each against a real instance before it's published.
+- **Every command and option exists.** `pnpm test` reads each `marfa` command in a shell block or in inline code, and each option in a bare code span, against the CLI's command reference (`src/generated/cli-commands.json`), and names the page, the line and the text that the reference lacks. A block that holds a command of another tool, or a deliberate wrong example, takes `command-check="other-tool"` or `command-check="counterexample"` after its language, as in the opening line `bash command-check="counterexample"`, which follows the three backticks. An option of another tool in inline code, or a command that a page names because a release removed it, goes in `src/lib/command-check-allowlist.json` with its reason. The test fails on a marker or an entry that excuses nothing, so none outlasts its use.
 
 Examples are not runnable on the page: the API reference has a request builder for that, and a reader needs their own instance anyway.
 
