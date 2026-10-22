@@ -1,9 +1,10 @@
 /**
  * The docs tools, implemented once.
  *
- * Search, page fetch (whole, or one section) and the topic list over the docs corpus. Two surfaces
- * adapt these plain functions: the MCP server (`src/lib/mcp/tools.ts`) and the
- * JSON routes under `/api/docs/` (`src/lib/docs-api.ts`). Search is Fumadocs's
+ * Search, page fetch (whole, or one section) and the topic list over the docs
+ * corpus. Two surfaces adapt these plain functions: the MCP server
+ * (`src/lib/mcp/tools.ts`) and the JSON routes under `/api/docs/`
+ * (`src/lib/docs-api.ts`). Search is Fumadocs's
  * Orama BM25 over the same `source` that powers `/llms.txt` and the `<path>.md`
  * copy of each page. Dense embeddings are deferred: BM25 alone needs no API
  * key from self-hosters, and its recall is good enough here.
