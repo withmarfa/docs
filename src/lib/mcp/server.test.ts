@@ -9,6 +9,7 @@
  * Each block names the rule it enforces so a failure says which rule broke.
  */
 
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 import { describe, expect, it } from 'vitest';
 import { handleMcpRequest } from './server';
 
@@ -291,5 +292,206 @@ describe('tool results match what the tool descriptions promise', () => {
     // A client should be able to show the message as-is rather than reformat it.
     expect(payload['message']).toBe('No docs page at /definitely/not/a/page');
     expect(payload['slugs']).toEqual(['definitely', 'not', 'a', 'page']);
+  });
+});
+
+/** Call a tool over the legacy era and return the JSON-RPC `result`. */
+async function callTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+  const res = await handleMcpRequest(
+    legacyPost({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name, arguments: args } }),
+  );
+  return ((await readJson(res)) as { result: ToolResult }).result;
+}
+
+interface ToolResult {
+  content?: { type: string; text: string }[];
+  structuredContent?: unknown;
+  isError?: boolean;
+}
+
+interface ListedTool {
+  name: string;
+  description?: string;
+  inputSchema: { properties?: Record<string, { description?: string }> };
+  outputSchema?: Record<string, unknown>;
+}
+
+async function listTools(request: Request): Promise<ListedTool[]> {
+  const body = (await readJson(await handleMcpRequest(request))) as { result?: { tools?: ListedTool[] } };
+  return body.result?.tools ?? [];
+}
+
+describe('the server tells an agent how to use it', () => {
+  // 2025-06-18 and the other handshake revisions put `instructions` in the
+  // initialize result; 2026-07-28 puts it in the server/discover result.
+  it('returns instructions from a 2025-06-18 initialize', async () => {
+    const body = (await readJson(await initialize(LEGACY_VERSION))) as { result?: { instructions?: unknown } };
+    expect(typeof body.result?.instructions).toBe('string');
+  });
+
+  it('returns the same instructions from server/discover', async () => {
+    const legacy = (await readJson(await initialize())) as { result?: { instructions?: string } };
+    const modern = (await readJson(await handleMcpRequest(modernPost('server/discover')))) as {
+      result?: { instructions?: string };
+    };
+    expect(typeof modern.result?.instructions).toBe('string');
+    expect(modern.result?.instructions).toBe(legacy.result?.instructions);
+  });
+
+  it('says what each tool is for, that search never writes an answer and that no instance is reachable', async () => {
+    const body = (await readJson(await initialize())) as { result?: { instructions?: string } };
+    const text = body.result?.instructions ?? '';
+    expect(text.length).toBeGreaterThan(0);
+    expect(text.length, 'instructions should stay short').toBeLessThan(1200);
+    for (const tool of ['docs_search', 'docs_fetch', 'docs_list_topics', 'section']) {
+      expect(text, `names ${tool}`).toContain(tool);
+    }
+    expect(text).toMatch(/passages/i);
+    expect(text).toMatch(/never a written answer/i);
+    expect(text).toMatch(/cannot reach/i);
+    expect(text).toMatch(/instance/i);
+  });
+});
+
+describe('tools/list is deterministic', () => {
+  // 2026-07-28, Tools: "Servers SHOULD return tools in a deterministic order."
+  const ORDER = ['docs_search', 'docs_fetch', 'docs_list_topics'];
+
+  it('lists the tools in the same fixed order on every request, in both eras', async () => {
+    await initialize();
+    const first = await listTools(legacyPost({ jsonrpc: '2.0', id: 2, method: 'tools/list' }));
+    const second = await listTools(legacyPost({ jsonrpc: '2.0', id: 3, method: 'tools/list' }));
+    const modern = await listTools(modernPost('tools/list'));
+    expect(first.map((t) => t.name)).toEqual(ORDER);
+    expect(second).toEqual(first);
+    expect(modern).toEqual(first);
+  });
+});
+
+describe('structured results', () => {
+  // 2026-07-28, Tools: a server that declares an `outputSchema` MUST return
+  // structured results that conform to it, and SHOULD also return the
+  // serialized JSON in a text block.
+  const validator = new AjvJsonSchemaValidator();
+
+  for (const [name, args] of [
+    ['docs_search', { query: 'items', limit: 3 }],
+    ['docs_search', { query: 'zxqvjkwpl' }],
+    ['docs_list_topics', {}],
+  ] as const) {
+    it(`${name} ${JSON.stringify(args)} conforms to its declared outputSchema`, async () => {
+      const tools = await listTools(legacyPost({ jsonrpc: '2.0', id: 2, method: 'tools/list' }));
+      const schema = tools.find((t) => t.name === name)?.outputSchema;
+      expect(schema, `${name} declares an outputSchema`).toBeDefined();
+
+      const result = await callTool(name, args);
+      expect(result.isError).toBeUndefined();
+      const check = validator.getValidator(schema as never)(result.structuredContent);
+      expect(check.valid, check.valid ? '' : check.errorMessage).toBe(true);
+    });
+
+    it(`${name} ${JSON.stringify(args)} repeats the structured content as JSON in one text block`, async () => {
+      const result = await callTool(name, args);
+      expect(result.content).toHaveLength(1);
+      expect(result.content![0]!.type).toBe('text');
+      expect(JSON.parse(result.content![0]!.text)).toEqual(result.structuredContent);
+    });
+  }
+
+  it('serves the same structured content in the current revision', async () => {
+    const modern = (await readJson(
+      await handleMcpRequest(
+        modernPost('tools/call', { name: 'docs_list_topics', arguments: {} }, 1, { 'Mcp-Name': 'docs_list_topics' }),
+      ),
+    )) as { result?: ToolResult };
+    const legacy = await callTool('docs_list_topics', {});
+    expect(modern.result?.structuredContent).toEqual(legacy.structuredContent);
+    expect(JSON.parse(modern.result!.content![0]!.text)).toEqual(modern.result?.structuredContent);
+  });
+
+  it('keeps the text a client reads today: search hits and topic pages under the same keys', async () => {
+    const search = await callTool('docs_search', { query: 'items', limit: 1 });
+    expect(Object.keys(JSON.parse(search.content![0]!.text))).toEqual(['hits']);
+    const topics = await callTool('docs_list_topics', {});
+    expect(Object.keys(JSON.parse(topics.content![0]!.text))).toEqual(['pages']);
+  });
+
+  it('declares no outputSchema for docs_fetch, which returns Markdown and not JSON', async () => {
+    const tools = await listTools(legacyPost({ jsonrpc: '2.0', id: 2, method: 'tools/list' }));
+    expect(tools.find((t) => t.name === 'docs_fetch')?.outputSchema).toBeUndefined();
+    const result = await callTool('docs_fetch', { path: '/files' });
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content![0]!.text).toMatch(/^# Files \(\/files\)/);
+  });
+});
+
+describe('docs_fetch takes an optional section', () => {
+  const PAGE = '/files';
+  const HEADING = 'Who may read a blob';
+
+  it('describes the section input', async () => {
+    const tools = await listTools(legacyPost({ jsonrpc: '2.0', id: 2, method: 'tools/list' }));
+    const fetchTool = tools.find((t) => t.name === 'docs_fetch')!;
+    expect(fetchTool.inputSchema.properties?.['section']?.description).toMatch(/heading/i);
+    expect(fetchTool.description).toContain('section');
+  });
+
+  it('returns only the named heading section of the page', async () => {
+    const whole = (await callTool('docs_fetch', { path: PAGE })).content![0]!.text;
+    const result = await callTool('docs_fetch', { path: PAGE, section: HEADING });
+    expect(result.isError).toBeUndefined();
+    const text = result.content![0]!.text;
+    expect(text.startsWith(`## ${HEADING}`)).toBe(true);
+    expect(whole).toContain(text);
+    expect(text.length).toBeLessThan(whole.length);
+    expect(text).not.toContain('# Files');
+    // The section stops where the next heading of its level or higher begins.
+    expect(text.split('\n').filter((l) => /^#{1,2} /.test(l))).toHaveLength(1);
+  });
+
+  it('matches the heading ignoring case and surrounding space, and by its id', async () => {
+    const exact = (await callTool('docs_fetch', { path: PAGE, section: HEADING })).content![0]!.text;
+    for (const section of ['  who MAY read a blob ', '## Who may read a blob', 'who-may-read-a-blob', '#who-may-read-a-blob']) {
+      const result = await callTool('docs_fetch', { path: PAGE, section });
+      expect(result.isError, section).toBeUndefined();
+      expect(result.content![0]!.text, section).toBe(exact);
+    }
+  });
+
+  it('returns the whole page when the section is blank', async () => {
+    const whole = (await callTool('docs_fetch', { path: PAGE })).content![0]!.text;
+    for (const section of ['', '   ']) {
+      expect((await callTool('docs_fetch', { path: PAGE, section })).content![0]!.text).toBe(whole);
+    }
+  });
+
+  it('reports an unknown section as an error result that lists the real headings', async () => {
+    const result = await callTool('docs_fetch', { path: PAGE, section: 'No such heading' });
+    expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content![0]!.text) as {
+      error: string;
+      message: string;
+      path: string;
+      section: string;
+      headings: { level: number; text: string; id: string | null }[];
+    };
+    expect(payload.error).toBe('section_not_found');
+    expect(payload.message).toBe('No section "No such heading" on /files');
+    expect(payload.path).toBe(PAGE);
+    expect(payload.section).toBe('No such heading');
+    const texts = payload.headings.map((h) => h.text);
+    expect(texts).toContain(HEADING);
+    expect(texts).not.toContain('Files');
+    expect(payload.headings.find((h) => h.text === HEADING)).toEqual({
+      level: 2,
+      text: HEADING,
+      id: 'who-may-read-a-blob',
+    });
+  });
+
+  it('still reports a missing page as not_found when a section is named', async () => {
+    const result = await callTool('docs_fetch', { path: '/definitely/not/a/page', section: HEADING });
+    expect(result.isError).toBe(true);
+    expect((JSON.parse(result.content![0]!.text) as { error: string }).error).toBe('not_found');
   });
 });
