@@ -9,6 +9,7 @@ The code of the docs site and the status page. The root `AGENTS.md` still applie
 - The `marfa docs` command in withmarfa/marfa reads `/api/docs/search`, `/api/docs/topics` and the `.md` copies. A change to their shapes or status codes needs a matching change there.
 - `/` is not prerendered: the Worker redirects it to `/overview`. Prerender starts at `/overview`, and its filter in `vite.config.ts` drops `/`, `/version.json`, `/mcp` and `/api/`. A prerendered `/` breaks hydration, and a prerendered Worker route answers from a frozen file.
 - `source.config.ts` decides what each component becomes in the Markdown copy that `.md`, `llms-full.txt`, a page address that asks for Markdown and the docs tools serve (`STYLE.md`, "Components").
+- `llms-full.txt` holds the written pages: `inLlmsFull` in `src/lib/source.ts` leaves out the generated operation pages and the changelog, and the opening of `llms.txt` (`src/lib/docs-map.ts`) says so and says where they are. Change the three together.
 
 ## Worker entry
 

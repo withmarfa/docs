@@ -72,3 +72,16 @@ export function pageForPath(pathname: string) {
     return undefined;
   }
 }
+
+/**
+ * Whether `llms-full.txt` holds a page. It holds the written pages. The
+ * generated operation pages and the changelog stay out so that one read of the
+ * file stays within what an agent can take in; each keeps its own `.md` copy.
+ */
+export function inLlmsFull(page: (typeof source)['$inferPage']) {
+  return page.type !== 'openapi' && page.url !== '/changelog';
+}
+
+export async function getLlmsFullText() {
+  return (await Promise.all(source.getPages().filter(inLlmsFull).map(getLLMText))).join('\n\n');
+}

@@ -91,7 +91,8 @@ built-in and will not invoke the script.
 - **`<path>.md`**: the Markdown twin of any documentation page. A page's own
   address answers the same Markdown to `Accept: text/markdown`.
 - **`/llms.txt`**: a short hierarchical index.
-- **`/llms-full.txt`**: every page's Markdown, concatenated.
+- **`/llms-full.txt`**: the written pages' Markdown, concatenated, without the
+  API operations and the changelog.
 - **`/docs-map.md`**: every page as a link map, grouped by section.
 - **`/mcp`**: the docs MCP server: search, fetch and list.
 
