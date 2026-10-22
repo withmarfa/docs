@@ -6,9 +6,9 @@
  * (`src/lib/mcp/tools.ts`), the JSON routes under `/api/docs/`
  * (`src/lib/docs-api.ts`) and the site's search box (`/api/search`). Search is
  * Fumadocs's Orama BM25, with the tokenizer below, over the same `source` that
- * powers `/llms.txt` and the `<path>.md`
- * copy of each page. Dense embeddings are deferred: BM25 alone needs no API
- * key from self-hosters, and its recall is good enough here.
+ * powers `/llms.txt` and the `<path>.md` copy of each page. Dense embeddings
+ * are deferred: BM25 alone needs no API key from self-hosters, and its recall
+ * is good enough here.
  */
 
 import { createFromSource } from 'fumadocs-core/search/server';
@@ -40,21 +40,32 @@ function stem(word: string): string {
  * `--print-token` a page shows. Its stop words and stemming are off, so a
  * query's `a` matched every word that starts with `a`. This tokenizer joins a
  * compound's parts with `_` (`--print-token`, `print_token` and `Print-Token`
- * become `print_token`), folds a plural to its singular, ignores accents and
- * case, and treats the index and the query differently:
+ * become `print_token`), folds a plural to its singular, ignores accents, case
+ * and apostrophes, drops the `v` of a version, and treats the index and the
+ * query differently:
  *
  * - The index holds a hyphenated name and its words, so `idempotency key` finds
- *   a page that writes `Idempotency-Key`. It holds a code (`type_not_permitted`,
- *   `core.note`) only whole, because a code's parts say nothing alone.
- * - A query holds only the compound, so a code that no page writes, such as
- *   `NO_COLOR`, finds nothing instead of every page that says "no" or "color".
- *   A query also drops its stop words, unless nothing else is left.
+ *   a page that writes `Idempotency-Key`. It holds a dotted name (`core.note`)
+ *   whole and as its letter-only parts, so `note` finds a page that writes
+ *   `core.note`, and a code (`type_not_permitted`, `0.0.24`) only whole,
+ *   because a code's parts say nothing alone.
+ * - A query holds the compound and, for a dotted name, its letter-only parts,
+ *   so `core.task` finds the page about `task`. A code that no page writes,
+ *   such as `NO_COLOR`, finds nothing instead of every page that says "no" or
+ *   "color". A query also drops its stop words, unless nothing else is left.
  *
  * Orama passes the property name when it indexes and none when it searches,
  * which is how the two are told apart.
  */
 export function tokenizeSearchText(text: string, forQuery: boolean): string[] {
-  const folded = text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
+  const folded = text
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    // `owner's` and `can't` stay one word, not `owner, s`: a one-letter query token prefix-matches every word that starts with it.
+    .replace(/['\u2019]/g, '')
+    .toLowerCase()
+    // `v0.0.24` and `0.0.24` are the same release.
+    .replace(/\bv(?=\d+\.\d)/g, '');
   const tokens = new Set<string>();
   const words: string[] = [];
   for (const match of folded.match(WORD) ?? []) {
@@ -64,12 +75,18 @@ export function tokenizeSearchText(text: string, forQuery: boolean): string[] {
       continue;
     }
     tokens.add(parts.join('_'));
-    // Only a hyphenated name is also its words (`Idempotency-Key`); a code's parts say nothing alone.
-    if (!forQuery && !/[._]/.test(match)) {
-      for (const part of parts) if (part.length > 1) tokens.add(stem(part));
+    // A hyphenated name is also its words (`Idempotency-Key`), and a dotted name its letter-only parts
+    // (`core.task` is `core` and `task`; `0.0.24` is no number alone). An underscore code's parts say nothing
+    // alone, and neither does a hyphenated name in a query, which holds the compound.
+    const dotted = match.includes('.');
+    if (match.includes('_') || (forQuery && !dotted)) continue;
+    for (const part of parts) {
+      if (part.length < 2 || (dotted && !/^\p{L}+$/u.test(part)) || (forQuery && STOP_WORDS.has(part))) continue;
+      tokens.add(stem(part));
     }
   }
-  const kept = forQuery ? words.filter((w) => !STOP_WORDS.has(w)) : words;
+  // `what's` is `whats` once its apostrophe is gone, and folds to `what`.
+  const kept = forQuery ? words.filter((w) => !STOP_WORDS.has(w) && !STOP_WORDS.has(stem(w))) : words;
   for (const word of kept.length > 0 ? kept : words) tokens.add(stem(word));
   return [...tokens];
 }
@@ -152,14 +169,38 @@ function toPlainText(text: string): string {
 /** The changelog repeats every term a reader might search for, so it ranks after an equally matching page. */
 const CHANGELOG_URL = '/changelog';
 
+/** A question the changelog answers: its name, a release, what changed or is new, a breaking change or a version number. */
+const ASKS_ABOUT_A_RELEASE = /\b(?:changelog|releases?|what['\u2019]?s\s+new|what\s+changed|breaking|v?\d+\.\d+\.\d+)\b/i;
+
+export function asksAboutARelease(query: string): boolean {
+  return ASKS_ABOUT_A_RELEASE.test(query);
+}
+
+/** What a query must equal, once tokenized, to name a page: its title, or on a Catalog type page its identifier (`core.task`). */
+function namesOf(url: string): string[] {
+  const data = source.getPage(pathToSlugs(url))?.data as { title?: string; identifier?: string } | undefined;
+  return [data?.title, data?.identifier].flatMap((name) => (name ? [tokenizeSearchText(name, true).join(' ')] : []));
+}
+
 /** A passage longer than this is cut at a word boundary, so a snippet stays a snippet. */
 const MAX_PASSAGE_LENGTH = 240;
 
-function trimPassage(text: string): string {
+/** Remove the last occurrence of `mark` when the text has an odd number of them, so a cut never leaves one open. */
+function closeMark(text: string, mark: string): string {
+  const count = text.split(mark).length - 1;
+  if (count % 2 === 0) return text;
+  const at = text.lastIndexOf(mark);
+  return `${text.slice(0, at)}${text.slice(at + mark.length)}`;
+}
+
+export function trimPassage(text: string): string {
   const flat = text.replace(/\s+/g, ' ').trim();
   if (flat.length <= MAX_PASSAGE_LENGTH) return flat;
   const cut = flat.slice(0, MAX_PASSAGE_LENGTH);
-  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), 1))}...`;
+  const space = cut.lastIndexOf(' ');
+  // A word longer than the limit has no space to cut at, so it is cut where it stands.
+  const words = space > 0 ? cut.slice(0, space) : cut;
+  return `${closeMark(closeMark(words, '**'), '`').trimEnd()}...`;
 }
 
 interface StructuredPage {
@@ -218,10 +259,15 @@ export async function searchDocs(
     if (!entry.snippets.includes(snippet)) entry.snippets.push(snippet);
   }
 
-  const hits = Array.from(byPage.values());
+  // BM25 weighs a page's rows by length and counts, so a page named `Note` can rank below pages that mention
+  // notes more densely. A query that is a page's name is a request for that page.
+  const wanted = tokenizeSearchText(query, true).join(' ');
+  const all = Array.from(byPage.values());
+  const named = all.filter((h) => namesOf(h.url).includes(wanted));
+  const hits = [...named, ...all.filter((h) => !named.includes(h))];
   const changelog = hits.findIndex((h) => h.url === CHANGELOG_URL);
-  // Unless the reader asked for it by name, the changelog goes after every other page.
-  if (changelog !== -1 && !/\bchangelog\b/i.test(query)) hits.push(...hits.splice(changelog, 1));
+  // Unless the reader asked about a release, the changelog goes after every other page.
+  if (changelog !== -1 && !asksAboutARelease(query)) hits.push(...hits.splice(changelog, 1));
 
   return { hits: hits.slice(0, cap) };
 }

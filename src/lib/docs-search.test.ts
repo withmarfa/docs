@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { searchDocs, tokenizeSearchText } from './docs-tools';
+import { asksAboutARelease, searchDocs, tokenizeSearchText, trimPassage } from './docs-tools';
 import { source } from '@/lib/source';
 
 /**
@@ -73,6 +73,26 @@ const EXPECTED: [query: string, pages: string[]][] = [
   // Files.
   ['blob upload', ['/guides/handle-files', '/api-reference/blobs/uploadBlob']],
   ['attach a file to a note', ['/guides/handle-files']],
+
+  // A dotted type key, and a word that is the end of one.
+  ['core.task', ['/catalog/task']],
+  ['note', ['/catalog/note']],
+
+  // An apostrophe is part of a word, not a break in it.
+  ["can't overwrite", ['/guides/ai-agents', '/guides/export-and-restore']],
+];
+
+/**
+ * Queries that ask about a release. The changelog answers them, so it is not
+ * moved to the end of the results: it must be among the first three.
+ */
+const RELEASE_QUERIES = [
+  '0.0.24',
+  'v0.0.24',
+  'version 0.0.24',
+  'release notes',
+  'what changed in 0.0.25',
+  'breaking changes',
 ];
 
 describe('search finds the page that answers a query', () => {
@@ -91,13 +111,42 @@ describe('search finds the page that answers a query', () => {
   });
 });
 
+describe('a query about a release finds the changelog', () => {
+  it.each(RELEASE_QUERIES)('%s', async (query) => {
+    const top = (await searchDocs(query)).hits.slice(0, 3).map((h) => h.url);
+    expect(top, `${query}: the changelog is not in the first three; got ${top.join(', ') || 'nothing'}`).toContain('/changelog');
+  });
+});
+
+describe('asksAboutARelease', () => {
+  it('is true for the changelog, a release, a change or a version number', () => {
+    for (const query of ['changelog', 'release notes', 'what changed in 0.0.25', "what's new", 'what’s new', 'breaking changes', 'version 0.0.24', '0.0.24', 'v0.0.24']) {
+      expect(asksAboutARelease(query), query).toBe(true);
+    }
+  });
+
+  it('is false for a query about a page, so the changelog still ranks last there', () => {
+    for (const query of ['notes', 'rotate a key', 'version_conflict', 'versions', 'core.note', '429', 'exit code 5', 'upgrade server']) {
+      expect(asksAboutARelease(query), query).toBe(false);
+    }
+  });
+});
+
+describe('a query that names a page', () => {
+  it('shows that page first, by its title or its identifier', async () => {
+    expect((await searchDocs('note')).hits[0].url).toBe('/catalog/note');
+    expect((await searchDocs('core.task')).hits[0].url).toBe('/catalog/task');
+    expect((await searchDocs('versions')).hits[0].url).toBe('/versions');
+  });
+});
+
 describe('tokenizeSearchText', () => {
   it('reads a flag, a hyphenated name and a code as the same token however it is written', () => {
     expect(tokenizeSearchText('`--print-token`', false)).toContain('print_token');
     expect(tokenizeSearchText('--print-token', true)).toEqual(['print_token']);
     expect(tokenizeSearchText('Print-Token', true)).toEqual(['print_token']);
     expect(tokenizeSearchText('next_cursor', true)).toEqual(['next_cursor']);
-    expect(tokenizeSearchText('core.note', true)).toEqual(['core_note']);
+    expect(tokenizeSearchText('core.note', true)).toEqual(['core_note', 'core', 'note']);
   });
 
   it('indexes a hyphenated name and its words, and a code only whole', () => {
@@ -127,10 +176,56 @@ describe('tokenizeSearchText', () => {
   it('ignores accents and case', () => {
     expect(tokenizeSearchText('Café', true)).toEqual(['cafe']);
   });
+
+  it('keeps a word with an apostrophe whole, so no one-letter token prefix-matches every word', () => {
+    expect(tokenizeSearchText("what's new", true)).toEqual(['new']);
+    expect(tokenizeSearchText("can’t overwrite", true)).toEqual(['cant', 'overwrite']);
+    expect(tokenizeSearchText("the owner's key", false)).toEqual(expect.arrayContaining(['owner', 'key']));
+    for (const text of ["what's new", "can't overwrite", "doesn't", "owner's"]) {
+      for (const forQuery of [true, false]) {
+        for (const token of tokenizeSearchText(text, forQuery)) expect(token.length, `${text}: "${token}"`).toBeGreaterThan(1);
+      }
+    }
+  });
+
+  it('indexes the letter-only parts of a dotted name as well as the whole, and not its numbers', () => {
+    expect(tokenizeSearchText('core.task', false)).toEqual(expect.arrayContaining(['core_task', 'core', 'task']));
+    expect(tokenizeSearchText('0.0.24', false)).toEqual(['0_0_24']);
+  });
+
+  it('reads a version the same with or without its v', () => {
+    expect(tokenizeSearchText('v0.0.24', false)).toEqual(tokenizeSearchText('0.0.24', false));
+    expect(tokenizeSearchText('v0.0.24', true)).toEqual(tokenizeSearchText('0.0.24', true));
+    // Only a version loses its v.
+    expect(tokenizeSearchText('video', true)).toEqual(['video']);
+    expect(tokenizeSearchText('v2', true)).toEqual(['v2']);
+  });
+});
+
+describe('trimmed passages', () => {
+  it('are cut at a word, not to one character', () => {
+    // No space in the first 240 characters.
+    const long = `${'a'.repeat(300)} tail`;
+    const trimmed = trimPassage(long);
+    expect(trimmed.length).toBeGreaterThan(100);
+    expect(trimmed.endsWith('...')).toBe(true);
+    expect(trimPassage('short passage')).toBe('short passage');
+  });
+
+  it('do not end inside bold or code', () => {
+    const base = 'word '.repeat(47);
+    const short = 'word '.repeat(30);
+    for (const open of ['**', '`']) {
+      const trimmed = trimPassage(`${base}${open}the files stay where they are, as long as they like ${open}and more words follow here`);
+      expect(trimmed.replace(/\.\.\.$/, '').trimEnd(), trimmed).not.toMatch(/(\*\*|`)[^*`]*$/);
+    }
+    // A closed pair is left alone.
+    expect(trimPassage(`${short}**bold** and more words follow here for a long while yet, enough to pass the limit, and then a good deal more, past it`)).toContain('**bold**');
+  });
 });
 
 describe('ranking', () => {
-  it('puts the changelog after every other page, unless the query names it', async () => {
+  it('puts the changelog after every other page, unless the query asks about a release', async () => {
     for (const [query] of EXPECTED) {
       const { hits } = await searchDocs(query, 20);
       const at = hits.findIndex((h) => h.url === '/changelog');
