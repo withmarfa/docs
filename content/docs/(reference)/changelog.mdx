@@ -3,9 +3,39 @@ title: Changelog
 description: What each release of Marfa changed for someone running an instance or building on it.
 ---
 
-Each release of Marfa ships the server and its container image, the CLI for macOS on Apple silicon, and the TypeScript SDK on npm. This page lists every release, newest first, with what changed and a link to the full list on GitHub. The Swift SDK's own releases are listed after Marfa's.
+Each release of Marfa ships the server and its container image, the CLI for macOS on Apple silicon and Intel and for Linux on x86_64 and aarch64 with a checksum file, a Homebrew formula for the CLI, and the TypeScript SDK on npm. This page lists every release, newest first, with what changed and a link to the full list on GitHub. The Swift SDK's own releases are listed after Marfa's.
 
 **Marfa doesn't upgrade a database in place.** A build refuses a database whose schema differs from its own, or that holds retired tables or settings, and leaves the file unchanged; a version change alone doesn't cause a refusal. [Upgrade](/guides/upgrade) shows how to test an export and restore on fresh storage before switching builds.
+
+## v0.0.23
+
+Released October 22, 2026. [v0.0.23 on GitHub](https://github.com/withmarfa/marfa/releases/tag/v0.0.23)
+
+**This release renames a database table and breaks the API's operation names.** It refuses an existing v0.0.22 database without changing it, because `blob_locations` is now `blob_copies` and nothing is migrated. To move an instance that holds data, export it with v0.0.22, then restore the export into a fresh v0.0.23 instance. [Upgrade](/guides/upgrade) covers the process.
+
+For apps and the API reference (breaking):
+
+- **The API reference follows the server's 23 groups, in the server's order.** `GET /openapi.json` writes each group's `x-operation-order`, which lists every operation once by its `operationId`, and writes `paths` in the order of each path's earliest operation. The reference shows the groups as the server lists them, and each page is at `/api-reference/<group>/<operationId>`. Trash, Connector state, Inbound webhooks, API keys, Apps, Owner, Sign-ins and passkeys, and Health and maintenance are now groups of their own. The webhook a subscription calls is listed in the Webhooks order as `receiveWebhookEvent`.
+- **A blob's recorded stores are its copies.** `GET /blobs/{hash}/locations` is now [`GET /blobs/{hash}/copies`](/api-reference/blobs/listBlobCopies), and `DELETE /blobs/{hash}/locations/{store}` is now [`DELETE /blobs/{hash}/copies/{store}`](/api-reference/blobs/deleteBlobCopy). The operations are `listBlobCopies` and `deleteBlobCopy` where they were `listBlobLocations` and `deleteBlobLocation`. The error code `blob_location_not_found` is now `blob_copy_not_found`.
+- **A platform type that the build no longer ships is retired, not drifted.** `GET /platform-types/drift` is now [`GET /platform-types/retired`](/api-reference/types/listRetiredPlatformTypes), as `listRetiredPlatformTypes` where it was `listPlatformTypeDrift`. `deletePlatformType` is now [`deleteRetiredPlatformType`](/api-reference/types/deleteRetiredPlatformType), on the same path. The `/health` field `drifted` is now `retired`.
+- **Other operations have new `operationId` values,** on the same method and path: `heartbeatConnector` is `sendConnectorHeartbeat`, `holdConnector` is `takeConnectorHold`, `updateSignIn` is `renameSignIn`, `updateOwnerPasskey` is `renameOwnerPasskey`, `removeOwnerPasskey` is `deleteOwnerPasskey`, `exportData` is `exportArchive` and `getServerMetrics` is `getInstanceMetrics`. A generated client names its methods from these, so regenerate it.
+- **Schemas follow the names.** `BlobLocation`, `BlobLocationPage` and `BlobLocationNotFoundOrBlobNotFoundRefusal` are now `BlobCopy`, `BlobCopyPage` and `BlobCopyNotFoundOrBlobNotFoundRefusal`. `DriftedPlatformType` and `DriftedPlatformTypePage` are now `RetiredPlatformType` and `RetiredPlatformTypePage`.
+- **Summaries say what each operation does on its own.** A connector's webhook endpoint is an inbound endpoint, so the operations are "Create an inbound endpoint", "List inbound endpoints" and "Retire an inbound endpoint". Connector operations name the connector, such as "Release a connector hold" and "Get a connector's state", and the trash operations by summary say so, such as "Trash an item by summary".
+
+For running an instance and using the CLI:
+
+- **`marfa server` runs a server in Docker on the same machine.** `install` asks how the server is reached and prints the link that claims it, and `upgrade`, `status`, `start` and `uninstall` look after it. `upgrade` does not move data, and `uninstall` keeps it unless you pass `--delete-data`. [Deploy](/guides/deploy#install-with-the-command-line) covers it.
+- **The CLI comes for Linux and Intel Macs, with checksums.** A release carries four archives, `marfa-<version>-<os>-<arch>.tar.gz`, and one checksum file, `marfa-<version>-checksums.txt`. The release also writes a Homebrew formula to `withmarfa/homebrew-tap`, so `brew install withmarfa/tap/marfa` installs the CLI. [CLI](/cli#install) shows each route.
+- **Four CLI commands have new names.** `marfa types drift` is `marfa types retired`, `marfa types prune` is `marfa types delete-retired`, `marfa blobs locations` is `marfa blobs copies` and `marfa blobs delete-location` is `marfa blobs delete-copy`. The old names are gone.
+- **An export by a key without `blobs.manage` names the files it could not carry.** The manifest's `missing_blobs` lists a file version whose bytes that key may not read, with a `null` MIME type and size, and `marfa export` then exits 1 and keeps the archive beside the path as `<path>.incomplete`. A script that reads the path never gets an archive that lacks files. [Export and restore](/guides/export-and-restore) covers it.
+- **The server refuses to start when its file folder is missing but the database records saved files there.** It names the folder and creates nothing there, so a drive that did not mount cannot become a new, empty store. Where an object store is configured, the bucket serves the copies and the start goes ahead. [Deploy](/guides/deploy) shows the exit status and what to restore.
+- **The server image refuses to back up a database that may be older than its bucket's newest copy.** It exits 1 instead of replacing the newer copy. Set `MARFA_REPLACE_NEWER_REPLICA` only when you mean to replace it. A new file, `marfa.db-replica`, sits beside the database, so copy it with a volume backup. [Back up and restore](/guides/back-up-and-restore) lists the files.
+
+For folders, apps and devices:
+
+- **Folder syncing keeps one item when a file moves between folders.** A file item at a `.md`, `.markdown` or `.txt` name that moves keeps its binding until the other folder takes it, and a file found by its identity or its bytes is read as the same item. [Folder safeguards](/guides/folder-safeguards) lists each case.
+- **The contract states every owner action that needs a recent sign-in.** That covers making, changing and revoking a key, signing out every browser, the trash operations, removing a custom type and retrying a webhook delivery. [Confirm it's you](/guides/sign-in-as-the-owner#confirm-its-you) lists them.
+- **A working copy that an earlier build made is refused with `wrong_schema`.** The copy's folder journal has a new shape, and the build never discards the copy. [Troubleshooting](/guides/troubleshooting#staying-in-step) shows what to do.
 
 ## v0.0.22
 
