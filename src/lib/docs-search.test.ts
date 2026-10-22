@@ -77,6 +77,13 @@ const EXPECTED: [query: string, pages: string[]][] = [
   // A dotted type key, and a word that is the end of one.
   ['core.task', ['/catalog/task']],
   ['note', ['/catalog/note']],
+  ['core.note', ['/catalog/note']],
+
+  // A flag that is also an ordinary word, and a word that starts a permission scope (`webhooks.manage`).
+  ['--force', ['/guides/define-a-type']],
+  ['--scope', ['/docs-mcp-server']],
+  ['webhooks', ['/events', '/guides/receive-webhooks']],
+  ['audit', ['/guides/audit-log']],
 
   // An apostrophe is part of a word, not a break in it.
   ["can't overwrite", ['/guides/ai-agents', '/guides/export-and-restore']],
@@ -84,9 +91,11 @@ const EXPECTED: [query: string, pages: string[]][] = [
 
 /**
  * Queries that ask about a release. The changelog answers them, so it is not
- * moved to the end of the results: it must be among the first three.
+ * moved to the end of the results: it comes first.
  */
 const RELEASE_QUERIES = [
+  'what is new in marfa',
+  'latest release',
   '0.0.24',
   'v0.0.24',
   'version 0.0.24',
@@ -114,19 +123,19 @@ describe('search finds the page that answers a query', () => {
 describe('a query about a release finds the changelog', () => {
   it.each(RELEASE_QUERIES)('%s', async (query) => {
     const top = (await searchDocs(query)).hits.slice(0, 3).map((h) => h.url);
-    expect(top, `${query}: the changelog is not in the first three; got ${top.join(', ') || 'nothing'}`).toContain('/changelog');
+    expect(top[0], `${query}: the changelog is not first; got ${top.join(', ') || 'nothing'}`).toBe('/changelog');
   });
 });
 
 describe('asksAboutARelease', () => {
   it('is true for the changelog, a release, a change or a version number', () => {
-    for (const query of ['changelog', 'release notes', 'what changed in 0.0.25', "what's new", 'what’s new', 'breaking changes', 'version 0.0.24', '0.0.24', 'v0.0.24']) {
+    for (const query of ['changelog', 'release notes', 'swift sdk releases', 'latest release', 'what is new in marfa', 'what changed in 0.0.25', "what's new", 'what’s new', 'breaking changes', 'version 0.0.24', '0.0.24', 'v0.0.24']) {
       expect(asksAboutARelease(query), query).toBe(true);
     }
   });
 
   it('is false for a query about a page, so the changelog still ranks last there', () => {
-    for (const query of ['notes', 'rotate a key', 'version_conflict', 'versions', 'core.note', '429', 'exit code 5', 'upgrade server']) {
+    for (const query of ['release a hold', 'release', 'notes', 'rotate a key', 'version_conflict', 'versions', 'core.note', '429', 'exit code 5', 'upgrade server']) {
       expect(asksAboutARelease(query), query).toBe(false);
     }
   });
@@ -143,10 +152,17 @@ describe('a query that names a page', () => {
 describe('tokenizeSearchText', () => {
   it('reads a flag, a hyphenated name and a code as the same token however it is written', () => {
     expect(tokenizeSearchText('`--print-token`', false)).toContain('print_token');
-    expect(tokenizeSearchText('--print-token', true)).toEqual(['print_token']);
+    expect(tokenizeSearchText('--print-token', true)).toEqual(['--print_token', 'print_token']);
     expect(tokenizeSearchText('Print-Token', true)).toEqual(['print_token']);
     expect(tokenizeSearchText('next_cursor', true)).toEqual(['next_cursor']);
     expect(tokenizeSearchText('core.note', true)).toEqual(['core_note', 'core', 'note']);
+  });
+
+  it('holds a flag as its own token as well as its words, so a one-word flag is not just a word', () => {
+    expect(tokenizeSearchText('marfa export --force', false)).toEqual(expect.arrayContaining(['--force', 'force']));
+    expect(tokenizeSearchText('--s3-prefix', false)).toEqual(expect.arrayContaining(['--s3_prefix', 's3_prefix']));
+    // A hyphen before a word is not a flag.
+    expect(tokenizeSearchText('a --- b, well-known', false)).not.toContain('--well_known');
   });
 
   it('indexes a hyphenated name and its words, and a code only whole', () => {
@@ -188,9 +204,18 @@ describe('tokenizeSearchText', () => {
     }
   });
 
-  it('indexes the letter-only parts of a dotted name as well as the whole, and not its numbers', () => {
-    expect(tokenizeSearchText('core.task', false)).toEqual(expect.arrayContaining(['core_task', 'core', 'task']));
-    expect(tokenizeSearchText('0.0.24', false)).toEqual(['0_0_24']);
+  it('queries the letter-only parts of a dotted name as well as the whole, and not its numbers', () => {
+    expect(tokenizeSearchText('core.task', true)).toEqual(['core_task', 'core', 'task']);
+    expect(tokenizeSearchText('0.0.24', true)).toEqual(['0_0_24']);
+  });
+
+  it('indexes a dotted name and a hyphenated identifier in code only whole', () => {
+    // `webhooks.manage` is one short row; its parts would outrank the pages about webhooks.
+    expect(tokenizeSearchText('`webhooks.manage`', false)).toEqual(['webhooks_manage']);
+    expect(tokenizeSearchText('`webhook-poll`', false)).toEqual(['webhook_poll']);
+    // A header name and a hyphenated word in prose keep their words.
+    expect(tokenizeSearchText('the `Idempotency-Key` header', false)).toContain('idempotency');
+    expect(tokenizeSearchText('a command-line app', false)).toContain('command');
   });
 
   it('reads a version the same with or without its v', () => {

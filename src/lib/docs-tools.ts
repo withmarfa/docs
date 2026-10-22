@@ -24,6 +24,12 @@ const STOP_WORDS = new Set([
 /** A word, or words joined inside by a dot, hyphen or underscore: `print-token`, `next_cursor`, `core.note`. */
 const WORD = /[\p{L}\p{N}]+(?:[._-][\p{L}\p{N}]+)*/gu;
 
+/** A lowercase hyphenated name in an inline code span. */
+const CODE_NAME = /`([a-z0-9]+(?:-[a-z0-9]+)+)`/g;
+
+/** A command-line flag: `--force`, `--print-token`. */
+const FLAG = /(?<![\p{L}\p{N}_-])--([\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*)/gu;
+
 /** Fold a plural to its singular, so `items` and `item` meet. Only plain words: a code is never stemmed. */
 function stem(word: string): string {
   // A short word keeps its `s`: `cors` must not become `cor`, which prefix-matches every `correct`.
@@ -45,10 +51,11 @@ function stem(word: string): string {
  * query differently:
  *
  * - The index holds a hyphenated name and its words, so `idempotency key` finds
- *   a page that writes `Idempotency-Key`. It holds a dotted name (`core.note`)
- *   whole and as its letter-only parts, so `note` finds a page that writes
- *   `core.note`, and a code (`type_not_permitted`, `0.0.24`) only whole,
- *   because a code's parts say nothing alone.
+ *   a page that writes `Idempotency-Key`. It holds a dotted name (`core.note`,
+ *   `webhooks.manage`), a code (`type_not_permitted`, `0.0.24`) and a lowercase
+ *   hyphenated name in code (`webhook-poll`) only whole: the short row of a
+ *   permission scope or a job name would outrank the pages about a word it
+ *   holds. A flag is also a token of its own, `--force` beside `force`.
  * - A query holds the compound and, for a dotted name, its letter-only parts,
  *   so `core.task` finds the page about `task`. A code that no page writes,
  *   such as `NO_COLOR`, finds nothing instead of every page that says "no" or
@@ -67,6 +74,12 @@ export function tokenizeSearchText(text: string, forQuery: boolean): string[] {
     // `v0.0.24` and `0.0.24` are the same release.
     .replace(/\bv(?=\d+\.\d)/g, '');
   const tokens = new Set<string>();
+  // A lowercase hyphenated name in code (`webhook-poll`, `trash-purge`) is an identifier, so only whole: its
+  // short row would outrank the pages about `webhook` or `trash`.
+  const identifiers = new Set(Array.from(text.matchAll(CODE_NAME), (m) => m[1]));
+  // A flag is also its own token, `--scope` besides `scope`: a one-word flag is otherwise a word that
+  // half the pages use, and `--force` could not find the page that explains it.
+  for (const flag of folded.matchAll(FLAG)) tokens.add(`--${flag[1].replace(/-/g, '_')}`);
   const words: string[] = [];
   for (const match of folded.match(WORD) ?? []) {
     const parts = match.split(/[._-]/);
@@ -75,11 +88,12 @@ export function tokenizeSearchText(text: string, forQuery: boolean): string[] {
       continue;
     }
     tokens.add(parts.join('_'));
-    // A hyphenated name is also its words (`Idempotency-Key`), and a dotted name its letter-only parts
-    // (`core.task` is `core` and `task`; `0.0.24` is no number alone). An underscore code's parts say nothing
-    // alone, and neither does a hyphenated name in a query, which holds the compound.
+    // The index holds a hyphenated name's words (`Idempotency-Key`); a query holds a dotted name's letter-only
+    // parts (`core.task` is `core` and `task`; `0.0.24` is no number alone). The index does not hold a dotted
+    // name's parts: a short row such as `webhooks.manage` would then outrank the pages about webhooks. An
+    // underscore code's parts say nothing alone.
     const dotted = match.includes('.');
-    if (match.includes('_') || (forQuery && !dotted)) continue;
+    if (match.includes('_') || dotted !== forQuery || identifiers.has(match)) continue;
     for (const part of parts) {
       if (part.length < 2 || (dotted && !/^\p{L}+$/u.test(part)) || (forQuery && STOP_WORDS.has(part))) continue;
       tokens.add(stem(part));
@@ -169,17 +183,37 @@ function toPlainText(text: string): string {
 /** The changelog repeats every term a reader might search for, so it ranks after an equally matching page. */
 const CHANGELOG_URL = '/changelog';
 
-/** A question the changelog answers: its name, a release, what changed or is new, a breaking change or a version number. */
-const ASKS_ABOUT_A_RELEASE = /\b(?:changelog|releases?|what['\u2019]?s\s+new|what\s+changed|breaking|v?\d+\.\d+\.\d+)\b/i;
+/**
+ * A question only the changelog answers: its name, releases or release notes, the latest release, what changed or
+ * is new, a breaking change or a version number. A bare `release` is not one: a held write has a release verdict.
+ */
+const ASKS_ABOUT_A_RELEASE =
+  /\b(?:changelog|releases|release\s+notes?|latest\s+release|what(?:['\u2019]?s|\s+is)\s+new|what\s+changed|breaking|v?\d+\.\d+\.\d+)\b/i;
 
 export function asksAboutARelease(query: string): boolean {
   return ASKS_ABOUT_A_RELEASE.test(query);
 }
 
-/** What a query must equal, once tokenized, to name a page: its title, or on a Catalog type page its identifier (`core.task`). */
-function namesOf(url: string): string[] {
-  const data = source.getPage(pathToSlugs(url))?.data as { title?: string; identifier?: string } | undefined;
-  return [data?.title, data?.identifier].flatMap((name) => (name ? [tokenizeSearchText(name, true).join(' ')] : []));
+let namedPages: Map<string, { title: string; url: string }[]> | undefined;
+
+/**
+ * The pages a query names, found by what it must equal once tokenized: a page's title, or on a Catalog type
+ * page its identifier (`core.task`). Built once, from every page, so a page named by a common word such as
+ * `note` is found even when the word matches too many rows for it to be among the results.
+ */
+function pagesNamed(wanted: string): { title: string; url: string }[] {
+  if (!namedPages) {
+    namedPages = new Map();
+    for (const page of source.getPages()) {
+      const data = page.data as { title: string; identifier?: string };
+      for (const name of [data.title, data.identifier]) {
+        if (!name) continue;
+        const key = tokenizeSearchText(name, true).join(' ');
+        namedPages.set(key, [...(namedPages.get(key) ?? []), { title: data.title, url: page.url }]);
+      }
+    }
+  }
+  return namedPages.get(wanted) ?? [];
 }
 
 /** A passage longer than this is cut at a word boundary, so a snippet stays a snippet. */
@@ -262,12 +296,16 @@ export async function searchDocs(
   // BM25 weighs a page's rows by length and counts, so a page named `Note` can rank below pages that mention
   // notes more densely. A query that is a page's name is a request for that page.
   const wanted = tokenizeSearchText(query, true).join(' ');
-  const all = Array.from(byPage.values());
-  const named = all.filter((h) => namesOf(h.url).includes(wanted));
-  const hits = [...named, ...all.filter((h) => !named.includes(h))];
+  const named = pagesNamed(wanted).map((p) => byPage.get(p.url) ?? { title: p.title, url: p.url, snippets: [] });
+  const hits = [...named, ...Array.from(byPage.values()).filter((h) => !named.includes(h))];
   const changelog = hits.findIndex((h) => h.url === CHANGELOG_URL);
-  // Unless the reader asked about a release, the changelog goes after every other page.
-  if (changelog !== -1 && !asksAboutARelease(query)) hits.push(...hits.splice(changelog, 1));
+  if (changelog !== -1) {
+    // The changelog repeats every term, so it goes after every other page, unless the reader asked about a
+    // release: then it goes first, ahead of a page that only uses the word.
+    const [page] = hits.splice(changelog, 1);
+    if (asksAboutARelease(query)) hits.unshift(page);
+    else hits.push(page);
+  }
 
   return { hits: hits.slice(0, cap) };
 }
