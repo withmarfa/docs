@@ -11,7 +11,8 @@ import {
   DocsTitle,
 } from 'fumadocs-ui/layouts/notebook/page';
 import { baseOptions } from '@/lib/layout.shared';
-import { appName, gitConfig } from '@/lib/shared';
+import { gitConfig } from '@/lib/shared';
+import { pageHead } from '@/lib/page-head';
 import { DocsHeader } from '@/components/docs-header';
 import { PageActions } from '@/components/page-actions';
 import { PageFooter } from '@/components/page-footer';
@@ -54,19 +55,7 @@ export const Route = createFileRoute('/$')({
     }
     return data;
   },
-  // Without this every page reads as the site name in search results and link
-  // previews, because the root route's title is the only one. Operation
-  // descriptions are Markdown, so their backticks are dropped from the meta text.
-  head: ({ loaderData }) => ({
-    meta: loaderData
-      ? [
-          { title: `${loaderData.title} | ${appName}` },
-          ...(loaderData.description
-            ? [{ name: 'description', content: loaderData.description.replace(/`/g, '') }]
-            : []),
-        ]
-      : [],
-  }),
+  head: ({ loaderData }) => pageHead(loaderData),
 });
 
 const serverLoader = createServerFn({

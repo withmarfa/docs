@@ -88,7 +88,8 @@ built-in and will not invoke the script.
 
 ## Machine-readable surfaces
 
-- **`<path>.md`**: the Markdown twin of any documentation page.
+- **`<path>.md`**: the Markdown twin of any documentation page. A page's own
+  address answers the same Markdown to `Accept: text/markdown`.
 - **`/llms.txt`**: a short hierarchical index.
 - **`/llms-full.txt`**: every page's Markdown, concatenated.
 - **`/docs-map.md`**: every page as a link map, grouped by section.

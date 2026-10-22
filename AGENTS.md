@@ -21,7 +21,7 @@ The source of the public documentation site at `docs.marfa.so` and the status pa
 ## Layout
 
 - `content/docs/`: the pages, one folder per tab, ordered by `meta.json` files.
-- `src/routes/`, `src/lib/` and `src/components/`: the docs site, including the Markdown copies, `llms.txt`, the docs MCP server at `/mcp` and the JSON addresses under `/api/docs/`.
+- `src/routes/`, `src/lib/` and `src/components/`: the docs site, including the Worker entry `src/server.ts`, the Markdown copies, `llms.txt`, the docs MCP server at `/mcp` and the JSON addresses under `/api/docs/`.
 - `src/status/`: the status page, a second Vite target built by `vite.status.config.ts` into `dist-status/` and deployed from `wrangler.status.jsonc`.
 - `src/generated/` and `openapi.json`: written only by the sync script. Never edit them by hand.
 - `scripts/`: the sync from marfa, the staleness report and the page-growth report. The two reports use only Node built-ins, because CI runs them without installing anything. Their tests are in `src/lib/`, the only place Vitest looks.

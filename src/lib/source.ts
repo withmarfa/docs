@@ -51,3 +51,24 @@ export async function getLLMText(page: (typeof source)['$inferPage']) {
 
 ${lead}${identifier}${body}`;
 }
+
+/** The Markdown copy of a page as a response: the one body `<page>.md` and a page address that asks for Markdown both serve. */
+export async function markdownResponse(page: (typeof source)['$inferPage'], headers: HeadersInit = {}) {
+  return new Response(await getLLMText(page), {
+    headers: { 'Content-Type': 'text/markdown', ...headers },
+  });
+}
+
+/**
+ * The page a request path addresses, with or without one trailing slash, or
+ * `undefined` for the root, a `.md` copy and anything that is not a page.
+ */
+export function pageForPath(pathname: string) {
+  const segments = pathname.replace(/^\//, '').replace(/\/$/, '').split('/');
+  if (segments.some((segment) => segment === '')) return undefined;
+  try {
+    return source.getPage(segments.map(decodeURIComponent));
+  } catch {
+    return undefined;
+  }
+}
