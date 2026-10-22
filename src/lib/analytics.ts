@@ -20,6 +20,9 @@ export type Site = 'docs' | 'status';
  * fails to authenticate — the good failure, but a total one.
  */
 const API_HOST = 'https://eu.i.posthog.com';
+
+/** The ingestion host, for the docs Worker's own events (`src/lib/agent-reads.ts`), which use no SDK. */
+export const POSTHOG_API_HOST = API_HOST;
 const UI_HOST = 'https://eu.posthog.com';
 
 /**
@@ -30,7 +33,10 @@ const DEFAULTS = '2026-08-30' as const;
 
 /**
  * Every option is a decision rather than an omission, so that the set reads as
- * intent to whoever finds it next.
+ * intent to whoever finds it next. These are the browser's options. The docs
+ * Worker also sends one count for each request to an agent address, which runs
+ * no browser script; `src/lib/agent-reads.ts` says what that event holds and
+ * what it never holds.
  *
  * Two constraints sit behind almost all of it. PostHog's free allowances are
  * per organization, so these two sites draw on the same pool the hosted

@@ -44,7 +44,7 @@ const CORS_HEADERS: Record<string, string> = {
     'Mcp-Method',
     'Mcp-Name',
   ].join(', '),
-  'Access-Control-Expose-Headers': 'Mcp-Session-Id',
+  'Access-Control-Expose-Headers': 'Mcp-Session-Id, Retry-After',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -54,6 +54,24 @@ function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
   for (const [key, value] of Object.entries(CORS_HEADERS)) headers.set(key, value);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+/**
+ * The answer to a client over its limit: `429` with `Retry-After` and a
+ * JSON-RPC error with no id, as the SDK answers any other refusal at this
+ * address. The Worker's rate limit stage answers it before the handler runs.
+ */
+export function mcpRateLimited(retryAfterSeconds: number): Response {
+  return withCors(
+    new Response(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: `Too many requests. Try again in ${retryAfterSeconds} seconds.` },
+        id: null,
+      }),
+      { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': String(retryAfterSeconds) } },
+    ),
+  );
 }
 
 /** Public entry: serve one HTTP request against the docs MCP endpoint. */

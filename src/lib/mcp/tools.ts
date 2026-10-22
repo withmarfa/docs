@@ -25,6 +25,9 @@ import {
   searchDocs,
 } from '@/lib/docs-tools';
 
+/** The tools in registration order. The Worker's request counting names a tool only if it is one of these. */
+export const DOCS_TOOL_NAMES = ['docs_search', 'docs_fetch', 'docs_list_topics'] as const;
+
 export const SERVER_NAME = 'marfa-docs';
 export const SERVER_VERSION = '1.0.0';
 
@@ -92,7 +95,7 @@ export function createDocsServer(): McpServer {
   );
 
   server.registerTool(
-    'docs_search',
+    DOCS_TOOL_NAMES[0],
     {
       description:
         'Full-text search over the Marfa docs corpus. Returns up to `limit` hits ranked by BM25 relevance, each with a title, canonical URL, and snippets of matching content. It finds passages and links; it does not write an answer. Pass a hit\'s url to docs_fetch to read the page.',
@@ -113,7 +116,7 @@ export function createDocsServer(): McpServer {
   );
 
   server.registerTool(
-    'docs_fetch',
+    DOCS_TOOL_NAMES[1],
     {
       description:
         'Fetch the markdown body of a single docs page by its URL path (e.g. "/properties-metadata-and-edges"). Returns the same markdown the `<path>.md` copy returns: a heading with the page title and path, then the full prose with code blocks preserved. Pass `section`, a heading from the page, to get only that heading and what is under it; an unknown heading is an error that lists the page\'s headings.',
@@ -165,7 +168,7 @@ export function createDocsServer(): McpServer {
   );
 
   server.registerTool(
-    'docs_list_topics',
+    DOCS_TOOL_NAMES[2],
     {
       description:
         'List every docs page as a flat array of { title, url, description, breadcrumbs } entries. Use to discover the full taxonomy without traversing the navigation tree.',
