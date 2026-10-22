@@ -32,7 +32,7 @@ export const kept: readonly Kept[] = [
 /**
  * A connector between its vendor and the instance. It talks to both, with the
  * vendor's API on one side and a key of its own on the other; the vendor can
- * also post to a webhook endpoint on the instance, which keeps each delivery
+ * also post to an inbound endpoint on the instance, which keeps each delivery
  * for the connector to read.
  */
 export function ConnectorParts({ caption }: { caption?: ReactNode }) {
@@ -66,7 +66,7 @@ export function ConnectorParts({ caption }: { caption?: ReactNode }) {
             })}
           </ul>
         </div>
-        <Box className="marfa-cp-endpoint" icon={Webhook} title="Webhook endpoint" subtitle="Keeps each delivery" />
+        <Box className="marfa-cp-endpoint" icon={Webhook} title="Inbound endpoint" subtitle="Keeps each delivery" />
         {/* Vendor to endpoint, past the connector: down from the vendor, a turn, then a run to the endpoint. */}
         <span className="marfa-cp-bypass marfa-cp-bypass-start" aria-hidden="true" />
         <span className="marfa-cp-bypass marfa-cp-bypass-run" aria-hidden="true">
