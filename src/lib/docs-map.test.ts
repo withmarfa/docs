@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildDocsMap, buildLlmsTxt } from '@/lib/docs-map';
+import { getLLMText, getLlmsFullText, inLlmsFull, source } from '@/lib/source';
 import spec from '../../openapi.json';
 
 // The operationIds listed under a group's heading, in the order the index gives them.
@@ -113,5 +114,40 @@ describe('buildLlmsTxt', () => {
 
   it("lists each group's operations in the order its tag gives", () => {
     for (const [name, order] of orders) expect(operationsUnder(text, name), name).toEqual(order);
+  });
+
+  it('says what llms-full.txt holds and where the operations and the changelog are', () => {
+    const intro = text.slice(0, text.indexOf('## Overview'));
+    expect(intro).toContain('`https://docs.marfa.so/llms-full.txt` holds the written pages');
+    expect(intro).toContain('leaves out the API operations and the changelog');
+    expect(intro).toContain('`openapi.json`');
+    expect(intro).toContain('`https://docs.marfa.so/changelog.md`');
+    expect(intro).toContain('`https://docs.marfa.so/mcp`');
+    expect(intro).toContain('`Accept: text/markdown`');
+  });
+
+  it('links the addresses its introduction names only where they exist', () => {
+    expect(source.getPage(['changelog'])).toBeDefined();
+    expect(text).toContain('(https://docs.marfa.so/changelog.md)');
+  });
+});
+
+describe('getLlmsFullText', () => {
+  it('holds each written page and leaves out the operations and the changelog', async () => {
+    const full = await getLlmsFullText();
+    const pages = source.getPages();
+
+    const left = pages.filter((page) => !inLlmsFull(page));
+    expect(left.some((page) => page.url === '/changelog')).toBe(true);
+    expect(left.filter((page) => page.type === 'openapi').length).toBeGreaterThan(100);
+    expect(left.every((page) => page.type === 'openapi' || page.url === '/changelog')).toBe(true);
+
+    for (const page of pages) {
+      const heading = `# ${page.data.title} (${page.url})\n`;
+      expect(full.includes(heading), page.url).toBe(inLlmsFull(page));
+    }
+    expect(full).toContain(await getLLMText(source.getPage(['overview'])!));
+    expect(full).toContain('# Errors (/api-reference/errors)');
+    expect(full).not.toContain('# Create an item (/api-reference/items/createItem)');
   });
 });
