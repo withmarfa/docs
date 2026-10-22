@@ -15,7 +15,7 @@ The code of the docs site and the status page. The root `AGENTS.md` still applie
 
 - `src/server.ts` is the Worker's one entry (`main` in `wrangler.jsonc`). It runs the stages in `src/lib/worker.ts`, then the router. A new request-level behavior is a stage there, one line in `createWorkerHandler`, with a case in `src/lib/worker.test.ts`.
 - Prerendered pages are static files, and a static file answers before any Worker runs. `run_worker_first` in `wrangler.jsonc` runs the Worker first for every address except the hashed files in `/assets/` and the icons, and the `staticAssets` stage hands the request to the files itself. Without it a page address never sees its `Accept` header. A page slug must not be `assets` (`content/AGENTS.md`).
-- A page address with `Accept: text/markdown` ranked above `text/html` answers the page's Markdown copy, and every answer for a page address carries `Vary: Accept`. `src/lib/accept.ts` decides the ranking. The `.md` route and the negotiated answer both build their response with `markdownResponse`, so the two cannot differ.
+- A page address whose `Accept` ranks `text/markdown` above `text/html`, or at the same rank when it names `text/markdown` first, answers the page's Markdown copy, and every answer for a page address carries `Vary: Accept`. `src/lib/accept.ts` decides the ranking. The `.md` route and the negotiated answer both build their response with `markdownResponse`, so the two cannot differ.
 - `pnpm dev` renders every page through the router, because nothing is prerendered there, so it cannot show the file lookup or `run_worker_first`. Check a change to either with `pnpm build` and `pnpm exec vite preview`, which runs the built Worker as it deploys.
 
 ## Analytics
