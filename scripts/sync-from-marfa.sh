@@ -11,6 +11,9 @@
 #                                     exit-codes.md, which the CLI page includes.
 #                                     The directory is replaced whole, so a file
 #                                     that is no longer written disappears.
+#   src/generated/cli-commands.json   every command of the CLI with its options, read
+#                                     from the same file, which the command check
+#                                     compares the pages' examples against
 #   src/generated/error-codes.md      the contract's table of error codes,
 #                                     written from the server's own code list,
 #                                     included by the Errors page
@@ -104,6 +107,7 @@ fi
 CANDIDATE="$(mktemp "${TMPDIR:-/tmp}/marfa-openapi.XXXXXX")"
 OVERVIEW="$(mktemp "${TMPDIR:-/tmp}/marfa-overview.XXXXXX")"
 COMMANDS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marfa-cli.XXXXXX")"
+COMMAND_TREE="$(mktemp "${TMPDIR:-/tmp}/marfa-cli-commands.XXXXXX")"
 ERRORS="$(mktemp "${TMPDIR:-/tmp}/marfa-errors.XXXXXX")"
 HOUSEKEEPING="$(mktemp "${TMPDIR:-/tmp}/marfa-housekeeping.XXXXXX")"
 SETTINGS="$(mktemp "${TMPDIR:-/tmp}/marfa-settings.XXXXXX")"
@@ -111,7 +115,7 @@ PERMISSIONS="$(mktemp "${TMPDIR:-/tmp}/marfa-permissions.XXXXXX")"
 EVENT_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-event-types.XXXXXX")"
 INDEX="$(mktemp "${TMPDIR:-/tmp}/marfa-contract-index.XXXXXX")"
 CATALOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marfa-catalog.XXXXXX")"
-cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$ERRORS" "$HOUSEKEEPING" "$SETTINGS" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$CATALOG_DIR"; }
+cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$COMMAND_TREE" "$ERRORS" "$HOUSEKEEPING" "$SETTINGS" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$CATALOG_DIR"; }
 trap cleanup EXIT
 
 # The overview page includes this file under its own level-2 heading, so every
@@ -222,6 +226,133 @@ then
   exit 1
 fi
 chmod 755 "$COMMANDS_DIR"
+
+# The command check compares what the pages show with every command and option
+# the CLI has, so the whole command tree is written as data: each `### marfa ...`
+# section's name, whether it has subcommands or positional arguments, and the
+# options in its table. The global options are the table under
+# `## Global options`, and the options of `marfa` itself are in the `-V` table
+# beside them. A heading-shaped line inside a fence is not a heading, and only
+# the first fence of a section, its usage, is read for subcommands and arguments.
+if ! python3 - "$MARFA_ROOT/core/marfa-cli/COMMANDS.md" "$COMMAND_TREE" <<'PY'
+import json, re, sys
+
+source, out_path = sys.argv[1], sys.argv[2]
+FENCE = re.compile(r"\s*(`{3,}|~{3,})")
+
+
+def refuse(reason):
+    sys.exit(f"{source} {reason}. Nothing has changed.")
+
+
+try:
+    lines = re.split(r"\r?\n", open(source, encoding="utf-8").read())
+except UnicodeDecodeError:
+    refuse("is not UTF-8")
+
+# The sections, with a table or a heading inside a fence taken as text.
+fence = None
+sections = []  # [heading, [lines outside fences], usage lines]
+usage_open = False
+for line in lines:
+    marker = FENCE.match(line)
+    if marker and (fence is None or marker.group(1).startswith(fence)):
+        if fence is None:
+            fence = marker.group(1)
+            usage_open = bool(sections) and sections[-1][2] is None
+            if usage_open:
+                sections[-1][2] = []
+        else:
+            fence = None
+            usage_open = False
+        continue
+    if fence is not None:
+        if usage_open:
+            sections[-1][2].append(line)
+        continue
+    if line.startswith("## ") or line.startswith("### "):
+        sections.append([line, [], None])
+    elif sections:
+        sections[-1][1].append(line)
+
+
+def options(body):
+    """Option rows of every `| Option |` table in a section's prose."""
+    found, in_table = [], False
+    for line in body:
+        if not line.startswith("|"):
+            in_table = False
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if cells[0] in ("Option", "Argument"):
+            in_table = cells[0] == "Option"
+            continue
+        if not in_table or set(cells[0]) <= set("- "):
+            continue
+        cell = re.fullmatch(r"`([^`]+)`", cells[0])
+        if not cell:
+            refuse(f"has an option row this sync cannot read: {line.strip()[:60]}")
+        entry = {}
+        for part in cell.group(1).split(", "):
+            match = re.fullmatch(r"(-[A-Za-z]|--[a-z0-9][a-z0-9-]*)( <[^>]+>)?", part)
+            if not match:
+                refuse(f"has an option this sync cannot read: {part}")
+            if match.group(1).startswith("--"):
+                entry["flag"] = match.group(1)
+                if match.group(2):
+                    entry["value"] = True
+            else:
+                entry["short"] = match.group(1)
+        if "flag" not in entry:
+            refuse(f"has an option with no long form: {cell.group(1)}")
+        found.append(entry)
+    return found
+
+
+tree = {}
+global_options = None
+for heading, body, usage in sections:
+    if heading == "## Global options":
+        # The first table is the options every command takes. A second table
+        # in the section is the options of `marfa` alone.
+        tables = "\n".join(body).split("`marfa` itself also accepts these.")
+        global_options = options(tables[0].split("\n"))
+        root = options(tables[1].split("\n")) if len(tables) > 1 else []
+        tree[""] = {"options": root, "subcommands": True}
+        continue
+    match = re.fullmatch(r"### marfa( [a-z0-9][a-z0-9 -]*)", heading)
+    if not match:
+        continue
+    name = match.group(1).strip()
+    if name in tree:
+        refuse(f"repeats the command '### marfa {name}'")
+    usage = [u.split() for u in (usage or []) if u.startswith("marfa ")]
+    if not usage:
+        refuse(f"gives no usage under '### marfa {name}'")
+    words = [w for u in usage for w in u]
+    entry = {
+        "options": options(body),
+        "subcommands": "<COMMAND>" in words,
+        "positional": any(
+            re.fullmatch(r"[<\[][A-Za-z_]+(\.\.\.)?[>\]]", w) and w not in ("<COMMAND>", "[OPTIONS]")
+            for w in words
+        ),
+    }
+    tree[name] = {k: v for k, v in entry.items() if v or k == "options"}
+
+if global_options is None:
+    refuse("has no '## Global options' section")
+if len(tree) < 2:
+    refuse("has no '### marfa' command sections")
+
+with open(out_path, "w", encoding="utf-8") as out:
+    out.write('{\n "global": ' + json.dumps(global_options) + ',\n "commands": {\n')
+    out.write(",\n".join("  " + json.dumps(name) + ": " + json.dumps(entry) for name, entry in tree.items()))
+    out.write("\n }\n}\n")
+PY
+then
+  exit 1
+fi
 
 # Each table is the part of a contract chapter between its two markers, which
 # the monorepo's CI holds to what the server defines: the code table to the
@@ -831,6 +962,7 @@ mkdir -p "$GENERATED"
 mv "$OVERVIEW" "$GENERATED/api-overview.md"
 rm -rf "$GENERATED/cli"
 mv "$COMMANDS_DIR" "$GENERATED/cli"
+mv "$COMMAND_TREE" "$GENERATED/cli-commands.json"
 mv "$ERRORS" "$GENERATED/error-codes.md"
 mv "$HOUSEKEEPING" "$GENERATED/housekeeping.md"
 mv "$SETTINGS" "$GENERATED/settings.md"
@@ -862,4 +994,4 @@ docker run --name marfa -d --restart unless-stopped -p 127.0.0.1:8600:8600 \\
 \`\`\`
 IMAGE
 
-echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, the error codes, the housekeeping jobs, the settings, the permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE), its CLI download and its server image commands synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, its command tree, the error codes, the housekeeping jobs, the settings, the permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE), its CLI download and its server image commands synced from $MARFA_ROOT"
