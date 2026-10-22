@@ -4,8 +4,9 @@ The code of the docs site and the status page. The root `AGENTS.md` still applie
 
 ## Agent surfaces
 
-- `src/lib/docs-tools.ts` is the one implementation of docs search, page fetch and the topic list. The MCP server (`src/lib/mcp/`), the JSON addresses (`src/lib/docs-api.ts`) and the site's search box (`/api/search`) all call it. Change behavior there, never in one caller.
+- `src/lib/docs-tools.ts` is the one implementation of docs search, page fetch (whole, or one section by heading) and the topic list. The MCP server (`src/lib/mcp/`), the JSON addresses (`src/lib/docs-api.ts`) and the site's search box (`/api/search`) all call it. Change behavior there, never in one caller.
 - `src/lib/mcp/server.test.ts` checks the MCP server against the MCP specification. Add a case there before changing anything a client can see. `src/lib/mcp/stdio.ts` only forwards to the HTTP endpoint, so it cannot differ from it.
+- The MCP tools in `src/lib/mcp/tools.ts` are registered in a fixed order, which is the order `tools/list` returns them in. `docs_search` and `docs_list_topics` declare an `outputSchema` and return `structuredContent` that conforms to it, with the same JSON in the text block; `docs_fetch` returns Markdown. The server's `instructions` live there too. A change to a tool's name, input or result updates the instructions, the tool descriptions and `content/docs/(overview)/docs-mcp-server.mdx` together.
 - The `marfa docs` command in withmarfa/marfa reads `/api/docs/search`, `/api/docs/topics` and the `.md` copies. A change to their shapes or status codes needs a matching change there.
 - `/` is not prerendered: the Worker redirects it to `/overview`. Prerender starts at `/overview`, and its filter in `vite.config.ts` drops `/`, `/version.json`, `/mcp` and `/api/`. A prerendered `/` breaks hydration, and a prerendered Worker route answers from a frozen file.
 - `source.config.ts` decides what each component becomes in the Markdown copy that `.md`, `llms-full.txt` and the docs tools serve (`STYLE.md`, "Components").

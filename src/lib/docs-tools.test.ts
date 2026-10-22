@@ -3,7 +3,10 @@ import {
   DEFAULT_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
   MAX_SNIPPETS_PER_PAGE,
+  extractSection,
   fetchDocsPage,
+  fetchDocsSection,
+  listHeadings,
   listTopics,
   pathToSlugs,
   searchDocs,
@@ -138,5 +141,106 @@ describe('listTopics', () => {
       description: expect.any(String),
       breadcrumbs: ['guides', 'housekeeping'],
     });
+  });
+});
+
+const SAMPLE = [
+  '# Sample (/sample)',
+  '',
+  'Lead.',
+  '',
+  '## First [#first]',
+  'First body.',
+  '```bash',
+  '# a comment, not a heading',
+  '## nor this',
+  '```',
+  '### Nested [#nested]',
+  'Nested body.',
+  '## Second',
+  'Second body.',
+  '### Nested [#nested-1]',
+  'Other nested body.',
+  '## Last [#last]',
+  'Last body.',
+].join('\n');
+
+describe('listHeadings', () => {
+  it('lists the headings below the page title, with level, text and id', () => {
+    expect(listHeadings(SAMPLE)).toEqual([
+      { level: 2, text: 'First', id: 'first' },
+      { level: 3, text: 'Nested', id: 'nested' },
+      { level: 2, text: 'Second', id: null },
+      { level: 3, text: 'Nested', id: 'nested-1' },
+      { level: 2, text: 'Last', id: 'last' },
+    ]);
+  });
+
+  it('ignores lines that look like headings inside a fenced code block', () => {
+    expect(listHeadings(SAMPLE).map((h) => h.text)).not.toContain('nor this');
+    expect(listHeadings('# T (/t)\n\n~~~\n## no\n~~~\n## yes')).toEqual([{ level: 2, text: 'yes', id: null }]);
+  });
+
+  it('returns nothing for a page with no headings', () => {
+    expect(listHeadings('# T (/t)\n\nJust text.')).toEqual([]);
+  });
+});
+
+describe('extractSection', () => {
+  it('returns a heading with everything under it, up to the next heading of its level or higher', () => {
+    expect(extractSection(SAMPLE, 'First')).toBe(
+      [
+        '## First [#first]',
+        'First body.',
+        '```bash',
+        '# a comment, not a heading',
+        '## nor this',
+        '```',
+        '### Nested [#nested]',
+        'Nested body.',
+      ].join('\n'),
+    );
+  });
+
+  it('stops a nested section at the next heading of any shallower or equal level', () => {
+    expect(extractSection(SAMPLE, 'nested')).toBe('### Nested [#nested]\nNested body.');
+    expect(extractSection(SAMPLE, 'Last')).toBe('## Last [#last]\nLast body.');
+  });
+
+  it('matches by id, which tells repeated headings apart, and takes the first of a repeated text', () => {
+    expect(extractSection(SAMPLE, 'nested-1')).toBe('### Nested [#nested-1]\nOther nested body.');
+    expect(extractSection(SAMPLE, '#nested-1')).toBe('### Nested [#nested-1]\nOther nested body.');
+    expect(extractSection(SAMPLE, 'Nested')).toBe('### Nested [#nested]\nNested body.');
+  });
+
+  it('matches ignoring case, surrounding space and leading hashes', () => {
+    for (const q of ['SECOND', ' second ', '## Second']) expect(extractSection(SAMPLE, q), q).toBe('## Second\nSecond body.\n### Nested [#nested-1]\nOther nested body.');
+  });
+
+  it('returns null for a heading the page does not have, including the page title and fenced lines', () => {
+    for (const q of ['Missing', 'Sample', 'nor this', 'a comment, not a heading', '']) {
+      expect(extractSection(SAMPLE, q), q).toBeNull();
+    }
+  });
+});
+
+describe('fetchDocsSection', () => {
+  it('returns the section of a real page', async () => {
+    const result = await fetchDocsSection('/files', 'Who may read a blob');
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.markdown.startsWith('## Who may read a blob')).toBe(true);
+    expect(await fetchDocsPage('/files')).toContain(result.markdown);
+  });
+
+  it('lists the page headings when the section is unknown', async () => {
+    const result = await fetchDocsSection('/files', 'Nope');
+    expect(result.status).toBe('section_not_found');
+    if (result.status !== 'section_not_found') return;
+    expect(result.headings.map((h) => h.text)).toContain('Who may read a blob');
+  });
+
+  it('reports a missing page before it looks for a section', async () => {
+    expect(await fetchDocsSection('/definitely/not/a/page', 'Anything')).toEqual({ status: 'page_not_found' });
   });
 });
