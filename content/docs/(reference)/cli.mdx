@@ -67,7 +67,12 @@ With Docker installed, [`marfa server install`](/guides/install) sets up a serve
 
 ## Connect to a server
 
-A command that talks to an instance needs the server's address and a credential. For each, the CLI takes the first one that's set:
+A command that talks to an instance needs the server's address and a credential. The CLI takes both from the first of these that is given:
+
+1. **`--profile`**: a [profile](#name-a-server-with-a-profile), which holds a server and where its key comes from. It's refused beside `--url` or `--key`, and it reads none of `MARFA_API_URL`, `MARFA_API_KEY` and `MARFA_PROFILE`.
+2. **`--url` or `--key`**: as in the table below, and the CLI reads no `MARFA_PROFILE` beside either.
+3. **`MARFA_PROFILE`**: a profile for a whole shell. It's refused beside a `MARFA_API_URL` or `MARFA_API_KEY` that isn't empty, so a key exported for one server never reaches another.
+4. **No profile**: the variables and the keychain, in this order:
 
 | What it needs | First | Then | Then |
 | --- | --- | --- | --- |
@@ -75,6 +80,31 @@ A command that talks to an instance needs the server's address and a credential.
 | A credential | `--key` | `MARFA_API_KEY` | What the keychain holds for that server |
 
 **A key from `--key` or `MARFA_API_KEY` needs its server named** with `--url` or `MARFA_API_URL`. Without one, the command ends with exit code 2 and the key is never sent to the current server. Prefer the variable to `--key`: a command line is readable by other users of the machine and stays in your shell history.
+
+### Name a server with a profile
+
+A profile is a section of a file you write by hand, `profiles.toml`, that names a server and where its key comes from, as the contract's [profile rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#profiles) state. It isn't the owner's profile, which `marfa profile update` changes. **A profile's key goes only to its own server.** The file is `~/Library/Application Support/Marfa/profiles.toml` on macOS, and `$XDG_CONFIG_HOME/marfa/profiles.toml`, or `~/.config/marfa/profiles.toml` where that isn't set, elsewhere. Name each profile for the instance it reaches:
+
+```toml title="profiles.toml"
+[demo]
+url = "http://localhost:8600"
+
+[example]
+url = "https://marfa.example.com"
+key_command = ["op", "read", "op://Private/Marfa/key"]
+```
+
+Pick one for a command with `--profile`, or for a whole shell with `MARFA_PROFILE`:
+
+```bash
+marfa --profile example items list
+export MARFA_PROFILE=demo
+```
+
+- **Without `key_command`, the key is the keychain's** credential for that server. `marfa login --profile demo` signs in to it, and `marfa keys keep --profile demo` keeps a key for it, read from standard input.
+- **With `key_command`, the CLI runs it and reads the key from what it prints.** It's a program and its arguments, run without a shell and with no standard input, when a request first needs the key and at most once in a run. It must print the key alone on one line, finish within 60 seconds and exit with 0. It can't use the terminal, so a program that asks for a password must ask some other way, as a password manager's own window does. `login` without `--print-token`, `logout`, `keys keep` and `keys forget` refuse such a profile, because it never reads the keychain.
+- **The CLI refuses a file that others can change**: one that belongs to another user, or that its group or others can write, or whose folder they can write. Whoever can change the file can name a program the CLI runs as you. The refusal names the `chmod` or `chown` that fixes it. It refuses a field it doesn't know too, so a misspelled `key_command` can't leave a profile on the keychain unseen.
+- **`--socket`, `marfa server` and `marfa types scaffold` refuse `--profile`**, since none of them uses a server's address and key. `--socket` refuses `MARFA_PROFILE` too.
 
 ### Keep a credential in the keychain
 
@@ -95,9 +125,13 @@ marfa login --url https://marfa.example.com
 
 ### Run without the keychain
 
-For a script, a CI job or an agent, pass `--no-keychain` or set `MARFA_NO_KEYCHAIN` to `1`, `true`, `yes` or `on`. **The CLI then reads nothing from the keychain and writes nothing to it**, so it can't raise a system prompt. Every command needs `--url` or `MARFA_API_URL`, and the credential from `--key` or `MARFA_API_KEY`.
+For a script, a CI job or an agent, pass `--no-keychain` or set `MARFA_NO_KEYCHAIN` to `1`, `true`, `yes` or `on`. **The CLI then reads nothing from the keychain and writes nothing to it**, so it can't raise a system prompt, and a command that names no server is refused instead of reaching the current one. Every command needs a profile with a `key_command`, or `--url` or `MARFA_API_URL` and the credential from `--key` or `MARFA_API_KEY`. A profile without a `key_command` is refused with `no_credential`.
 
 A command that keeps or removes a credential refuses: `marfa keys keep`, `keys forget`, `logout`, and `login` without `--print-token`. `marfa login --print-token` prints the token set instead of keeping it.
+
+### Check which server a write reaches
+
+Before a command first sends a request that can change data, the CLI prints `marfa: writing to <server>` on standard error as one plain line, with `(profile <name>)` after it where a profile named the server. A run with writes to two servers prints it once for each. **A read prints nothing**, and neither does signing in. The line is printed with `--json` too, and standard output is unchanged.
 
 ### Use another keychain file
 
@@ -150,6 +184,8 @@ a key from MARFA_API_KEY
 
 </Terminal>
 
+With a profile, the first line ends with `(profile example)`, and the credential line says the credential came from `the profile's key_command` or `the keychain`.
+
 The instance name defaults to Marfa, and [Settings](/guides/settings#change-settings-while-it-runs) changes it. A server built from a clone shows only the commit. Under an app's token, `marfa whoami` also lists what the owner approved, in the words of the approval page: each type as No access, Read only or Read and edit, and each permission by its title. `marfa keys list`, `current`, `create` and `update` print a key's access the same way, and `--json` prints it structured.
 
 ## Use the private socket
@@ -186,7 +222,7 @@ That's how the owner makes the first key in the [Quickstart](/quickstart). These
 
 `marfa owner picture` writes the owner's picture to the file named by `--output`, or its bytes to standard output, and a key that may read the profile's `avatar` can run it too. A key or an app with profile write access changes the name and the picture with `marfa profile update`, which takes `--name`, `--avatar <file>` and `--clear-avatar`. [Sign in as the owner](/guides/sign-in-as-the-owner#change-the-owners-profile) shows both.
 
-**The socket carries no key.** `--socket` can't be combined with `--url`, `--key`, `MARFA_API_URL` or `MARFA_API_KEY`. An operation that needs a key, such as `marfa events` or `marfa export`, ends with exit code 5, so run it with a key instead. `marfa login`, `logout`, `device`, `docs`, `types scaffold` and local folder commands refuse `--socket`. `marfa folders inventory` is the exception: it reads the owner’s reported folder copies through the socket.
+**The socket carries no key.** `--socket` can't be combined with `--url`, `--key`, `--profile`, `MARFA_API_URL`, `MARFA_API_KEY` or `MARFA_PROFILE`. An operation that needs a key, such as `marfa events` or `marfa export`, ends with exit code 5, so run it with a key instead. `marfa login`, `logout`, `device`, `docs`, `types scaffold` and local folder commands refuse `--socket`. `marfa folders inventory` is the exception: it reads the owner’s reported folder copies through the socket.
 
 ## Exit codes
 

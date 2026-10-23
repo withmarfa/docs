@@ -275,13 +275,15 @@ If some of the writes are of a kind the current build no longer queues, the mess
 ## The CLI
 
 <Accordions>
-<Accordion title="--socket cannot be combined with MARFA_API_URL or MARFA_API_KEY">
+<Accordion title="--socket cannot be combined with MARFA_API_URL, MARFA_API_KEY or MARFA_PROFILE">
 
-`--socket` acts with the machine's own authority, so it refuses to run while the environment names a server or a key. Unset both for the command, as [the CLI page](/cli#use-the-private-socket) describes:
+`--socket` acts with the machine's own authority, so it refuses to run while the environment names a server, a key or a profile. Unset all three for the command, as [the CLI page](/cli#use-the-private-socket) describes:
 
 ```bash
-unset MARFA_API_URL MARFA_API_KEY
+unset MARFA_API_URL MARFA_API_KEY MARFA_PROFILE
 ```
+
+`--socket` refuses `--profile`, `--url` and `--key` too.
 
 </Accordion>
 <Accordion title="--socket must not traverse symbolic links">
@@ -296,9 +298,9 @@ Give the full path with its links resolved, such as `"$(pwd -P)/data/control/mar
 There's no socket at that path: the server isn't running, or its data is somewhere else. The server makes the socket when it starts, at `control/marfa.sock` beside its database unless `MARFA_CONTROL_SOCKET` names another path. Start the server, and check the path.
 
 </Accordion>
-<Accordion title="no server named: pass --url or set MARFA_API_URL">
+<Accordion title="no server named: pass --url or --profile, or set MARFA_API_URL or MARFA_PROFILE">
 
-The command works with an instance, and nothing told it which one. With the keychain off, there's no current server to fall back to. Set `MARFA_API_URL` to the instance's address, such as `http://localhost:8600`, or pass `--url`. [Connect to a server](/cli#connect-to-a-server) gives the order the CLI follows.
+The command works with an instance, and nothing told it which one. With the keychain off, there's no current server to fall back to. Set `MARFA_API_URL` to the instance's address, such as `http://localhost:8600`, or pass `--url`. Or pick a [profile](/cli#name-a-server-with-a-profile) with `--profile` or `MARFA_PROFILE`. [Connect to a server](/cli#connect-to-a-server) gives the order the CLI follows.
 
 </Accordion>
 <Accordion title="a key from --key or MARFA_API_KEY needs its server named">
@@ -310,7 +312,55 @@ The command was given a key but no server, and the CLI never sends that key to t
 
 The command knows the instance but has no credential for it, and the CLI exits with `5`.
 
-Set `MARFA_API_KEY` to a key, keep one in the keychain with `marfa keys keep`, or sign in with `marfa login`. With the keychain off, only `--key` or `MARFA_API_KEY` works. [Connect to a server](/cli#connect-to-a-server) covers each.
+Set `MARFA_API_KEY` to a key, keep one in the keychain with `marfa keys keep`, or sign in with `marfa login`. With the keychain off, only `--key`, `MARFA_API_KEY` or a profile with a `key_command` works. A profile without a `key_command` takes its key from the keychain, so the message tells you to sign in with `marfa login --profile <name>`, keep a key with `marfa keys keep --profile <name>`, or give the profile a `key_command`. With the keychain off, it names only the `key_command`. [Connect to a server](/cli#connect-to-a-server) covers each.
+
+</Accordion>
+<Accordion title="no profile file at … or no profile named …">
+
+`--profile` or `MARFA_PROFILE` names a profile the CLI can't find, and the command ends with exit code `2`. **`no profile file at <path>`** means there's no `profiles.toml` where the CLI looks, which the message names. **`no profile named "<name>" in <path>`** means the file has no section of that name, and the message lists the names it has. Write a section such as `[example]` with a `url` line, as [the CLI page](/cli#name-a-server-with-a-profile) shows. A name is exact: `Example` is not `example`.
+
+</Accordion>
+<Accordion title="the argument '--profile <NAME>' cannot be used with '--url <URL>'">
+
+`--profile` names the server and the key itself, so the CLI refuses `--url` and `--key` beside it, with exit code `2`, and sends nothing. Drop the option and keep the profile, or drop the profile and keep the option.
+
+</Accordion>
+<Accordion title="MARFA_PROFILE cannot be combined with MARFA_API_URL or MARFA_API_KEY">
+
+A profile and a variable each name a server, and the CLI never guesses which you meant, because it would send one server the other's key. It ends with exit code `2` and sends nothing. Unset the variables, or unset `MARFA_PROFILE`. `--profile`, `--url` and `--key` take precedence over all three and need nothing unset.
+
+</Accordion>
+<Accordion title="the profile file … can be changed by other users, so it is not read">
+
+The CLI runs a profile's `key_command` as you, so **it refuses a profile file that anyone else could change**, with exit code `2`. The message names the fault and the command that fixes it:
+
+- **`can be changed by other users (mode 666)`:** the file's group or others can write it. Run `chmod go-w` on the file.
+- **`belongs to another user`:** run `chown "$USER"` on the file, if it is yours.
+- **`the folder … that holds the profile file`:** the folder's group or others can write it. Run `chmod go-w` on the folder.
+- **`has an access control entry that lets other users change it`:** on macOS, run `chmod -N` on the file or the folder.
+
+The CLI follows a symbolic link and checks the file and the folder it leads to.
+
+</Accordion>
+<Accordion title="the profile file … is not valid">
+
+The file isn't TOML the CLI accepts, and the message gives the line. One mistake blocks every profile in the file. The usual causes are a misspelled field, since a profile takes only `url` and `key_command`, and a `key_command` written as a string where it must be a list such as `["op", "read", "op://Private/Marfa/key"]`. The CLI refuses an unknown field so a misspelled `key_command` can't leave the profile on the keychain unseen. A `url` that isn't a server's address is refused with its own message, which names the profile.
+
+</Accordion>
+<Accordion title="the key command of profile …">
+
+The profile's `key_command` gave the CLI no key. The command ends with exit code `5` and the code `key_command`, and it sends no request with a key. The message names the profile and the program, never its arguments or what it printed on standard output, and ends with the reason:
+
+- **`was not found` or `cannot be run`:** the CLI runs the list without a shell, so it doesn't expand `~`, a variable or a pipe. Give the program's full path, or put its folder on `PATH`.
+- **`exited with status N`:** the program refused, and the message adds the last line it wrote to standard error. A secrets manager that is signed out says so here. Run the program yourself and fix that.
+- **`printed nothing`, or `printed more than one line`:** the program must print the key alone, as one line under 16 KiB of UTF-8 text.
+- **`tried to read from or write to the terminal`:** the CLI runs the program with no standard input and in a process group of its own, so a program that asks at the terminal for a password or a confirmation is stopped. **A key command must print the key without asking.** Sign in to the secrets manager first, or use one that asks in its own window, as a password manager does. Where the CLI runs with no terminal at all, such a program can't ask and fails with one of the other reasons.
+- **`did not finish within 60 seconds`:** the CLI ended the program and everything it started.
+
+</Accordion>
+<Accordion title="the profile … takes its key from its key_command, not the keychain">
+
+`login` without `--print-token`, `logout`, `keys keep` and `keys forget` work on the keychain, and a profile with a `key_command` never reads it, so the CLI refuses them for that profile with exit code `2`. Change the key in the secrets manager, or remove `key_command` from the profile to use the keychain.
 
 </Accordion>
 <Accordion title="no keychain file is there">
