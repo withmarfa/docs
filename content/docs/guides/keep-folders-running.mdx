@@ -5,7 +5,7 @@ description: Keep every folder on your computer in step with one watch, start it
 
 A folder you [set up](/guides/sync-a-folder) stays in step only while something watches it. **One `marfa folders watch` keeps every folder on the computer in step**, and `marfa folders autostart` starts it at login, so a folder needs no terminal left open.
 
-The watch needs no `--url` or `--key`: it reads each folder's credential from the keychain, so run `marfa keys keep` for a folder's key first, as [the CLI](/cli#connect-to-a-server) shows.
+The watch needs no `--url` or `--key`: it reads each folder's credential from the keychain, so run `marfa keys keep` for a folder's key first, as [the CLI](/cli#connect-to-a-server) shows. On a computer where nobody signs in to unlock the keychain, [use a key file instead](#use-a-key-file-instead-of-the-keychain).
 
 ## Watch every folder
 
@@ -33,6 +33,7 @@ Press Ctrl-C to stop it. `SIGTERM` stops it the same way, with exit 0, so a serv
 | `--json` | Prints each line as one JSON object with a `dir` field. |
 | `--for <seconds>` | Stops the watch after that long. |
 | `--log <file>` | Writes its output to a file in place of the terminal. |
+| `--key-file <file>` | Takes the server and key from a file in place of the keychain. See [Use a key file instead of the keychain](#use-a-key-file-instead-of-the-keychain). |
 
 To watch one folder, name its directory: `marfa folders watch Notes`.
 
@@ -53,7 +54,7 @@ marfa folders autostart on
 
 It starts the watch at once and says which file it wrote. Running it again changes nothing unless the agent would differ, such as after the program moved.
 
-- **The agent:** on macOS a launchd agent, and on Linux a systemd user unit. It holds **no credential and no server**: each folder uses the keychain's credential for its server, so on Linux the keychain must be unlocked at login.
+- **The agent:** on macOS a launchd agent, and on Linux a systemd user unit. It holds **no credential and no server**: each folder uses the keychain's credential for its server, so on Linux the keychain must be unlocked at login. With a [key file](#use-a-key-file-instead-of-the-keychain) it holds that file's path and nothing from it.
 - **The log:** `folder-watch.log` beside the folder registry, readable by you alone. At 1 MiB it moves to `folder-watch.log.1`.
 - **Restarts:** the service manager starts the watch again only after it fails, and no sooner than 30 seconds after it last started.
 
@@ -69,11 +70,36 @@ marfa folders autostart off
 - Whether the agent is installed and running.
 - Which program the agent runs, and whether that program is gone or isn't the one you ran.
 - Where the agent logs.
+- The key file the agent names, or none where it uses the keychain.
 - Which folders the watch isn't holding, and why, including each folder with no credential the watch can use.
 
 `off` stops the watch and removes the agent. If the service manager can't be asked, it still removes the agent's file, exits 3 and says what it couldn't stop.
 
 Another program can show the same state from [the folder watch record](/folder-watch-record).
+
+## Use a key file instead of the keychain
+
+A login agent starts outside your shell and reads your own keychain. On a machine that no one signs in to, such as a server or an automated Mac, the keychain stays locked and would raise a prompt that nobody answers. **A key file replaces the keychain for the watch**, and the agent holds the file's path and never what is in it.
+
+Make a key with only the permissions the folders need, as [Manage keys](/guides/manage-keys) shows, and write the file with two lines:
+
+```bash
+MARFA_API_URL=https://marfa.example.com
+MARFA_API_KEY=<the key>
+```
+
+```bash
+chmod 600 ~/.config/marfa/watch.env
+marfa folders autostart on --key-file ~/.config/marfa/watch.env
+```
+
+To run one watch by hand with the same file, use `marfa folders watch --key-file <file>`.
+
+- **The file can live anywhere outside your folders.** It has to be a regular file with one name, owned by you, closed to the group and to others (mode 600), and with both lines and a server address. Otherwise the command exits 1 with `invalid` and says which fault, and `autostart on` writes nothing. A file inside a folder is refused, because the watch would send it to the server as one of the folder's files.
+- **The key is used for the folders on that server,** and the keychain is read for none. A folder on another server is reported as having no credential, and the key is never sent to it.
+- **The file is read again each time a folder is opened,** so a key you rotate in the file is the one used the next time the watch opens a folder. A file that has become unsafe holds that folder back, with the reason `invalid` in [the folder watch record](/folder-watch-record), until it is fixed, and the other folders go on.
+- **`--key-file` replaces `--url` and `--key`:** giving both is a usage error, exit code 2.
+- **`autostart on` without the option** goes back to the keychain and replaces the agent.
 
 ## Work on a folder while the watch runs
 
