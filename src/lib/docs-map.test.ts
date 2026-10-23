@@ -54,7 +54,7 @@ describe('buildDocsMap', () => {
       '- Core types',
       ...['Bookmark', 'Entity', 'Event', 'File', 'Highlight', 'Media', 'Message', 'Note', 'Task'].map((title) => `  - ${title}]`),
       '- System types',
-      ...['Connection', 'Folder'].map((title) => `  - ${title}]`),
+      ...['Connection', 'Folder', 'View'].map((title) => `  - ${title}]`),
       '- Type rules]',
       '- Field kinds]',
     ]);
