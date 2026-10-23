@@ -115,8 +115,9 @@ describe('search finds the page that answers a query', () => {
   });
 
   it('finds nothing for a code no page uses, instead of every page with "no" or "color"', async () => {
-    // The CLI reads no NO_COLOR variable, so no page may say it does.
-    expect(await searchDocs('NO_COLOR')).toEqual({ hits: [] });
+    // The CLI reads no MARFA_NO_COLOR variable (it reads NO_COLOR), so no page
+    // may say it does.
+    expect(await searchDocs('MARFA_NO_COLOR')).toEqual({ hits: [] });
   });
 });
 
