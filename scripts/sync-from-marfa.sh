@@ -932,7 +932,7 @@ def render_spec():
     # The frames of a stream that are not events, each named by the constant
     # its event_type holds. A frame with no other field is a row with None.
     frames = []
-    for name in ("StreamCursorFrame", "StreamLiveFrame", "StreamIncompleteFrame", "CatchupTooOldFrame", "CursorAheadFrame", "ReadViewChangedFrame"):
+    for name in ("StreamCursorFrame", "StreamLiveFrame", "StreamIncompleteFrame", "CatchupTooOldFrame", "CursorAheadFrame", "ReachChangedFrame"):
         props = properties(name)
         frame = props.get("event_type", {}).get("const")
         if not isinstance(frame, str):
