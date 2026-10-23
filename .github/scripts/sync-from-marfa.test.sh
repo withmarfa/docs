@@ -542,7 +542,7 @@ event_fields_expected="$(cat <<'EOF'
 | `stream_incomplete` | `reason`    | `string`           | Why.              |
 | `catchup_too_old`   | `requested` | `string`           | The ID you sent.  |
 | `cursor_ahead`      | `head`      | `string`           | The latest ID.    |
-| `read_view_changed` | None        |                    |                   |
+| `reach_changed`     | None        |                    |                   |
 EOF
 )"
 
@@ -723,7 +723,7 @@ schemas = {
     "StreamIncompleteFrame": frame("stream_incomplete", {"reason": {"type": "string", "enum": ["reader_behind"], "description": "Why."}}),
     "CatchupTooOldFrame": frame("catchup_too_old", {"requested": {"type": "string", "description": "The ID you sent."}}),
     "CursorAheadFrame": frame("cursor_ahead", {"head": {"type": "string", "description": "The latest ID."}}),
-    "ReadViewChangedFrame": frame("read_view_changed", {}),
+    "ReachChangedFrame": frame("reach_changed", {}),
 }
 print(json.dumps({"openapi": "3.1.0", "info": {"title": "Marfa", "version": "0", "description": sys.argv[1]}, "paths": {}, "components": {"schemas": schemas}}))
 PY
