@@ -37,13 +37,14 @@ Recordings, music files, voice memos. Inherits all core.file fields.
 
 Photos, screenshots, diagrams. Inherits all core.file fields.
 
-| Field       | Kind      | Required | Description                                                                                    |
-| ----------- | --------- | -------- | ---------------------------------------------------------------------------------------------- |
-| `width`     | `integer` | No       | Width in pixels (server enrichment: derived from the file when the client does not supply it)  |
-| `height`    | `integer` | No       | Height in pixels (server enrichment: derived from the file when the client does not supply it) |
-| `latitude`  | `number`  | No       | Subject latitude                                                                               |
-| `longitude` | `number`  | No       | Subject longitude                                                                              |
-| `altitude`  | `number`  | No       | Altitude in meters                                                                             |
+| Field       | Kind        | Required | Description                                                                                    |
+| ----------- | ----------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `width`     | `integer`   | No       | Width in pixels (server enrichment: derived from the file when the client does not supply it)  |
+| `height`    | `integer`   | No       | Height in pixels (server enrichment: derived from the file when the client does not supply it) |
+| `latitude`  | `number`    | No       | Subject latitude                                                                               |
+| `longitude` | `number`    | No       | Subject longitude                                                                              |
+| `altitude`  | `number`    | No       | Altitude in meters                                                                             |
+| `thumbnail` | `thumbnail` | No       | A small preview of the image, supplied by the writer                                           |
 
 ### core.file.video [#core-file-video]
 
