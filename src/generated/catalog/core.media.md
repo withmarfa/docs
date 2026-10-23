@@ -1,17 +1,18 @@
 ## Fields
 
-| Field          | Kind               | Required | Description                           |
-| -------------- | ------------------ | -------- | ------------------------------------- |
-| `title`        | `string`           | Yes      | Name of the work                      |
-| `body`         | `string`           | No       | Text content or description           |
-| `author`       | `string`           | No       | Who created the work                  |
-| `url`          | `url`              | No       | Web address                           |
-| `description`  | `string`           | No       | Summary or blurb                      |
-| `publisher`    | `string`           | No       | Who published the work                |
-| `published_at` | `datetime`         | No       | When originally published or released |
-| `image_url`    | `url`              | No       | Cover art, poster, or thumbnail       |
-| `language`     | `string` (`bcp47`) | No       | BCP 47 language code                  |
-| `notes`        | `string`           | No       | Personal annotations                  |
+| Field          | Kind               | Required | Description                                         |
+| -------------- | ------------------ | -------- | --------------------------------------------------- |
+| `title`        | `string`           | Yes      | Name of the work                                    |
+| `body`         | `string`           | No       | Text content or description                         |
+| `author`       | `string`           | No       | Who created the work                                |
+| `url`          | `url`              | No       | Web address                                         |
+| `description`  | `string`           | No       | Summary or blurb                                    |
+| `publisher`    | `string`           | No       | Who published the work                              |
+| `published_at` | `datetime`         | No       | When originally published or released               |
+| `image_url`    | `url`              | No       | Cover art, poster, or thumbnail                     |
+| `language`     | `string` (`bcp47`) | No       | BCP 47 language code                                |
+| `notes`        | `string`           | No       | Personal annotations                                |
+| `thumbnail`    | `thumbnail`        | No       | A small preview of the work, supplied by the writer |
 
 ## Settings
 
