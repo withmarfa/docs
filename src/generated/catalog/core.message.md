@@ -2,7 +2,7 @@
 
 | Field  | Kind                | Required | Description                                                            |
 | ------ | ------------------- | -------- | ---------------------------------------------------------------------- |
-| `body` | `string`            | Yes      | The message text                                                       |
+| `body` | `string`            | No       | The message text                                                       |
 | `from` | `string`            | Yes      | Sender identifier: format-agnostic (phone number, email, handle, etc.) |
 | `to`   | `array` of `string` | No       | Recipient identifiers: same format-agnostic shape as from              |
 

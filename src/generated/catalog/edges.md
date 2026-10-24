@@ -4,7 +4,7 @@ Source item is about the target item. Topical connection between items across ty
 
 ## attached-to
 
-Source is an attachment (a file or media item) belonging to the target. Many-to-many: a file may be attached to multiple hosts; a host may have multiple attachments. Deleting the host orphans the attachment (it may still be attached to other items). The attachment's own file writes the edge, saying what it was made for; where the attachment cannot carry frontmatter, such as an image, the host's file writes it under the reverse name, `has-attachment`.
+Source is a file attached to the target. Many-to-many: a file may be attached to multiple hosts; a host may have multiple attachments. Deleting the host orphans the attachment (it may still be attached to other items). The attachment's own file writes the edge, saying what it was made for; where the attachment cannot carry frontmatter, such as an image, the host's file writes it under the reverse name, `has-attachment`.
 
 ## authored-by
 
