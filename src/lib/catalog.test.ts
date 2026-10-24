@@ -36,6 +36,8 @@ interface CatalogType {
 
 interface CatalogEdgeType {
   id: string;
+  label: string;
+  reverse_label?: string;
   cardinality: string;
   cascade_on_delete: string;
   reverse_name?: string;
@@ -239,7 +241,7 @@ describe('the catalog the pages follow', () => {
   it('is the synced copy, with the types the pages cover', () => {
     expect(catalog.types.length).toBeGreaterThan(10);
     expect(CORE_SLUGS).toContain('media');
-    expect(catalog.types.find((type) => type.id === 'core.media.article')?.fields.body.required).toBe(true);
+    expect(catalog.types.find((type) => type.id === 'core.media.article')?.fields.title.required).toBe(true);
   });
 
   it('is read for a create request from the API description', () => {
@@ -421,6 +423,8 @@ describe('the edge type table', () => {
     const constrained = catalog.edge_types.some((edge) => edge.source_type_constraints[0] !== '*');
     expect(header).toEqual([
       'Edge type',
+      'Label',
+      'Reverse label',
       'Reverse name',
       'Cardinality',
       'On delete',
@@ -430,6 +434,8 @@ describe('the edge type table', () => {
     expect(rows).toEqual(
       catalog.edge_types.map((edge) => [
         `\`${edge.id}\``,
+        edge.label,
+        edge.reverse_label ?? edge.label,
         edge.reverse_name ? `\`${edge.reverse_name}\`` : 'None',
         `\`${edge.cardinality}\``,
         `\`${edge.cascade_on_delete}\``,
@@ -440,7 +446,7 @@ describe('the edge type table', () => {
   });
 
   it('writes a cardinality as code with plain hyphens, so one line holds it and the Markdown copy matches the contract and the API', () => {
-    for (const row of rows) expect(row[2]).toMatch(/^`(one|many)-to-(one|many)`$/);
+    for (const row of rows) expect(row[4]).toMatch(/^`(one|many)-to-(one|many)`$/);
   });
 
   it('is included by the Edges page, which says that any type is a source exactly when the table has no column for it', () => {
@@ -463,7 +469,7 @@ describe('the example check', () => {
   it('refuses what a create request would', () => {
     const cases: [string, unknown, string][] = [
       ['a type nothing ships', { ...sample, type: 'core.recipe' }, 'is not a shipped type'],
-      ['a missing required field the parent does not require', { type: sample.type, properties: { title: 'A title' } }, 'body is required by core.media.article'],
+      ['a missing required field', { type: sample.type, properties: { body: 'Some text' } }, 'title is required by core.media.article'],
       ['a field the type lacks', { ...sample, properties: { ...sample.properties, rating: 5 } }, 'rating is not a field of core.media.article'],
       ['a string where a whole number goes', { ...sample, properties: { ...sample.properties, word_count: '120' } }, 'word_count is not a whole number'],
       ['a fraction where a whole number goes', { ...sample, properties: { ...sample.properties, word_count: 1.5 } }, 'word_count is not a whole number'],

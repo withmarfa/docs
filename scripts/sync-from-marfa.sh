@@ -523,7 +523,7 @@ def write(name, lines):
 FIELD_KEYS = {"type", "description", "required", "format", "enum_values", "items_type"}
 TYPE_KEYS = {"id", "parent", "label", "description", "version", "fields", "display_hints", "merge_policy", "roles"}
 EDGE_KEYS = {
-    "id", "label", "description", "cardinality", "source_type_constraints", "target_type_constraints",
+    "id", "label", "reverse_label", "description", "cardinality", "source_type_constraints", "target_type_constraints",
     "cascade_on_delete", "reverse_name", "written_at", "property_schema", "shipped",
 }
 STRATEGIES = {"last_writer_wins", "keep_both_copies"}
@@ -723,6 +723,7 @@ def constraint(edge, key, type_ids):
 
 def edge_table(edges, type_ids):
     """One row for each edge type. The Source types column appears only when some edge type constrains its source.
+    The reverse label is the label where an edge type names none, as the API answers it.
     Cardinality and On delete are values, so they are code: a code span keeps `many-to-many` on one line."""
     for e in edges:
         if e.get("cardinality") not in CARDINALITIES:
@@ -731,12 +732,16 @@ def edge_table(edges, type_ids):
             refuse(catalog_path, f"has the edge type {e['id']} with a cascade_on_delete the sync does not know")
         if "reverse_name" in e and not (isinstance(e["reverse_name"], str) and e["reverse_name"]):
             refuse(catalog_path, f"has the edge type {e['id']} with a reverse_name that is not a name")
+        if not (isinstance(e.get("label"), str) and e["label"]):
+            refuse(catalog_path, f"has the edge type {e['id']} with no label")
+        if "reverse_label" in e and not (isinstance(e["reverse_label"], str) and e["reverse_label"]):
+            refuse(catalog_path, f"has the edge type {e['id']} with a reverse_label that is not a label")
     sources = [constraint(e, "source_type_constraints", type_ids) for e in edges]
     targets = [constraint(e, "target_type_constraints", type_ids) for e in edges]
     constrained = any(source != "Any type" for source in sources)
-    header = ["Edge type", "Reverse name", "Cardinality", "On delete", *(["Source types"] if constrained else []), "Target types"]
+    header = ["Edge type", "Label", "Reverse label", "Reverse name", "Cardinality", "On delete", *(["Source types"] if constrained else []), "Target types"]
     rows = [
-        [code(e["id"]), code(e["reverse_name"]) if e.get("reverse_name") else "None", code(e["cardinality"]), code(e["cascade_on_delete"]),
+        [code(e["id"]), e["label"], e.get("reverse_label", e["label"]), code(e["reverse_name"]) if e.get("reverse_name") else "None", code(e["cardinality"]), code(e["cascade_on_delete"]),
          *([source] if constrained else []), target]
         for e, source, target in zip(edges, sources, targets)
     ]

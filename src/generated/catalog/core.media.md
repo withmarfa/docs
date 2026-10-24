@@ -43,7 +43,7 @@ An article. Inherits all core.media fields.
 
 | Field        | Kind      | Required | Description                |
 | ------------ | --------- | -------- | -------------------------- |
-| `body`       | `string`  | Yes      | The article text           |
+| `body`       | `string`  | No       | The article text           |
 | `section`    | `string`  | No       | Section of the publication |
 | `word_count` | `integer` | No       | Word count                 |
 
