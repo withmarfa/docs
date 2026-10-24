@@ -49,7 +49,7 @@ Marfa answers `200` with the items it would move, the settings it would change a
 }
 ```
 
-**A move takes every item of exactly that type, in any state.** An archived item stays archived, and an item in the trash moves and stays in the trash. A type that names `acme.deal` as its `parent` keeps its own items. One move takes up to 50,000 items.
+**A move takes every item of exactly that type that your key can see, in any state.** An archived item stays archived, and an item in the trash moves and stays in the trash. A type that names `acme.deal` as its `parent` keeps its own items. An item your key's source filter hides isn't moved or counted in `matched`. One move takes up to 50,000 items.
 
 ## Move the items
 
@@ -84,7 +84,14 @@ Over HTTP, Marfa answers `202` with a bulk-action job. Read it with [Get a bulk 
 
 The CLI takes the same object as `--properties '{"signed":false}'`.
 
-An item the new type refuses stays where it is. The job lists each one in `result.errors`, with the reason, and the CLI names them and exits with a nonzero status. Fix those items, then run the move again: it moves what remains.
+An item the new type refuses stays where it is. The job counts them in `result.errored` and lists the first 100 in `result.errors`, each with the reason.
+
+**When the job finishes, it reports what is still of the old type:**
+
+- `result.remaining` counts the items of the old type your key can see, in any state. It includes the items the new type refused and any item written with the old type while the move ran.
+- `result.remaining_hidden` is `true` when an item your key can't see is still of the old type. Marfa doesn't say how many.
+
+The CLI names the refused items, says what remains, and exits with a nonzero status, saying why, whenever it leaves the settings unchanged. Deal with those items, or move the hidden ones with a key that can see them, then run the move again: it moves what remains.
 
 ## What changes with the items
 
@@ -96,7 +103,7 @@ Once every item has moved, **Marfa changes the settings that name the old type**
 | View | `query.types`, and each `type eq` or `type neq` term in `query.filter` |
 | Webhook | `type_filter`, when it's exactly the type. A pattern, such as `acme.*`, stays as it is |
 
-While any item of the old type remains, Marfa changes no setting, so a folder or view never stops showing items that haven't moved. The job's `result.settings` lists the settings, and `result.settings_rewritten` says whether Marfa changed them. A folder keeps its files; [Sync a folder](/guides/sync-a-folder#change-a-folders-settings) says what changes on disk.
+While any item of the old type remains, including one your key can't see, Marfa changes no setting, so a folder or view never stops showing items that haven't moved. The job's `result.settings` lists the settings, and `result.settings_rewritten` says whether Marfa changed them. A folder keeps its files; [Sync a folder](/guides/sync-a-folder#change-a-folders-settings) says what changes on disk.
 
 **When the type has subtypes,** a folder or view keeps the old type in `query.types` beside the new one, because the subtypes' items still need it, and a folder's `first_placement` keeps the old type's key too.
 
@@ -106,7 +113,7 @@ Marfa refuses a move when a setting names the type in a way it can't rewrite, or
 
 | `reason` | What to change first |
 | --- | --- |
-| `filter_term` | A `query.filter` term on `type`, other than `type eq` or `type neq` naming the type, whose answer the move would change, such as `type starts_with "acme.d"` |
+| `filter_term` | A `query.filter` term on `type`, other than `type eq` or `type neq` naming the type, whose answer the move would change, such as `type starts_with "acme.d"`. Also a stored filter that names the type and doesn't parse, or one that would be longer than a filter may be once it names the new type |
 | `placement_conflict` | A folder's `first_placement` that places the two types in different directories |
 | `subtypes` | A webhook whose `type_filter` names a type with subtypes, since one filter can't name both types |
 | `not_permitted` | A setting your key can't change, as below |
@@ -117,7 +124,7 @@ Change each setting, then move again.
 
 A move needs a key whose type map grants write on both types. Marfa refuses it `403 type_not_permitted` otherwise.
 
-The key also needs what each setting's own operation needs: write on `system.folder` to change a folder and write on `system.view` to change a view. Only the key or app that made a webhook changes it, and it needs the `webhooks.manage` permission. A setting the key can't change blocks the move with `not_permitted`.
+The key also needs what each setting's own operation needs: write on `system.folder` to change a folder and write on `system.view` to change a view. Only the key or app that made a webhook changes it, and it needs the `webhooks.manage` permission. A setting the key can't change blocks the move with `not_permitted`. When your key can't read the setting either, Marfa names it by `kind` and `field` only, without its `id`, in a move's answer and in a `type_in_use` refusal.
 
 **A move never changes a key's or an app's type map.** The dry run lists in `grants` each key whose type map names the old type, if your key has `keys.manage`, and each app, if it has `grants.manage`. Give them the new type through [Manage keys](/guides/manage-keys) before you delete the old one.
 
