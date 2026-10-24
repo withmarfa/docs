@@ -363,7 +363,8 @@ catalog_json="$(cat <<'EOF'
     },
     {
       "id": "parent-of",
-      "label": "Parent of",
+      "label": "Children",
+      "reverse_label": "Parent",
       "description": "Source is the parent of the target — once.",
       "cardinality": "one-to-many",
       "source_type_constraints": ["*"],
@@ -377,6 +378,7 @@ catalog_json="$(cat <<'EOF'
     {
       "id": "in-folder",
       "label": "In folder",
+      "reverse_label": "Folder contents",
       "description": "Placement of an item in a folder.",
       "cardinality": "many-to-many",
       "source_type_constraints": ["*"],
@@ -438,11 +440,11 @@ folder_expected="$(cat <<'EOF'
 EOF
 )"
 edge_table_expected="$(cat <<'EOF'
-| Edge type       | Reverse name | Cardinality    | On delete | Target types                       |
-| --------------- | ------------ | -------------- | --------- | ---------------------------------- |
-| `in-collection` | None         | `many-to-many` | `orphan`  | Any type with the role `container` |
-| `parent-of`     | `child-of`   | `one-to-many`  | `cascade` | Any type                           |
-| `in-folder`     | None         | `many-to-many` | `orphan`  | `system.folder`                    |
+| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | On delete | Target types                       |
+| --------------- | ------------- | --------------- | ------------ | -------------- | --------- | ---------------------------------- |
+| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`  | Any type with the role `container` |
+| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade` | Any type                           |
+| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`  | `system.folder`                    |
 EOF
 )"
 catalog_edges_expected="$(cat <<'EOF'
@@ -797,7 +799,7 @@ check "a core type's file has its fields and settings, a subtype's section only 
   "${note_expected}" "$(cat "${catalog_dir}/core.note.md")"
 check "a system type's file has its fields, as a core type's does" \
   "${folder_expected}" "$(cat "${catalog_dir}/system.folder.md")"
-check "the edge types are a table, with a Source types column only when an edge type constrains its source, a reverse name or None, and the contract's wording for a target" \
+check "the edge types are a table, with a Source types column only when an edge type constrains its source, a label, a reverse label that is the label where none is named, a reverse name or None, and the contract's wording for a target" \
   "${edge_table_expected}" "$(cat "${catalog_dir}/edge-types.md")"
 check "each edge type is a section with its properties, and where it is written only when that is its target" \
   "${catalog_edges_expected}" "$(cat "${catalog_dir}/edges.md")"
@@ -1125,6 +1127,8 @@ refuse_catalog "a merge strategy the sync does not know" "${cat_file} has a merg
 refuse_catalog "display hints the sync does not write" "${cat_file} has display hints for core.note that the sync does not write. Nothing has changed." "$(catalog_with 'c["types"][0]["display_hints"]["icon_field"] = "title"')"
 refuse_catalog "an edge type with no description" "${cat_file} has an edge type with no id or description. Nothing has changed." "$(catalog_with 'del c["edge_types"][0]["description"]')"
 refuse_catalog "an edge type with a key the sync does not write" "${cat_file} has a key 'weight' on the edge type in-collection that the sync does not write. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["weight"] = 1')"
+refuse_catalog "an edge type with no label" "${cat_file} has the edge type in-collection with no label. Nothing has changed." "$(catalog_with 'del c["edge_types"][0]["label"]')"
+refuse_catalog "an edge type with an empty reverse label" "${cat_file} has the edge type in-collection with a reverse_label that is not a label. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["reverse_label"] = ""')"
 refuse_catalog "an edge type written nowhere the sync knows" "${cat_file} has the edge type in-collection with a written_at the sync does not know. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["written_at"] = "both"')"
 refuse_catalog "an edge type written at its target with no reverse name" "${cat_file} has the edge type parent-of written at its target with no reverse_name. Nothing has changed." "$(catalog_with 'del c["edge_types"][1]["reverse_name"]')"
 refuse_catalog "an edge type with a cardinality the sync does not know" "${cat_file} has the edge type in-collection with a cardinality the sync does not know. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["cardinality"] = "some-to-some"')"
@@ -1147,7 +1151,7 @@ check "a default of both copies and a subtype with no field to add: the script s
 check "a default of both copies names the fields that do not keep both, as values" 1 \
   "$(grep -cF '| [`merge_policy`](/catalog/your-own-types#merge-policy) | `last_writer_wins` for `title` and `language`; `keep_both_copies` for every other field |' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
 check "an edge type that constrains its source adds a Source types column, and several types are joined with or" \
-  "$(printf '%s\n%s\n%s\n%s\n%s' '| Edge type       | Reverse name | Cardinality    | On delete | Source types                    | Target types                       |' '| --------------- | ------------ | -------------- | --------- | ------------------------------- | ---------------------------------- |' '| `in-collection` | None         | `many-to-many` | `orphan`  | Any type                        | Any type with the role `container` |' '| `parent-of`     | `child-of`   | `one-to-many`  | `cascade` | Any type                        | Any type                           |' '| `in-folder`     | None         | `many-to-many` | `orphan`  | `core.note` or `core.note.memo` | `system.folder`                    |')" \
+  "$(printf '%s\n%s\n%s\n%s\n%s' '| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | On delete | Source types                    | Target types                       |' '| --------------- | ------------- | --------------- | ------------ | -------------- | --------- | ------------------------------- | ---------------------------------- |' '| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`  | Any type                        | Any type with the role `container` |' '| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade` | Any type                        | Any type                           |' '| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`  | `core.note` or `core.note.memo` | `system.folder`                    |')" \
   "$(cat "${work}/shapes/docs/src/generated/catalog/edge-types.md")"
 check "a subtype with nothing to add is a heading and its description" \
   "$(printf '### core.note.bare [#core-note-bare]\n\nA note.')" "$(sed -n '/^### core.note.bare \[#core-note-bare\]$/,$p' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
