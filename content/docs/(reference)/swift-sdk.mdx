@@ -47,7 +47,7 @@ let copy = try await WorkingCopy.open(store: storeURL, server: Server(url: serve
 
 | Call | What it does |
 | --- | --- |
-| `WorkingCopy.open(store:server:)` | Opens the file. Without a `Server`, the copy works offline only. |
+| `WorkingCopy.open(store:server:fileBudget:)` | Opens the file. Without a `Server`, the copy works offline only. A `fileBudget` sets the [file budget](#keep-files-on-the-device) as the copy opens, and a reader refuses it with `readingHandle`. |
 | `WorkingCopy.openReader(store:)` | Opens a store another process writes, to read only. It refuses a path where no store exists. |
 | `handle` | `.writer` or `.reader`. A reader refuses writes, hydration and catch-up with `readingHandle`. |
 | `useKey(_:)` | Gives the open copy a new credential. Held `changes()` streams go on. |
@@ -81,13 +81,45 @@ Your app decides when the copy talks to the instance:
 
 | Call | What it does |
 | --- | --- |
-| `status()` | A `Status`: server origin, instance ID, slice, pinned IDs, event cursor, `hydration`, counts and `catalogVersion`. |
-| `hydrate(types:tier:edgeTypes:)` | Replaces the copy with every item of the types you name at a `SliceTier` (`.library`, `.feed` or `.all`), with their tags and outgoing edges. The queue survives. |
+| `status()` | A `Status`: server origin, instance ID, slice, pinned IDs, event cursor, `hydration`, `items` and `edges` held, the fill's `itemsListed` and `itemsExpected`, and `catalogVersion`. |
+| `hydrate(types:tier:edgeTypes:)` | Replaces the copy with every item of the types you name at a `SliceTier` (`.library`, `.feed` or `.all`), with their tags and outgoing edges. The queue survives. `["*"]` names every type except `system.*` ones. |
 | `catchUp()` | Applies what changed since the copy's cursor. |
 | `pin(_:)`, `unpin(_:)` | Hold an item whatever the slice says, or let it go unless queued writes still need it. |
 | `search(_:filters:limit:)` | Full-text search over indexed fields and tags, best match first. |
 
-`Status.hydration` is `.never`, `.inProgress`, `.complete` or `.expired`. Before the first hydration, reads work and writes queue. **While a hydration is in progress, or once the copy has expired, reads and writes throw `MarfaError.hydrationIncomplete`.**
+`Status.hydration` is `.never`, `.inProgress`, `.complete`, `.expired` or `.stale`. Before the first hydration, reads work and writes queue. `.stale` means the server's event log let the copy's cursor go; see [Refill a stale copy](#refill-a-stale-copy).
+
+### Hydrate every type
+
+`hydrate(types: ["*"], tier:)` brings in every type except the `system.*` ones. Name `system.*` types beside `"*"` to add them. Naming any other type beside `"*"` throws `invalid`, because `"*"` already holds it. The `HydrateReport` says how many pages the fill read, in `pagesTotal`, and whether it `resumed` an earlier fill or `restarted` because the earlier one couldn't continue.
+
+While a fill runs, `status()` gives `itemsListed`, the items the fill has brought so far, and `itemsExpected`, how many the slice held when the fill began, where the instance counted them. **Compare those two for progress**, not `items`, which also includes pinned items and queued creates.
+
+### Read while the copy fills
+
+While a hydration is in progress, a list or a search answers the items that have arrived and says so. `items.list(_:sort:)`, `search(_:filters:limit:)` and the saved-view reads return `Rows`, a collection of `rows` with a `completeness`:
+
+| `Completeness` | Meaning |
+| --- | --- |
+| `.complete` | The copy holds everything the read asked for. |
+| `.partial` | The fill hasn't finished, so more rows may arrive. |
+| `.stale` | The server's event log let the copy's cursor go. The rows are those the copy held then, and some have since changed or gone on the server. |
+
+```swift
+let notes = try await copy.items.list(ListFilters(type: "core.note"))
+if notes.completeness == .partial { /* show the notes, and a note that more are coming */ }
+for note in notes { print(note.title ?? "") }
+```
+
+`Rows` is a random-access collection, so a loop or a `ForEach` takes it as it is. **Some calls can't be answered until the copy is whole and throw `hydrationIncomplete`:** `items.get(_:)` for an item that hasn't arrived, edge reads, and every edge write (`edges.create`, `edges.update` and `edges.delete`). A write to an item the copy holds, or to a new item, is queued during a fill, and so is a file item or an `attach`; a write to an item that hasn't arrived throws `hydrationIncomplete`, because there is no version to base it on.
+
+A `hydrate` call announces `.refreshed(.hydrated)` when it completes, and `.refreshed(.unfinished)` when it throws or is canceled, because the rows it wrote stay. A `LiveQuery` over a partial copy therefore reads again after a fill that failed part way, and a follow failure it shows stays shown.
+
+### Refill a stale copy
+
+When a catch-up learns that the event log no longer reaches the copy's cursor, `status().hydration` becomes `.stale` and the catch-up throws `copyExpired` with the reason `catchup_too_old`. A drain of a stale copy is refused the same way. Reads answer what the copy held, with `completeness` `.stale`, and item writes are queued as during a first fill.
+
+Call `hydrate(types:tier:edgeTypes:)` with the slice the copy was built under. The copy is filled again **over the rows it holds**, without clearing them first, and the `HydrateReport` says `inPlace`. The copy stays `.stale` through the fill, and through one that was interrupted, until a fill completes. If the instance, the credential's reach or the slice differs, the copy is cleared first and `inPlace` is `false`.
 
 ## Read and write
 
@@ -103,7 +135,7 @@ guard let id = created.itemId, let note = try await copy.items.get(id) else { re
 _ = try await copy.items.update(id, Edit(properties: ["title": "Books to read"], baseVersion: note.version))
 ```
 
-Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update`, `delete`), `tags` (`add` and `remove`, one at a time), `metadata` (`replaceTags`, which writes the whole set), `extensions` (`write` and `delete` by namespace), `blobs` (`put(file:mimeType:)` queues an upload, and `get(_:)` returns where a blob's bytes are held, fetching them first if they aren't, within the copy's [file budget](/devices#the-working-copy)), the [`queue`](#send-writes-and-read-verdicts) and the `catalog` of types the copy holds.
+Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update`, `delete`), `tags` (`add` and `remove`, one at a time), `metadata` (`replaceTags`, which writes the whole set), `extensions` (`write` and `delete` by namespace), `blobs` (`put(file:mimeType:)` queues an upload, and `withFile(_:_:)` calls your closure with where a blob's bytes are held, fetching them first if they aren't, within the copy's [file budget](#keep-files-on-the-device)), the [`queue`](#send-writes-and-read-verdicts) and the `catalog` of types the copy holds.
 
 | `items` call | What it does |
 | --- | --- |
@@ -120,6 +152,21 @@ Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update
 - **An `Edit` changes the properties it names.** With `replaceProperties: true`, they become the item's whole set.
 - **A whole number Marfa would serve back with other digits** is refused `validation` with the code `invalid_properties` before anything is queued, as [Field kinds](/catalog/field-kinds) explains.
 - **An `EdgeEdit`** changes an edge's properties, moves one end with `.source(id)` or `.target(id)`, or both. A move is refused `validation` when the end that stays can hold more than one edge of the type, or when the edge would point to itself. An edit that changes nothing returns `nil`. Once the server accepts a source move the copy expires, so hydrate again.
+
+## Keep files on the device
+
+The copy keeps the files it fetched within a **file budget**, and keeps the files attached to items it holds outside it. [Devices](/devices#the-working-copy) explains both. These `blobs` calls work them:
+
+| Call | What it does |
+| --- | --- |
+| `cache()` | The `FileCache`: the setting, the budget in force, the bytes held and, in `attachments`, how many attachments the copy holds and how many it doesn't. |
+| `setBudget(_:)` | Chooses `.default`, `.bytes(bytes:)` or `.keepAll`, trims to it at once and returns the bytes removed. The copy keeps the choice. |
+| `trim()` | Trims to the budget now and returns the bytes removed. |
+| `fetchKept()` | Fetches the attachments the copy doesn't hold, smallest first, and returns a `KeptFetch` with the count and bytes fetched and the `attachments` after. |
+
+`fetchKept()` fits after a hydration and after each catch-up. Cancel its task to stop it: the files already fetched stay. Each attachment the copy doesn't hold has a `NotHeldReason` in `status().fileCache.attachments`, such as `.notFetched`, `.noRoom` or `.rateLimited`. A reader refuses `setBudget(_:)`, `trim()` and `fetchKept()` with `readingHandle`, and can still call `cache()`. A copy without a server refuses `fetchKept()` with `noServer`.
+
+`withFile(_:_:)` refuses with `noRoom` a file the volume has no room for. The file stays where it is only while the closure runs, so open it inside the closure.
 
 ## Declare an app type
 
@@ -189,7 +236,7 @@ A `LiveQuery` reads from the working copy and reads again whenever the copy chan
 ```swift
 @MainActor @Observable
 final class Library {
-    let notes: LiveQuery<[Item]>
+    let notes: LiveQuery<Rows<Item>>
 
     init(copy: WorkingCopy) {
         notes = LiveQuery(copy, reading: .list(ListFilters(type: "core.note")))
@@ -197,7 +244,7 @@ final class Library {
 }
 ```
 
-A `Reading` is `.list(_:sort:)` or `.search(_:filters:limit:)` for `[Item]`, `.item(_:)` for `Item?`, `.queue` for `[QueuedWrite]`, or `Reading(placeholder:_:)` for any other value, from a closure that only reads.
+A `Reading` is `.list(_:sort:)` or `.search(_:filters:limit:)` for `Rows<Item>` (its placeholder is empty and `.partial`), `.item(_:)` for `Item?`, `.queue` for `[QueuedWrite]`, or `Reading(placeholder:_:)` for any other value, from a closure that only reads.
 
 | Property | Meaning |
 | --- | --- |
@@ -228,7 +275,7 @@ A layout's `kind` says how it shows items, such as `.board` or `.chart(x:y:)`, a
 @MainActor @Observable
 final class Board {
     let groups: LiveQuery<[ViewGroup]>
-    let tasks: LiveQuery<[Item]>
+    let tasks: LiveQuery<Rows<Item>>
 
     init(copy: WorkingCopy, viewID: String) {
         groups = LiveQuery(copy, reading: .groups(inView: viewID, layout: "board"))
