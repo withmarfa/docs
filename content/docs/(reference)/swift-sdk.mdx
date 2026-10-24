@@ -189,7 +189,7 @@ guard let id = created.itemId, let note = try await copy.items.get(id) else { re
 _ = try await copy.items.update(id, Edit(properties: ["title": "Books to read"], baseVersion: note.version))
 ```
 
-Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update`, `delete`), `tags` (`add` and `remove`, one at a time), `metadata` (`replaceTags`, which writes the whole set), `extensions` (`write` and `delete` by namespace), `blobs` (`put(file:mimeType:)` queues an upload, and `withFile(_:_:)` calls your closure with where a blob's bytes are held, fetching them first if they aren't, within the copy's [file budget](#keep-files-on-the-device)), the [`queue`](#send-writes-and-read-verdicts) and the `catalog` of types the copy holds.
+Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update`, `delete`), `tags` (`add` and `remove`, one at a time), `metadata` (`replaceTags`, which writes the whole set), `extensions` (`write` and `delete` by namespace), `blobs` (`put(file:mimeType:)` queues an upload, and `withFile(_:_:)` calls your closure with where a blob's bytes are held, fetching them first if they aren't, within the copy's [file budget](#keep-files-on-the-device)), the [`queue`](#send-writes-and-read-verdicts) and the `catalog` of types the copy holds. Each `EdgeType` in the catalog has a `label` for the source's end and a `reverseLabel` for the target's, such as `Children` and `Parent`. **An edge type registered with no reverse label has a `reverseLabel` equal to its `label`**, which names both ends alike.
 
 | `items` call | What it does |
 | --- | --- |
@@ -341,18 +341,20 @@ A `Reading` is `.list(_:sort:)` or `.search(_:filters:limit:)` for `Rows<Item>` 
 
 ## Saved views
 
-A `SavedView` is a [`system.view`](/catalog/view) item: a query, and the layouts that show its items. **The working copy answers a view offline**, so every app lists and groups the same items the same way. [Read a view offline](/guides/read-a-view) explains what the copy needs: hydrate `system.view` and every type the view's query names, at the tier the query lists.
+A `SavedView` is a [`system.view`](/catalog/view) item: a title, a query, an optional sort and an optional grouping. **A view holds no layout**: how an app draws the items is the app's own. **The working copy answers a view offline**, so every app lists and groups the same items the same way. [Read a view offline](/guides/read-a-view) explains what the copy needs: hydrate `system.view` and every type the view's query names, at the tier the query lists, and the edge type of a `backref` condition or an edge group.
 
 ```swift
 _ = try await copy.hydrate(types: ["system.view", "core.task"], tier: .all)
 
-guard let view = try await copy.items.view(viewID), let layout = view.settings.layouts.first else { return }
-let tasks = try await copy.items.list(inView: view.id, layout: layout.id, limit: 50)
-let groups = try await copy.items.groups(inView: view.id, layout: layout.id)
+guard let view = try await copy.items.view(viewID) else { return }
+let tasks = try await copy.items.list(inView: view.id, limit: 50)
+let groups = try await copy.items.groups(inView: view.id)
 for group in groups { print(group.key, group.count) }
 ```
 
-A layout's `kind` says how it shows items, such as `.board` or `.chart(x:y:)`, and carries the options that kind takes. A `ViewGroup` has the group's `key`, its `count` and, for a chart that sums a property, its `sum`. A live query over a layout reads again when an item enters the view, leaves it or changes group, so a SwiftUI view keeps its counts without refresh code:
+A view's `settings.sort` is a list of `ViewSort` values, each a field in `by` and a `direction`, first key first. It is empty for a view that doesn't sort. `settings.group` is a `ViewGrouping` with the field in `by`, an optional `bucket` for a date field, an `order` of the groups that come first and a `hidden` list of groups to leave out, or `nil` for a view that groups nothing. **A hidden group leaves `groups(inView:)` and not `list(inView:)`**: the view still lists its items. A `ViewGroup` has the group's `key` and its `count`. A view with no grouping answers one group with the key `null` that holds every item.
+
+A live query over a view reads again when an item enters the view, leaves it or changes group, so a SwiftUI view keeps its counts without refresh code:
 
 ```swift
 @MainActor @Observable
@@ -361,8 +363,8 @@ final class Board {
     let tasks: LiveQuery<Rows<Item>>
 
     init(copy: WorkingCopy, viewID: String) {
-        groups = LiveQuery(copy, reading: .groups(inView: viewID, layout: "board"))
-        tasks = LiveQuery(copy, reading: .list(inView: viewID, layout: "board"))
+        groups = LiveQuery(copy, reading: .groups(inView: viewID))
+        tasks = LiveQuery(copy, reading: .list(inView: viewID))
     }
 }
 ```
@@ -370,12 +372,12 @@ final class Board {
 | Call | What it does |
 | --- | --- |
 | `items.views()`, `items.view(_:)` | Every view the copy holds, or one, `nil` when it isn't held. |
-| `items.list(inView:layout:limit:offset:)` | A page of the view's items in a layout's sort. `layout: nil` is the first layout. |
-| `items.groups(inView:layout:timeZone:)` | A layout's groups with their counts. Date groups follow `timeZone`, or the device's. |
+| `items.list(inView:limit:offset:)` | A page of the view's items in the view's sort. |
+| `items.groups(inView:timeZone:)` | The view's groups with their counts. Date groups follow `timeZone`, or the device's. |
 | `search(_:inView:limit:)` | Full-text search within the view's query. |
-| `Reading.views`, `.view(_:)`, `.list(inView:)`, `.groups(inView:layout:)` | The same reads, for a `LiveQuery`. |
+| `Reading.views`, `.view(_:)`, `.list(inView:)`, `.groups(inView:)` | The same reads, for a `LiveQuery`. |
 
-**View lists, groups and searches carry completeness** in `Rows`, just like other reads: `.partial` during a first fill and `.stale` during an in-place refill. A query outside the copy's slice throws `invalid`, naming the type or tier it lacks. A view the copy doesn't hold throws `notFound` with the code `not_held`.
+**View lists, groups and searches carry completeness** in `Rows`, just like other reads: `.partial` during a first fill and `.stale` during an in-place refill. A query outside the copy's slice throws `invalid`, naming the type or tier it lacks. So does a `backref` condition or an edge group whose edge type the copy doesn't hold whole: pass the edge type as an `edgeTypes` of `hydrate`. A view the copy doesn't hold throws `notFound` with the code `not_held`.
 
 ### Create, change and delete a view
 
@@ -387,12 +389,8 @@ let made = try await copy.createView(
     ViewSettings(
         title: "Open tasks",
         query: ViewQuery(types: ["core.task"], filter: "tags contains \"work\""),
-        layouts: [
-            ViewLayout(
-                id: "board", kind: .board, sort: [ViewSort(by: "created_at", direction: .descending)],
-                group: ViewGrouping(by: "properties.status", order: ["todo", "doing"])),
-            ViewLayout(id: "list", kind: .list),
-        ]),
+        sort: [ViewSort(by: "created_at", direction: .descending)],
+        group: ViewGrouping(by: "properties.status", order: ["todo", "doing"], hidden: ["done"])),
     idempotencyKey: attempt)
 
 let renamed = try await copy.changeView(
@@ -401,13 +399,22 @@ let renamed = try await copy.changeView(
 try await copy.deleteView(renamed.id)
 ```
 
+**To remove a view's sort, change it to an empty list. To remove its grouping, change it to `.clear`.** The grouping is the one setting a change can remove, because a `nil` setting in a change means "leave it as it is":
+
+```swift
+let unsorted = try await copy.changeView(
+    view.id, ViewSettingsChange(sort: []), baseVersion: view.version)
+let ungrouped = try await copy.changeView(
+    unsorted.id, ViewSettingsChange(group: .clear), baseVersion: unsorted.version)
+```
+
 - **Retry a create with the same key.** If the connection drops after the request went out, the server may have made the view. Retrying with the same `idempotencyKey` answers the first view instead of making a second. Without a key, the SDK makes one for each call.
 - **Name the version you changed from.** The server merges a change to settings nobody else touched since `baseVersion`. A setting changed since then throws `server` with status 409 and the code `version_conflict`, and the copy keeps the view it held. Read the view again and decide.
 - **A delete removes the view for good.** The copy drops it at once, and a live query over the views stops listing it. A view the server no longer has throws `notFound` with the code `item_not_found`.
 
 | Refusal | Thrown as |
 | --- | --- |
-| A query the server doesn't accept | `validation` with the code `validation_error` |
+| A query, sort or grouping the server doesn't accept | `validation` with the code `validation_error` |
 | A key that may not write `system.view` | `forbidden` with the code `type_not_permitted` |
 | A change to a revoked view | `validation` with the code `invalid_transition` |
 | A stale change to a setting that moved | `server`, status 409, the code `version_conflict` |
@@ -415,6 +422,37 @@ try await copy.deleteView(renamed.id)
 | No server, or none reachable | `noServer`, or `network` |
 
 The rules are in the contract's [views written through a copy](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#views-written-through-a-copy) section.
+
+## Move the items of a type
+
+A type's identifier never changes, so renaming a type means registering the new one, moving the items and deleting the old one. **`Client` from the `MarfaAPI` product sends the move straight to the instance**, because only the instance can run it. The move is a job on the instance: it gives every item of the type that your credential can see, in any state, the new type, and once none remains it rewrites the folders, views and webhooks that name the old type.
+
+```swift
+import MarfaAPI
+
+let api = Client(server)
+
+let preview = try await api.previewMove(ofType: "app.deal", to: "app.contract")
+print(preview.matched, preview.settings.map(\.field))
+
+let started = try await api.startMove(
+    ofType: "app.deal", to: "app.contract", properties: ["stage": "signed"])
+let job = try await api.follow(moveJob: started.id)
+if let result = job.result, result.remaining == 0 {
+    try await api.delete(itemType: "app.deal")
+}
+```
+
+| Call | What it does |
+| --- | --- |
+| `previewMove(ofType:to:properties:)` | Answers the items the move would change and the settings that name the type, and writes nothing. |
+| `startMove(ofType:to:properties:)` | Starts the job and answers it at once. `properties` merge into each item as it moves, such as a field the new type requires, and a `null` value removes a property. |
+| `follow(moveJob:every:)` | Polls the job until it is `completed`, `failed` or `canceled`, and answers it with its `result`. Cancelling the task that waits stops the wait, not the job. |
+| `cancel(moveJob:)` | Asks the instance to stop the job, and answers it as it stands. A job that has ended is answered as it ended. |
+
+**Read the `result` before you delete the old type.** `remaining` counts the items of the type that are left, and `remainingHidden` says whether any the credential can't see are among them. `settingsRewritten` is `true` only when none remains. Items already moved stay moved when a job is canceled or leaves some behind, and no setting is rewritten, so run the move again to finish it.
+
+A move refuses with `server` and the code `type_move_blocked` when a setting names the type in a way it can't rewrite, and moves nothing. **A delete of a type that an item, folder, view or webhook still names is refused with `server`, status 409 and the code `type_in_use`.** The `message` of both ends with the refusal's `details` as JSON, which lists each setting by its `kind`, `id` and `field`.
 
 ## Folders on a Mac
 
