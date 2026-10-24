@@ -123,7 +123,16 @@ When a catch-up learns that the event log no longer reaches the copy's cursor, i
 
 Call `hydrate(types:tier:edgeTypes:)` with the slice the copy was built under. The copy is filled again **over the rows it holds**, without clearing them first, and the `HydrateReport` says `inPlace`. The copy stays `.stale` through the fill, and through one that was interrupted, until a fill completes. If the instance, the credential's reach or the slice differs, the copy is cleared first and `inPlace` is `false`.
 
-**While the app holds a `changes()` stream, the copy refills itself.** A copy can go stale while the device sleeps or is offline for longer than the instance keeps events. When the follow finds a stale copy, it fills the copy again over the slice it holds, as `hydrate` does, and the streams hear `.refreshed(.hydrated)` instead of a stop. An attempt that fails because the network or the server failed is announced as `.refreshed(.unfinished)` and retried after one second, then further apart, up to five minutes apart. If the instance refuses the refill, for example because the credential ended, the streams are told `.stopped` with that error.
+**While the app holds a `changes()` stream, the copy refills itself.** A copy can go stale while the device sleeps or is offline for longer than the instance keeps events. When the follow finds that the event log no longer holds the copy's cursor, it fills the copy again over the slice it holds, as `hydrate` does, and the streams hear `.refreshed(.hydrated)` instead of a stop. An attempt that fails because the network or the server failed is announced as `.refreshed(.unfinished)` and retried after one second, then further apart, up to five minutes apart.
+
+The copy refills itself only when the refill will be in place, so the streams are told `.stopped(.copyExpired)` instead in these cases:
+
+- Another instance answers at the server's address. The reason is `instance_changed`.
+- The copy was already stale when the follow started, for example after `useKey(_:)` or when the app opens a stale store. The reason is `catchup_too_old`. The SDK can't confirm that the credential still reads under the reach the copy was built under, so the refill is left to the app.
+
+If the instance refuses the refill, for example because the credential ended, the streams are told `.stopped` with that error.
+
+**A copy runs one hydration at a time.** A `hydrate` call made while the refill runs waits for it and then runs. If the refill already filled the same slice and the copy is still whole, the call returns the refill's report instead of filling the copy again. A refill that finds the app's own hydration running waits for it, and leaves a copy that hydration made whole.
 
 ## Read and write
 
@@ -197,7 +206,7 @@ Each `Change` names the `itemId` or `edgeId` it concerns, and its `origin` says 
 | `.queueDrained`, `.queueNotDrained` | The drain the stream ran when the server came back ended, or stopped with an error. | Nothing: the stream drains by itself. |
 | `.stopped(MarfaError)` | What fed the stream stopped. Local writes are still told. | See below. |
 
-**Two stops need the app's help.** On `.copyExpired`, hydrate again: the queue survives. A stale copy doesn't stop the streams, because it [refills itself](#refill-a-stale-copy), so this stop means the copy must be filled from scratch. Its `reason`, such as `reach_changed` or `instance_changed`, is an open string, so keep a `default`. On `.unauthorized` or `.signedOut`, give the copy a new credential with `useKey(_:)`.
+**Two stops need the app's help.** On `.copyExpired`, hydrate again: the queue survives. Read `status().hydration` first: a `.stale` copy is told this stop only when it [can't refill itself](#refill-a-stale-copy), and hydrating the same slice fills it again in place where the instance and reach allow. Any other expired copy must be filled from scratch. The `reason`, such as `reach_changed`, `instance_changed` or `catchup_too_old`, is an open string, so keep a `default`. On `.unauthorized` or `.signedOut`, give the copy a new credential with `useKey(_:)`.
 
 ## Send writes and read verdicts
 
