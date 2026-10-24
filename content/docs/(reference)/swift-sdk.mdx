@@ -5,7 +5,7 @@ description: Give an iOS or macOS app a working copy of your instance that reads
 
 The Swift SDK gives an app on iPhone, iPad or Mac a **working copy** of an instance: a local database it reads with or without a connection, and a queue that holds its writes until it can send them. **An app built on it is a [device](/devices)**: that page explains the working copy, the queue and verdicts.
 
-Use it for an app that must keep working offline. A script or a server needs no working copy: use the [TypeScript SDK](/typescript-sdk) or the [HTTP API](/api-reference). [Build an app with Swift](/guides/swift-app) builds a SwiftUI app on it.
+Use it for an app that must keep working offline. A script or a server needs no working copy: use the [TypeScript SDK](/typescript-sdk) or the [HTTP API](/api-reference). For the calls only the instance can answer, such as registering a type, the SDK also has a [client](#call-the-server-directly). [Build an app with Swift](/guides/swift-app) builds a SwiftUI app on it.
 
 ## Install
 
@@ -24,6 +24,7 @@ Each release carries Marfa's core already built, so your app needs no Rust toolc
 | Product | Holds |
 | --- | --- |
 | `Marfa` | The SDK. Add it to your app target. |
+| `MarfaAPI` | `Client`, for the [calls only the instance can answer](#call-the-server-directly). It includes `MarfaTypes`. |
 | `MarfaTesting` | `WorkingCopy.fake(items:itemTypes:)`, a working copy for tests and previews with no store, server or core. Pass its `copy` where your code takes a `WorkingCopy`. It compiles empty in a release build, so wrap its uses in `#if DEBUG`. |
 | `MarfaTypes` | The server's wire types, generated from the API description, and `marfaContractVersion`. |
 
@@ -181,6 +182,34 @@ try await copy.declareTypes([
 ```
 
 `declareTypes(_:)` replaces the app's whole set, so pass every type on each call. **Until the copy first hydrates, a queued create is checked against these declarations** and the types Marfa ships, so the app works offline from its first launch. On hydration, the copy registers each declared type the instance lacks, if the credential may register types, and the `HydrateReport` lists them in `registeredTypes` and `unregisteredTypes`. [Define a type](/guides/define-a-type) explains what a definition holds.
+
+## Call the server directly
+
+Some operations only the instance can do: registering, replacing and deleting a type, managing keys and webhooks, reading an item's versions, stats and occurrences, and reading the audit log. **`Client` from the `MarfaAPI` product sends these straight to the instance**, with the same `Server` the working copy uses:
+
+```swift
+import MarfaAPI
+
+let api = Client(server)
+let title = Components.Schemas.FieldDefinition(_type: .string, required: true)
+let entry = Components.Schemas.TypeDefinitionInput(
+    fields: .init(additionalProperties: ["title": title]), id: "app.readinglist.entry")
+
+_ = try await api.check(itemType: entry)
+_ = try await api.register(itemType: entry)
+```
+
+| Call | Operation |
+| --- | --- |
+| `check(itemType:)` | [Check a type definition](/api-reference/types/normalizeType) without registering it. |
+| `register(itemType:)`, `replace(itemType:with:)`, `delete(itemType:force:)` | [Register](/api-reference/types/registerType), [replace](/api-reference/types/replaceType) or [delete](/api-reference/types/deleteType) an item type. |
+| `register(edgeType:)`, `edgeTypes()`, `delete(edgeType:force:)` | [Register](/api-reference/edge-types/registerEdgeType), [list](/api-reference/edge-types/listEdgeTypes) or [delete](/api-reference/edge-types/deleteEdgeType) an edge type. |
+
+Every other operation the client makes is a method named after its operation ID, such as `listItemVersions(path:)` or `listAuditLog()`. A refusal throws a `MarfaError`, so read a success from the answer's `ok` case: `try await api.listAuditLog().ok.body.json`. **The client has no item, edge, search or event operations**: those go through the working copy, so there is one path for each item. Connector operations and those for the owner's session alone are not in it either.
+
+**Each call needs a connection.** On a device that is offline, a call throws `noConnection` and sends nothing; it isn't queued. A call waits up to 30 seconds for an answer, then throws `network`. When the instance refuses an expired access token, the client renews the sign-in once and sends the call again, and once the instance ends the sign-in, calls throw `signedOut`. **It never follows a redirect**, so the credential reaches no other host.
+
+`declareTypes(_:)` registers an app's types when the copy hydrates, which suits an app that must start offline. Use `register(itemType:)` when the app needs the type on the instance now, or to change or delete one.
 
 ## Follow changes
 
@@ -361,13 +390,14 @@ Its `FolderEvent` values are `.watching` when it starts and `.passed` after a pa
 
 ## Handle errors
 
-Every call on a working copy or `Folders` throws a `MarfaError`, whose `message` is fit to show a person. `Keychain` throws `Keychain.Failure`, and `Server.fromEnvironment()` throws `Server.EnvironmentError`.
+Every call on a working copy, `Folders` or `Client` throws a `MarfaError`, whose `message` is fit to show a person. `Keychain` throws `Keychain.Failure`, and `Server.fromEnvironment()` throws `Server.EnvironmentError`.
 
 | Case | Meaning |
 | --- | --- |
 | `notFound`, `unauthorized`, `forbidden`, `validation`, `server` | A refusal, from the server or from the copy before anything was sent. Each carries a `code`: [Errors](/api-reference/errors) lists the server's. |
 | `rateLimited` | The server asked for a wait. `retryAfterSeconds` says how long, when it said. |
 | `network`, `unnamed` | The server couldn't be reached, or something in front of it answered naming no contract. A queued write stays queued. |
+| `noConnection` | A `Client` call found the device offline, so nothing was sent. |
 | `contractMismatch` | The server speaks a contract this build wasn't made for. A write it answered stays queued, and goes again once the app speaks the server's contract. |
 | `wrongServer` | The server at the copy's address is another instance than the copy recorded. The copy sends it no credential or data: [Troubleshooting](/guides/troubleshooting) explains. |
 | `copyExpired`, `hydrationIncomplete`, `readingHandle`, `firstSyncWaiting`, `noServer`, `closed` | States covered on this page. |
