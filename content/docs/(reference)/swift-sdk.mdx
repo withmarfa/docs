@@ -25,6 +25,7 @@ Each release carries Marfa's core already built, so your app needs no Rust toolc
 | --- | --- |
 | `Marfa` | The SDK. Add it to your app target. |
 | `MarfaTesting` | `WorkingCopy.fake(items:itemTypes:)`, a working copy for tests and previews with no store, server or core. Pass its `copy` where your code takes a `WorkingCopy`. It compiles empty in a release build, so wrap its uses in `#if DEBUG`. |
+| `MarfaAPI` | `Client`, for the calls only the instance can run, such as moving the items of a type. |
 | `MarfaTypes` | The server's wire types, generated from the API description, and `marfaContractVersion`. |
 
 ## Open a working copy
@@ -357,7 +358,7 @@ print(preview.matched, preview.settings.map(\.field))
 let started = try await api.startMove(
     ofType: "app.deal", to: "app.contract", properties: ["stage": "signed"])
 let job = try await api.follow(moveJob: started.id)
-if let result = job.result, result.remaining == 0 {
+if job.status == .completed, job.result?.settingsRewritten == true {
     try await api.delete(itemType: "app.deal")
 }
 ```
@@ -369,7 +370,7 @@ if let result = job.result, result.remaining == 0 {
 | `follow(moveJob:every:)` | Polls the job until it is `completed`, `failed` or `canceled`, and answers it with its `result`. Cancelling the task that waits stops the wait, not the job. |
 | `cancel(moveJob:)` | Asks the instance to stop the job, and answers it as it stands. A job that has ended is answered as it ended. |
 
-**Read the `result` before you delete the old type.** `remaining` counts the items of the type that are left, and `remainingHidden` says whether any the credential can't see are among them. `settingsRewritten` is `true` only when none remains. Items already moved stay moved when a job is canceled or leaves some behind, and no setting is rewritten, so run the move again to finish it.
+**Check the job's `status` and `result` before you delete the old type.** A `failed` job has a `result` too, and a `canceled` one has none. `remaining` counts the items of the type that are left, and `remainingHidden` says whether any the credential can't see are among them. `settingsRewritten` is `true` only when none remains. Items already moved stay moved when a job is canceled or leaves some behind, and no setting is rewritten, so run the move again to finish it.
 
 A move refuses with `server` and the code `type_move_blocked` when a setting names the type in a way it can't rewrite, and moves nothing. **A delete of a type that an item, folder, view or webhook still names is refused with `server`, status 409 and the code `type_in_use`.** The `message` of both ends with the refusal's `details` as JSON, which lists each setting by its `kind`, `id` and `field`.
 
