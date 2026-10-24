@@ -48,12 +48,48 @@ let copy = try await WorkingCopy.open(store: storeURL, server: Server(url: serve
 | Call | What it does |
 | --- | --- |
 | `WorkingCopy.open(store:server:fileBudget:)` | Opens the file. Without a `Server`, the copy works offline only. A `fileBudget` sets the [file budget](#keep-files-on-the-device) as the copy opens, and a reader refuses it with `readingHandle`. |
+| `WorkingCopy.replaceRefused(store:server:fileBudget:)` | Replaces a store that `open` refuses with `wrongSchema` by an empty one, and opens it. [Replace a refused copy](#replace-a-refused-copy) says what it keeps. |
 | `WorkingCopy.openReader(store:)` | Opens a store another process writes, to read only. It refuses a path where no store exists. |
 | `handle` | `.writer` or `.reader`. A reader refuses writes, hydration and catch-up with `readingHandle`. |
 | `useKey(_:)` | Gives the open copy a new credential. Held `changes()` streams go on. |
 | `close()` | Ends every stream and releases the store. Later calls throw `MarfaError.closed`. |
 | `Server(url:key:)` | The instance's URL and a key or an app's access token. |
+| `Server.isPlainHTTPToAnotherHost`, `takePlainHTTPNotice()` | Whether the address is plain http on another host, and a notice to show the first time. [Reach a plain http server](#reach-a-plain-http-server) explains both. |
 | `Server.fromEnvironment()` | For a command-line tool: reads `MARFA_API_URL` and `MARFA_API_KEY`. Returns `nil` when both are absent, and throws when only one is set or the URL names no server. |
+
+### Replace a refused copy
+
+A store that another build of the core made throws `wrongSchema` from `open`, and nothing is deleted. Its `unsent` count is the number of writes the instance has not taken. **When it is `0`**, `WorkingCopy.replaceRefused(store:server:fileBudget:)` replaces the file with an empty one and opens it. Hydrate the new copy as you would a new one.
+
+- **The files the copy downloaded stay.** The core keeps them by content, beside the store, not in it.
+- **What only the old store held is gone:** pins, the position in the instance's events, declared types and the file budget's setting. Pass `fileBudget` to set it again; otherwise it is the default.
+- **A store that holds an unsent write is left as it is**, and the call throws `wrongSchema` with the count. A store that opens as it is, or a path with no store, throws `invalid`. [Troubleshooting](/guides/troubleshooting#staying-in-step) covers what to do with unsent writes.
+
+## Reach a plain http server
+
+An `http` address sends the key in the clear. **The SDK warns about that only through your app**: it shows nothing itself. `Server.isPlainHTTPToAnotherHost` is `true` for an `http` address on any host but the machine itself, by the same rule as the command line. `localhost`, every address in `127.0.0.0/8` and `::1` are the machine itself; an IPv4-mapped address such as `::ffff:127.0.0.1` is not. `takePlainHTTPNotice()` returns a `PlainHTTPNotice` the first time any server with that origin asks in the process, and `nil` after, for `https` and for the machine itself:
+
+```swift
+if let notice = server.takePlainHTTPNotice() {
+    cleartext = notice  // an @State var of type PlainHTTPNotice?
+}
+// In the view:
+.alert(cleartext?.title ?? "", isPresented: Binding(get: { cleartext != nil }, set: { _ in cleartext = nil })) {
+    Button("OK") {}
+} message: {
+    Text(cleartext?.message ?? "")
+}
+```
+
+**App Transport Security (ATS) applies to some calls and not others.** Apple's documentation says ATS requires that connections made with the URL Loading System, typically `URLSession`, use HTTPS ([NSAppTransportSecurity](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity)). The core makes its own requests with a Rust HTTP client, not `URLSession`, so **ATS doesn't affect the working copy's hydration, catch-up and drain**. The SDK's sign-in requests, and any client of your own built on `URLSession`, are subject to it.
+
+For those, declare the server in your app's Info.plist. As Apple documents them for iOS 17, iPadOS 17 and macOS 14 and later:
+
+- **A DNS name:** add it to `NSExceptionDomains` with `NSExceptionAllowsInsecureHTTPLoads` set to `YES`. Use lowercase, no port, and `NSIncludesSubdomains` for subdomains ([NSExceptionDomains](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsexceptiondomains)).
+- **An IP address:** ATS no longer allows IP addresses by default. Add the address, or a CIDR range such as `192.168.42.0/24`, to `NSExceptionDomains`. An exception for a name doesn't cover the same host reached by address, and the reverse ([NSExceptionDomains](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsexceptiondomains)).
+- **Unqualified names and `.local` names on the local network:** `NSAllowsLocalNetworking` set to `YES` allows them, and Apple recommends setting it as a declaration of intent ([NSAllowsLocalNetworking](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking)).
+
+Prefer an `https` address. Apple warns that loosening ATS reduces your app's security.
 
 ## Identify the connected instance
 
@@ -96,6 +132,10 @@ Your app decides when the copy talks to the instance:
 The `HydrateReport` counts this call's listing pages in `pages` and includes earlier interrupted calls in `pagesTotal`. `resumed` means it continued from the page it reached. Otherwise, `restarted` names why it began again, such as `slice_changed`; this optional string can gain other reasons.
 
 While a fill runs, `status()` gives `itemsListed`, the items the fill has brought so far, and `itemsExpected`, how many the slice held when the fill began, where the instance counted them. **Compare those two for progress**, not `items`, which also includes pinned items and queued creates.
+
+### Read the instance's types before the first fill
+
+`copy.catalog.fromServer()` asks the instance for its item types and edge types now, so an app can offer a choice of types before it hydrates. It returns a `ServerCatalog` and changes nothing in the copy, whose own `catalog` reads keep answering from the store. A copy without a server throws `noServer`, and one that can't reach the instance throws `network`. Cancel the task to end the request.
 
 ### Read while the copy fills
 
@@ -147,6 +187,7 @@ Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update
 | `delete(_:)`, `restore(_:)`, `transition(_:to:)` | Move an item to the bin or out of it, or change its `ItemState`. |
 | `bin(type:after:limit:)`, `purge(_:version:)` | Read a page of the server's bin, and destroy an item in it. Both need the server and neither is queued. A page can be short or empty and still carry a `nextCursor`. A purge needs `items.purge` and write on the type. |
 | `attach(to:file:_:)`, `embed(file:in:_:)` | Queue the upload, a file item and an `attached-to` edge, each with its own verdict. `embed` also adds the file's embed to the body, and throws `EmbedFailure` if that step fails. |
+| `addFile(_:_:tags:)` | Adds a file as an item of its own, attached to nothing: it queues the upload and the file item, and a write for each tag. It returns an `Added` with the first two. |
 | `links(in:)`, `embedText(of:in:)` | The links and file embeds in a body, and the `![[title]]` text for an attached file. |
 | `conflictedCopies(of:)`, `original(ofConflictedCopy:)` | An item's held conflicted copies, and the ID of the item a copy was made from. |
 
