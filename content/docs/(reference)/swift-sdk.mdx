@@ -91,7 +91,9 @@ Your app decides when the copy talks to the instance:
 
 ### Hydrate every type
 
-`hydrate(types: ["*"], tier:)` brings in every type except the `system.*` ones. Name `system.*` types beside `"*"` to add them. Naming any other type beside `"*"` throws `invalid`, because `"*"` already holds it. The `HydrateReport` says how many pages the fill read, in `pagesTotal`, and whether it `resumed` an earlier fill or `restarted` because the earlier one couldn't continue.
+`hydrate(types: ["*"], tier:)` brings in every type except the `system.*` ones. Name `system.*` types beside `"*"` to add them. Naming any other type beside `"*"` throws `invalid`, because `"*"` already holds it.
+
+The `HydrateReport` counts this call's listing pages in `pages` and includes earlier interrupted calls in `pagesTotal`. `resumed` means it continued from the page it reached. Otherwise, `restarted` names why it began again, such as `slice_changed`; this optional string can gain other reasons.
 
 While a fill runs, `status()` gives `itemsListed`, the items the fill has brought so far, and `itemsExpected`, how many the slice held when the fill began, where the instance counted them. **Compare those two for progress**, not `items`, which also includes pinned items and queued creates.
 
@@ -117,7 +119,7 @@ A `hydrate` call announces `.refreshed(.hydrated)` when it completes, and `.refr
 
 ### Refill a stale copy
 
-When a catch-up learns that the event log no longer reaches the copy's cursor, `status().hydration` becomes `.stale` and the catch-up throws `copyExpired` with the reason `catchup_too_old`. A drain of a stale copy is refused the same way. Reads answer what the copy held, with `completeness` `.stale`, and item writes are queued as during a first fill.
+When a catch-up learns that the event log no longer reaches the copy's cursor, it throws `copyExpired` and `status().hydration` becomes `.stale`. **Read the status to identify a stale copy:** the first error's reason describes the expired cursor, while a later catch-up or drain is refused with the reason `catchup_too_old`, without sending a request. Reads answer what the copy held, with `completeness` `.stale`, and item writes are queued as during a first fill.
 
 Call `hydrate(types:tier:edgeTypes:)` with the slice the copy was built under. The copy is filled again **over the rows it holds**, without clearing them first, and the `HydrateReport` says `inPlace`. The copy stays `.stale` through the fill, and through one that was interrupted, until a fill completes. If the instance, the credential's reach or the slice differs, the copy is cleared first and `inPlace` is `false`.
 
@@ -274,7 +276,7 @@ A layout's `kind` says how it shows items, such as `.board` or `.chart(x:y:)`, a
 ```swift
 @MainActor @Observable
 final class Board {
-    let groups: LiveQuery<[ViewGroup]>
+    let groups: LiveQuery<Rows<ViewGroup>>
     let tasks: LiveQuery<Rows<Item>>
 
     init(copy: WorkingCopy, viewID: String) {
@@ -292,7 +294,7 @@ final class Board {
 | `search(_:inView:limit:)` | Full-text search within the view's query. |
 | `Reading.views`, `.view(_:)`, `.list(inView:)`, `.groups(inView:layout:)` | The same reads, for a `LiveQuery`. |
 
-**A view the copy can't answer whole is refused with its reason,** never answered in part: `invalid` names a type or tier the slice lacks, `notFound` with the code `not_held` means the copy doesn't hold the view, and `hydrationIncomplete` means a hydration is still filling the copy.
+**View lists, groups and searches carry completeness** in `Rows`, just like other reads: `.partial` during a first fill and `.stale` during an in-place refill. A query outside the copy's slice throws `invalid`, naming the type or tier it lacks. A view the copy doesn't hold throws `notFound` with the code `not_held`.
 
 ### Create, change and delete a view
 
