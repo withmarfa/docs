@@ -1,0 +1,90 @@
+---
+title: Read a view offline
+description: Read a saved view's items, groups, counts and sums from a device's working copy.
+---
+
+A [view](/catalog/view) saves which items to show and how to arrange them. **The device core answers its layouts offline** from a [working copy](/devices), so an app uses the same sorting and grouping as the CLI.
+
+Start with a view [saved on the instance](/guides/list-filter-search#save-a-list-as-a-view) and a credential that can read `system.view` and every content type its query names. The examples use a view of `core.task` items with a layout whose `id` is `main`.
+
+## Fill the working copy
+
+While connected, hydrate the view type and the types its query needs:
+
+```bash
+marfa device --db ./copy.sqlite hydrate --types system.view,core.task --tier all
+```
+
+**Hold the whole query**, including its tier. A query over both tiers needs `--tier all`. A group that names `edge[<type>]` or `backref[<type>]` needs that edge type held whole: add `--edge-type <type>` to the hydration. A query with `beneath` needs `parent-of` held whole too.
+
+Hydration needs the server and a credential, as [Connect to a server](/cli#connect-to-a-server) describes. The reads below need neither a connection nor a new hydration while the copy remains complete.
+
+## Choose the view and layout
+
+List the views held in the copy, then read the selected view's settings:
+
+```bash
+marfa device --db ./copy.sqlite views list --json
+marfa device --db ./copy.sqlite views get <view-id> --json
+```
+
+Use a layout's `id` from `settings.layouts` to read its items in order:
+
+```bash
+marfa device --db ./copy.sqlite items list --view <view-id> --layout main --limit 50 --offset 0 --json
+```
+
+**Sort keys apply in their declared order.** Property values use the server's ordering, missing and null values come last in either direction, and item IDs break ties. A property that no item holds leaves every item tied on that key.
+
+To search within the view's query, pass the view ID to search. Search orders matches by relevance:
+
+```bash
+marfa device --db ./copy.sqlite search "meeting" --view <view-id> --json
+```
+
+## Read groups and totals
+
+A layout with `group` returns one count per group. A chart whose `y` is `{"sum":"properties.<name>"}` also sums the numeric values of that property; missing and non-number values add nothing.
+
+```bash
+marfa device --db ./copy.sqlite views groups <view-id> --layout main --json
+```
+
+Each entry in `groups` has `key`, `count` and `sum`. **Membership counts once per group**: an item with two tags belongs to both tag groups, so adding their counts can exceed the number of items. Missing values belong to the `null` group. Edge groups use the ID at the other end of each edge.
+
+The layout's `group.order` puts named groups first, and `group.hidden` leaves named groups out. Other groups follow value order, with `null` last.
+
+A date group uses its layout's `bucket`: `day`, `week`, `month` or `year`. Its key is the bucket's start date as `YYYY-MM-DD`, and weeks start on Monday. Buckets follow calendar boundaries in the device's time zone, including daylight saving changes. To select a time zone explicitly:
+
+```bash
+marfa device --db ./copy.sqlite views groups <view-id> --layout main --time-zone Europe/London --json
+```
+
+## Read a view in an app
+
+Use the core's view reads on the same handle as other working-copy reads. Rust exposes `list_views`, `view`, `list_in_view`, `search_in_view` and `view_groups`; the core's Node and Swift bindings expose the corresponding camel-case methods.
+
+For example, with an open Rust `Core` handle, read a page and the layout's totals:
+
+```rust
+let page = core.list_in_view(&view_id, Some("main"), Some(50), None)?;
+let groups = core.view_groups(&view_id, "main", None)?;
+```
+
+| Read | Answer |
+| --- | --- |
+| `list_views` | The views held in the copy. |
+| `view` | One view's settings and version. |
+| `list_in_view` | A page of matching items, ordered by the selected layout. |
+| `search_in_view` | Search matches within the view's query. |
+| `view_groups` | The selected layout's group keys, counts and sums. |
+
+**These are core APIs.** The separately released [Swift SDK](/swift-sdk) adopts core APIs on its own release schedule. Read the selected layout to choose the presentation, and pass the device's time zone when asking for date groups.
+
+## Handle a refused view
+
+**A view's items and groups are never answered in part.** If the working copy cannot answer the whole query or grouping, the read is refused with a reason. This includes an unfinished hydration, a query outside the held types or tiers, and an edge group whose edge type is not held whole. Listing the view settings during a fill can return `partial`; that does not make their item queries answerable.
+
+Show the reason and, when connected, hydrate the slice and edge types the view needs before reading again. A field that no matching item holds is not a refusal: it sorts as missing, groups under `null`, and contributes nothing to a sum.
+
+The rules are in the contract's [views read from a copy](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#views-read-from-a-copy) section and [views](https://github.com/withmarfa/marfa/blob/main/conformance/spec/views.md) chapter.
