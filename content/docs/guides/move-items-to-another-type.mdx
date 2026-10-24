@@ -1,0 +1,128 @@
+---
+title: Move items to another type
+description: Move every item of one type to another in one step, and change the folders, views and webhooks that name it.
+---
+
+A type's identifier never changes. **To rename a type, or to fold one type into another, register the new type, move the items, then delete the old type.** Each item keeps its ID, edges, tags and files; only its type changes. [Define a type](/guides/define-a-type) shows how to register and delete a type.
+
+The examples move every `acme.deal` item to a registered type, `acme.contract`.
+
+## Check what a move does
+
+A dry run answers what the move would change, and changes nothing:
+
+```bash tab="CLI" tab-group="client"
+marfa types move acme.deal acme.contract --dry-run
+```
+
+```http tab="HTTP"
+POST /types/acme.deal/move
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{"to":"acme.contract","dry_run":true}
+```
+
+```ts tab="TypeScript"
+const { data, error } = await marfa.POST("/types/{id}/move", {
+  params: { path: { id: "acme.deal" } },
+  body: { to: "acme.contract", dry_run: true },
+});
+```
+
+Marfa answers `200` with the items it would move, the settings it would change and the keys that name the type:
+
+```json
+{
+  "dry_run": true,
+  "from": "acme.deal",
+  "to": "acme.contract",
+  "matched": 2,
+  "ids": ["01a16f80-1c2e-7d4b-9a10-3f5e8b2c6d01", "01a16f80-1c31-7a0e-8b44-6c2d1e9f0a12"],
+  "settings": [
+    { "kind": "folder", "id": "01a16f80-1d02-7c55-9e21-0b7a4c3d2e13", "field": "query.types" },
+    { "kind": "webhook", "id": "01a16f80-1d4f-7b18-a3c6-5d9e2f1a0b24", "field": "type_filter" }
+  ],
+  "grants": [
+    { "kind": "key", "id": "01a16f80-1b9a-7e63-8f02-2a4b6c8d0e35", "name": "Sales app" }
+  ]
+}
+```
+
+**A move takes every item of exactly that type, in any state.** An archived item stays archived, and an item in the trash moves and stays in the trash. A type that names `acme.deal` as its `parent` keeps its own items. One move takes up to 50,000 items.
+
+## Move the items
+
+Send the same request without `dry_run`. The CLI waits for the move to finish and says what moved:
+
+```bash tab="CLI" tab-group="client"
+marfa types move acme.deal acme.contract
+```
+
+```http tab="HTTP"
+POST /types/acme.deal/move
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{"to":"acme.contract"}
+```
+
+```ts tab="TypeScript"
+const { data, error } = await marfa.POST("/types/{id}/move", {
+  params: { path: { id: "acme.deal" } },
+  body: { to: "acme.contract" },
+});
+```
+
+Over HTTP, Marfa answers `202` with a bulk-action job. Read it with [Get a bulk action job](/api-reference/bulk-actions/getBulkActionJob) until its `status` is `completed`.
+
+**Marfa checks each item against the new type,** as it checks any write. To add a property the new type requires, send it in `properties`, which Marfa merges into every item as it moves, as [Update an item](/api-reference/items/updateItem) does:
+
+```json
+{"to":"acme.contract","properties":{"signed":false}}
+```
+
+The CLI takes the same object as `--properties '{"signed":false}'`.
+
+An item the new type refuses stays where it is. The job lists each one in `result.errors`, with the reason, and the CLI names them and exits with a nonzero status. Fix those items, then run the move again: it moves what remains.
+
+## What changes with the items
+
+Once every item has moved, **Marfa changes the settings that name the old type** to name the new one, in one step:
+
+| Setting | What changes |
+| --- | --- |
+| Folder | `query.types`, `defaults.type`, the type's key in `first_placement`, and each `type eq` or `type neq` term in `query.filter` |
+| View | `query.types`, and each `type eq` or `type neq` term in `query.filter` |
+| Webhook | `type_filter`, when it's exactly the type. A pattern, such as `acme.*`, stays as it is |
+
+While any item of the old type remains, Marfa changes no setting, so a folder or view never stops showing items that haven't moved. The job's `result.settings` lists the settings, and `result.settings_rewritten` says whether Marfa changed them. A folder keeps its files; [Sync a folder](/guides/sync-a-folder#change-a-folders-settings) says what changes on disk.
+
+**When the type has subtypes,** a folder or view keeps the old type in `query.types` beside the new one, because the subtypes' items still need it, and a folder's `first_placement` keeps the old type's key too.
+
+### When a setting blocks the move
+
+Marfa refuses a move when a setting names the type in a way it can't rewrite, or when your key can't change the setting, with `409 type_move_blocked`, and moves nothing. The dry run is refused the same way. `details.settings` names each setting, with a `reason`:
+
+| `reason` | What to change first |
+| --- | --- |
+| `filter_term` | A `query.filter` term on `type`, other than `type eq` or `type neq` naming the type, whose answer the move would change, such as `type starts_with "acme.d"` |
+| `placement_conflict` | A folder's `first_placement` that places the two types in different directories |
+| `subtypes` | A webhook whose `type_filter` names a type with subtypes, since one filter can't name both types |
+| `not_permitted` | A setting your key can't change, as below |
+
+Change each setting, then move again.
+
+## What your key needs
+
+A move needs a key whose type map grants write on both types. Marfa refuses it `403 type_not_permitted` otherwise.
+
+The key also needs what each setting's own operation needs: write on `system.folder` to change a folder and write on `system.view` to change a view. Only the key or app that made a webhook changes it, and it needs the `webhooks.manage` permission. A setting the key can't change blocks the move with `not_permitted`.
+
+**A move never changes a key's or an app's type map.** The dry run lists in `grants` each key whose type map names the old type, if your key has `keys.manage`, and each app, if it has `grants.manage`. Give them the new type through [Manage keys](/guides/manage-keys) before you delete the old one.
+
+## Delete the old type
+
+Once no item and no setting names the old type, delete it as [Define a type](/guides/define-a-type#delete-the-type) shows.
+
+The rules behind this guide are in [Moving a type's items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md#moving-a-types-items) in the contract.
