@@ -110,8 +110,7 @@ const llms: LLMsOptions = {
         return `- [${attribute(node, 'title') ?? ''}](${attribute(node, 'href') ?? ''})${text ? `: ${text}` : ''}`;
       }
       case 'Callout': {
-        const title = attribute(node, 'title');
-        const body = `${title ? `**${title}.** ` : ''}${inner()}`;
+        const body = `**${attribute(node, 'title') ?? ''}.** ${inner()}`;
         return body
           .split('\n')
           .map((line) => (line ? `> ${line}` : '>'))
