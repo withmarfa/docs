@@ -33,7 +33,7 @@ sqlite3 /srv/marfa/data/marfa.db "BEGIN; SELECT count(*) FROM sqlite_master;" \
 
 Stop the server and delete the `marfa.db-wal` and `marfa.db-shm` files in the data directory, because SQLite applies a log it finds beside a database file, even one from another copy. Put the copied files where `SQLITE_PATH` and `BLOB_PATH` name, and leave out `marfa.db-shm`. Start the server with the same two secrets. `GET /health` answers `200` when it's back, and your keys work as before. If the instance uses a bucket, read [With a bucket](#with-a-bucket) first.
 
-**Put the blob folder back whole, with its `.marfa-store` file.** With no bucket, the server refuses to start when that folder or file is missing and the database records saved files in the store kept there, because a drive may not have mounted. It stops with status `1`, names the folder in its log and creates nothing. Mount or restore the folder and start again. To start with an empty folder on purpose, point `BLOB_PATH` at another folder, and the store kept at the old one is detached. With a bucket, the server starts on an empty folder instead, and the `blob-replicate` job fills it. The rule is [`stores/missing-folder-refused`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md#storesmissing-folder-refused).
+**Put the blob folder back whole, with its `.marfa-store` file.** With no bucket, the server refuses to start when that folder or file is missing and the database records saved files there: it stops with status `1`, names the folder in its log and creates nothing. With a bucket, it starts on an empty folder and the `blob-replicate` job fills it. [Deploy](/run/deploy#the-data-directory) says how to start on an empty folder on purpose.
 
 ## With a bucket
 
@@ -41,7 +41,14 @@ When `S3_BUCKET` is set, **the container copies for you**. It streams each commi
 
 Everything the instance keeps in the bucket is under its `S3_PREFIX`, so **give each instance on a shared bucket its own prefix**. [Settings](/run/settings#every-environment-setting) says what a prefix may hold.
 
-**The container refuses to replicate a database that may be older than the bucket's copy.** Replicating it would make it the bucket's newest copy, and the writes made since would stay only in history that expires. When the volume already holds a database, the container compares it with the bucket's replica before it starts the server. If the database may be older, it exits with status `1`, names the reason in its log, and leaves the bucket unchanged. A copy taken before the bucket's newest write, a copy restored without its `.marfa.db-litestream` folder, a database that lost writes since it last replicated, and a point-in-time restore onto the same prefix all count. If the bucket can't be listed, the container can't compare and exits the same way, so a restart tries again.
+**The container refuses to replicate a database that may be older than the bucket's copy.** Replicating it would make it the bucket's newest copy, and the writes made since would stay only in history that expires. When the volume already holds a database, the container compares it with the bucket's replica before it starts the server. If the database may be older, it exits with status `1`, names the reason in its log, and leaves the bucket unchanged. These all count as older:
+
+- A copy taken before the bucket's newest write.
+- A copy restored without its `.marfa.db-litestream` folder.
+- A database that lost writes since it last replicated.
+- A point-in-time restore onto the same prefix.
+
+If the bucket can't be listed, the container can't compare and exits the same way, so a restart tries again.
 
 A fresh volume restores the bucket's newest state, and the `.marfa.db-litestream` folder appears about a second later. If the container stops before then, the next start refuses the database. Delete `marfa.db`, `marfa.db-wal` and `marfa.db-shm`, and the next start restores it again.
 
