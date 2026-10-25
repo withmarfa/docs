@@ -64,6 +64,7 @@ describe('buildDocsMap', () => {
 
     const reference = lines.slice(lines.indexOf('## Reference'));
     const groups = reference.filter((line) => line.startsWith('### '));
+    expect(reference[2]).toMatch(/^- \[Reference\]\(\/reference\)/);
     expect(groups.slice(0, 2)).toEqual(['### SDKs and CLI', '### HTTP API']);
     expect(groups.at(-1)).toBe('### Resources');
     expect(reference.some((line) => line.startsWith('- [TypeScript SDK](/typescript-sdk)'))).toBe(true);
@@ -78,7 +79,7 @@ describe('buildDocsMap', () => {
   });
 
   it('names no page under a path prefix the site does not use', () => {
-    expect(map).not.toMatch(/\]\(\/(get-started|tools|reference)[/)]/);
+    expect(map).not.toMatch(/\]\(\/(get-started|tools)[/)]/);
   });
 
   it('lists every API reference operation under its tag', () => {
