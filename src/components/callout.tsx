@@ -1,17 +1,35 @@
 import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '../lib/cn';
 
-// Fumadocs' Callout, drawn as a faint wash of its type's color with no border,
-// shadow or icon: the tint says what kind of note it is, and the title, when
-// there is one, says the rest. `icon` is accepted and not drawn.
+// A callout is a soft tinted panel: a bold title in the tint's dark color, the
+// body under it, no border, shadow or icon. The tint says what kind of note it
+// is and the title says what happens. The colors are the `--marfa-callout-*`
+// tokens in app.css, which other components reuse.
 
 type CalloutType = 'info' | 'warn' | 'warning' | 'error' | 'success' | 'tip' | 'idea';
 
+// Written out whole, so Tailwind finds each class.
 const TINTS = {
-  info: 'bg-fd-info/6',
-  warning: 'bg-fd-warning/8',
-  error: 'bg-fd-error/6',
-  success: 'bg-fd-success/6',
+  info: {
+    panel: 'bg-(--marfa-callout-info-bg)',
+    title: 'text-(--marfa-callout-info-title)',
+    body: 'text-(--marfa-callout-info-body)',
+  },
+  warning: {
+    panel: 'bg-(--marfa-callout-warning-bg)',
+    title: 'text-(--marfa-callout-warning-title)',
+    body: 'text-(--marfa-callout-warning-body)',
+  },
+  error: {
+    panel: 'bg-(--marfa-callout-error-bg)',
+    title: 'text-(--marfa-callout-error-title)',
+    body: 'text-(--marfa-callout-error-body)',
+  },
+  success: {
+    panel: 'bg-(--marfa-callout-success-bg)',
+    title: 'text-(--marfa-callout-success-title)',
+    body: 'text-(--marfa-callout-success-body)',
+  },
 };
 
 function resolve(type: CalloutType) {
@@ -23,28 +41,21 @@ function resolve(type: CalloutType) {
 export function Callout({
   type = 'info',
   title,
-  icon: _icon,
   children,
   className,
   ...props
 }: Omit<ComponentProps<'div'>, 'title'> & {
   type?: CalloutType;
-  title?: ReactNode;
-  icon?: ReactNode;
+  title: ReactNode;
 }) {
+  const tint = TINTS[resolve(type)];
   return (
     <div
       {...props}
-      className={cn(
-        'my-6 flex flex-col gap-1 rounded-xl px-4 py-3 text-sm leading-relaxed',
-        TINTS[resolve(type)],
-        className,
-      )}
+      className={cn('my-6 flex flex-col gap-0.5 rounded-xl px-4 py-3 text-sm leading-relaxed', tint.panel, className)}
     >
-      {title ? <p className="my-0! font-medium text-fd-foreground">{title}</p> : null}
-      <div className={cn('prose-no-margin', title ? 'text-fd-foreground/75' : 'text-fd-foreground/85')}>
-        {children}
-      </div>
+      <p className={cn('my-0! font-semibold', tint.title)}>{title}</p>
+      <div className={cn('[&>:first-child]:mt-0 [&>:last-child]:mb-0', tint.body)}>{children}</div>
     </div>
   );
 }

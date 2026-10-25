@@ -27,6 +27,7 @@ type Rule =
   | 'statement-number'
   | 'frontmatter'
   | 'coming-soon'
+  | 'callout-title'
   | 'link'
   | 'include';
 
@@ -245,6 +246,23 @@ export function checkComingSoon(file: string, text: string): Violation[] {
       line: lineOf(text, match.index),
       rule: 'coming-soon',
       detail: '"coming soon" is allowed only on the Introduction page',
+    });
+  }
+  return out;
+}
+
+/** Every `<Callout` opening tag, up to its closing `>`, outside code. */
+const CALLOUT_TAG = /<Callout(?=[\s>/])((?:"[^"]*"|'[^']*'|\{[^}]*\}|[^>"'{])*)>/g;
+
+export function checkCalloutTitles(file: string, text: string): Violation[] {
+  const out: Violation[] = [];
+  for (const match of stripCode(text).matchAll(CALLOUT_TAG)) {
+    if (/\stitle=("[^"]*[^"\s][^"]*"|'[^']*[^'\s][^']*'|\{[^}]*\S[^}]*\})/.test(match[1])) continue;
+    out.push({
+      file,
+      line: lineOf(text, match.index),
+      rule: 'callout-title',
+      detail: 'a Callout needs a title that says what happens, such as title="Copy the key now"',
     });
   }
   return out;
@@ -526,6 +544,10 @@ describe('content lint: the corpus', () => {
   it('links only to pages that exist', () => {
     expect(lintAll((file, text) => checkLinks(file, text, PAGE_URLS))).toEqual([]);
   });
+
+  it('gives every callout a title', () => {
+    expect(lintAll(checkCalloutTitles)).toEqual([]);
+  });
 });
 
 // ── Witnesses: each rule fires on a small bad sample ─────────────────────
@@ -624,6 +646,23 @@ describe('content lint: each rule fires on a bad sample', () => {
     expect(rules(checkComingSoon('guides/x.mdx', 'This is Coming Soon.'))).toEqual(['coming-soon']);
     expect(checkComingSoon('(overview)/introduction.mdx', 'Coming soon.')).toEqual([]);
     expect(rules(checkComingSoon('(overview)/run-an-instance.mdx', 'Coming soon.'))).toEqual(['coming-soon']);
+  });
+
+  it('callout-title', () => {
+    const bad = [
+      '<Callout type="warn">Copy the key now.</Callout>',
+      '<Callout>\nBody.\n</Callout>',
+      '<Callout type="warn" title="">Body.</Callout>',
+      '<Callout type="info" notitle="x">Body.</Callout>',
+    ];
+    for (const sample of bad) expect(rules(checkCalloutTitles('x.mdx', sample))).toEqual(['callout-title']);
+    expect(checkCalloutTitles('x.mdx', 'Fine.\n\n<Callout type="warn">No title.</Callout>\n')[0].line).toBe(3);
+  });
+
+  it('callout-title accepts a title and ignores code', () => {
+    expect(checkCalloutTitles('x.mdx', '<Callout title="Copy the key now">Body.</Callout>')).toEqual([]);
+    expect(checkCalloutTitles('x.mdx', '<Callout type="warn" title={"Copy"}>Body.</Callout>')).toEqual([]);
+    expect(checkCalloutTitles('x.mdx', 'Write `<Callout>` like this.\n\n```mdx\n<Callout>Body</Callout>\n```\n')).toEqual([]);
   });
 
   describe('link', () => {
