@@ -1,0 +1,56 @@
+---
+title: Readwise Reader
+description: The documents, highlights and saved content of a Readwise Reader library, with supported edits carried back.
+---
+
+The Readwise Reader connector keeps the documents, highlights and annotations of a Reader library in the feed, along with a copy of their content, and carries supported edits back to Reader. Readwise's [Highlights connector](/catalog/connectors/readwise) still works on its own.
+
+## What it reads
+
+- **Documents** in your saved library. Feed documents are left out unless you set `READWISE_READER_INCLUDE_FEED`.
+- **Highlights and annotations** on those documents. Reader supplies the canonical passage. A note record is folded into the annotation.
+- **Content.** Each retained HTML document, available original, Readwise-hosted image, overflow text and resource manifest becomes a `readwise.file` row. Downloads come only from Readwise's asset storage host, and no API credentials go to it.
+
+A listing walk starts from the last completed walk with a five-minute overlap, and a full reconciliation repeats daily.
+
+## Types it writes
+
+| Type | Parent type | Holds |
+| --- | --- | --- |
+| `readwise.source` | [Media](/catalog/media) | A Reader document |
+| `readwise.highlight` | [Highlight](/catalog/highlight) | A highlight with its annotation and tags |
+| `readwise.file` | [File](/catalog/file) | Kept content, attached to its document or highlight |
+
+These are the types the Highlights connector writes, so one row can hold what both connectors know. A row Reader manages carries a Reader link, `<account>:reader-document:<ID>` or `<account>:reader-highlight:<ID>`, in `canonical_key`. A highlight connects to its document through `references`, and a file connects to what it belongs to through `attached-to`.
+
+## What goes back
+
+- **Document edits.** The title, author, summary (`description`), notes, tags, reading location (`reader_location`) and supported categories.
+- **Highlight edits.** The annotation (`note`) and tags. An empty note or tag list clears them.
+- **A new row.** Set `reader_create: true` on a `readwise.source` that has a stable HTTP URL, or on a `readwise.highlight` that has `reader_parent_id` and passage text. A row without that flag is never created in Reader.
+
+Only changed supported fields are sent. Body replacement, passage edits, reading progress and original-file upload stay read only. Trashing a row changes nothing in Reader.
+
+## Settings
+
+| Setting | What it holds |
+| --- | --- |
+| `READWISE_ACCESS_TOKEN` | Your Readwise access token. A secret. |
+| `READWISE_ACCOUNT` | The same stable account label as the Highlights connector. |
+| `READWISE_READER_INCLUDE_FEED` | `true` includes feed documents. The default is `false`. |
+| `READWISE_READER_INBOUND_ONLY` | `true` turns off every edit going back. The default is `false`. |
+| `READWISE_READER_PROPAGATE_PURGE` | `true` lets a permanent purge in Marfa delete the Reader record. The default is `false`. |
+| `READWISE_CONTENT_MAX_BYTES` | The largest resource to keep, in bytes, up to 1,073,741,824. The default is 268,435,456 (256 MiB). |
+
+## What to know
+
+- **Give Reader its own key source.** The key's own source is `readwise-reader` and it also claims `readwise`, which you set through the instance's private socket with `--claim readwise`. Highlights uses the key source `readwise`, so the two keep separate progress.
+- **Use one account label in both connectors.** Never change it against saved progress.
+- **Purges are limited.** If a run would delete more than 20 Reader records, it fails before it reads or sends anything, and keeps failing until the count is 20 or fewer or you turn propagation off.
+- **A disappearance needs proof.** A failed request or an incomplete listing never archives a row. More than 20 confirmed disappearances archive none.
+- **Over-limit content stays pending.** A resource larger than `READWISE_CONTENT_MAX_BYTES` keeps its last good copy and reports the limit.
+- **Existing Highlights installs need a schema step first.** Replace the two type definitions as the Highlights README describes, then restart both connectors.
+
+## Run it
+
+[Run a connector](/guides/run-a-connector) shows how to make the key and start it. The key holds write on `readwise.source`, `readwise.highlight` and `readwise.file`, and on the `references` and `attached-to` connections.

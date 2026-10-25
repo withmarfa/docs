@@ -218,10 +218,11 @@ function plain(text: string): string {
 }
 
 // The Types folder and the two families inside it are folder groups, which add nothing to a page's address.
+// The Connectors folder is a real one: its index page is the folder's, and the six connectors sit beneath it.
 const PAGES = (readdirSync(CATALOG_PAGES, { recursive: true }) as string[])
   .filter((file) => file.endsWith('.mdx'))
   .map((file) => ({
-    slug: path.basename(file, '.mdx'),
+    slug: path.basename(file, '.mdx') === 'index' && path.dirname(file) !== '.' ? path.basename(path.dirname(file)) : path.basename(file, '.mdx'),
     group: path.dirname(file),
     file: `content/docs/catalog/${file}`,
     text: readFileSync(path.join(CATALOG_PAGES, file), 'utf8'),
@@ -235,7 +236,10 @@ const SYSTEM_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('system.'));
 const CORE_SLUGS = CORE_TYPES.map(slugOf);
 const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
 /** The pages that are not the page of one type. */
-const OTHER_PAGES = ['index', 'items', 'types', 'field-kinds', 'your-own-types', 'edges', 'events', 'permissions'];
+const OTHER_PAGES = ['index', 'items', 'types', 'field-kinds', 'your-own-types', 'edges', 'events', 'permissions', 'connectors'];
+/** The connectors Marfa ships, one page each beneath the Connectors page. */
+const CONNECTORS_DIR = 'connectors';
+const CONNECTOR_SLUGS = ['github', 'google-calendar', 'todoist', 'readwise', 'readwise-reader', 'rss'];
 /** Where the pages about types sit: in the Types folder, with the two families of types inside it. */
 const TYPES_DIR = '(types)';
 const TYPES_PAGES = ['types', 'your-own-types', 'field-kinds'];
@@ -255,7 +259,7 @@ describe('the catalog the pages follow', () => {
 describe('the tab', () => {
   it('has one page for each top-level type and the other pages, and no other', () => {
     expect(TOP_LEVEL.every((type) => type.id.startsWith('core.') || type.id.startsWith('system.'))).toBe(true);
-    expect(PAGES.map((page) => page.slug).sort()).toEqual([...CORE_SLUGS, ...SYSTEM_SLUGS, ...OTHER_PAGES].sort());
+    expect(PAGES.map((page) => page.slug).sort()).toEqual([...CORE_SLUGS, ...SYSTEM_SLUGS, ...OTHER_PAGES, ...CONNECTOR_SLUGS].sort());
   });
 
   it('names an identifier only on the page of a type', () => {
@@ -283,7 +287,9 @@ describe('the tab', () => {
     // The Types page is the folder's own page, named by `pagesIndex`, and the folder lists the rest.
     const inTypes = [typesMeta.pagesIndex, ...typesMeta.pages.filter((entry: string) => !entry.startsWith('('))];
     const inFamilies = families.flatMap((family: string) => readMeta(`${TYPES_DIR}/${family}`).pages as string[]);
-    const all = [...direct, ...inTypes, ...inFamilies];
+    const connectorsMeta = readMeta(CONNECTORS_DIR);
+    expect(direct).toContain(CONNECTORS_DIR);
+    const all = [...direct, ...inTypes, ...inFamilies, ...connectorsMeta.pages];
     expect(all.sort()).toEqual(PAGES.map((page) => page.slug).sort());
     expect(all.length).toBe(new Set(all).size);
   });
@@ -312,8 +318,20 @@ describe('the tab', () => {
   it('keeps the pages about types in the Types folder and the others directly in the tab', () => {
     expect(PAGES.filter((page) => page.group === TYPES_DIR).map((page) => page.slug).sort()).toEqual([...TYPES_PAGES].sort());
     expect(PAGES.filter((page) => page.group === '.').map((page) => page.slug).sort()).toEqual(
-      OTHER_PAGES.filter((slug) => !TYPES_PAGES.includes(slug)).sort(),
+      OTHER_PAGES.filter((slug) => !TYPES_PAGES.includes(slug) && slug !== CONNECTORS_DIR).sort(),
     );
+  });
+
+  it('opens the Connectors folder on its own page, closed, with a page for each connector beneath it', () => {
+    const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, CONNECTORS_DIR, 'meta.json'), 'utf8'));
+    expect(meta.title).toBe('Connectors');
+    expect(meta.defaultOpen).toBe(false);
+    expect([...meta.pages].sort()).toEqual([...CONNECTOR_SLUGS].sort());
+    expect(
+      PAGES.filter((page) => page.group === CONNECTORS_DIR)
+        .map((page) => page.slug)
+        .sort(),
+    ).toEqual(['connectors', ...CONNECTOR_SLUGS].sort());
   });
 
   it('shows each generated file on exactly one page', () => {
@@ -629,7 +647,7 @@ describe('the links', () => {
       for (const [, target, id] of text.matchAll(/\]\((\/[a-z0-9/-]+)#([a-z0-9-]+)\)/g)) {
         if (!file.includes('/catalog/') && !target.startsWith('/catalog')) continue;
         const page = target.startsWith('/catalog')
-          ? PAGES.find((candidate) => candidate.slug === (target.split('/')[2] ?? 'index'))?.file ?? target
+          ? PAGES.find((candidate) => candidate.slug === (target.split('/').at(-1) === 'catalog' ? 'index' : target.split('/').at(-1)))?.file ?? target
           : `content/docs${target.startsWith('/guides') ? target : `/(overview)${target}`}.mdx`;
         const ids = headingIds(page);
         checked += 1;
