@@ -1,8 +1,10 @@
 import { defineConfig, defineDocs } from 'fumadocs-mdx/config';
-import { rehypeCodeDefaultOptions } from 'fumadocs-core/mdx-plugins';
+import { parseCodeBlockAttributes, rehypeCodeDefaultOptions } from 'fumadocs-core/mdx-plugins';
 import { pageSchema } from 'fumadocs-core/source/schema';
 import { z } from 'zod';
 import type { LLMsOptions } from 'fumadocs-core/mdx-plugins/remark-llms';
+import { statusLabel } from './src/lib/http-status';
+import { sseLanguage } from './src/lib/sse-language';
 
 /** The part of an MDX JSX node this file reads (mdast-util-mdx's shape). */
 type JsxElement = {
@@ -87,7 +89,23 @@ const llms: LLMsOptions = {
     if (REWRITTEN.has(node.name)) return true;
     return false;
   },
-  stringify(node, _parent, state, info) {
+  stringify(node, parent, state, info) {
+    // A fenced block with a note or a status chip in its header: the header's
+    // words come first, so an agent loses nothing the page shows.
+    if (node.type === 'code') {
+      const code = node as unknown as { meta?: string | null };
+      const { rest, attributes } = parseCodeBlockAttributes(code.meta ?? '', ['title', 'note', 'status']);
+      const extra =
+        typeof attributes.note === 'string'
+          ? attributes.note
+          : attributes.status != null
+            ? statusLabel(String(attributes.status))
+            : undefined;
+      if (extra === undefined) return undefined;
+      const label = typeof attributes.title === 'string' ? `${attributes.title} (${extra})` : extra;
+      const fence = state.handle({ ...node, meta: rest.trim() || null } as never, parent as never, state, info);
+      return `${label}:\n\n${fence}`;
+    }
     if (!isJsx(node) || !node.name || !REWRITTEN.has(node.name)) return undefined;
     // A component written on one line holds phrasing, not paragraphs, and
     // writing that as flow would break the text at each inline element.
@@ -146,10 +164,23 @@ export const docs = defineDocs({
 // Shiki loads a language the first time a block uses it, and Markdown colours
 // its frontmatter with YAML only when YAML is already loaded. The server and
 // the browser compile pages in different orders, so a Markdown block could be
-// coloured differently on each and fail hydration. Loading both up front gives
-// every build the same highlighting.
+// coloured differently on each and fail hydration. Loading them up front gives
+// every build the same highlighting. JSON is listed because the `sse` grammar
+// embeds it for a `data:` line, and Shiki needs an embedded language loaded.
+//
+// A fenced block's header takes `title="Response"` as its label, and two more
+// attributes beside Copy: `note="Server-sent events"`, a lighter note, and
+// `status="200"`, a chip that reads "200 OK". Fumadocs only reads the names it
+// knows, so these two are read here and handed on as props of the block.
 export default defineConfig({
   mdxOptions: {
-    rehypeCodeOptions: { ...rehypeCodeDefaultOptions, langs: ['yaml', 'markdown'] },
+    rehypeCodeOptions: {
+      ...rehypeCodeDefaultOptions,
+      langs: ['yaml', 'markdown', 'json', sseLanguage as never],
+      parseMetaString(meta, node, tree) {
+        const header = parseCodeBlockAttributes(meta, ['note', 'status']);
+        return { ...rehypeCodeDefaultOptions.parseMetaString?.(header.rest, node, tree), ...header.attributes };
+      },
+    },
   },
 });

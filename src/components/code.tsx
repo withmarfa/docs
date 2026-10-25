@@ -1,7 +1,7 @@
 import { CodeBlock, Pre } from 'fumadocs-ui/components/codeblock';
-import { ChevronRight } from 'lucide-react';
 import {
   Children,
+  createContext,
   createElement,
   isValidElement,
   useState,
@@ -9,11 +9,14 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
+import { cn } from '../lib/cn';
+import { statusLabel, statusTone } from '../lib/http-status';
 
-/** A code block taller than this folds to its first lines, with a button to show the rest. */
+/** A code block, or a terminal body, taller than this folds to its first lines, with a button to show the rest. */
 export const FOLD_AT = 24;
-/** Command output longer than this starts closed. */
-export const OUTPUT_FOLD_AT = 6;
+
+/** True inside a code tab set, where the tabs are the block's header row. */
+export const InCodeTabs = createContext(false);
 
 type Props = { className?: string; children?: ReactNode };
 
@@ -30,26 +33,116 @@ export function countLines(pre: ReactNode): number {
   ).length;
 }
 
-/**
- * The `pre` of every Markdown code block: Fumadocs' code block, folded to its
- * first lines when it is long, so a page doesn't open on a wall of code. The
- * fold hides lines from view only; Copy and the Markdown copy take them all.
- */
-export function FoldingCodeBlock(props: ComponentProps<'pre'>) {
-  const lines = countLines(createElement('pre', props));
-  const block = (
-    <CodeBlock {...(props as ComponentProps<typeof CodeBlock>)}>
-      <Pre>{props.children}</Pre>
-    </CodeBlock>
+/** What a fenced block's meta adds to the header: `title="Response" note="Server-sent events" status="200"`. */
+type BlockProps = Omit<ComponentProps<'pre'>, 'title'> & {
+  title?: string;
+  note?: string;
+  status?: string | number;
+  allowCopy?: boolean | string;
+  icon?: unknown;
+};
+
+/** Stands in for an absent title, so that every block draws one header row. */
+const NO_TITLE = <></>;
+
+function Status({ code }: { code: string }) {
+  const tone = statusTone(code);
+  return (
+    <span className="marfa-code-status" data-tone={tone}>
+      {statusLabel(code)}
+    </span>
   );
-  if (lines <= FOLD_AT) return block;
-  return <Fold lines={lines}>{block}</Fold>;
 }
 
-function Fold({ lines, children }: { lines: number; children: ReactNode }) {
+/**
+ * The header's right-hand side: an optional note or status chip, then Copy.
+ * Fumadocs calls this where it draws its Copy button, so the extras sit
+ * in the same row without a header of our own.
+ */
+function actions(note: string | undefined, status: string | undefined) {
+  return function Actions({ className, children }: ComponentProps<'div'>) {
+    return (
+      <>
+        {note ? <span className="marfa-code-note">{note}</span> : null}
+        {status ? <Status code={status} /> : null}
+        <div className={cn('empty:hidden', className)}>{children}</div>
+      </>
+    );
+  };
+}
+
+function wantsCopy(allowCopy: BlockProps['allowCopy']) {
+  return allowCopy !== false && allowCopy !== 'false';
+}
+
+/**
+ * The `pre` of every Markdown code block: Fumadocs' code block under one
+ * header row, folded to its first lines when it is long, so a page doesn't
+ * open on a wall of code. The fold hides lines from view only; Copy and the
+ * Markdown copy take them all. In a code tab set the tabs are the header row
+ * and the stylesheet moves Copy into it.
+ */
+export function FoldingCodeBlock({ title, note, status, icon: _icon, ...props }: BlockProps) {
+  return (
+    <CodeBlockCard
+      lines={countLines(createElement('pre', props))}
+      title={title}
+      note={note}
+      status={status === undefined ? undefined : String(status)}
+      allowCopy={props.allowCopy}
+      block={props as ComponentProps<typeof CodeBlock>}
+    >
+      <Pre>{props.children}</Pre>
+    </CodeBlockCard>
+  );
+}
+
+function CodeBlockCard({
+  lines,
+  title,
+  note,
+  status,
+  allowCopy,
+  block,
+  children,
+}: {
+  lines: number;
+  title?: string;
+  note?: string;
+  status?: string;
+  allowCopy?: BlockProps['allowCopy'];
+  block: ComponentProps<typeof CodeBlock>;
+  children: ReactNode;
+}) {
+  return (
+    <InCodeTabs.Consumer>
+      {(inTabs) => {
+        const header = !inTabs && Boolean(title || note || status || wantsCopy(allowCopy));
+        const card = (
+          <CodeBlock
+            {...block}
+            title={header ? title || NO_TITLE : undefined}
+            Actions={header ? actions(note, status) : undefined}
+          >
+            {children}
+          </CodeBlock>
+        );
+        return lines > FOLD_AT ? (
+          <Fold lines={lines} inTabs={inTabs}>
+            {card}
+          </Fold>
+        ) : (
+          card
+        );
+      }}
+    </InCodeTabs.Consumer>
+  );
+}
+
+function Fold({ lines, inTabs, children }: { lines: number; inTabs: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="marfa-fold" data-open={open || undefined}>
+    <div className="marfa-fold" data-in-tabs={inTabs || undefined} data-open={open || undefined}>
       {children}
       <button type="button" className="marfa-fold-button" aria-expanded={open} onClick={() => setOpen(!open)}>
         {open ? 'Show less' : `Show all ${lines} lines`}
@@ -58,15 +151,10 @@ function Fold({ lines, children }: { lines: number; children: ReactNode }) {
   );
 }
 
-/**
- * A command and what it prints, as one block: the command with its copy
- * button, then the output in muted text. Output longer than a few lines
- * starts closed. Written in MDX as two fenced blocks inside `<Terminal>`.
- */
 /** The code block inside whatever MDX wrapped around a fenced block. */
-function findBlock(node: ReactNode): ReactElement<ComponentProps<'pre'>> | undefined {
+function findBlock(node: ReactNode): ReactElement<BlockProps> | undefined {
   if (!isValidElement<{ children?: ReactNode }>(node)) return undefined;
-  if (node.type === FoldingCodeBlock) return node as ReactElement<ComponentProps<'pre'>>;
+  if (node.type === FoldingCodeBlock) return node as ReactElement<BlockProps>;
   for (const child of Children.toArray(node.props.children)) {
     const found = findBlock(child);
     if (found) return found;
@@ -74,29 +162,26 @@ function findBlock(node: ReactNode): ReactElement<ComponentProps<'pre'>> | undef
   return undefined;
 }
 
+/**
+ * A command and what it prints, as one block under a "Terminal" header: the
+ * command, then its output in muted text, and Copy takes the command only.
+ * Written in MDX as two fenced blocks inside `<Terminal>`. The whole body folds
+ * like any block, by its total number of lines.
+ */
 export function Terminal({ children }: { children: ReactNode }) {
   const [command, output] = Children.toArray(children).filter(isValidElement);
-  const block = findBlock(output);
-  if (!block) return <>{children}</>;
-  const { icon: _icon, ...pre } = block.props as ComponentProps<'pre'> & { icon?: unknown };
-  const lines = countLines(createElement('pre', pre));
-  // The output keeps Shiki's markup but not the code block around it, so it has
-  // no copy button or fold of its own.
-  const body = <div className="marfa-terminal-output">{createElement('pre', pre)}</div>;
+  const first = findBlock(command);
+  const second = findBlock(output);
+  if (!first || !second) return <>{children}</>;
+  const { title: _title, note: _note, status: _status, icon: _icon, ...block } = first.props;
   return (
-    <div className="marfa-terminal not-prose">
-      {command}
-      {lines > OUTPUT_FOLD_AT ? (
-        <details className="marfa-terminal-fold">
-          <summary>
-            <ChevronRight aria-hidden="true" />
-            Output, {lines} lines
-          </summary>
-          {body}
-        </details>
-      ) : (
-        body
-      )}
-    </div>
+    <CodeBlockCard
+      lines={countLines(createElement('pre', first.props)) + countLines(createElement('pre', second.props))}
+      title="Terminal"
+      block={{ ...block, className: cn(block.className, 'marfa-terminal') } as ComponentProps<typeof CodeBlock>}
+    >
+      <Pre>{first.props.children}</Pre>
+      <Pre className="marfa-terminal-output">{second.props.children}</Pre>
+    </CodeBlockCard>
   );
 }

@@ -1,5 +1,6 @@
 import { CodeBlockTabs as Base } from 'fumadocs-ui/components/codeblock';
 import { Children, isValidElement, useLayoutEffect, useMemo, useState, type ComponentProps } from 'react';
+import { InCodeTabs } from './code';
 
 // Fumadocs' code tabs with a remembered choice that only applies where it
 // exists. Its own version shares one choice across every tab set in a group, so
@@ -61,7 +62,7 @@ export function CodeBlockTabs({ groupId, persist: _persist, defaultValue, childr
         window.dispatchEvent(new CustomEvent(EVENT, { detail: { group: groupId, value: next } }));
       }}
     >
-      {children}
+      <InCodeTabs.Provider value>{children}</InCodeTabs.Provider>
     </Base>
   );
 }

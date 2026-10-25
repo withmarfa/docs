@@ -68,22 +68,25 @@ describe('MDX components', () => {
     expect(renderToStaticMarkup(block('one', 'two'))).not.toContain('Show all');
   });
 
-  it('draws a command with short output open and long output folded', () => {
+  it('draws a command and its output as one body under a Terminal header, folded like any block', () => {
     const short = renderToStaticMarkup(
       <Terminal>
         {block('marfa whoami')}
         {block('owner')}
       </Terminal>,
     );
+    expect(short).toContain('Terminal');
     expect(short).toContain('marfa-terminal-output');
     expect(short).not.toContain('<details');
+    expect(short).not.toContain('Show all');
     const long = renderToStaticMarkup(
       <Terminal>
         {block('marfa housekeeping list')}
-        {block(...Array.from({ length: 9 }, (_, i) => `job ${i}`))}
+        {block(...Array.from({ length: 30 }, (_, i) => `job ${i}`))}
       </Terminal>,
     );
-    expect(long).toContain('Output, 9 lines');
+    expect(long).toContain('Show all 31 lines');
+    expect(long).not.toContain('<details');
   });
 
   it('draws a type table with its field names and types', () => {
