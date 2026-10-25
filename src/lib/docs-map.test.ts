@@ -40,9 +40,9 @@ describe('buildDocsMap', () => {
     expect(run.filter((line) => line.startsWith('### '))).toEqual(['### Set up', '### Keys and access', '### Folders', '### Connectors', '### Look after it']);
     expect(run.some((line) => line.startsWith('- [Troubleshooting](/run/troubleshooting)'))).toBe(true);
 
-    // The Catalog has no group headings: the Types and Connectors pages are folders, so their pages nest under them.
+    // The Catalog has three sections; the Types and Connectors pages are folders, so their pages nest under them.
     const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Reference'));
-    expect(catalog.filter((line) => line.startsWith('### '))).toEqual([]);
+    expect(catalog.filter((line) => line.startsWith('### '))).toEqual(['### Data', '### Events and access', '### Integrations']);
     expect(catalog.filter((line) => /^(- |  - |    - )/.test(line)).map((line) => line.replace(/\]\(.*$/, ']').replace(/^( *- )\[/, '$1'))).toEqual([
       '- Catalog]',
       '- Items]',
