@@ -268,6 +268,25 @@ export function checkCalloutTitles(file: string, text: string): Violation[] {
   return out;
 }
 
+const MAX_TUTORIAL_STEPS = 7;
+
+/** A paged stepper, the tutorial form, has at most seven steps. Steps in code are not counted. */
+export function checkTutorialLength(file: string, text: string): Violation[] {
+  const prose = stripCode(text);
+  const out: Violation[] = [];
+  for (const match of prose.matchAll(/<Steps\s+paged\b[\s\S]*?<\/Steps>/g)) {
+    const steps = match[0].match(/<Step>/g)?.length ?? 0;
+    if (steps <= MAX_TUTORIAL_STEPS) continue;
+    out.push({
+      file,
+      line: lineOf(text, match.index),
+      rule: 'tutorial-length',
+      detail: `a tutorial has at most ${String(MAX_TUTORIAL_STEPS)} steps and this one has ${String(steps)}; split it in two`,
+    });
+  }
+  return out;
+}
+
 /** Routes that serve text rather than a docs page, and are fine to link to. */
 const NON_PAGE_ROUTES = new Set(['/', '/llms.txt', '/llms-full.txt', '/docs-map.md', '/mcp']);
 
@@ -548,6 +567,10 @@ describe('content lint: the corpus', () => {
   it('gives every callout a title', () => {
     expect(lintAll(checkCalloutTitles)).toEqual([]);
   });
+
+  it('keeps every tutorial to seven steps', () => {
+    expect(lintAll(checkTutorialLength)).toEqual([]);
+  });
 });
 
 // ── Witnesses: each rule fires on a small bad sample ─────────────────────
@@ -657,6 +680,15 @@ describe('content lint: each rule fires on a bad sample', () => {
     ];
     for (const sample of bad) expect(rules(checkCalloutTitles('x.mdx', sample))).toEqual(['callout-title']);
     expect(checkCalloutTitles('x.mdx', 'Fine.\n\n<Callout type="warn">No title.</Callout>\n')[0].line).toBe(3);
+  });
+
+  it('tutorial-length', () => {
+    const step = '<Step>\n\n### A\n\n</Step>\n';
+    const steps = (n: number) => `Intro.\n\n<Steps paged>\n${step.repeat(n)}</Steps>\n`;
+    expect(checkTutorialLength('x.mdx', steps(7))).toEqual([]);
+    expect(rules(checkTutorialLength('x.mdx', steps(8)))).toEqual(['tutorial-length']);
+    expect(checkTutorialLength('x.mdx', steps(8))[0].line).toBe(3);
+    expect(checkTutorialLength('x.mdx', steps(8).replace('Steps paged', 'Steps'))).toEqual([]);
   });
 
   it('callout-title accepts a title and ignores code', () => {
