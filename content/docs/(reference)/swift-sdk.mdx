@@ -26,7 +26,7 @@ Each release carries Marfa's core already built, so your app needs no Rust toolc
 | `Marfa` | The SDK. Add it to your app target. |
 | `MarfaTypes` | The server's wire types, generated from the API description, and `marfaContractVersion`. |
 | `MarfaAPI` | `Client`, for the [calls only the instance can answer](#call-the-server-directly), such as registering a type or [moving the items of one](#move-the-items-of-a-type). It includes `MarfaTypes`. |
-| `MarfaTesting` | `WorkingCopy.fake(items:itemTypes:)`, a working copy for tests and previews with no store, server or core. Pass its `copy` where your code takes a `WorkingCopy`. It compiles empty in a release build, so wrap its uses in `#if DEBUG`. |
+| `MarfaTesting` | `WorkingCopy.fake(items:itemTypes:)`, a working copy for tests and previews with no store, server or core. Pass its `copy` where your code takes a `WorkingCopy`. It compiles empty in a release build, so wrap its uses in `#if DEBUG`. [Test against a fake copy](#test-against-a-fake-copy) says what it answers. |
 
 ## Open a working copy
 
@@ -132,6 +132,8 @@ Your app decides when the copy talks to the instance:
 
 The `HydrateReport` counts this call's listing pages in `pages` and includes earlier interrupted calls in `pagesTotal`. `resumed` means it continued from the page it reached. Otherwise, `restarted` names why it began again, such as `slice_changed`; this optional string can gain other reasons.
 
+The report also says what the call did with the app's [declared types](#declare-an-app-type): `registeredTypes` and `unregisteredTypes`, then `replacedTypes` and `unreplacedTypes`. Each entry in `unregisteredTypes` and `unreplacedTypes` is an `UnregisteredType` with the type's `id` and the server's `code` and `message`.
+
 While a fill runs, `status()` gives `itemsListed`, the items the fill has brought so far, and `itemsExpected`, how many the slice held when the fill began, where the instance counted them. **Compare those two for progress**, not `items`, which also includes pinned items and queued creates.
 
 ### Read the instance's types before the first fill
@@ -193,7 +195,7 @@ Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update
 
 | `items` call | What it does |
 | --- | --- |
-| `list(_:sort:)`, `get(_:)` | Items matching a `ListFilters`, newest first by default. One item, or `nil` when it's in the bin or not held. |
+| `list(_:sort:)`, `get(_:)` | Items matching a `ListFilters`, newest first unless a `Sort` says otherwise. One item, or `nil` when it's in the bin or not held. |
 | `create(_:)`, `update(_:_:)` | Queue a `Draft` or an `Edit`. An update is refused unless `baseVersion` is the version the copy holds. |
 | `updateAsRead(_:_:)` | Queues an edit based on an older version, which the server merges. |
 | `delete(_:)`, `restore(_:)`, `transition(_:to:)` | Move an item to the bin or out of it, or change its `ItemState`. |
@@ -205,6 +207,12 @@ Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update
 
 - **Read `title` and `body`** rather than `properties`: they read the properties the item's type uses for them. Where `properties` is empty, `unreadableProperties` says why.
 - **An `Edit` changes the properties it names.** With `replaceProperties: true`, they become the item's whole set.
+- **A `Draft` takes every field a create takes.** Besides the type and the properties, it carries `state` (`.active`, `.archived` or `.trashed`; `.revoked` is refused), `captureLatitude` with `captureLongitude`, and `edges`, a dictionary from an edge type to the IDs of the items it points at. An `Item` reads the capture location back in the same two properties.
+- **A create is one write.** Its state, location and edges go in the body of the write that creates the item. If the instance refuses any edge, for example because a target doesn't exist, it creates neither the item nor its edges, and the write stays in the queue as refused. The copy shows each edge at once, and an empty list for an edge type queues no edge. An edge may point at an item that is still waiting to be created: the write waits for that create. If that create lands on an item the instance already holds, because the two share a source and a `sourceId`, the edge points at the item the instance holds.
+- **An `Edit` sets or clears the item's own time.** `occurredAt` sets it, and `clearOccurredAt: true` gives the item no time of its own, so it sits at its creation time. The two can't be combined. Clearing the time of an item whose create hasn't been sent removes it from the create, and the copy shows the time the create was queued until the instance answers.
+- **A create the instance would refuse as malformed** is refused before it is queued, with the code the instance would answer. That covers a `.revoked` state, a coordinate that isn't a finite number, and an edge type or target that isn't valid.
+- **`ListFilters` narrows by more.** `source` keeps the items one writer created, `updatedAfter` (inclusive) and `updatedBefore` (exclusive) keep a range of change times, and `occurredAfter` and `occurredBefore` (both exclusive) a range of the items' own times. A list with `updatedAfter` comes in change order, oldest first. Pass no `Sort`, or one that sets only `.ascending` or only `.updatedAt`, to keep that order; any other sort is refused `validation`. `SearchFilters` takes `tier` and the same occurred range.
+- **A `Sort` names a field, a direction, both or neither.** A field is `.createdAt`, `.updatedAt`, `.occurredAt` or `.property(name:)`, such as `.property(name: "rank")`. An ascending property sort puts numbers and booleans (`false` before `true`) first, then text, and a descending one reverses that. The items that lack the property or hold null, an object or an array come last in either direction. Items that compare equal go by ID, oldest first. A property name outside the grammar of field names is refused `validation`, and a name no item holds orders every item by ID, oldest first.
 - **A whole number Marfa would serve back with other digits** is refused `validation` with the code `invalid_properties` before anything is queued, as [Field kinds](/catalog/field-kinds) explains.
 - **An `EdgeEdit`** changes an edge's properties, moves one end with `.source(id)` or `.target(id)`, or both. A move is refused `validation` when the end that stays can hold more than one edge of the type, or when the edge would point to itself. An edit that changes nothing returns `nil`. Once the server accepts a source move the copy expires, so hydrate again.
 
@@ -235,11 +243,11 @@ try await copy.declareTypes([
 
 `declareTypes(_:)` replaces the app's whole set, so pass every type on each call. **Until the copy first hydrates, a queued create is checked against these declarations** and the types Marfa ships, so the app works offline from its first launch. On hydration, the copy brings the instance's types up to date:
 
-- **It registers each declared type the instance lacks**, if the credential may register types. The `HydrateReport` lists them in `registeredTypes` and the ones the instance refused in `unregisteredTypes`.
-- **It replaces each declared `app.*` type the instance holds in another definition**, if the credential may change it. The server judges whether a definition differs, after normalizing both, so key order and defaults written out or left out never cause a write. The `HydrateReport` doesn't list them yet.
-- **It leaves a type the instance refuses to replace as the instance holds it.** A refusal doesn't stop the hydration, and the `HydrateReport` doesn't list it yet. A key without `schema.write` can add optional fields and change a label, but the server refuses a change that makes a field required or removes one.
+- **It registers each declared type the instance lacks**, if the credential may register types. The `HydrateReport` lists them in `registeredTypes`, and the ones the instance refused in `unregisteredTypes`.
+- **It replaces each declared `app.*` type the instance holds in another definition**, if the credential may change it. The server judges whether a definition differs, after normalizing both, so key order and defaults written out or left out never cause a write. The `HydrateReport` lists the replaced types in `replacedTypes`.
+- **It leaves a type the instance refuses to replace as the instance holds it.** A refusal doesn't stop the hydration. The `HydrateReport` lists the type in `unreplacedTypes` with the server's code and message. A key without `schema.write` can add optional fields and change a label, but the server refuses a change that makes a field required or removes one.
 
-A type outside `app.*`, such as one under `user.*`, is registered when missing and never replaced. [Define a type](/guides/define-a-type) explains what a definition holds.
+A type outside `app.*`, such as one under `user.*`, is registered when missing and never replaced. [Define a type](/guides/define-a-type) explains what a definition holds. [Troubleshooting](/guides/troubleshooting#staying-in-step) says what to do about a refusal.
 
 ## Call the server directly
 
@@ -479,6 +487,18 @@ A `FolderWatch` is an `AsyncSequence` of `FolderEvent`. It throws a `MarfaError`
 Its `FolderEvent` values are `.watching` when it starts and `.passed` after a pass with something to report. `.watcherFailed`, `.retrying`, `.unreachable`, `.reachable` and `.waiting` (the directory is gone) are states it rides out. `.handedOver` and `.takenBack` bracket a time another call or command held the folder, and `.heldElsewhere` means another process kept it unasked. After `.removed` or `.unlisted`, the watch ends without an error.
 
 **One process works a folder at a time.** A call such as `sync(_:)`, or a command such as `marfa folders confirm`, asks the watch to let the folder go, and throws `MarfaError.readingHandle` if it isn't free within 10 seconds. A sandboxed app has its own home directory, and so its own list of folders.
+
+## Test against a fake copy
+
+`WorkingCopy.fake(items:itemTypes:)` returns a `FakeCopy` whose `copy` is a real `WorkingCopy` over an engine that keeps items, edges and types in memory. Its argument checks, change feed and value conversion are the ones your app ships.
+
+The fake answers these calls:
+
+- **Reads:** `items.list(_:sort:)` without a `filter`, including the `source`, updated and occurred ranges and a sort on a property; `items.get(_:)`; the edge reads; the `catalog` reads; `declaredTypes()`; and `status()`.
+- **Writes:** `items.create(_:)` without a `sourceId`, including `state`, a capture location and `edges`; `items.update(_:_:)`, including `occurredAt` and `clearOccurredAt`; the other item, edge, tag, metadata and extension writes; and `declareTypes(_:)`.
+- **The queue and changes:** `queue.all()`, `queue.drain()`, `queue.withdraw(_:)`, `queue.discard(_:)`, `queue.forgetAnswered()` and `changes()`.
+
+**A call, or an input to a call, that the fake can't match exactly throws `FakeCopyError.unsupported(call:)`** instead of answering differently. That covers a `filter`, `search`, hydration, files, views and folders, a capture coordinate that is out of range or has no partner, and an `occurredAt` in a form the fake doesn't check. The fake knows only the types you give it and the ones your app declares, not Marfa's built-in catalog, and it doesn't check an edge type's constraints. A create drawn to a create that lands on an item the instance already holds can't happen in it, because it has no instance.
 
 ## Handle errors
 
