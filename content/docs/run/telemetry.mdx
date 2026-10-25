@@ -1,0 +1,81 @@
+---
+title: Send telemetry
+description: Send an instance's traces and logs to an OpenTelemetry endpoint, its errors to PostHog, and a notice or a heartbeat to a URL you choose.
+---
+
+An instance reports on itself in four ways, and **each is off until you set its variable**: an instance that sets none of them sends nothing anywhere. Set the variables in the server's environment, as [Settings](/run/settings#set-an-environment-setting) shows, and restart the server.
+
+| Variable | What it does | Default |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | The OTLP receiver's base address. Setting it turns on traces and logs, posted to `v1/traces` and `v1/logs` under it. | None |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Headers sent with every export, as comma-separated `key=value` pairs with percent-encoded values. It is a secret. | None |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | An address for traces or logs alone, used as written. Each needs `OTEL_EXPORTER_OTLP_ENDPOINT` set too, or the server refuses to start. | None |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS`, `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | Headers for traces or logs alone. They win over `OTEL_EXPORTER_OTLP_HEADERS`, and nothing reads them without the shared address. | None |
+| `MARFA_OTEL_SAMPLE_RATIO` | The share of traces exported, from 0 to 1. A trace that contains an error is always exported. | `0.05` |
+| `OTEL_SERVICE_NAME` | The service name on what Marfa sends. It wins over a `service.name` in `OTEL_RESOURCE_ATTRIBUTES`. | `marfa-server` |
+| `OTEL_RESOURCE_ATTRIBUTES` | Attributes added to everything exported, as comma-separated `key=value` pairs with percent-encoded values. | None |
+| `MARFA_POSTHOG_HOST`, `MARFA_POSTHOG_PROJECT_TOKEN` | Send exceptions to PostHog. Both need `OTEL_EXPORTER_OTLP_ENDPOINT`. | None |
+| `ERROR_WEBHOOK_URL` | Where the server posts a notice when a request fails with a `500`. | None |
+| `MARFA_ERROR_WEBHOOK_TIMEOUT_MS` | How long one notice post may take. | `5000` |
+| `MARFA_HEARTBEAT_URL` | An address the server requests on a schedule, so something else can notice when the requests stop. | None |
+| `MARFA_HEARTBEAT_INTERVAL_MS` | How often it does. | `60000` |
+
+[Every environment setting](/run/settings#every-environment-setting) has the limits.
+
+## Send traces and logs
+
+Marfa exports traces and logs over OTLP, the OpenTelemetry protocol, to any receiver that takes it over HTTP. This sends one tenth of the traces:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com
+export OTEL_EXPORTER_OTLP_HEADERS='authorization=Bearer%20<token>'
+export MARFA_OTEL_SAMPLE_RATIO=0.1
+```
+
+Marfa drops what carries a credential, a request body, raw SQL or an email address, and strips the query string from a URL, before it exports anything.
+
+### Tell instances apart
+
+**Every log record and span names its instance by `service.instance.id`**, the `instance_id` that `GET /` answers, as does every PostHog exception once the database has opened, so several instances can share one project. The instance's name isn't sent, because it can change and can be personal.
+
+`OTEL_RESOURCE_ATTRIBUTES` adds attributes of your own. **An attribute named there replaces the server's own of the same name**, `service.instance.id` and `service.version` included. Mark a test or demo instance with `deployment.environment`, which is `production` unless you set it:
+
+```bash
+export OTEL_RESOURCE_ATTRIBUTES=deployment.environment=staging
+```
+
+The `environment` of a [failure notice](#post-a-notice-when-a-request-fails) takes `deployment.environment.name` if the list names it, and otherwise `deployment.environment`. A malformed list stops the server from starting, and the message names the setting.
+
+Telemetry loads **only when the server starts with its preload**, which the container does. When you run the server with Node yourself, start it this way, because plain `node dist/index.js` exports nothing:
+
+```bash
+cd packages/server
+node --import ./dist/instrumentation.js dist/index.js
+```
+
+When it is on, the server prints `OpenTelemetry initialized` at start, with the service name, the sample ratio and whether it reports exceptions.
+
+## Report errors to PostHog
+
+PostHog's error tracking reads exception events, which OTLP doesn't carry, so Marfa sends exceptions on a path of its own. It needs **all three** of `OTEL_EXPORTER_OTLP_ENDPOINT`, `MARFA_POSTHOG_HOST` and `MARFA_POSTHOG_PROJECT_TOKEN`, or the server refuses to start and names the missing one:
+
+```bash
+export MARFA_POSTHOG_HOST=https://us.i.posthog.com
+export MARFA_POSTHOG_PROJECT_TOKEN=<project token>
+```
+
+Marfa reports an error that no handler answered, which the request meets as a `500`, with its stack, the request's ID, the method and the path. It attaches no person to the event and turns off the location lookup.
+
+## Post a notice when a request fails
+
+Set `ERROR_WEBHOOK_URL` and the server posts a JSON notice to it when a request fails with a `500`. The notice holds the `timestamp`, `request_id`, `error`, `path`, `method`, `instance` and `environment`. A Telegram bot address gets a readable message in its place. The server sends the same error on the same path at most once a minute, and a post that fails is dropped without a word.
+
+## Send a heartbeat
+
+An instance can't report its own death. Set `MARFA_HEARTBEAT_URL` and the `heartbeat` [housekeeping job](/run/housekeeping) requests it with a `GET`, no body and no identity, every `MARFA_HEARTBEAT_INTERVAL_MS`. Give the address to an uptime monitor that raises an alarm when the requests stop. A failed request is logged as a warning.
+
+## What the CLI sends
+
+**The CLI sends nothing unless the environment names an OTLP endpoint**, `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. With one set, each command sends one trace, named for the command, with its exit code. The trace holds no argument, address, credential, item content or message.
+
+A failed command also sends one exception to PostHog when an OTLP endpoint and both `MARFA_POSTHOG_HOST` and `MARFA_POSTHOG_PROJECT_TOKEN` are set, as the server does. [The CLI reference](https://github.com/withmarfa/marfa/blob/main/core/marfa-cli/COMMANDS.md#telemetry) lists every variable it reads, including `OTEL_SDK_DISABLED`, which turns its telemetry off.

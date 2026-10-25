@@ -1,0 +1,107 @@
+---
+title: Sign in as the owner
+description: Sign in to the owner's pages with a password or a passkey, confirm it's you before a sensitive change, open each page from Home, and recover a lost password.
+---
+
+The owner signs in in a browser at `/auth/sign-in`, with the password chosen when claiming the instance or a registered passkey. A valid passkey works even when password attempts are locked. No key or app ever gets **the owner's authority**.
+
+Commands that start `marfa --socket` run on the instance's machine, as the server's account, through [the private socket](/run/deploy#the-private-socket).
+
+## Manage passkeys and sign-ins
+
+The **Password and passkeys** page changes the password and manages passkeys, which need HTTPS or `localhost`. A password change asks for the current password. Each passkey change needs a [recent sign-in](#confirm-its-you), and the private socket needs none:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock owner passkeys list
+marfa --socket /srv/marfa/data/control/marfa.sock owner passkeys rename <id> --name "Laptop"
+marfa --socket /srv/marfa/data/control/marfa.sock owner passkeys remove <id>
+marfa --socket /srv/marfa/data/control/marfa.sock owner passkeys add
+```
+
+`add` **issues no sign-in credential**. It opens the sign-in page, where you sign in and register the passkey; `--no-browser` prints the URL instead.
+
+A sign-in is one of the owner's browsers, apps or keys. The owner's browser, at `/owner/sign-ins`, and the private socket list, rename and end them; keys and app tokens can't. The **Browsers** page signs out other browsers.
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock sign-ins list
+marfa --socket /srv/marfa/data/control/marfa.sock sign-ins rename <id> "Reading app"
+marfa --socket /srv/marfa/data/control/marfa.sock sign-ins end <id> --revoke-keys
+```
+
+The list gives each sign-in's ID, kind, name and last use. A browser can't be renamed. `--revoke-keys` also revokes the keys an app made, and is refused for a browser or a key.
+
+## Confirm it's you
+
+When your sign-in is older than five minutes, these changes show a **Confirm it's you** dialog that asks for the owner's password or a passkey, then send the change again:
+
+- Adding, renaming or removing a passkey.
+- Changing the owner's name, email or picture, or removing the picture, on the **Profile** page.
+- Making, changing or revoking a key on the **API keys** page.
+- Narrowing or disconnecting an app, renaming a sign-in, ending another sign-in, or signing out the other browsers or every browser.
+- Moving, restoring, purging or emptying items through **Trash**, removing an unused custom type, retrying a webhook delivery, or restoring an archive.
+- [Approving a write or a permission](/access#what-the-owner-approves) the app doesn't already hold.
+
+Confirming replaces your browser session with a new one. A wrong password answers `401 unauthorized`, and after too many attempts `429 rate_limited` with `Retry-After`. A passkey still confirms. A refused confirmation leaves your session as it was.
+
+A program has no dialog, so it gets `403 forbidden` with `Sign in again to perform this operation`, and Marfa changes nothing. The dialog calls `POST /auth/confirm`, which takes the signed-in owner's password or a passkey assertion and answers `401 unauthorized` to a key or a request with no owner session.
+
+## Start from Home
+
+Open the instance's address in a browser signed in as the owner, and Home lists the owner's pages:
+
+| Group | Page | Address |
+| --- | --- | --- |
+| Access | [API keys](/run/manage-keys#use-the-api-keys-page) | `/auth/owner/keys` |
+| Access | [Connected apps](/build/authenticate#revoke-access) | `/auth/owner/apps` |
+| Access | [Browsers](#manage-passkeys-and-sign-ins) | `/auth/owner/browsers` |
+| Your data | [Items](/access) | `/auth/owner/items` |
+| Your data | [Trash](/run/housekeeping#empty-the-bin) | `/auth/owner/trash` |
+| Your data | [Export and restore](/run/export-and-restore) | `/auth/owner/export` |
+| Connections | [Connectors](/connectors) | `/auth/owner/connectors` |
+| Connections | [Folders](/devices#folders) | `/auth/owner/folders` |
+| This Marfa | [General](/run/settings#change-settings-while-it-runs) | `/auth/owner/general` |
+| This Marfa | [Health](/run/housekeeping) | `/auth/owner/health` |
+| This Marfa | [Activity](/run/audit-log) | `/auth/owner/activity` |
+| This Marfa | [All settings](/run/settings#every-environment-setting) | `/auth/owner/settings` |
+| You | [Profile](#change-the-owners-profile) | `/auth/owner/profile` |
+| You | [Password and passkeys](#manage-passkeys-and-sign-ins) | `/auth/owner/passkeys` |
+
+**Needs attention** on Home shows known health, job, connector and folder problems and keys nearing expiry. If a check fails, it is shown as unavailable rather than as healthy. The **Folders** pages show reported working copies and historical sign-ins; a recent report does not prove that a computer is online.
+
+Opening an owner page without a session answers `302` to `/auth/sign-in` with the page as `return_to`, or to `/setup` when there is no owner yet. A program, one that sends `Authorization` or doesn't ask for HTML, gets no redirect.
+
+## Change the owner's profile
+
+Only the owner changes the sign-in email:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock owner update --email owner@example.com --name "Reader"
+```
+
+In a browser, the **Profile** page uses [Update the owner](/api-reference/owner/updateOwner). The email is stored in lowercase, needs no confirmation and becomes the address for password sign-in. Everything else the owner holds stays in place.
+
+**The picture is a file you upload, never a web address.** It must be a PNG, JPEG or WebP of **2 MiB or less**, between 1 and 4096 pixels on each side. Marfa decides the kind from the file's bytes, ignores its name, and keeps the picture in its database. On the **Profile** page, choose **Change** under **Picture**, choose the file and select **Save**; **Remove picture** removes it. From a terminal, pass the file to `--avatar`:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock owner update --avatar ./me.png
+marfa --socket /srv/marfa/data/control/marfa.sock owner picture --output ./saved.png
+marfa --socket /srv/marfa/data/control/marfa.sock owner update --clear-avatar
+```
+
+The CLI refuses a path that isn't a file, or a file over 2 MiB, before it sends anything. A file of another kind, or one that is empty or damaged, is refused `400 validation_error` and the previous picture stays. An API client sends the bytes with [Replace the owner's picture](/api-reference/owner/replaceOwnerPicture) and reads them with [Get the owner's picture](/api-reference/owner/getOwnerPicture).
+
+A key or an app with profile write access changes only the owner's **name or picture**, with `marfa profile update --name "Reader"`, `marfa profile update --avatar ./me.png` or [Update the owner's profile](/api-reference/owner/updateProfile). An app uploads a picture with [Replace the picture as an app](/api-reference/owner/replaceProfilePicture), and an update can only remove one by setting `avatar` to `null`. **Email is never writable this way.** [Permissions](/catalog/permissions#access-to-profile-fields) lists the levels.
+
+## Recover the owner's password
+
+Set a lost password through the socket:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock owner recover
+```
+
+The CLI asks for the new password without showing it, and `--stdin` reads `{"password": "…"}` instead. **Recovery signs out every browser**, and keys and apps keep working. It also lifts a password lock: **ten attempts from one address in 15 minutes** answer `429` with `Retry-After`. [Behind a proxy](/run/deploy#the-address), every client shares one address unless you set `TRUSTED_PROXY_CIDRS` or `TRUSTED_PROXY_HEADER`.
+
+In a container, run `docker exec -it marfa marfa --socket /data/control/marfa.sock owner recover`. If the server can't start in full, such as when its port is taken, **start it with `MARFA_CONTROL_ONLY=true`** to open the socket alone.
+
+The rules behind this guide are in the [authentication](https://github.com/withmarfa/marfa/blob/main/conformance/spec/authentication.md) chapter of the contract, with the [owner's sign-ins](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#the-owners-sign-ins), [recovery](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance-claim.md#direct-ownership-and-recovery) and [profile changes](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance-claim.md#owner-and-delegated-profile-changes).

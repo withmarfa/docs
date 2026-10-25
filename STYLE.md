@@ -13,9 +13,9 @@ How every page on this site is written. This file is the one place the writing r
 Write for a reader who is new to Marfa. Most know software; some don't, and more of them will as apps built on Marfa reach people. The Introduction and the concepts must make sense to both. Five readers come most often, and each needs something different first:
 
 - **Someone deciding whether Marfa is for them** needs to know what it is, what it's for and what it isn't: the Introduction, then How Marfa works.
-- **An app builder** needs a credential, then reading and writing items, then the model: the Quickstart, the concepts, then the Build apps and agents guides.
-- **Someone running an instance** needs to start it, claim it and keep it safe: the Quickstart, then the Run Marfa guides.
-- **A connector author** needs what the instance keeps for a connector, then the tutorial and the connector guides.
+- **An app builder** needs a credential, then reading and writing items, then the model: the Quickstart, the concepts, then Build.
+- **Someone running an instance** needs to start it, claim it and keep it safe: the Quickstart, then Run.
+- **A connector author** needs what the instance keeps for a connector, then the connector tutorials and guides in Build.
 - **An AI agent**, working for any of them, reads the same pages as Markdown, through the docs MCP server or `marfa docs`.
 
 A page that a newcomer can follow serves an agent too. Never write that Marfa is only for technical people.
@@ -27,7 +27,8 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 | Overview | Get started: the Overview, an index of the docs; the Introduction; the Quickstart | Navigation, explanation, then a tutorial |
 | Overview | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation, then reference |
 | Overview | AI tools: the Docs MCP server and Docs as Markdown | How-to |
-| Guides | Tutorials, Build apps and agents, Build connectors, Run Marfa (ending with Troubleshooting) | Tutorial, how-to |
+| Build | Build on Marfa, an index of the tab; Tutorials; Build apps and agents; Build connectors | Navigation, tutorial, then how-to |
+| Run | Run Marfa, an index of the tab; Set up; Keys and access; Folders; Connectors; Look after it (ending with Troubleshooting) | Navigation, then how-to |
 | Catalog | The Catalog, Items, Types (its own page, with the Core types and System types folders of one page per type under it, then Type rules and Field kinds), Edges, Events, Permissions, Connectors (its own page, with one page for each connector Marfa ships under it) | Reference |
 | Reference | The Reference landing page (`/reference`): a card for each of the SDKs, the CLI, the HTTP API, the Changelog and the contract | Reference |
 | Reference | SDKs and CLI: one page each, and the file the CLI keeps for other programs | How-to and reference for each client, then reference |
@@ -37,7 +38,8 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 The tabs divide the work, and each thing is said once, with links between:
 
 - **Overview** explains what Marfa is and how it works, with two or three examples at most.
-- **Guides** show how to do things.
+- **Build** shows how to write an app, an agent or a connector on Marfa.
+- **Run** shows how to run an instance and look after it, and how to use Marfa without writing code.
 - **Catalog** lists exactly what Marfa ships and explains nothing.
 - **Reference** covers the HTTP API's operations and errors, the SDKs, the CLI, the changelog and the contract.
 
@@ -138,7 +140,7 @@ Use a component for what it's for, and only where it helps the reader.
 | `Accordion` | Entries a reader opens one at a time, such as troubleshooting. Never a reference list: a list a reader looks up is a plain table on its Catalog or Reference page |
 | `Files` | A directory a reader will see on disk |
 | `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data, or the Overview's one-line warning that Marfa is early. Every callout has a bold `title` that says what happens, and a short body under it. It draws no icon. `type="warn"` is for a loss or something that can't be undone; a neutral note takes the default, `info` |
-| `Cards` | Where to go next: the Overview, an index of the docs, and the end of a tutorial or of the Introduction |
+| `Cards` | Where to go next: the Overview, an index of the docs, the Build and Run landing pages, and the end of a tutorial or of the Introduction |
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
 

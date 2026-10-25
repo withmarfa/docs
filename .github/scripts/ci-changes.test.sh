@@ -37,9 +37,9 @@ runs "a script inside an agent directory" false .agents/skills/x/helper.py
 runs "the issue and pull request templates" false .github/ISSUE_TEMPLATE/bug.yml .github/PULL_REQUEST_TEMPLATE.md
 
 # What must run.
-runs "a docs page, which is built into the site" true content/docs/guides/items.mdx
+runs "a docs page, which is built into the site" true content/docs/build/items.mdx
 runs "Markdown under content, which is built too" true content/docs/notes.md
-runs "a sidebar file" true content/docs/guides/meta.json
+runs "a sidebar file" true content/docs/build/meta.json
 runs "source" true src/lib/source.ts
 runs "a public asset" true public/logo.svg
 runs "the API spec" true openapi.json

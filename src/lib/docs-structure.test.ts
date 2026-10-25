@@ -69,7 +69,7 @@ describe('the server image commands', () => {
     const including = ALL_PAGES.filter(({ text }) =>
       text.includes('<include cwd>src/generated/server-image.md</include>'),
     ).map(({ file }) => file);
-    expect(including).toEqual([path.join('guides', 'deploy.mdx')]);
+    expect(including).toEqual([path.join('run', 'deploy.mdx')]);
   });
 
   it('name the latest release and publish the port on loopback only', () => {

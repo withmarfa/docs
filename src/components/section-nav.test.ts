@@ -6,7 +6,10 @@ describe('sectionFor', () => {
     expect(sectionFor('/overview')).toBe('Overview');
     expect(sectionFor('/files')).toBe('Overview');
     expect(sectionFor('/glossary')).toBe('Overview');
-    expect(sectionFor('/guides/deploy')).toBe('Guides');
+    expect(sectionFor('/build')).toBe('Build');
+    expect(sectionFor('/build/swift-app')).toBe('Build');
+    expect(sectionFor('/run')).toBe('Run');
+    expect(sectionFor('/run/deploy')).toBe('Run');
     expect(sectionFor('/catalog')).toBe('Catalog');
     expect(sectionFor('/catalog/media')).toBe('Catalog');
     expect(sectionFor('/docs-mcp-server')).toBe('Overview');
@@ -21,7 +24,8 @@ describe('sectionFor', () => {
   it('leaves a path that only starts like a Reference page in the Overview', () => {
     expect(sectionFor('/client')).toBe('Overview');
     expect(sectionFor('/clix')).toBe('Overview');
-    expect(sectionFor('/guidesx')).toBe('Overview');
+    expect(sectionFor('/buildx')).toBe('Overview');
+    expect(sectionFor('/running')).toBe('Overview');
     expect(sectionFor('/catalogx')).toBe('Overview');
   });
 });

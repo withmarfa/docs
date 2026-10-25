@@ -25,54 +25,54 @@ const EXPECTED: [query: string, pages: string[]][] = [
 
   // Errors, headers and writes.
   ['409', ['/api-reference/errors']],
-  ['version_conflict', ['/api-reference/errors', '/guides/write-safely']],
+  ['version_conflict', ['/api-reference/errors', '/build/write-safely']],
   ['type_not_permitted', ['/api-reference/errors']],
   ['unauthorized', ['/api-reference/errors']],
-  ['idempotency key', ['/guides/write-safely']],
-  ['retry a write safely', ['/guides/write-safely']],
+  ['idempotency key', ['/build/write-safely']],
+  ['retry a write safely', ['/build/write-safely']],
   [
     'rate limit 429',
-    ['/guides/troubleshooting', '/guides/folder-safeguards', '/guides/connector-holds-and-retries', '/guides/settings'],
+    ['/run/troubleshooting', '/run/folder-safeguards', '/build/connector-holds-and-retries', '/run/settings'],
   ],
-  ['retry-after', ['/guides/connector-webhooks', '/guides/connector-holds-and-retries', '/guides/keep-in-sync']],
-  ['CORS', ['/guides/settings']],
+  ['retry-after', ['/build/connector-webhooks', '/build/connector-holds-and-retries', '/build/keep-in-sync']],
+  ['CORS', ['/run/settings']],
 
   // Reading and listing.
-  ['pagination cursor', ['/api-reference', '/guides/list-filter-search']],
-  ['next_cursor', ['/guides/list-filter-search', '/api-reference']],
-  ['list items by tag', ['/guides/list-filter-search']],
-  ['filter items by property', ['/guides/list-filter-search']],
+  ['pagination cursor', ['/api-reference', '/build/list-filter-search']],
+  ['next_cursor', ['/build/list-filter-search', '/api-reference']],
+  ['list items by tag', ['/build/list-filter-search']],
+  ['filter items by property', ['/build/list-filter-search']],
 
   // Webhooks and connectors.
-  ['webhook signature', ['/guides/connector-webhooks', '/guides/receive-webhooks']],
-  ['hmac', ['/guides/receive-webhooks']],
+  ['webhook signature', ['/build/connector-webhooks', '/build/receive-webhooks']],
+  ['hmac', ['/build/receive-webhooks']],
 
   // Sign-in, keys and the command line.
-  ['oauth device flow', ['/guides/authenticate']],
+  ['oauth device flow', ['/build/authenticate']],
   ['marfa login', ['/cli']],
-  ['create type scaffold', ['/cli', '/guides/define-a-type']],
-  ['MARFA_API_KEY', ['/cli', '/guides/manage-keys']],
-  ['rotate a key', ['/guides/manage-keys']],
-  ['passkey', ['/guides/sign-in-as-the-owner']],
+  ['create type scaffold', ['/cli', '/build/define-a-type']],
+  ['MARFA_API_KEY', ['/cli', '/run/manage-keys']],
+  ['rotate a key', ['/run/manage-keys']],
+  ['passkey', ['/run/sign-in-as-the-owner']],
   ['json output', ['/cli']],
   ['exit code 5', ['/cli']],
   ['print-token', ['/cli']],
   ['--print-token', ['/cli']],
 
   // Running an instance.
-  ['environment variables', ['/guides/settings']],
-  ['docker compose', ['/guides/install', '/guides/deploy']],
-  ['litestream', ['/guides/deploy', '/guides/back-up-and-restore']],
-  ['s3 bucket', ['/guides/settings', '/guides/deploy', '/guides/install', '/guides/back-up-and-restore']],
-  ['upgrade server', ['/guides/upgrade']],
-  ['change instance name', ['/guides/settings']],
-  ['install marfa on linux', ['/cli', '/guides/install', '/quickstart']],
-  ['how do I back up my data', ['/guides/back-up-and-restore', '/guides/export-and-restore']],
-  ['restore', ['/guides/back-up-and-restore', '/guides/export-and-restore']],
+  ['environment variables', ['/run/settings']],
+  ['docker compose', ['/run/install', '/run/deploy']],
+  ['litestream', ['/run/deploy', '/run/back-up-and-restore']],
+  ['s3 bucket', ['/run/settings', '/run/deploy', '/run/install', '/run/back-up-and-restore']],
+  ['upgrade server', ['/run/upgrade']],
+  ['change instance name', ['/run/settings']],
+  ['install marfa on linux', ['/cli', '/run/install', '/quickstart']],
+  ['how do I back up my data', ['/run/back-up-and-restore', '/run/export-and-restore']],
+  ['restore', ['/run/back-up-and-restore', '/run/export-and-restore']],
 
   // Files.
-  ['blob upload', ['/guides/handle-files', '/api-reference/blobs/uploadBlob']],
-  ['attach a file to a note', ['/guides/handle-files']],
+  ['blob upload', ['/build/handle-files', '/api-reference/blobs/uploadBlob']],
+  ['attach a file to a note', ['/build/handle-files']],
 
   // A dotted type key, and a word that is the end of one.
   ['core.task', ['/catalog/task']],
@@ -80,13 +80,13 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['core.note', ['/catalog/note']],
 
   // A flag that is also an ordinary word, and a word that starts a permission scope (`webhooks.manage`).
-  ['--force', ['/guides/change-a-type']],
+  ['--force', ['/build/change-a-type']],
   ['--scope', ['/docs-mcp-server']],
-  ['webhooks', ['/events', '/guides/receive-webhooks']],
-  ['audit', ['/guides/audit-log']],
+  ['webhooks', ['/events', '/build/receive-webhooks']],
+  ['audit', ['/run/audit-log']],
 
   // An apostrophe is part of a word, not a break in it.
-  ["can't overwrite", ['/guides/ai-agents', '/guides/export-and-restore']],
+  ["can't overwrite", ['/build/ai-agents', '/run/export-and-restore']],
 ];
 
 /**
@@ -289,7 +289,7 @@ describe('snippets', () => {
 
   it('say something about the match, in a short passage', async () => {
     const { hits } = await searchDocs('rotate a key');
-    const keys = hits.find((h) => h.url === '/guides/manage-keys')!;
+    const keys = hits.find((h) => h.url === '/run/manage-keys')!;
     expect(keys.snippets[0]).not.toBe('Rotate a key');
     expect(keys.snippets[0].length).toBeGreaterThan(30);
     for (const hit of hits) for (const snippet of hit.snippets) expect(snippet.length).toBeLessThanOrEqual(400);

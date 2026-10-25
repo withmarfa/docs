@@ -12,7 +12,7 @@ The source of the public documentation site at `docs.marfa.so` and the status pa
 ## Conventions
 
 - American English in code, comments and commits. Pages follow `STYLE.md`.
-- Conventional Commits with a scope, such as `docs(guides):` or `fix(mcp):`. Work reaches `main` only through a pull request, one logical change each.
+- Conventional Commits with a scope, such as `docs(build):` or `fix(mcp):`. Work reaches `main` only through a pull request, one logical change each.
 - Make worktrees in `.claude/worktrees/` (`git worktree add .claude/worktrees/<name> -b <branch> origin/main`). Once the work is merged, remove the worktree and its local branch (`git worktree remove`, then `git branch -D`, because git sees a squash-merged branch as unmerged) and run `git pull --ff-only` on `main`. If git refuses a removal, report it rather than forcing it.
 - TypeScript and ESM. pnpm with the committed lockfile, on Node 22.22.2 or later (24.15 or later on Node 24), which jsdom, the component tests' DOM, requires; TanStack Start, Vite and Vitest need only 22.12. CI uses Node 22.
 - This repository is public. Commit no internal hostname, private IP address, personal path, key or token, in a page or anywhere else.

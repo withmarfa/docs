@@ -1,0 +1,79 @@
+---
+title: Use Marfa with AI agents
+description: Give an AI agent, such as Claude Code or Codex, a key of its own, so it can work with your notes, tasks and files and nothing else.
+---
+
+An AI agent works with Marfa the way a script does: it runs the [CLI](/cli), or calls the API, with a key. **Give each agent a key of its own**, made to reach only the kinds of data it needs. You can then see what it wrote, and cut it off at any time.
+
+## Make a key for the agent
+
+Make the key as the owner, through the private socket on the instance's machine, or with a key that may make keys and without `--socket`. This one lets an agent read and write notes, read tasks and nothing else, and it stops working after 30 days:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock keys create --label claude-code --source claude-code \
+  --type-permission core.note=write \
+  --type-permission core.task=read \
+  --expires-in 30d
+```
+
+The CLI prints the key, which begins `marfa_k1_`, once, on the first line. **The source, `claude-code`, is stamped on every item the agent creates**, so you can always tell its work from yours. [Manage keys](/run/manage-keys) covers the other things a key can hold.
+
+## Give it to the agent
+
+Write a [profile](/cli#name-a-server-with-a-profile) for your instance in `profiles.toml`, with a `key_command` that reads the agent's key from your secrets manager, so the key is never in a file or an environment variable. With 1Password, `op read` prints a secret:
+
+```toml title="profiles.toml"
+[example]
+url = "https://marfa.example.com"
+key_command = ["op", "read", "op://Private/Marfa/agent-key"]
+```
+
+Then set two variables in the environment the agent runs its commands in:
+
+```bash
+export MARFA_PROFILE=example
+export MARFA_NO_KEYCHAIN=1
+```
+
+Every `marfa` command the agent runs now reaches `https://marfa.example.com` with its key. **With the keychain off, a command that names no profile or server is refused**, so a command that leaves the profile out fails instead of reaching whichever instance the keychain made current. The CLI runs the `key_command` without a shell and without the terminal, so the secrets manager must answer without asking at the terminal. Each write also prints `marfa: writing to https://marfa.example.com (profile example)` on standard error, so a transcript shows which instance the agent changed.
+
+The simple alternative is two variables in place of the profile, `MARFA_API_URL` for the server and `MARFA_API_KEY` for the key. Leave `MARFA_PROFILE` unset, because the CLI refuses it beside them:
+
+```bash
+export MARFA_API_URL=https://marfa.example.com
+export MARFA_API_KEY=<the agent's key>
+export MARFA_NO_KEYCHAIN=1
+```
+
+Keep the key out of files the agent commits.
+
+## Tell the agent how to use Marfa
+
+Add a few lines to the agent's instructions file, such as `AGENTS.md` or `CLAUDE.md`, that say what Marfa holds and how to reach it:
+
+```markdown title="AGENTS.md"
+## Marfa
+
+My notes are in Marfa. Use the `marfa` CLI, with `--json` on every command.
+
+- Find notes: `marfa search "<words>" --type core.note --json`
+- Read one: `marfa items get <id> --json`
+- Write one: `marfa items create --type core.note --prop title="<title>" --prop body="<text>" --json`
+- To change one, read it first, then pass its `version` to `marfa items update`.
+
+Marfa's docs are at https://docs.marfa.so/llms.txt.
+```
+
+With `--json`, every answer is JSON, and a refusal is one JSON object, the last line of standard error, with an exit code that says whether to try again. [Exit codes](/cli#exit-codes) lists them.
+
+## What the agent can and can't do
+
+- **It reaches only the types its key names.** A write to another type is refused with `403 type_not_permitted`, and a read of an item it can't see answers `404`, as if the item didn't exist.
+- **It can't manage the instance.** Keys, apps, settings and the audit log need permissions, and this key holds none.
+- **It can't overwrite a change it hasn't seen.** Every update names the version it read, as [Versions](/versions) explains.
+- **You can see what it wrote:** `marfa items list --source claude-code` lists it.
+- **You can stop it at once:** `marfa keys revoke <key id>` ends the key, and the agent's next request is refused.
+
+## Let the agent read these docs
+
+An agent that builds on Marfa does better with the current docs than from memory. Connect the [Docs MCP server](/docs-mcp-server) so it can search them, or point it at [`/llms.txt`](/llms.txt), an index of every page as Markdown. [Docs as Markdown](/docs-as-markdown) covers every way to read them.

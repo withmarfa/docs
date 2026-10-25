@@ -1,0 +1,208 @@
+---
+title: Handle files
+description: Upload a file's bytes, make the item that names them, download them, hand out a link that expires, and replace them.
+---
+
+A file comes in two parts: a blob, which is the bytes, and a file item that names the blob by its hash and carries the title and everything else. You upload the bytes first, then create the item, and from then on anyone who can read the item can read the bytes. [Files](/files) explains why the two are apart and who may read a blob.
+
+To upload, your credential needs write on at least one type outside `system.*`, or the `blobs.manage` permission. To create the file item, it needs write on the item's type, such as `core.file`. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows. In the Swift examples, `copy` is an open working copy, as [the Swift SDK](/swift-sdk) shows.
+
+A working copy queues an upload like any other write, but the hash is known at once. If the key changes after the bytes were uploaded and before the write is sent, the copy uploads them again under the current key, ahead of the write.
+
+## Upload the bytes
+
+[Upload a blob](/api-reference/blobs/uploadBlob) takes the bytes as the request body, **as they are rather than as a form**, with their media type as the `Content-Type`:
+
+```bash tab="CLI" tab-group="client"
+marfa blobs upload reading-list.txt
+```
+
+```http tab="HTTP"
+POST /blobs
+Authorization: Bearer <key>
+Content-Type: text/plain
+
+<the bytes of reading-list.txt>
+```
+
+```ts tab="TypeScript"
+import { readFile } from "node:fs/promises";
+
+const { data: blob, error } = await marfa.POST("/blobs", {
+  body: await readFile("reading-list.txt"),
+  headers: { "Content-Type": "text/plain" },
+});
+if (error) throw new Error(error.error.message);
+```
+
+```swift tab="Swift"
+let upload = try await copy.blobs.put(file: fileURL, mimeType: "text/plain")
+guard let hash = upload.blob else { return }
+```
+
+Marfa answers with the blob's `hash`, the media type it will serve the bytes under, and their size:
+
+```json title="Response" status="201"
+{
+  "hash": "sha256:abf95d4140df7b413a5ceb13f473a7b9e2ffbedac7854c4b412258be66c0da34",
+  "mime_type": "text/plain",
+  "size_bytes": 32
+}
+```
+
+The same bytes always give the same hash, so uploading them again **stores nothing new** and answers the same hash.
+
+An upload has **no size cap and no total time limit**. Marfa ends one with `408 request_timeout`, storing no blob, only when no bytes arrive for `MARFA_UPLOAD_IDLE_TIMEOUT_MS`, 60 seconds unless the instance sets it. While a store hasn't finished an earlier write or delete of the same bytes, an upload answers `503 blob_store_unavailable` and stores nothing: try again later.
+
+## Point an item at the bytes
+
+Create a file item whose **`blob_ref`** is the hash. `core.file` takes any file; use `core.file.image`, `core.file.audio` or `core.file.video` where they fit, or a type of your own that inherits from `core.file`.
+
+```bash tab="CLI" tab-group="client"
+marfa items create --type core.file --prop title=reading-list.txt \
+  --prop blob_ref=sha256:abf95d4140df7b413a5ceb13f473a7b9e2ffbedac7854c4b412258be66c0da34 \
+  --prop mime_type=text/plain
+```
+
+```http tab="HTTP"
+POST /items
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{
+  "type": "core.file",
+  "properties": {
+    "title": "reading-list.txt",
+    "blob_ref": "sha256:abf95d4140df7b413a5ceb13f473a7b9e2ffbedac7854c4b412258be66c0da34",
+    "mime_type": "text/plain"
+  }
+}
+```
+
+```ts tab="TypeScript"
+const { data: created } = await marfa.POST("/items", {
+  body: {
+    type: "core.file",
+    properties: { title: "reading-list.txt", blob_ref: blob.hash, mime_type: blob.mime_type },
+  },
+});
+```
+
+```swift tab="Swift"
+_ = try await copy.items.create(Draft(
+    type: "core.file",
+    properties: ["title": "reading-list.txt", "blob_ref": .string(hash), "mime_type": "text/plain"]))
+```
+
+Marfa sets the item's `size_bytes` from the stored bytes. Soon after, a housekeeping job reads the bytes and adds what it finds, such as a document's `extracted_text` or an image's `width` and `height`, which moves the item's version.
+
+`marfa items add reading-list.txt` uploads the bytes and creates the item in one command. To make a file belong to another item, such as a photo attached to a note, link the two with an `attached-to` edge from the file item: `marfa items attach <id> photo.jpg` does all three steps. The file is then an **attachment**. An attachment the item's body shows, with `![](path)` or `![[file]]`, is also an **embed**.
+
+Until an item names the hash, the bytes **can't be read**, even by the credential that uploaded them; only the owner and a credential with `blobs.manage` can. A file item may name **only bytes** its writer uploaded or can already read.
+
+A write that names another hash in `blob_ref`, such as one copied from elsewhere or uploaded with another key, is refused `404 blob_not_found` and writes nothing. It is the answer a hash that nothing holds gets, so it never tells you whether the instance has the bytes. Upload the bytes with the **same credential** that writes the item, then write again.
+
+A hash in any other property, such as an image link in a note's body, is text: the write is taken and the hash lends nothing.
+
+## Download the bytes
+
+[Download a blob](/api-reference/blobs/downloadBlob) answers the bytes as they were uploaded:
+
+```bash tab="CLI" tab-group="client"
+marfa blobs download sha256:abf95d4140df7b413a5ceb13f473a7b9e2ffbedac7854c4b412258be66c0da34 --output reading-list.txt
+```
+
+```http tab="HTTP"
+GET /blobs/sha256:abf95d4140df7b413a5ceb13f473a7b9e2ffbedac7854c4b412258be66c0da34
+Authorization: Bearer <key>
+```
+
+```ts tab="TypeScript"
+import { writeFile } from "node:fs/promises";
+
+const { data: bytes } = await marfa.GET("/blobs/{hash}", {
+  params: { path: { hash: blob.hash } },
+  parseAs: "arrayBuffer",
+});
+await writeFile("reading-list.txt", Buffer.from(bytes!));
+```
+
+```swift tab="Swift"
+let bytes = try await copy.blobs.withFile(hash) { url in try Data(contentsOf: url) }
+```
+
+In the Swift SDK, `withFile` calls your closure with a file on the device, fetching the bytes first if the copy doesn't hold them. The copy keeps fetched files within a [file budget](/devices#the-working-copy) and removes the ones read longest ago when it passes, so a later `withFile` may fetch a file again. **A file attached to an item the copy holds stays on the device** outside the budget, and `blobs.fetchKept()` fetches every such file it doesn't hold, which an app asks for after the copy fills and after each catch-up. A file larger than the budget is still fetched and kept while you read it, unless the volume has no room for it, which `withFile` refuses with `no_room`. Read the file inside the closure: a trim after it returns can remove the file. Marfa sends the bytes as an attachment named after the hash, never as a page a browser would show, so take the file's name from the item's **`title`**. A `Range` header such as `bytes=0-1023` gets part of a blob.
+
+A blob you may not read answers `404 blob_not_found`, exactly as a hash that doesn't exist does. When a store that holds the blob can't answer and no other store returns the bytes, Marfa answers `503 blob_store_unavailable` instead, because it can't tell whether the bytes are gone: try again later.
+
+## Hand out a time-limited link
+
+An image element in a web page can't send your credential. [Get a blob URL](/api-reference/blobs/getBlobUrl) answers a link that serves the bytes to anyone who has it, until it expires. `ttl` is its lifetime in seconds: **an hour by default, and at most seven days**.
+
+```bash tab="CLI" tab-group="client"
+marfa blobs url sha256:abf95d4140df7b413a5ceb13f473a7b9e2ffbedac7854c4b412258be66c0da34 --ttl 900
+```
+
+```http tab="HTTP"
+GET /blobs/sha256:abf95d4140df7b413a5ceb13f473a7b9e2ffbedac7854c4b412258be66c0da34/url?ttl=900
+Authorization: Bearer <key>
+```
+
+```ts tab="TypeScript"
+const { data: link } = await marfa.GET("/blobs/{hash}/url", {
+  params: { path: { hash: blob.hash }, query: { ttl: 900 } },
+});
+```
+
+```json title="Response" status="200"
+{
+  "url": "http://localhost:8600/blobs/sha256:abf95d4140df7b413a5ceb13f473a7b9e2ffbedac7854c4b412258be66c0da34/fetch?expires=1791590816&signature=b94b851d9c8c532efccb2873800a3bddc32fb35d8a218a8829897dcff884a021",
+  "expires_in": 900
+}
+```
+
+Marfa checks your read **when it makes the link**, not when someone fetches it. Revoking your key, or deleting every item that names the blob, doesn't end a link early. So ask for a link when you need one, with the shortest `ttl` that serves, and **don't store it**.
+
+## Replace a file's bytes
+
+Upload the new bytes, then update the file item's `blob_ref` to the new hash, **naming the version you read**, as [Write safely](/build/write-safely) shows:
+
+```bash tab="CLI" tab-group="client"
+marfa blobs upload reading-list.txt
+marfa items update <id> --version 3 \
+  --prop blob_ref=sha256:714f445b15ce3bb2870c79aba6dc206b955247e1d6f789afc7e0c575e2ca4d71
+```
+
+```http tab="HTTP"
+PATCH /items/<id>
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{
+  "version": 3,
+  "properties": {
+    "blob_ref": "sha256:714f445b15ce3bb2870c79aba6dc206b955247e1d6f789afc7e0c575e2ca4d71"
+  }
+}
+```
+
+```ts tab="TypeScript"
+const { data: newBlob } = await marfa.POST("/blobs", {
+  body: await readFile("reading-list.txt"),
+  headers: { "Content-Type": "text/plain" },
+});
+await marfa.PATCH("/items/{id}", {
+  params: { path: { id } },
+  body: { version: 3, properties: { blob_ref: newBlob!.hash } },
+});
+```
+
+```swift tab="Swift"
+let replacement = try await copy.blobs.put(file: newFileURL, mimeType: "text/plain")
+guard let newHash = replacement.blob, let item = try await copy.items.get(id) else { return }
+_ = try await copy.items.update(id, Edit(properties: ["blob_ref": .string(newHash)], baseVersion: item.version))
+```
+
+Marfa sets the new `size_bytes`, and the housekeeping job reads the new bytes and replaces what it added from the old ones. The old blob stays **as long as an earlier version** of the item names it. Once nothing names it, a housekeeping job removes it after a day's grace.
+
+The rules behind this guide are in the [blobs](https://github.com/withmarfa/marfa/blob/main/conformance/spec/blobs.md) chapter of the contract.

@@ -26,7 +26,8 @@ function isUnder(pathname: string, prefix: string) {
 // the sidebar by URL; these pills are the visible switcher.
 const SECTIONS: { label: string; href: string; matches: ((pathname: string) => boolean) | null }[] = [
   { label: 'Overview', href: '/overview', matches: null },
-  { label: 'Guides', href: '/guides/swift-app', matches: (pathname) => isUnder(pathname, '/guides') },
+  { label: 'Build', href: '/build', matches: (pathname) => isUnder(pathname, '/build') },
+  { label: 'Run', href: '/run', matches: (pathname) => isUnder(pathname, '/run') },
   { label: 'Catalog', href: '/catalog', matches: (pathname) => isUnder(pathname, '/catalog') },
   {
     label: 'Reference',

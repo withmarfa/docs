@@ -1,0 +1,171 @@
+---
+title: Keep folders running
+description: Keep every folder on your computer in step with one watch, start it at login, and work on a folder's files while it runs.
+---
+
+A folder you [set up](/run/sync-a-folder) stays in step only while something watches it. **One `marfa folders watch` keeps every folder on the computer in step**, and `marfa folders autostart` starts it at login, so a folder needs no terminal left open.
+
+The watch needs no `--url` or `--key`: it reads each folder's credential from the keychain, so run `marfa keys keep` for a folder's key first, as [the CLI](/cli#connect-to-a-server) shows. On a computer where nobody signs in to unlock the keychain, [use a key file instead](#use-a-key-file-instead-of-the-keychain).
+
+## Watch every folder
+
+With no directory, the command watches every folder that `marfa folders list` shows, in one process:
+
+<Terminal>
+
+```bash
+marfa folders watch
+```
+
+```text
+watching every folder /Users/sam/Library/Application Support/Marfa/folders.json lists (interrupt to stop)
+/Users/sam/Notes: watching
+/Users/sam/Recipes: watching
+/Users/sam/Notes: 0 created, 1 updated, 0 renamed, 0 deleted; the server answered 1 write(s); 1 file(s) written
+```
+
+</Terminal>
+
+Press Ctrl-C to stop it. `SIGTERM` stops it the same way, with exit 0, so a service manager that stopped it doesn't start it again.
+
+| Option | What it does |
+| --- | --- |
+| `--json` | Prints each line as one JSON object with a `dir` field. |
+| `--for <seconds>` | Stops the watch after that long. |
+| `--log <file>` | Writes its output to a file in place of the terminal. |
+| `--key-file <file>` | Takes the server and key from a file in place of the keychain. See [Use a key file instead of the keychain](#use-a-key-file-instead-of-the-keychain). |
+
+To watch one folder, name its directory: `marfa folders watch Notes`.
+
+### How the watch treats folders
+
+- **It follows the list.** A folder you add with `marfa folders add` joins the watch, and one you remove leaves it, with no restart.
+- **Each folder keeps its own server and credential.** Folders on different servers share one watch, and no key is sent to a server it wasn't made for.
+- **A profile works for a watch you run yourself.** `marfa folders watch --profile <name>` uses the profile's key for folders on the profile's server, and the keychain for the rest. A `key_command` runs once, when the watch starts, so restart the watch after you change the key. `marfa folders autostart on` refuses `--profile`, and the watch it starts doesn't read `MARFA_PROFILE`.
+- **One folder that can't be watched doesn't stop the others.** The watch reports it once and tries again. A folder fails to open while its first sync waits for `marfa folders confirm`, while another process works it, or when the keychain holds no credential for its server.
+- **A folder whose directory can't be found stays listed,** such as one on a disk that isn't connected. The watch reports these in one line, and `marfa folders remove` takes one off. [Folder safeguards](/run/folder-safeguards#a-missing-or-unreadable-directory) covers a path that now holds a different directory.
+
+## Sync from login
+
+`marfa folders autostart` starts the watch when you sign in to the computer, in your own account, on macOS and Linux. It needs no administrator:
+
+```bash
+marfa folders autostart on
+```
+
+It starts the watch at once and says which file it wrote. Running it again changes nothing unless the agent would differ, such as after the program moved.
+
+- **The agent:** on macOS a launchd agent, and on Linux a systemd user unit. It holds **no credential and no server**: each folder uses the keychain's credential for its server, so on Linux the keychain must be unlocked at login. With a [key file](#use-a-key-file-instead-of-the-keychain) it holds that file's path and nothing from it.
+- **The log:** `folder-watch.log` beside the folder registry, readable by you alone. At 1 MiB it moves to `folder-watch.log.1`.
+- **Restarts:** the service manager starts the watch again only after it fails, and no sooner than 30 seconds after it last started.
+
+Ask whether it works, or turn it off:
+
+```bash
+marfa folders autostart status
+marfa folders autostart off
+```
+
+`status` needs no server or credential. It reports:
+
+- Whether the agent is installed and running.
+- Which program the agent runs, and whether that program is gone or isn't the one you ran.
+- Where the agent logs.
+- The key file the agent names, or none where it uses the keychain.
+- Which folders the watch isn't holding, and why, including each folder with no credential the watch can use.
+
+`off` stops the watch and removes the agent. If the service manager can't be asked, it still removes the agent's file, exits 3 and says what it couldn't stop.
+
+Another program can show the same state from [the folder watch record](/folder-watch-record).
+
+## Use a key file instead of the keychain
+
+A login agent starts outside your shell and reads your own keychain. On a machine that no one signs in to, such as a server or an automated Mac, the keychain stays locked and would raise a prompt that nobody answers. **A key file replaces the keychain for the watch**, and the agent holds the file's path and never what is in it.
+
+Make a key with only the permissions the folders need, as [Manage keys](/run/manage-keys) shows, and write the file with two lines:
+
+```bash
+MARFA_API_URL=https://marfa.example.com
+MARFA_API_KEY=<the key>
+```
+
+```bash
+chmod 600 ~/.config/marfa/watch.env
+marfa folders autostart on --key-file ~/.config/marfa/watch.env
+```
+
+To run one watch by hand with the same file, use `marfa folders watch --key-file <file>`.
+
+- **The file can live anywhere outside your folders.** It has to be a regular file with one name, owned by you, closed to the group and to others (mode 600), and with both lines and a server address. Otherwise the command exits 1 with `invalid` and says which fault, and `autostart on` writes nothing. A file inside a folder is refused, because the watch would send it to the server as one of the folder's files.
+- **The key is used for the folders on that server,** and the keychain is read for none. A folder on another server is reported as having no credential, and the key is never sent to it.
+- **The file is read again each time a folder is opened,** so a key you rotate in the file is the one used the next time the watch opens a folder. A file that has become unsafe holds that folder back, with the reason `invalid` in [the folder watch record](/folder-watch-record), until it is fixed, and the other folders go on.
+- **`--key-file` replaces `--url`, `--key` and `--profile`:** giving any of them with it is a usage error, exit code 2.
+- **`autostart on` without the option** goes back to the keychain and replaces the agent.
+
+## Work on a folder while the watch runs
+
+One process works a folder at a time. A command that works a folder, such as `marfa folders confirm`, `restore`, `remove`, `push`, `pull` or `unmatched --remove`, asks the running watch for it. The watch finishes the step it is on, so no write is cut off, lets the folder go and keeps the others in step. It takes the folder back when the command ends, and prints:
+
+```text
+/Users/sam/Notes: let go to a command that asked for it; taken back once that command ends
+/Users/sam/Notes: taken back from the command it was let go to, and watched again
+```
+
+If the watch hasn't let go within 10 seconds, such as when it is suspended or waiting on a slow server, the command is refused with `reading_handle` before it changes anything. Run it again. A second `marfa folders watch` of the same folder is refused at once, because a watch never asks for a folder.
+
+## Send without pulling
+
+To send files you added or edited without writing the instance's changes into the directory yet, push with `--send-only`.
+
+**Stop any watch first, including login syncing** (`marfa folders autostart off`, then `on` afterwards). A running watch pulls the instance's changes by itself, and takes the folder back after the push to pull what the push left.
+
+<Terminal>
+
+```bash
+marfa folders push Notes --send-only
+```
+
+```text
+1 created, 0 updated, 0 renamed, 2 unchanged, 0 missing, 0 deleted, 0 skipped
+the server answered 2 write(s), creating 1 item(s)
+send-only run: nothing was pulled, so no item's file was written or removed; the next `folders push` pulls what the server holds
+```
+
+</Terminal>
+
+It writes and removes no file outside the folder's `.marfa` directory. If the instance can't be reached, the writes stay queued. While the first sync waits for confirmation, the push is refused with `first_sync_waiting`.
+
+## Remove files a folder keeps but no longer holds
+
+When an item leaves a folder's query, for example because its type changed to one the query doesn't hold, the folder keeps its file instead of removing it. List those files:
+
+<Terminal>
+
+```bash
+marfa folders unmatched Notes
+```
+
+```text
+1 unmatched file(s), 1 of them removable with `folders unmatched --remove`
+Walks.md
+```
+
+</Terminal>
+
+Listing works while the watch runs. To take the files away, add `--remove`. At a terminal it asks first; in a script, pass `--yes`, or the command is refused and removes nothing.
+
+<Terminal>
+
+```bash
+marfa folders unmatched Notes --remove --yes
+```
+
+```text
+1 file(s) removed; their items are unchanged in Marfa, and the folder's placement of each ends, sent at the next `folders push`
+```
+
+</Terminal>
+
+Remove them with this command, **never by hand**: a file you delete by hand deletes its item, while this command ends only the folder's placement of it. It keeps a file you edited since the folder wrote it, or whose item has a change waiting, and says why.
+
+The rules behind this guide are in the [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapter of the contract.

@@ -179,18 +179,18 @@ describe('findStale', () => {
     })()),
   };
   const pages = {
-    'content/docs/guides/files.mdx': [
+    'content/docs/build/files.mdx': [
       `[a](${SPEC}/blobs.md#blobslend-earlier-version) [b](${SPEC}/blobs.md#blobsgone)`,
       `[c](${SPEC}/blobs.md#blobsupload-hash) [d](/api-reference/items/listItems) [e](/api-reference/types/listTypes)`,
     ].join('\n'),
-    'content/docs/guides/chapter.mdx': `[blobs](${SPEC}/blobs.md) [items](${SPEC}/items.md) [x](${SPEC}/blobs.md#uploading)`,
-    'content/docs/guides/quiet.mdx': `[c](${SPEC}/blobs.md#blobsupload-hash) [items](${SPEC}/items.md) [op](/api-reference/items/createItem)`,
+    'content/docs/build/chapter.mdx': `[blobs](${SPEC}/blobs.md) [items](${SPEC}/items.md) [x](${SPEC}/blobs.md#uploading)`,
+    'content/docs/build/quiet.mdx': `[c](${SPEC}/blobs.md#blobsupload-hash) [items](${SPEC}/items.md) [op](/api-reference/items/createItem)`,
   };
 
   it('lists a page under each rule or operation it cites that changed or went away', () => {
     expect(findStale(pages, comparison).pages).toEqual([
       {
-        path: 'content/docs/guides/files.mdx',
+        path: 'content/docs/build/files.mdx',
         rulesChanged: ['blobs/lend-earlier-version'],
         rulesRemoved: ['blobs/gone'],
         operationsChanged: ['listItems'],
@@ -202,13 +202,13 @@ describe('findStale', () => {
   it('lists a page that cites a chapter, or a heading in it that is no rule, only when a rule in it changed', () => {
     const { chapterPages } = findStale(pages, comparison);
     expect(chapterPages.map((page) => [page.path, page.chapters.map((c) => c.chapter)])).toEqual([
-      ['content/docs/guides/chapter.mdx', ['blobs']],
+      ['content/docs/build/chapter.mdx', ['blobs']],
     ]);
   });
 
   it('does not list a page that cites only what did not change', () => {
     const { pages: listed, chapterPages } = findStale(
-      { 'content/docs/quiet.mdx': pages['content/docs/guides/quiet.mdx'] },
+      { 'content/docs/quiet.mdx': pages['content/docs/build/quiet.mdx'] },
       comparison,
     );
     expect(listed).toEqual([]);
