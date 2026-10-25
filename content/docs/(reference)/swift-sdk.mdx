@@ -5,7 +5,7 @@ description: Give an iOS or macOS app a working copy of your instance that reads
 
 The Swift SDK gives an app on iPhone, iPad or Mac a **working copy** of an instance: a local database it reads with or without a connection, and a queue that holds its writes until it can send them. **An app built on it is a [device](/devices)**: that page explains the working copy, the queue and verdicts.
 
-Use it for an app that must keep working offline. A script or a server needs no working copy: use the [TypeScript SDK](/typescript-sdk) or the [HTTP API](/api-reference). [Build an app with Swift](/guides/swift-app) builds a SwiftUI app on it.
+Use it for an app that must keep working offline. A script or a server needs no working copy: use the [TypeScript SDK](/typescript-sdk) or the [HTTP API](/api-reference). For the calls only the instance can answer, such as registering a type, the SDK also has a [client](#call-the-server-directly). [Build an app with Swift](/guides/swift-app) builds a SwiftUI app on it.
 
 ## Install
 
@@ -24,8 +24,9 @@ Each release carries Marfa's core already built, so your app needs no Rust toolc
 | Product | Holds |
 | --- | --- |
 | `Marfa` | The SDK. Add it to your app target. |
-| `MarfaTesting` | `WorkingCopy.fake(items:itemTypes:)`, a working copy for tests and previews with no store, server or core. Pass its `copy` where your code takes a `WorkingCopy`. It compiles empty in a release build, so wrap its uses in `#if DEBUG`. |
 | `MarfaTypes` | The server's wire types, generated from the API description, and `marfaContractVersion`. |
+| `MarfaAPI` | `Client`, for the [calls only the instance can answer](#call-the-server-directly), such as registering a type or [moving the items of one](#move-the-items-of-a-type). It includes `MarfaTypes`. |
+| `MarfaTesting` | `WorkingCopy.fake(items:itemTypes:)`, a working copy for tests and previews with no store, server or core. Pass its `copy` where your code takes a `WorkingCopy`. It compiles empty in a release build, so wrap its uses in `#if DEBUG`. |
 
 ## Open a working copy
 
@@ -48,12 +49,48 @@ let copy = try await WorkingCopy.open(store: storeURL, server: Server(url: serve
 | Call | What it does |
 | --- | --- |
 | `WorkingCopy.open(store:server:fileBudget:)` | Opens the file. Without a `Server`, the copy works offline only. A `fileBudget` sets the [file budget](#keep-files-on-the-device) as the copy opens, and a reader refuses it with `readingHandle`. |
+| `WorkingCopy.replaceRefused(store:server:fileBudget:)` | Replaces a store that `open` refuses with `wrongSchema` by an empty one, and opens it. [Replace a refused copy](#replace-a-refused-copy) says what it keeps. |
 | `WorkingCopy.openReader(store:)` | Opens a store another process writes, to read only. It refuses a path where no store exists. |
 | `handle` | `.writer` or `.reader`. A reader refuses writes, hydration and catch-up with `readingHandle`. |
 | `useKey(_:)` | Gives the open copy a new credential. Held `changes()` streams go on. |
 | `close()` | Ends every stream and releases the store. Later calls throw `MarfaError.closed`. |
 | `Server(url:key:)` | The instance's URL and a key or an app's access token. |
+| `Server.isPlainHTTPToAnotherHost`, `takePlainHTTPNotice()` | Whether the address is plain http on another host, and a notice to show the first time. [Reach a plain http server](#reach-a-plain-http-server) explains both. |
 | `Server.fromEnvironment()` | For a command-line tool: reads `MARFA_API_URL` and `MARFA_API_KEY`. Returns `nil` when both are absent, and throws when only one is set or the URL names no server. |
+
+### Replace a refused copy
+
+A store that another build of the core made throws `wrongSchema` from `open`, and nothing is deleted. Its `unsent` count is the number of writes the instance has not taken. **When it is `0`**, `WorkingCopy.replaceRefused(store:server:fileBudget:)` replaces the file with an empty one and opens it. Hydrate the new copy as you would a new one.
+
+- **The files the copy downloaded stay.** The core keeps them by content, beside the store, not in it.
+- **What only the old store held is gone:** pins, the position in the instance's events, declared types and the file budget's setting. Pass `fileBudget` to set it again; otherwise it is the default.
+- **A store that holds an unsent write is left as it is**, and the call throws `wrongSchema` with the count. A store that opens as it is, or a path with no store, throws `invalid`. [Troubleshooting](/guides/troubleshooting#staying-in-step) covers what to do with unsent writes.
+
+## Reach a plain http server
+
+An `http` address sends the key in the clear. **The SDK warns about that only through your app**: it shows nothing itself. `Server.isPlainHTTPToAnotherHost` is `true` for an `http` address on any host but the machine itself, by the same rule as the command line. `localhost`, every address in `127.0.0.0/8` and `::1` are the machine itself; an IPv4-mapped address such as `::ffff:127.0.0.1` is not. `takePlainHTTPNotice()` returns a `PlainHTTPNotice` the first time any server with that origin asks in the process, and `nil` after, for `https` and for the machine itself:
+
+```swift
+if let notice = server.takePlainHTTPNotice() {
+    cleartext = notice  // an @State var of type PlainHTTPNotice?
+}
+// In the view:
+.alert(cleartext?.title ?? "", isPresented: Binding(get: { cleartext != nil }, set: { _ in cleartext = nil })) {
+    Button("OK") {}
+} message: {
+    Text(cleartext?.message ?? "")
+}
+```
+
+**App Transport Security (ATS) applies to some calls and not others.** Apple's documentation says ATS requires that connections made with the URL Loading System, typically `URLSession`, use HTTPS ([NSAppTransportSecurity](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity)). The core makes its own requests with a Rust HTTP client, not `URLSession`, so **ATS doesn't affect the working copy's hydration, catch-up and drain**. The SDK's sign-in requests, the [`Client`](#call-the-server-directly) and any client of your own built on `URLSession` are subject to it.
+
+For those, declare the server in your app's Info.plist. As Apple documents them for iOS 17, iPadOS 17 and macOS 14 and later:
+
+- **A DNS name:** add it to `NSExceptionDomains` with `NSExceptionAllowsInsecureHTTPLoads` set to `YES`. Use lowercase, no port, and `NSIncludesSubdomains` for subdomains ([NSExceptionDomains](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsexceptiondomains)).
+- **An IP address:** ATS no longer allows IP addresses by default. Add the address, or a CIDR range such as `192.168.42.0/24`, to `NSExceptionDomains`. An exception for a name doesn't cover the same host reached by address, and the reverse ([NSExceptionDomains](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsexceptiondomains)).
+- **Unqualified names and `.local` names on the local network:** `NSAllowsLocalNetworking` set to `YES` allows them, and Apple recommends setting it as a declaration of intent ([NSAllowsLocalNetworking](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowslocalnetworking)).
+
+Prefer an `https` address. Apple warns that loosening ATS reduces your app's security.
 
 ## Identify the connected instance
 
@@ -97,6 +134,10 @@ The `HydrateReport` counts this call's listing pages in `pages` and includes ear
 
 While a fill runs, `status()` gives `itemsListed`, the items the fill has brought so far, and `itemsExpected`, how many the slice held when the fill began, where the instance counted them. **Compare those two for progress**, not `items`, which also includes pinned items and queued creates.
 
+### Read the instance's types before the first fill
+
+`copy.catalog.fromServer()` asks the instance for its item types and edge types now, so an app can offer a choice of types before it hydrates. It returns a `ServerCatalog` and changes nothing in the copy, whose own `catalog` reads keep answering from the store. A copy without a server throws `noServer`, and one that can't reach the instance throws `network`. Cancel the task to end the request.
+
 ### Read while the copy fills
 
 While a hydration is in progress, a list or a search answers the items that have arrived and says so. `items.list(_:sort:)`, `search(_:filters:limit:)` and the saved-view reads return `Rows`, a collection of `rows` with a `completeness`:
@@ -123,6 +164,17 @@ When a catch-up learns that the event log no longer reaches the copy's cursor, i
 
 Call `hydrate(types:tier:edgeTypes:)` with the slice the copy was built under. The copy is filled again **over the rows it holds**, without clearing them first, and the `HydrateReport` says `inPlace`. The copy stays `.stale` through the fill, and through one that was interrupted, until a fill completes. If the instance, the credential's reach or the slice differs, the copy is cleared first and `inPlace` is `false`.
 
+**While the app holds a `changes()` stream, the copy refills itself.** A copy can go stale while the device sleeps or is offline for longer than the instance keeps events. When the follow finds that the event log no longer holds the copy's cursor, it fills the copy again over the slice it holds, as `hydrate` does, and the streams hear `.refreshed(.hydrated)` instead of a stop. An attempt that fails because the network or the server failed is announced as `.refreshed(.unfinished)` and retried after one second, then further apart, up to five minutes apart.
+
+The copy refills itself only when it expects the refill to be in place, so the streams are told `.stopped(.copyExpired)` instead in these cases:
+
+- Another instance answers at the server's address. The reason is `instance_changed`.
+- The copy was already stale when the follow started, for example after `useKey(_:)` or when the app opens a stale store. The reason is `catchup_too_old`. The SDK can't confirm that the credential still reads under the reach the copy was built under, so the refill is left to the app.
+
+If the instance refuses the refill, for example because the credential ended, the streams are told `.stopped` with that error.
+
+**A copy runs one hydration at a time.** A `hydrate` call made while the refill runs waits for it and then runs. If the refill already filled the same slice under the same key and the copy is still whole, the call returns the refill's report instead of filling the copy again. A refill that finds the app's own hydration running waits for it, and leaves a copy that hydration made whole. A `catchUp` call made while the refill runs also waits for it, then catches up from the cursor the refill left.
+
 ## Read and write
 
 Reads come from the copy. Every write shows in the copy at once, with or without a connection, and waits in the queue as a `QueuedWrite`.
@@ -137,7 +189,7 @@ guard let id = created.itemId, let note = try await copy.items.get(id) else { re
 _ = try await copy.items.update(id, Edit(properties: ["title": "Books to read"], baseVersion: note.version))
 ```
 
-Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update`, `delete`), `tags` (`add` and `remove`, one at a time), `metadata` (`replaceTags`, which writes the whole set), `extensions` (`write` and `delete` by namespace), `blobs` (`put(file:mimeType:)` queues an upload, and `withFile(_:_:)` calls your closure with where a blob's bytes are held, fetching them first if they aren't, within the copy's [file budget](#keep-files-on-the-device)), the [`queue`](#send-writes-and-read-verdicts) and the `catalog` of types the copy holds.
+Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update`, `delete`), `tags` (`add` and `remove`, one at a time), `metadata` (`replaceTags`, which writes the whole set), `extensions` (`write` and `delete` by namespace), `blobs` (`put(file:mimeType:)` queues an upload, and `withFile(_:_:)` calls your closure with where a blob's bytes are held, fetching them first if they aren't, within the copy's [file budget](#keep-files-on-the-device)), the [`queue`](#send-writes-and-read-verdicts) and the `catalog` of types the copy holds. Each `EdgeType` in the catalog has a `label` for the source's end and a `reverseLabel` for the target's, such as `Children` and `Parent`. **An edge type registered with no reverse label has a `reverseLabel` equal to its `label`**, which names both ends alike.
 
 | `items` call | What it does |
 | --- | --- |
@@ -147,6 +199,7 @@ Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update
 | `delete(_:)`, `restore(_:)`, `transition(_:to:)` | Move an item to the bin or out of it, or change its `ItemState`. |
 | `bin(type:after:limit:)`, `purge(_:version:)` | Read a page of the server's bin, and destroy an item in it. Both need the server and neither is queued. A page can be short or empty and still carry a `nextCursor`. A purge needs `items.purge` and write on the type. |
 | `attach(to:file:_:)`, `embed(file:in:_:)` | Queue the upload, a file item and an `attached-to` edge, each with its own verdict. `embed` also adds the file's embed to the body, and throws `EmbedFailure` if that step fails. |
+| `addFile(_:_:tags:)` | Adds a file as an item of its own, attached to nothing: it queues the upload and the file item, and a write for each tag. It returns an `Added` with the first two. |
 | `links(in:)`, `embedText(of:in:)` | The links and file embeds in a body, and the `![[title]]` text for an attached file. |
 | `conflictedCopies(of:)`, `original(ofConflictedCopy:)` | An item's held conflicted copies, and the ID of the item a copy was made from. |
 
@@ -182,6 +235,61 @@ try await copy.declareTypes([
 
 `declareTypes(_:)` replaces the app's whole set, so pass every type on each call. **Until the copy first hydrates, a queued create is checked against these declarations** and the types Marfa ships, so the app works offline from its first launch. On hydration, the copy registers each declared type the instance lacks, if the credential may register types, and the `HydrateReport` lists them in `registeredTypes` and `unregisteredTypes`. [Define a type](/guides/define-a-type) explains what a definition holds.
 
+## Call the server directly
+
+Some operations only the instance can do: registering, replacing and deleting a type, managing keys and webhooks, reading an item's versions, stats and occurrences, and reading the audit log. **`Client` from the `MarfaAPI` product sends these straight to the instance**, with the same `Server` the working copy uses:
+
+```swift
+import MarfaAPI
+
+let api = Client(server)
+let title = Components.Schemas.FieldDefinition(_type: .string, required: true)
+let entry = Components.Schemas.TypeDefinitionInput(
+    fields: .init(additionalProperties: ["title": title]), id: "app.readinglist.entry")
+
+_ = try await api.check(itemType: entry)
+_ = try await api.register(itemType: entry)
+```
+
+| Call | Operation |
+| --- | --- |
+| `check(itemType:)` | [Check a type definition](/api-reference/types/normalizeType) without registering it. |
+| `register(itemType:)`, `replace(itemType:with:)`, `delete(itemType:force:)` | [Register](/api-reference/types/registerType), [replace](/api-reference/types/replaceType) or [delete](/api-reference/types/deleteType) an item type. |
+| `register(edgeType:)`, `edgeTypes()`, `delete(edgeType:force:)` | [Register](/api-reference/edge-types/registerEdgeType), [list](/api-reference/edge-types/listEdgeTypes) or [delete](/api-reference/edge-types/deleteEdgeType) an edge type. |
+
+Every other operation the client makes is a method named after its operation ID, such as `listItemVersions(path:)` or `listAuditLog()`. A refusal throws a `MarfaError`, so read a success from the answer's `ok` case: `try await api.listAuditLog().ok.body.json`. **The client has no call that creates, gets, changes or deletes one item or edge, and none for search or events**: those go through the working copy, so there is one path for each item, and bulk changes aren't offered. It does read what only the instance holds, such as an item's versions, statistics and occurrences. Connector operations and those for the owner's session alone are not in it either.
+
+**Each call needs a connection.** On a device that is offline, a call throws `noConnection` and sends nothing; it isn't queued. A call waits 30 seconds for the instance to send more, for the answer to start and again between the parts of a streamed body, then throws `network`. Pass `Client(server, timeout:)` a longer time for a call that answers only when its work is done, such as `runHousekeeping`. When the instance refuses an expired access token, the client renews the sign-in once and sends the call again, and once the instance ends the sign-in, calls throw `signedOut`. **It never follows a redirect**, so the credential reaches no other host.
+
+`declareTypes(_:)` registers an app's types when the copy hydrates, which suits an app that must start offline. Use `register(itemType:)` when the app needs the type on the instance now, or to change or delete one.
+
+### Move the items of a type
+
+A type's identifier never changes, so renaming a type means registering the new one, moving the items and deleting the old one. The move is a job on the instance, which only `Client` can start: it gives every item of the type that your credential can see, in any state, the new type, and once none remains it rewrites the folders, views and webhooks that name the old type.
+
+```swift
+let preview = try await api.previewMove(ofType: "app.deal", to: "app.contract")
+print(preview.matched, preview.settings.map(\.field))
+
+let started = try await api.startMove(
+    ofType: "app.deal", to: "app.contract", properties: ["stage": "signed"])
+let job = try await api.follow(moveJob: started.id)
+if job.status == .completed, job.result?.settingsRewritten == true {
+    try await api.delete(itemType: "app.deal")
+}
+```
+
+| Call | What it does |
+| --- | --- |
+| `previewMove(ofType:to:properties:)` | Answers the items the move would change and the settings that name the type, and writes nothing. |
+| `startMove(ofType:to:properties:)` | Starts the job and answers it at once. `properties` merge into each item as it moves, such as a field the new type requires, and a `null` value removes a property. |
+| `follow(moveJob:every:)` | Polls the job until it is `completed`, `failed` or `canceled`, and answers it with its `result`. Cancelling the task that waits stops the wait, not the job. |
+| `cancel(moveJob:)` | Asks the instance to stop the job, and answers it as it stands. A job that has ended is answered as it ended. |
+
+**Check the job's `status` and `result` before you delete the old type.** A `failed` job has a `result` too, and a `canceled` one has none. `remaining` counts the items of the type that are left, and `remainingHidden` says whether any the credential can't see are among them. `settingsRewritten` is `true` only when none remains and no setting is blocked. Items already moved stay moved when a job is canceled or leaves some behind, and no setting is rewritten, so run the move again to finish it.
+
+A move refuses with `server` and the code `type_move_blocked` when a setting names the type in a way it can't rewrite, and moves nothing. **A delete of a type that an item, folder, view or webhook still names is refused with `server`, status 409 and the code `type_in_use`.** The `message` of both ends with the refusal's `details` as JSON, which lists each setting by its `kind`, `id` and `field`.
+
 ## Follow changes
 
 Each `Change` names the `itemId` or `edgeId` it concerns, and its `origin` says where it came from:
@@ -195,7 +303,7 @@ Each `Change` names the `itemId` or `edgeId` it concerns, and its `origin` says 
 | `.queueDrained`, `.queueNotDrained` | The drain the stream ran when the server came back ended, or stopped with an error. | Nothing: the stream drains by itself. |
 | `.stopped(MarfaError)` | What fed the stream stopped. Local writes are still told. | See below. |
 
-**Two stops need the app's help.** On `.copyExpired`, hydrate again: the queue survives. Its `reason`, such as `reach_changed` or `instance_changed`, is an open string, so keep a `default`. On `.unauthorized` or `.signedOut`, give the copy a new credential with `useKey(_:)`.
+**Two stops need the app's help.** On `.copyExpired`, hydrate again: the queue survives. Read `status().hydration` first: a `.stale` copy is told this stop only when it [can't refill itself](#refill-a-stale-copy), and hydrating the same slice fills it again in place where the instance and reach allow. Any other expired copy must be filled from scratch. The `reason`, such as `reach_changed`, `instance_changed` or `catchup_too_old`, is an open string, so keep a `default`. On `.unauthorized` or `.signedOut`, give the copy a new credential with `useKey(_:)`.
 
 ## Send writes and read verdicts
 
@@ -260,18 +368,20 @@ A `Reading` is `.list(_:sort:)` or `.search(_:filters:limit:)` for `Rows<Item>` 
 
 ## Saved views
 
-A `SavedView` is a [`system.view`](/catalog/view) item: a query, and the layouts that show its items. **The working copy answers a view offline**, so every app lists and groups the same items the same way. [Read a view offline](/guides/read-a-view) explains what the copy needs: hydrate `system.view` and every type the view's query names, at the tier the query lists.
+A `SavedView` is a [`system.view`](/catalog/view) item: a title, a query, an optional sort and an optional grouping. **A view holds no layout**: how an app draws the items is the app's own. **The working copy answers a view offline**, so every app lists and groups the same items the same way. [Read a view offline](/guides/read-a-view) explains what the copy needs: hydrate `system.view` and every type the view's query names, at the tier the query lists, and the edge type of a `backref` condition or an edge group.
 
 ```swift
 _ = try await copy.hydrate(types: ["system.view", "core.task"], tier: .all)
 
-guard let view = try await copy.items.view(viewID), let layout = view.settings.layouts.first else { return }
-let tasks = try await copy.items.list(inView: view.id, layout: layout.id, limit: 50)
-let groups = try await copy.items.groups(inView: view.id, layout: layout.id)
+guard let view = try await copy.items.view(viewID) else { return }
+let tasks = try await copy.items.list(inView: view.id, limit: 50)
+let groups = try await copy.items.groups(inView: view.id)
 for group in groups { print(group.key, group.count) }
 ```
 
-A layout's `kind` says how it shows items, such as `.board` or `.chart(x:y:)`, and carries the options that kind takes. A `ViewGroup` has the group's `key`, its `count` and, for a chart that sums a property, its `sum`. A live query over a layout reads again when an item enters the view, leaves it or changes group, so a SwiftUI view keeps its counts without refresh code:
+A view's `settings.sort` is a list of `ViewSort` values, each a field in `by` and a `direction`, first key first. It is empty for a view that doesn't sort. `settings.group` is a `ViewGrouping` with the field in `by`, an optional `bucket` for a date field, an `order` of the groups that come first and a `hidden` list of groups to leave out, or `nil` for a view that groups nothing. **A hidden group leaves `groups(inView:)` and not `list(inView:)`**: the view still lists its items. A `ViewGroup` has the group's `key` and its `count`. A view with no grouping answers one group with the key `null` that holds every item.
+
+A live query over a view reads again when an item enters the view, leaves it or changes group, so a SwiftUI view keeps its counts without refresh code:
 
 ```swift
 @MainActor @Observable
@@ -280,8 +390,8 @@ final class Board {
     let tasks: LiveQuery<Rows<Item>>
 
     init(copy: WorkingCopy, viewID: String) {
-        groups = LiveQuery(copy, reading: .groups(inView: viewID, layout: "board"))
-        tasks = LiveQuery(copy, reading: .list(inView: viewID, layout: "board"))
+        groups = LiveQuery(copy, reading: .groups(inView: viewID))
+        tasks = LiveQuery(copy, reading: .list(inView: viewID))
     }
 }
 ```
@@ -289,12 +399,12 @@ final class Board {
 | Call | What it does |
 | --- | --- |
 | `items.views()`, `items.view(_:)` | Every view the copy holds, or one, `nil` when it isn't held. |
-| `items.list(inView:layout:limit:offset:)` | A page of the view's items in a layout's sort. `layout: nil` is the first layout. |
-| `items.groups(inView:layout:timeZone:)` | A layout's groups with their counts. Date groups follow `timeZone`, or the device's. |
+| `items.list(inView:limit:offset:)` | A page of the view's items in the view's sort. |
+| `items.groups(inView:timeZone:)` | The view's groups with their counts. Date groups follow `timeZone`, or the device's. |
 | `search(_:inView:limit:)` | Full-text search within the view's query. |
-| `Reading.views`, `.view(_:)`, `.list(inView:)`, `.groups(inView:layout:)` | The same reads, for a `LiveQuery`. |
+| `Reading.views`, `.view(_:)`, `.list(inView:)`, `.groups(inView:)` | The same reads, for a `LiveQuery`. |
 
-**View lists, groups and searches carry completeness** in `Rows`, just like other reads: `.partial` during a first fill and `.stale` during an in-place refill. A query outside the copy's slice throws `invalid`, naming the type or tier it lacks. A view the copy doesn't hold throws `notFound` with the code `not_held`.
+**View lists, groups and searches carry completeness** in `Rows`, just like other reads: `.partial` during a first fill and `.stale` during an in-place refill. A query outside the copy's slice throws `invalid`, naming the type or tier it lacks. So does a `backref` condition or an edge group whose edge type the copy doesn't hold whole: pass the edge type as an `edgeTypes` of `hydrate`. A view the copy doesn't hold throws `notFound` with the code `not_held`.
 
 ### Create, change and delete a view
 
@@ -306,12 +416,8 @@ let made = try await copy.createView(
     ViewSettings(
         title: "Open tasks",
         query: ViewQuery(types: ["core.task"], filter: "tags contains \"work\""),
-        layouts: [
-            ViewLayout(
-                id: "board", kind: .board, sort: [ViewSort(by: "created_at", direction: .descending)],
-                group: ViewGrouping(by: "properties.status", order: ["todo", "doing"])),
-            ViewLayout(id: "list", kind: .list),
-        ]),
+        sort: [ViewSort(by: "created_at", direction: .descending)],
+        group: ViewGrouping(by: "properties.status", order: ["todo", "doing"], hidden: ["done"])),
     idempotencyKey: attempt)
 
 let renamed = try await copy.changeView(
@@ -320,13 +426,22 @@ let renamed = try await copy.changeView(
 try await copy.deleteView(renamed.id)
 ```
 
+**To remove a view's sort, change it to an empty list. To remove its grouping, change it to `.clear`.** The grouping is the one setting a change can remove, because a `nil` setting in a change means "leave it as it is":
+
+```swift
+let unsorted = try await copy.changeView(
+    view.id, ViewSettingsChange(sort: []), baseVersion: view.version)
+let ungrouped = try await copy.changeView(
+    unsorted.id, ViewSettingsChange(group: .clear), baseVersion: unsorted.version)
+```
+
 - **Retry a create with the same key.** If the connection drops after the request went out, the server may have made the view. Retrying with the same `idempotencyKey` answers the first view instead of making a second. Without a key, the SDK makes one for each call.
 - **Name the version you changed from.** The server merges a change to settings nobody else touched since `baseVersion`. A setting changed since then throws `server` with status 409 and the code `version_conflict`, and the copy keeps the view it held. Read the view again and decide.
 - **A delete removes the view for good.** The copy drops it at once, and a live query over the views stops listing it. A view the server no longer has throws `notFound` with the code `item_not_found`.
 
 | Refusal | Thrown as |
 | --- | --- |
-| A query the server doesn't accept | `validation` with the code `validation_error` |
+| A query, sort or grouping the server doesn't accept | `validation` with the code `validation_error` |
 | A key that may not write `system.view` | `forbidden` with the code `type_not_permitted` |
 | A change to a revoked view | `validation` with the code `invalid_transition` |
 | A stale change to a setting that moved | `server`, status 409, the code `version_conflict` |
@@ -361,13 +476,14 @@ Its `FolderEvent` values are `.watching` when it starts and `.passed` after a pa
 
 ## Handle errors
 
-Every call on a working copy or `Folders` throws a `MarfaError`, whose `message` is fit to show a person. `Keychain` throws `Keychain.Failure`, and `Server.fromEnvironment()` throws `Server.EnvironmentError`.
+Every call on a working copy, `Folders` or `Client` throws a `MarfaError`, whose `message` is fit to show a person. `Keychain` throws `Keychain.Failure`, and `Server.fromEnvironment()` throws `Server.EnvironmentError`.
 
 | Case | Meaning |
 | --- | --- |
 | `notFound`, `unauthorized`, `forbidden`, `validation`, `server` | A refusal, from the server or from the copy before anything was sent. Each carries a `code`: [Errors](/api-reference/errors) lists the server's. |
 | `rateLimited` | The server asked for a wait. `retryAfterSeconds` says how long, when it said. |
 | `network`, `unnamed` | The server couldn't be reached, or something in front of it answered naming no contract. A queued write stays queued. |
+| `noConnection` | A `Client` call found the device offline, so nothing was sent. |
 | `contractMismatch` | The server speaks a contract this build wasn't made for. A write it answered stays queued, and goes again once the app speaks the server's contract. |
 | `wrongServer` | The server at the copy's address is another instance than the copy recorded. The copy sends it no credential or data: [Troubleshooting](/guides/troubleshooting) explains. |
 | `copyExpired`, `hydrationIncomplete`, `readingHandle`, `firstSyncWaiting`, `noServer`, `closed` | States covered on this page. |
