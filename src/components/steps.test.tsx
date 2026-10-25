@@ -53,18 +53,11 @@ describe('paged steps', () => {
       (element) => element.getAttribute('aria-label') === name || element.textContent?.startsWith(name),
     )!;
 
-  it('shows a dot for each step in a guide of up to 8 steps', () => {
-    render(8);
-    expect(pill().querySelectorAll('[data-dot]')).toHaveLength(8);
-    expect(pill().textContent).toBe('');
-  });
-
-  it('shows "n of m" instead of dots in a guide of more than 8 steps', () => {
-    render(9);
-    expect(pill().querySelectorAll('[data-dot]')).toHaveLength(0);
-    expect(pill().textContent).toBe('1 of 9');
+  it('shows "n of m" for any number of steps', () => {
+    render(4);
+    expect(pill().textContent).toBe('1 of 4');
     act(() => button('Next step').click());
-    expect(pill().textContent).toBe('2 of 9');
+    expect(pill().textContent).toBe('2 of 4');
   });
 
   it('names each step group by its title, so the count is spoken once, by the live region', () => {

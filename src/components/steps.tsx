@@ -43,9 +43,6 @@ function titleOf(step: ReactNode): string {
   return text(Children.toArray(step.props.children).find(isValidElement)).trim();
 }
 
-/** Above this many steps, dots get too small to count, so the indicator shows "n of m". */
-const MAX_DOTS = 8;
-
 function PagedSteps({ children }: { children: ReactNode }) {
   const steps = Children.toArray(children).filter(isValidElement) as ReactElement<WithChildren>[];
   const titles = steps.map(titleOf);
@@ -141,9 +138,7 @@ function PagedSteps({ children }: { children: ReactNode }) {
     <div ref={root} className="marfa-paged">
       <div className="marfa-paged-head">
         <div className="marfa-paged-indicator" aria-hidden="true">
-          {steps.length > MAX_DOTS
-            ? `${current + 1} of ${steps.length}`
-            : steps.map((_, index) => <span key={index} data-dot="" data-current={index === current || undefined} />)}
+          {`${current + 1} of ${steps.length}`}
         </div>
         <span className="sr-only" aria-live="polite">
           {`Step ${current + 1} of ${steps.length}: ${titles[current]}`}
