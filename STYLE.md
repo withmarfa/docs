@@ -44,6 +44,7 @@ A page that needs a list the Catalog holds, such as the types, edge types, permi
 
 - A **concept** page explains one idea: what it is, why it works the way it does, and the rules a reader meets in normal use.
 - A **tutorial** takes a newcomer through one complete piece of work, start to finish, and every step works.
+  A tutorial has at most seven steps; a longer piece of work becomes two tutorials, split where the first one already leaves something that works. It opens with three short lines, in a list: **You'll build** (what the reader makes), **You need** (what must be in place) and **You'll have** (what works at the end). Each line is true of the page, and a short paragraph of background may follow. Keep sentences short, put the point first, and explain a Marfa term before using it.
 - A **how-to guide** does one task for a reader who already knows the concepts.
 - A **reference** page states facts and never teaches. Generated reference is shown as tables, never as raw help text.
 
@@ -57,7 +58,7 @@ A page that needs a list the Catalog holds, such as the types, edge types, permi
 - **Short paragraphs.** One to three sentences, about 20 to 30 words each on average. One idea per paragraph.
 - **Bold the names of things on screen**, such as a button or a menu item, and write a menu path with `>` between bolded items: **File** > **New** > **Project**. Keys are written as on the keyboard: Command-R.
 - **Bold the key fact.** In each section, bold the few words a skimming reader must not miss. In a list a reader scans, bold the lead-in of each item, then explain it after a full stop or a colon. Never bold whole sentences.
-- **A list carries items that are parallel**: steps, options, things to check. A page never opens with a list, and a list never stands in for an explanation of why.
+- **A list carries items that are parallel**: steps, options, things to check. A page never opens with a list, except the three opening lines of a tutorial, and a list never stands in for an explanation of why.
 - **A table compares things or holds what a reader looks up**: fields, settings, commands, options, a choice between two ways. Keep cells short.
 - **Explain, then point.** A concept page explains the idea and the rules a reader meets in normal use, with one small example. Rare cases, limits, exact numbers and error codes go in a guide, the API reference or the contract, with a link.
 - **Less is clearer.** If a page is hard going, cut before you add. A concept page is usually 400 to 900 words and a guide under 1,500. A page past that is usually two pages, or holds detail that belongs in the reference.
