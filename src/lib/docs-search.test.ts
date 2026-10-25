@@ -80,7 +80,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['core.note', ['/catalog/note']],
 
   // A flag that is also an ordinary word, and a word that starts a permission scope (`webhooks.manage`).
-  ['--force', ['/guides/define-a-type']],
+  ['--force', ['/guides/change-a-type']],
   ['--scope', ['/docs-mcp-server']],
   ['webhooks', ['/events', '/guides/receive-webhooks']],
   ['audit', ['/guides/audit-log']],
