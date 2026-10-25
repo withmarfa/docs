@@ -217,7 +217,7 @@ function plain(text: string): string {
   return parts.join(': ');
 }
 
-// The core and system types sit in folder groups, which add nothing to a page's address.
+// The Types folder and the two families inside it are folder groups, which add nothing to a page's address.
 const PAGES = (readdirSync(CATALOG_PAGES, { recursive: true }) as string[])
   .filter((file) => file.endsWith('.mdx'))
   .map((file) => ({
@@ -235,7 +235,10 @@ const SYSTEM_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('system.'));
 const CORE_SLUGS = CORE_TYPES.map(slugOf);
 const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
 /** The pages that are not the page of one type. */
-const OTHER_PAGES = ['index', 'items', 'field-kinds', 'your-own-types', 'edges', 'events', 'permissions'];
+const OTHER_PAGES = ['index', 'items', 'types', 'field-kinds', 'your-own-types', 'edges', 'events', 'permissions'];
+/** Where the pages about types sit: in the Types folder, with the two families of types inside it. */
+const TYPES_DIR = '(types)';
+const TYPES_PAGES = ['types', 'your-own-types', 'field-kinds'];
 
 describe('the catalog the pages follow', () => {
   it('is the synced copy, with the types the pages cover', () => {
@@ -273,17 +276,29 @@ describe('the tab', () => {
     const listed = meta.pages.filter((entry: string) => !entry.startsWith('---'));
     const groups = listed.filter((entry: string) => entry.startsWith('('));
     const direct = listed.filter((entry: string) => !entry.startsWith('('));
-    expect(groups).toEqual(['(core)', '(system)']);
-    const inGroup = groups.flatMap((group: string) => readMeta(group).pages as string[]);
-    const all = [...direct, ...inGroup];
+    expect(groups).toEqual([TYPES_DIR]);
+    const typesMeta = readMeta(TYPES_DIR);
+    const families = typesMeta.pages.filter((entry: string) => entry.startsWith('('));
+    expect(families).toEqual(['(core)', '(system)']);
+    // The Types page is the folder's own page, named by `pagesIndex`, and the folder lists the rest.
+    const inTypes = [typesMeta.pagesIndex, ...typesMeta.pages.filter((entry: string) => !entry.startsWith('('))];
+    const inFamilies = families.flatMap((family: string) => readMeta(`${TYPES_DIR}/${family}`).pages as string[]);
+    const all = [...direct, ...inTypes, ...inFamilies];
     expect(all.sort()).toEqual(PAGES.map((page) => page.slug).sort());
     expect(all.length).toBe(new Set(all).size);
   });
 
+  it('opens on the Types page in a closed folder, with the families of types inside it', () => {
+    const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, TYPES_DIR, 'meta.json'), 'utf8'));
+    expect(meta.title).toBe('Types');
+    expect(meta.defaultOpen).toBe(false);
+    expect(meta.pagesIndex).toBe('types');
+  });
+
   it('puts each family of types in a closed folder named for it, with a page for each of its types', () => {
     const expected = [
-      ['(core)', 'Core types', CORE_SLUGS],
-      ['(system)', 'System types', SYSTEM_SLUGS],
+      [`${TYPES_DIR}/(core)`, 'Core types', CORE_SLUGS],
+      [`${TYPES_DIR}/(system)`, 'System types', SYSTEM_SLUGS],
     ] as const;
     for (const [dir, title, slugs] of expected) {
       const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, dir, 'meta.json'), 'utf8'));
@@ -294,8 +309,11 @@ describe('the tab', () => {
     }
   });
 
-  it('keeps the other pages directly in the tab', () => {
-    expect(PAGES.filter((page) => page.group === '.').map((page) => page.slug).sort()).toEqual([...OTHER_PAGES].sort());
+  it('keeps the pages about types in the Types folder and the others directly in the tab', () => {
+    expect(PAGES.filter((page) => page.group === TYPES_DIR).map((page) => page.slug).sort()).toEqual([...TYPES_PAGES].sort());
+    expect(PAGES.filter((page) => page.group === '.').map((page) => page.slug).sort()).toEqual(
+      OTHER_PAGES.filter((slug) => !TYPES_PAGES.includes(slug)).sort(),
+    );
   });
 
   it('shows each generated file on exactly one page', () => {

@@ -38,27 +38,25 @@ describe('buildDocsMap', () => {
     expect(guides.some((line) => line.startsWith('- [Use Marfa with AI agents](/guides/ai-agents)'))).toBe(true);
     expect(guides.some((line) => line.startsWith('- [Troubleshooting](/guides/troubleshooting)'))).toBe(true);
 
+    // The Catalog has no group headings: the Types page is a folder, so its pages nest under it.
     const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Reference'));
-    expect(catalog.filter((line) => line.startsWith('### '))).toEqual(['### Types']);
-    const ungrouped = catalog.slice(0, catalog.indexOf('### Types'));
-    expect(ungrouped.filter((line) => line.startsWith('- ')).map((line) => line.replace(/\]\(.*$/, '').replace(/^- \[/, ''))).toEqual([
-      'Catalog',
-      'Items',
-      'Edges',
-      'Events',
-      'Permissions',
+    expect(catalog.filter((line) => line.startsWith('### '))).toEqual([]);
+    expect(catalog.filter((line) => /^(- |  - |    - )/.test(line)).map((line) => line.replace(/\]\(.*$/, ']').replace(/^( *- )\[/, '$1'))).toEqual([
+      '- Catalog]',
+      '- Items]',
+      '- Types]',
+      '  - Core types',
+      ...['Bookmark', 'Entity', 'Event', 'File', 'Highlight', 'Media', 'Message', 'Note', 'Task'].map((title) => `    - ${title}]`),
+      '  - System types',
+      ...['Connection', 'Folder', 'View'].map((title) => `    - ${title}]`),
+      '  - Type rules]',
+      '  - Field kinds]',
+      '- Edges]',
+      '- Events]',
+      '- Permissions]',
     ]);
-    // The two families are folders in the sidebar, so each is a label with its pages nested under it, in the sidebar's order.
-    const types = catalog.slice(catalog.indexOf('### Types'));
-    expect(types.filter((line) => /^(- |  - )/.test(line)).map((line) => line.replace(/\]\(.*$/, ']').replace(/^( *- )\[/, '$1'))).toEqual([
-      '- Core types',
-      ...['Bookmark', 'Entity', 'Event', 'File', 'Highlight', 'Media', 'Message', 'Note', 'Task'].map((title) => `  - ${title}]`),
-      '- System types',
-      ...['Connection', 'Folder', 'View'].map((title) => `  - ${title}]`),
-      '- Type rules]',
-      '- Field kinds]',
-    ]);
-    expect(catalog.some((line) => line.startsWith('  - [Media](/catalog/media)'))).toBe(true);
+    expect(catalog.some((line) => line.startsWith('    - [Media](/catalog/media)'))).toBe(true);
+    expect(catalog.some((line) => line.startsWith('- [Types](/catalog/types)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('- [Catalog](/catalog)'))).toBe(true);
 
     const reference = lines.slice(lines.indexOf('## Reference'));
