@@ -61,7 +61,7 @@ A page that needs a list the Catalog holds, such as the types, edge types, permi
 - **A list carries items that are parallel**: steps, options, things to check. A page never opens with a list, except the three opening lines of a tutorial, and a list never stands in for an explanation of why.
 - **A table compares things or holds what a reader looks up**: fields, settings, commands, options, a choice between two ways. Keep cells short.
 - **Explain, then point.** A concept page explains the idea and the rules a reader meets in normal use, with one small example. Rare cases, limits, exact numbers and error codes go in a guide, the API reference or the contract, with a link.
-- **Less is clearer.** If a page is hard going, cut before you add. A concept page is usually 400 to 900 words and a guide under 1,500. A page past that is usually two pages, or holds detail that belongs in the reference.
+- **Less is clearer.** If a page is hard going, cut before you add. A concept page is usually 400 to 900 words and a guide under 1,500, counting code. A page past that is usually two pages, or holds detail that belongs in the reference: a guide that covers two jobs done at different times is two guides. A lookup page, such as Settings, the CLI and SDK pages, the Glossary and the changelog, and a tutorial whose code makes it long, may run longer.
 - **Describe the present.** No history, no "now", no "new", nothing about what changed.
 - **Replace, don't append.** When something changes, rewrite the sentence or section it changes. Never add a paragraph that qualifies an older one.
 
