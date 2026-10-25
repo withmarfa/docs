@@ -38,6 +38,14 @@ The code of the docs site and the status page. The root `AGENTS.md` still applie
 - `src/status/` reads the store that a separate checker writes, and never writes to it. It is not prerendered, because it answers from the store at request time.
 - The status build has no `@/` alias. Code under `src/status/`, and any shared module it imports, such as `src/components/analytics.tsx` and `src/lib/analytics.ts`, uses relative imports.
 
+## Focus
+
+- **The ring shows only after Tab, never after a click.** A browser matches `:focus-visible` on an element the reader clicked as soon as any key is pressed, such as an arrow to scroll, so `:focus-visible` alone draws a stray box. `PointerFocus` in `src/components/pointer-focus.tsx`, mounted in both root routes, sets `data-input` on the `html` element: `pointer` on `pointerdown`, `keyboard` on Tab or Shift+Tab. Arrow keys, space and typing change nothing. Before either, there is no value and the ring may show.
+- **One rule draws it.** The "Pointer and focus" section of `src/styles/app.css` draws a 2px ring in half-strength foreground at offset 2px, and switches it off under `html[data-input='pointer']` for everything but a text field, which keeps its focus after a click. It also turns off the shadow ring that Fumadocs components add with `focus-visible:ring-2`, so only one ring is drawn. The same section gives enabled buttons, tabs, summaries and selects the pointer cursor.
+- **Never add per-component `:focus` or `:focus-visible` styles, `outline: none` or `focus-visible:` ring utilities.** They fight the rule and bring back a ring after a click. A new control, scrollable region or custom widget inherits the global rule. If its box clips an outside ring (`overflow: hidden`, a scroll container), add its selector to the inset list in that section, which draws the ring at offset -2px, rather than styling it on its own.
+- A script-focused target that is not in the tab order needs `tabindex="-1"`, which the global rule leaves without a ring.
+- Do not hide a control with `opacity: 0` unless it shows again on focus, because its ring is hidden with it.
+
 ## Tests
 
 - Tests sit beside the code as `*.test.ts` or `*.test.tsx`. Each content lint rule has a test that proves it fires on a bad sample; give a new rule one.
@@ -52,3 +60,4 @@ The code of the docs site and the status page. The root `AGENTS.md` still applie
 - **Analytics grown.** Flag a value import of `posthog-js` outside `src/components/analytics.tsx`, an option that turns on capture, replay, flags or storage, or an agent-read event that gains an IP address, a cookie, a header, a query, a page's text or a value that came from a client and matched no closed list, or that is sent without `$process_person_profile: false`, awaited by the response, or from a build or test without a key.
 - **Limit weakened.** Flag a change that makes the `429` on `/mcp`, `/api/docs/search` or `/api/search` differ from the shapes above, keys a limit on anything but the client's address, stores or sends that address, moves the stage behind work the limit should save, leaves a counted address with no bound on its events, or sends an event for a `429`.
 - **Alias in the status build.** Flag an `@/` import that code under `src/status/` can reach.
+- **Focus ring bypassed.** Flag a `:focus` or `:focus-visible` rule, `outline: none`, or a `focus-visible:` ring or outline utility on a component, a ring that shows after a pointer click, or a change to `PointerFocus` that sets `keyboard` on anything but Tab.

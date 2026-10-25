@@ -116,7 +116,7 @@ export function PageTableOfContentsPopover() {
           type="button"
           aria-controls={contentId}
           aria-expanded={open}
-          className="flex h-10 w-full items-center gap-2.5 px-4 py-2.5 text-start text-sm text-fd-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fd-ring"
+          className="flex h-10 w-full items-center gap-2.5 px-4 py-2.5 text-start text-sm text-fd-muted-foreground"
           onClick={() => setOpen((value) => !value)}
         >
           <Text className="size-4 shrink-0" aria-hidden="true" />

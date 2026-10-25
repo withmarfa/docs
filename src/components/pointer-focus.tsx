@@ -1,19 +1,30 @@
 import { useEffect } from 'react';
 
-// A link clicked with a pointer navigates within the app, so the page changes
-// but focus stays on the link. The next key the reader presses, such as an
-// arrow to scroll, then makes the browser treat that focus as keyboard focus
-// and draw the ring on a sidebar row. Releasing focus after a pointer click
-// avoids that; a link followed from the keyboard (detail 0) keeps its focus.
+// Records how the reader last moved focus, on the root element, so the focus
+// ring in src/styles/app.css shows only after Tab. A browser matches
+// :focus-visible on an element the reader clicked as soon as any key is
+// pressed, so the ring cannot be left to :focus-visible alone.
+//
+// `data-input="pointer"` on any press of the mouse, pen or finger;
+// `data-input="keyboard"` on Tab or Shift+Tab. Arrow keys, space and typing
+// change nothing. Before either, there is no attribute and the ring may show.
 export function PointerFocus() {
   useEffect(() => {
-    const onClick = (event: MouseEvent) => {
-      if (event.detail === 0) return;
-      const link = (event.target as Element | null)?.closest?.('a');
-      if (link) setTimeout(() => link.blur(), 0);
+    const root = document.documentElement;
+    const onPointerDown = () => {
+      root.dataset.input = 'pointer';
     };
-    document.addEventListener('click', onClick, true);
-    return () => document.removeEventListener('click', onClick, true);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) return;
+      root.dataset.input = 'keyboard';
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+      delete root.dataset.input;
+    };
   }, []);
   return null;
 }
