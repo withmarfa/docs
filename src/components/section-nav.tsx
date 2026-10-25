@@ -30,7 +30,7 @@ const SECTIONS: { label: string; href: string; matches: ((pathname: string) => b
   { label: 'Catalog', href: '/catalog', matches: (pathname) => isUnder(pathname, '/catalog') },
   {
     label: 'Reference',
-    href: '/typescript-sdk',
+    href: '/reference',
     matches: (pathname) => REFERENCE_SEGMENTS.has(firstSegment(pathname)),
   },
 ];
