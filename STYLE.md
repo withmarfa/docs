@@ -114,9 +114,9 @@ Don't restate what the API reference says. A page explains what the reference ca
   ````
 
 - **Raw HTTP goes in `http` blocks,** with the method, path, the headers that matter and the body.
-- **A block holds code a reader would run or copy, and nothing else.** What a command prints goes with it in `<Terminal>`: the command's block, then the output's block as `text` or `json`. The page shows them as one block with the output muted, and folds output longer than six lines behind "Output". An HTTP response is not output: it is the shape a reader gets back, so it keeps its own block after the request.
-- **Show the code a step adds, not the whole file again.** A block over 24 lines folds to its first lines on the page, which keeps a page readable, but a long block is still a long block. Cut it to what the reader needs, and link the complete source when there is one.
-- **Give a block a `title`** when the reader needs to know where the code goes, such as a file name.
+- **A block holds code a reader would run or copy, and nothing else.** What a command prints goes with it in `<Terminal>`: the command's block, then the output's block as `text` or `json`. The page shows one block under a "Terminal" header, with the command and then the output in muted text below it, and Copy takes the command only. An HTTP response is not output: it is the shape a reader gets back, so it keeps its own block after the request.
+- **Show the code a step adds, not the whole file again.** A block, or a terminal, over 24 lines shows its first lines with a "Show all" button under them, which keeps a page readable, but a long block is still a long block. Cut it to what the reader needs, and link the complete source when there is one.
+- **Give a block a `title`** when the reader needs to know where the code goes, such as a file name. The title is the header's label; a block without one has a header row with Copy only. An HTTP request and its response are titled `Request` and `Response`. A response adds `note="Server-sent events"`, a lighter note at the right of the header, or `status="200"`, a chip that reads "200 OK" (green for 2xx, red for 4xx and 5xx). Write a response's body in the language it is: `json` for a JSON body, `sse` for an event stream, whose field names and `data:` JSON are coloured. Only a terminal's output is muted.
 - **Every example runs.** Check each against a real instance before it's published.
 - **Every command and option exists.** `pnpm test` reads each `marfa` command in a shell block or in inline code, and each option in a bare code span, against the CLI's command reference (`src/generated/cli-commands.json`), and names the page, the line and the text that the reference lacks. A block that holds a command of another tool, or a deliberate wrong example, takes `command-check="other-tool"` or `command-check="counterexample"` after its language, as in the opening line `bash command-check="counterexample"`, which follows the three backticks. An option of another tool in inline code, or a command that a page names because a release removed it, goes in `src/lib/command-check-allowlist.json` with its reason. The test fails on a marker or an entry that excuses nothing, so none outlasts its use.
 
@@ -130,8 +130,8 @@ Use a component for what it's for, and only where it helps the reader.
 | --- | --- |
 | `Steps` | An ordered procedure: the Quickstart, the tutorials, a how-to with an order. Each step opens with a `###` heading |
 | `Steps paged` | A tutorial: one step on screen at a time in a card, with a step indicator and Previous and Next buttons above it. The card takes each step's height, so keep its steps close in length. A how-to's few short steps stay a plain `Steps` list |
-| `Terminal` | A command and what it prints (see Examples) |
-| Code tabs | The same example in more than one client (see Examples) |
+| `Terminal` | A command and what it prints, as one block under a "Terminal" header (see Examples) |
+| Code tabs | The same example in more than one client: the tabs are the block's header row, with Copy at the right (see Examples) |
 | `Tabs` | Alternatives that aren't code, such as two ways to claim an instance |
 | `Accordion` | Entries a reader opens one at a time, such as troubleshooting. Never a reference list: a list a reader looks up is a plain table on its Catalog or Reference page |
 | `Files` | A directory a reader will see on disk |
@@ -140,7 +140,7 @@ Use a component for what it's for, and only where it helps the reader.
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
 
-The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence`, `Files` and `Terminal` (the command, then "Output:" and its output) as plain Markdown, and leaves the visuals out (`source.config.ts`). A component outside those lists is left out of the copy too, so add it there before a page relies on it.
+The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence`, `Files` and `Terminal` (the command, then "Output:" and its output) as plain Markdown, and a block's `note` or `status` as a line above it, such as "Response (Server-sent events):", and leaves the visuals out (`source.config.ts`). A component outside those lists is left out of the copy too, so add it there before a page relies on it.
 
 ## Visuals
 
