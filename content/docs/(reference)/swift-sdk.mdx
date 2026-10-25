@@ -50,6 +50,7 @@ let copy = try await WorkingCopy.open(store: storeURL, server: Server(url: serve
 | --- | --- |
 | `WorkingCopy.open(store:server:fileBudget:)` | Opens the file. Without a `Server`, the copy works offline only. A `fileBudget` sets the [file budget](#keep-files-on-the-device) as the copy opens, and a reader refuses it with `readingHandle`. |
 | `WorkingCopy.replaceRefused(store:server:fileBudget:)` | Replaces a store that `open` refuses with `wrongSchema` by an empty one, and opens it. [Replace a refused copy](#replace-a-refused-copy) says what it keeps. |
+| `WorkingCopy.remove(store:unsent:)` | Removes a store, once the person has agreed to lose the writes it holds that the instance has not taken. [Remove a copy](#remove-a-copy) says when it refuses. |
 | `WorkingCopy.openReader(store:)` | Opens a store another process writes, to read only. It refuses a path where no store exists. |
 | `handle` | `.writer` or `.reader`. A reader refuses writes, hydration and catch-up with `readingHandle`. |
 | `useKey(_:)` | Gives the open copy a new credential. Held `changes()` streams go on. |
@@ -66,6 +67,19 @@ A store that another build of the core made throws `wrongSchema` from `open`, an
 - **The file budget's setting stays.** The new store has the setting the old one recorded. If the old store records none, or none the core can read, the budget is the default and the replacement still succeeds. Pass `fileBudget` to choose another; if it can't be set once the store is replaced, the call throws `store` and says so, and you can set it with `setBudget(_:)` after you open the copy again.
 - **What only the old store held is gone:** pins, the position in the instance's events and declared types.
 - **A store that holds an unsent write is left as it is**, and the call throws `wrongSchema` with the count. A store that opens as it is, or a path with no store, throws `invalid`. [Troubleshooting](/run/troubleshooting#staying-in-step) covers what to do with unsent writes.
+
+### Remove a copy
+
+`WorkingCopy.remove(store:unsent:)` removes the file, its logs, the files the copy downloaded and its lock, and nothing else beside them. It removes a store of any build, including one that `open` refuses with `wrongSchema`. A symbolic link at one of those names is removed, never what it leads to.
+
+Show the person the store's `unsent` count, which is the number of writes the instance has not taken, and pass the count they agreed to lose as `unsent`. The call holds the store's writer lock throughout, so no write arrives between the check and the removal. It removes the store only when the count matches. Otherwise it leaves everything as it is.
+
+- **A different count throws `unsentDiffers`.** Its `unsent` is the store's own count, or `nil` when the core can't read one, and a store like that is never removed. Its `agreed` is the number you passed. Show the person the store's count and ask again.
+- **A store that something else writes throws `readingHandle`.** That includes another process and another open copy in your own app, so close your copy first.
+- **A folder's store throws `invalid`.** It goes only with the folder.
+- **A path with no store** is removed already. The call takes away what an earlier removal left there when `unsent` is `0`.
+
+A helper that only reads the store, such as one you opened with `openReader(store:)`, doesn't stop the removal and keeps showing the old copy until it reopens. [Devices](/devices#the-working-copy) explains the removal for every binding.
 
 ## Reach a plain http server
 
@@ -515,7 +529,7 @@ Every call on a working copy, `Folders` or `Client` throws a `MarfaError`, whose
 | `noConnection` | A `Client` call found the device offline, so nothing was sent. |
 | `contractMismatch` | The server speaks a contract this build wasn't made for. A write it answered stays queued, and goes again once the app speaks the server's contract. |
 | `wrongServer` | The server at the copy's address is another instance than the copy recorded. The copy sends it no credential or data: [Troubleshooting](/run/troubleshooting) explains. |
-| `copyExpired`, `hydrationIncomplete`, `readingHandle`, `firstSyncWaiting`, `noServer`, `closed` | States covered on this page. |
+| `copyExpired`, `hydrationIncomplete`, `readingHandle`, `unsentDiffers`, `firstSyncWaiting`, `noServer`, `closed` | States covered on this page. |
 
 The other cases (`unknownType`, `io`, `decoding`, `store`, `storageFull`, `signedOut`, `noKeychain`, `redirected`, `noCursor`, `noCatalog`, `wrongSchema`, `bytesAbsent`, `streamIncomplete`, `canceled` and `invalid`) each carry a message that says what happened. The [marfa-swift repository](https://github.com/withmarfa/marfa-swift) holds the source.
 
