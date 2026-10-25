@@ -19,13 +19,13 @@ describe('searchDocs', () => {
 
     const urls = hits.map((h) => h.url);
     expect(new Set(urls).size).toBe(urls.length);
-    expect(urls.filter((u) => u === '/guides/housekeeping')).toHaveLength(1);
+    expect(urls.filter((u) => u === '/run/housekeeping')).toHaveLength(1);
     for (const hit of hits) {
       expect(hit.url).not.toContain('#');
       expect(hit.snippets.length).toBeLessThanOrEqual(MAX_SNIPPETS_PER_PAGE);
     }
 
-    const page = hits.find((h) => h.url === '/guides/housekeeping')!;
+    const page = hits.find((h) => h.url === '/run/housekeeping')!;
     expect(page.title).toBe('Housekeeping');
     expect(page.snippets.length).toBeGreaterThan(0);
   });
@@ -86,12 +86,12 @@ describe('pathToSlugs', () => {
 
 describe('fetchDocsPage', () => {
   it('returns the Markdown of a page, whichever way the path is written', async () => {
-    const page = await fetchDocsPage('/guides/housekeeping');
+    const page = await fetchDocsPage('/run/housekeeping');
     expect(page).not.toBeNull();
-    expect(page).toMatch(/^# Housekeeping \(\/guides\/housekeeping\)\n/);
+    expect(page).toMatch(/^# Housekeeping \(\/run\/housekeeping\)\n/);
     expect(page).toContain('housekeeping jobs');
 
-    for (const form of ['guides/housekeeping', '/guides/housekeeping.md', '/guides/housekeeping/', '/docs/guides/housekeeping']) {
+    for (const form of ['run/housekeeping', '/run/housekeeping.md', '/run/housekeeping/', '/docs/run/housekeeping']) {
       expect(await fetchDocsPage(form), form).toBe(page);
     }
   });
@@ -110,12 +110,12 @@ describe('fetchDocsPage', () => {
     const quickstart = await fetchDocsPage('/quickstart');
     expect(quickstart).toContain('marfa items create --type core.note');
     expect(quickstart).toContain('Output:');
-    expect(await fetchDocsPage('/guides/write-safely')).toContain('**TypeScript**');
+    expect(await fetchDocsPage('/build/write-safely')).toContain('**TypeScript**');
     expect(await fetchDocsPage('/cli-reference')).toBeNull();
     expect(await fetchDocsPage('/docs-for-agents')).toBeNull();
     expect(await fetchDocsPage('/cli/items')).toBeNull();
     expect(await fetchDocsPage('/typescript-client')).toBeNull();
-    expect(await fetchDocsPage('/guides/docs-mcp-server')).toBeNull();
+    expect(await fetchDocsPage('/build/docs-mcp-server')).toBeNull();
     expect(await fetchDocsPage('/get-started/files')).toBeNull();
     expect(await fetchDocsPage('/tools/marfa-command')).toBeNull();
   });
@@ -134,12 +134,12 @@ describe('listTopics', () => {
   it('lists every page with its title, url, description and breadcrumbs', () => {
     const { pages } = listTopics();
     expect(pages.length).toBeGreaterThan(0);
-    const housekeeping = pages.find((p) => p.url === '/guides/housekeeping');
+    const housekeeping = pages.find((p) => p.url === '/run/housekeeping');
     expect(housekeeping).toEqual({
       title: 'Housekeeping',
-      url: '/guides/housekeeping',
+      url: '/run/housekeeping',
       description: expect.any(String),
-      breadcrumbs: ['guides', 'housekeeping'],
+      breadcrumbs: ['run', 'housekeeping'],
     });
   });
 });

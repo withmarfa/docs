@@ -667,7 +667,7 @@ describe('content lint: each rule fires on a bad sample', () => {
   });
 
   it('coming-soon', () => {
-    expect(rules(checkComingSoon('guides/x.mdx', 'This is Coming Soon.'))).toEqual(['coming-soon']);
+    expect(rules(checkComingSoon('build/x.mdx', 'This is Coming Soon.'))).toEqual(['coming-soon']);
     expect(checkComingSoon('(overview)/introduction.mdx', 'Coming soon.')).toEqual([]);
     expect(rules(checkComingSoon('(overview)/run-an-instance.mdx', 'Coming soon.'))).toEqual(['coming-soon']);
   });
@@ -721,7 +721,7 @@ describe('content lint: each rule fires on a bad sample', () => {
     });
 
     it('fires on a relative link', () => {
-      for (const dest of ['files', './files', '../guides/deploy', 'files.md']) {
+      for (const dest of ['files', './files', '../run/deploy', 'files.md']) {
         const found = checkLinks('x.mdx', `Ok.\nSee [it](${dest}).`, urls);
         expect(rules(found)).toEqual(['link']);
         expect(found[0].line).toBe(2);
@@ -756,7 +756,7 @@ describe('content lint: each rule fires on a bad sample', () => {
     const cwd = '/repo';
     const files = new Map<string, string>([
       ['/repo/src/generated/rules.md', '# Rules\n\nIntro.\n\n## One\nFirst — dash.\n### Two\nSecond.\n## One\nThird.\n'],
-      ['/repo/content/docs/guides/local.md', 'Local — text.\n'],
+      ['/repo/content/docs/build/local.md', 'Local — text.\n'],
       ['/repo/src/generated/fenced.md', '## A\n```\n## B\n```\nIn A.\n## C\nIn C.\n'],
       ['/repo/src/generated/custom.md', '## Words [#custom-id]\nBody.\n## `Code` and [a link](/x)\nMore.\n'],
       ['/repo/src/generated/front.md', '---\ntitle: T — U\n---\nBody.\n'],
@@ -766,14 +766,14 @@ describe('content lint: each rule fires on a bad sample', () => {
       ['/repo/src/generated/code.ts', 'export const x = 1; // —\n'],
     ]);
     const read = (absolutePath: string) => files.get(absolutePath);
-    const resolve = (text: string, page = 'guides/page.mdx') =>
+    const resolve = (text: string, page = 'build/page.mdx') =>
       resolveIncludes(page, `/repo/content/docs/${page}`, text, cwd, read);
     const lines = (included: Included[]) => included.map((i) => i.text.split('\n').map((l) => l.trim()));
 
     it('resolves a path from the site root with cwd and from the page without it', () => {
       const root = resolve('<include cwd>src/generated/rules.md</include>');
       expect(root.violations).toEqual([]);
-      expect(root.included.map((i) => i.file)).toEqual(['src/generated/rules.md (included by guides/page.mdx)']);
+      expect(root.included.map((i) => i.file)).toEqual(['src/generated/rules.md (included by build/page.mdx)']);
       const local = resolve('<include>./local.md</include>');
       expect(local.violations).toEqual([]);
       expect(local.included[0].text).toBe('Local — text.\n');
@@ -811,8 +811,8 @@ describe('content lint: each rule fires on a bad sample', () => {
       const { included, violations } = resolve('<include cwd>src/generated/outer.md</include>');
       expect(violations).toEqual([]);
       expect(included.map((i) => i.file)).toEqual([
-        'src/generated/outer.md (included by guides/page.mdx)',
-        'src/generated/inner.md (included by src/generated/outer.md (included by guides/page.mdx))',
+        'src/generated/outer.md (included by build/page.mdx)',
+        'src/generated/inner.md (included by src/generated/outer.md (included by build/page.mdx))',
       ]);
     });
 
@@ -837,7 +837,7 @@ describe('content lint: each rule fires on a bad sample', () => {
       const { included } = resolve('<include cwd>src/generated/rules.md</include>');
       const found = checkIncluded(included[0].file, included[0].text, urls);
       expect(rules(found)).toEqual(['em-dash']);
-      expect(found[0].file).toBe('src/generated/rules.md (included by guides/page.mdx)');
+      expect(found[0].file).toBe('src/generated/rules.md (included by build/page.mdx)');
       expect(found[0].line).toBe(6);
     });
 
@@ -867,7 +867,7 @@ describe('content lint: each rule fires on a bad sample', () => {
   });
 
   it('failure messages name the file, the line and the rule', () => {
-    const [violation] = checkEmDashes('guides/x.mdx', 'a\nb — c');
-    expect(format(violation)).toMatch(/^guides\/x\.mdx:2 \[em-dash\] /);
+    const [violation] = checkEmDashes('build/x.mdx', 'a\nb — c');
+    expect(format(violation)).toMatch(/^build\/x\.mdx:2 \[em-dash\] /);
   });
 });

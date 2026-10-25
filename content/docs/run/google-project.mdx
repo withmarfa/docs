@@ -1,0 +1,160 @@
+---
+title: Create a Google Cloud project for Google connectors
+description: Create a Google Cloud project of your own, publish it, and sign in once so every Google connector can read your account.
+---
+
+A Google connector signs in through a **Google Cloud project that you own**, not one that Marfa publishes. You create the project once, give it a Desktop app client, and sign in once. Every Google connector you run then shares that one grant. Nothing depends on a client that someone else maintains, and Google never has to review it.
+
+You need a Google account, a connector from [withmarfa/marfa-connectors](https://github.com/withmarfa/marfa-connectors) that signs in to Google, and its environment from [Run a connector](/run/run-a-connector). An instance supports **one Google account** for its Google connectors: each connector keeps the account it first ran with and refuses a grant for another. To use another account, use another instance.
+
+<Steps>
+<Step>
+
+### Create a Google Cloud project
+
+Sign in to the [Google Cloud console](https://console.cloud.google.com) with the Google account whose data you want to read. Go to **Menu** > **IAM & Admin** > **Create a Project**, or open `https://console.cloud.google.com/projectcreate`.
+
+Enter a **Project Name**, then select **Create**. Google creates the project within a few minutes. The project ID can't be changed later, and nothing in Marfa uses it.
+
+</Step>
+<Step>
+
+### Enable the APIs your connectors use
+
+A project can only call the APIs you enable in it. Each connector's page in the [Catalog](/catalog/connectors) **names the APIs it calls and the scopes it asks for**. A scope is one permission, written as an address.
+
+For example, the [Google Calendar connector](/catalog/connectors/google-calendar) uses the Google Calendar API with the scopes `https://www.googleapis.com/auth/calendar.events` and `https://www.googleapis.com/auth/calendar.calendarlist.readonly`.
+
+In the console, go to **Menu** > **APIs & Services** > **Library**, open the API, and select **Enable**. The `gcloud` equivalent for Calendar is `gcloud services enable calendar-json.googleapis.com`.
+
+</Step>
+<Step>
+
+### Set up Google Auth Platform and publish the app
+
+Google Auth Platform holds the consent screen that you see when you sign in. Go to **Menu** > **Google Auth platform**. If it says it isn't configured yet, select **Get Started**.
+
+1. Under **App Information**, enter an **App name** and a **User support email**, then select **Next**. Don't use a name that could be mistaken for a Google product.
+2. Under **Audience**, choose **External**, then select **Next**.
+3. Under **Contact Information**, enter an **Email address**, then select **Next**.
+4. Under **Finish**, agree to the Google API Services User Data Policy, then select **Continue** and **Create**.
+5. Go to **Audience**, find the publishing status, and select **Publish app**. If Google asks you to confirm, confirm. The status changes from **Testing** to **In production**.
+
+**Publishing** is the step that matters. While an app is in Testing, Google expires every grant seven days after you give it, so a connector would stop each week and ask you to sign in again. In production, a grant lasts until it is revoked or goes unused.
+
+You don't need to add yourself as a test user. That list only matters for an app that stays in Testing.
+
+</Step>
+<Step>
+
+### Understand the unverified-app screen
+
+Because Google hasn't reviewed your app, the first sign-in shows a screen that says **Google hasn't verified this app**. You go past it once, at the end of the next steps: select **Advanced**, then the link that ends in **(unsafe)**. Google shows an app's name on these screens only after the app is verified, so they may not show the name you chose.
+
+Google doesn't require verification for an app for personal use, with fewer than 100 users. It caps an unverified app at 100 new users over the life of the project, which a project only you use never nears.
+
+</Step>
+<Step>
+
+### Create a Desktop app client
+
+Go to **Menu** > **Google Auth platform** > **Clients**, and select **Create client**.
+
+1. Set **Application type** to **Desktop app**. The connector's sign-in needs this type.
+2. Enter a **Name**. Only you see it, in the console.
+3. Select **Create**.
+
+Copy the **client ID** and the **client secret**. Google shows the whole secret **only when it creates the client**, and afterward only its last four characters. If you lose it, open the client and select **Add Secret**. Put both in your secret store, and give them to every Google connector as environment variables:
+
+```bash
+export GOOGLE_CLIENT_ID=<the client ID>
+export GOOGLE_CLIENT_SECRET=<the client secret>
+```
+
+A Desktop client's secret isn't truly confidential. Keep it out of any file in a repository all the same.
+
+</Step>
+<Step>
+
+### Sign in with the connector's setup
+
+Setup runs once, by hand, with the connector's usual environment and the two Google variables set. It writes the grant to a file that **must not exist yet** and must not sit inside a Git checkout. A file in your home directory is the usual choice:
+
+```bash
+node connectors/<connector>/dist/main.js --setup ~/google-setup.json
+```
+
+Setup logs an address on your machine. Open it in a browser and follow the link to Google's consent screen. Leave **every permission ticked**. Google lets you clear them one by one, and a connector can't do what a cleared permission covers. Then go past the unverified-app screen, as the previous step describes.
+
+If your browser runs on **another machine**, the log also names Google's consent address beside the instruction to paste. Open that address in the browser on the other machine and sign in. At the end, the browser can't reach the machine that runs setup and shows an error, but its address bar holds the address Google sent. Paste that whole address into the terminal where setup runs, and press Enter. Setup warns about a pasted line that isn't the redirect and keeps waiting. If your terminal cuts a pasted line longer than about 1,000 characters, finish the sign-in in a browser on the machine that runs setup.
+
+The file then holds one value, `GOOGLE_REFRESH_TOKEN`. Put it in your secret store and in the environment of **every** Google connector, then delete the file. Setup logs no token.
+
+</Step>
+</Steps>
+
+## Add another Google connector
+
+All Google connectors share one grant, so a second connector adds its scopes to it and drops none.
+
+Google also keeps in the grant every permission the same account gave the same OAuth client before, so a token can hold more than your connectors ask for. To start again from only what they need, remove the app's access at `myaccount.google.com/linkedapps`, then run setup for each connector, as in [Reconnect](#reconnect).
+
+1. Enable the new connector's API in the same project, as in step 2.
+2. Run the new connector's `--setup <file>`, with the `GOOGLE_REFRESH_TOKEN` you already have in its environment. Setup reads the scopes that token holds and asks for them again beside the new connector's own.
+3. Sign in with the same Google account, and leave every permission ticked on Google's consent screen. Setup warns if the account differs.
+4. Put the `GOOGLE_REFRESH_TOKEN` from the new file in the environment of **every** Google connector, including the first, and restart them.
+
+Setup always writes a new refresh token. Until you update the first connector, it keeps running on the old token, which holds only the permissions it held before, and nothing warns you.
+
+## Reconnect
+
+A connector that Google no longer lets in raises the condition `google:reconnect`, which shows among the connector's current problems. It stops calling Google until it has a new token. Google ends a grant when:
+
+- You remove the app's access, at `myaccount.google.com/linkedapps`.
+- The grant goes unused for six months.
+- The project is still in Testing, and seven days have passed.
+- You change your password, and the grant includes Gmail permissions.
+- You granted time-based access, and it has run out.
+
+To reconnect, run the connector's `--setup <file>` again and sign in with the original account, put the new `GOOGLE_REFRESH_TOKEN` in every Google connector's environment, and restart them. If the cause was Testing, publish the app first, as in step 3, because a new grant given in Testing expires after seven days too.
+
+Setup can't read a grant that Google has ended, so it asks only for that connector's own permissions. With more than one Google connector, run each one's setup in turn, each with the previous run's new token in its environment, so that the last token holds every connector's permissions. A connector that lacks one raises a `google:scope:...` condition.
+
+If setup says Google granted access that ends on a date, run setup again before that date and choose ongoing access.
+
+## Troubleshooting
+
+<Accordions>
+<Accordion title="A condition names a scope, such as google:scope:...">
+
+The grant lacks a permission that the connector needs, because it was cleared on Google's consent screen. The connector does nothing that needs it. Run `--setup <file>` again, leave every permission ticked, and put the new token in every Google connector.
+
+</Accordion>
+<Accordion title="Setup reports access_denied">
+
+You declined on the consent screen, or Google or an administrator blocked the request. An account in Google's Advanced Protection Program allows only Google apps and verified apps to reach its data, so it can block an app that Google hasn't verified. Setup's log says which cause to check. Sign in with an account that isn't in the program.
+
+</Accordion>
+<Accordion title="Setup reports admin_policy_enforced">
+
+A Google Workspace administrator restricts the client or a scope. Ask the administrator, or use a personal Google account.
+
+</Accordion>
+<Accordion title="A condition says the client is wrong (google:client)">
+
+Google refused the client. Check that `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` belong to the **Desktop app** client, and restart the connector.
+
+</Accordion>
+<Accordion title="A condition says the account is different (google:account)">
+
+The grant belongs to another Google account than the one the connector keeps, which is the account it first ran with, or than the one its rows came from. Run `--setup <file>` again and sign in with the original account, or use another instance.
+
+</Accordion>
+<Accordion title="Google reports deleted_client">
+
+Google deletes an OAuth client that has gone unused for six months, and its tokens stop working. Create a new Desktop app client as in step 5, put its ID and secret in every Google connector's environment, and reconnect as the [Reconnect](#reconnect) section describes.
+
+</Accordion>
+</Accordions>
+
+[Connectors](/connectors) explains what a connector is, and [Run a connector](/run/run-a-connector) runs one.

@@ -648,7 +648,7 @@ describe('the links', () => {
         if (!file.includes('/catalog/') && !target.startsWith('/catalog')) continue;
         const page = target.startsWith('/catalog')
           ? PAGES.find((candidate) => candidate.slug === (target.split('/').at(-1) === 'catalog' ? 'index' : target.split('/').at(-1)))?.file ?? target
-          : `content/docs${target.startsWith('/guides') ? target : `/(overview)${target}`}.mdx`;
+          : `content/docs${/^\/(build|run)\//.test(target) ? target : `/(overview)${target}`}.mdx`;
         const ids = headingIds(page);
         checked += 1;
         if (!ids?.has(id)) broken.push(`${file}: ${target}#${id}`);

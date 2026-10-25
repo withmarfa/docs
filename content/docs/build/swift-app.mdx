@@ -1,0 +1,339 @@
+---
+title: Build an app with Swift
+description: Build an iOS and macOS app that lists your notes, keeps working without a connection, and stays in step with your instance.
+---
+
+- **You'll build** Reading List, a SwiftUI app for iPhone and Mac that lists the notes on your instance and lets you add and rename them.
+- **You need** the instance from the [Quickstart](/quickstart), running at `http://localhost:8600`, and the terminal where you set `MARFA_API_URL` and `MARFA_API_KEY`. You also need Xcode 27 on a Mac with Apple silicon.
+- **You'll have** an app that reads from a working copy on the device, so it keeps working when the server can't be reached, and sends its changes when the server is back.
+
+<Steps paged>
+<Step>
+
+### Create the project and its key
+
+1. In Xcode, choose **File** > **New** > **Project**, then **Multiplatform** > **App**. Name it `ReadingList`, and leave **Storage** set to **None**.
+2. Choose **File** > **Add Package Dependencies**, and enter `https://github.com/withmarfa/marfa-swift`. Set **Dependency Rule** to **Exact Version** with the version of the [latest release](https://github.com/withmarfa/marfa-swift/releases/latest), and add the `Marfa` product to the `ReadingList` target.
+3. In the target's **Build Settings**, set **Excluded Architectures** for **Any iOS Simulator SDK** to `x86_64`. Marfa's core is built for Apple silicon only.
+4. In the target's **Signing & Capabilities**, under **App Sandbox**, turn on **Outgoing Connections (Client)**, so the Mac app can reach the server.
+
+An app should reach only what it needs. In the Quickstart terminal, make a key that reads and writes notes and nothing else:
+
+<Terminal>
+
+```bash
+marfa keys create --label "Reading List" --source reading-list --type-permission core.note=write
+```
+
+```text
+marfa_k1_<64 hexadecimal characters>
+key 01a15f23-d9b6-7160-957d-cc2f7aded236 (Reading List); the plaintext is shown once, keep it now
+  core.note  Read and edit
+```
+
+</Terminal>
+
+**Copy the key now:** Marfa shows it only once. `--source` stamps every note the app creates with `reading-list`, and [Access](/access) explains what else a key can hold.
+
+Choose **Product** > **Scheme** > **Edit Scheme**, select **Run**, and open **Arguments**. Under **Environment Variables**, add `MARFA_API_URL` with the value `http://localhost:8600`, and `MARFA_API_KEY` with the key.
+
+**The scheme now holds the key**, and Xcode shares a scheme with the project by default. Choose **Product** > **Scheme** > **Manage Schemes** and turn off **Shared** for `ReadingList`, which moves the scheme into `xcuserdata`, and keep `xcuserdata` out of version control. An app you ship keeps its key in the keychain instead, as [Open a working copy](/swift-sdk#open-a-working-copy) shows.
+
+Press Command-B. The project builds, and still shows the template's Hello, world.
+
+</Step>
+<Step>
+
+### Open the working copy
+
+Choose **File** > **New** > **File from Template**, choose **Swift File**, and name it `Library.swift`. Add the class that holds the app's state:
+
+```swift title="Library.swift"
+import Foundation
+import Marfa
+import Observation
+
+@MainActor @Observable
+final class Library {
+    private(set) var notes: LiveQuery<Rows<Item>>?
+    private(set) var queue: LiveQuery<[QueuedWrite]>?
+    private(set) var message = ""
+    private var copy: WorkingCopy?
+
+    func open() async {
+        // Each Mac window runs this; only the first opens the copy, as a second opener of one store reads only.
+        guard copy == nil else { return }
+        do {
+            let folder = URL.applicationSupportDirectory.appending(path: "ReadingList")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let copy = try await WorkingCopy.open(
+                store: folder.appending(path: "notes.sqlite"), server: try Server.fromEnvironment())
+            self.copy = copy
+            notes = LiveQuery(copy, reading: .list(ListFilters(type: "core.note")))
+            queue = LiveQuery(copy, reading: .queue)
+            await sync()
+        } catch { message = error.localizedDescription }
+    }
+}
+```
+
+`open()` keeps the working copy in a SQLite file in Application Support, and reads the server's address and key from the two environment variables. Each `LiveQuery` reads from the copy and **reads again whenever the copy changes**, so a view that shows it stays current.
+
+Add `sync()` inside the class, after `open()`:
+
+```swift title="Library.swift"
+    func sync() async {
+        guard let copy else { return }
+        do {
+            if try await copy.status().hydration == .complete {
+                _ = try await copy.catchUp()
+            } else {
+                _ = try await copy.hydrate(types: ["core.note"], tier: .library)
+            }
+            _ = try await copy.queue.drain()
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+```
+
+The first time, `hydrate(types:tier:)` fills the empty copy with every note in your library. After that, `catchUp()` applies only what changed, and `queue.drain()` sends any writes waiting in the queue. [Devices](/devices) explains the working copy and its queue.
+
+Press Command-B to check that it builds.
+
+</Step>
+<Step>
+
+### Show your notes
+
+Replace the contents of `ReadingListApp.swift`, so the app opens the copy when its window appears:
+
+```swift title="ReadingListApp.swift"
+import SwiftUI
+
+@main
+struct ReadingListApp: App {
+    @State private var library = Library()
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView(library: library)
+                .task { await library.open() }
+        }
+    }
+}
+```
+
+Replace the contents of `ContentView.swift` with a list of the notes, a **Sync** button, and a line for errors:
+
+```swift title="ContentView.swift"
+import Marfa
+import SwiftUI
+
+struct ContentView: View {
+    let library: Library
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(library.notes?.value ?? []) { note in
+                    Text(note.title ?? "Untitled")
+                }
+            }
+            .navigationTitle("Reading List")
+            .toolbar {
+                Button("Sync", systemImage: "arrow.clockwise") { Task { await library.sync() } }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Text(library.message).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+```
+
+Choose **My Mac** or an iPhone simulator as the run destination, and press Command-R. The list shows the note you wrote in the Quickstart, read from the working copy.
+
+</Step>
+<Step>
+
+### Add a note
+
+Add these two functions inside `Library`:
+
+```swift title="Library.swift"
+    func add(title: String) async {
+        await write { copy in
+            try await copy.items.create(
+                Draft(type: "core.note", properties: ["title": .string(title), "body": ""]))
+        }
+    }
+
+    private func write(_ change: (WorkingCopy) async throws -> QueuedWrite) async {
+        guard let copy else { return }
+        do {
+            _ = try await change(copy)
+            _ = try await copy.queue.drain()
+        } catch { message = error.localizedDescription }
+    }
+```
+
+`items.create` **returns at once**: the note is in the working copy, and the write waits in the queue until `drain()` sends it.
+
+Add a field for the title at the end of `ContentView.swift`, and put `NewNoteField(library: library)` first inside the `List`:
+
+```swift title="ContentView.swift"
+struct NewNoteField: View {
+    let library: Library
+    @State private var title = ""
+
+    var body: some View {
+        TextField("New note", text: $title)
+            .onSubmit {
+                let added = title
+                title = ""
+                guard !added.isEmpty else { return }
+                Task { await library.add(title: added) }
+            }
+    }
+}
+```
+
+Run the app, type `Bleak House` in **New note**, and press Return. The note appears at once. List the notes the app wrote to see that it reached the instance:
+
+<Terminal>
+
+```bash
+marfa items list --type core.note --source reading-list
+```
+
+```text
+01a15f23-f2a4-7440-aeaa-46498e1819ac  core.note  2026-10-21T15:45:53.842Z  Bleak House
+```
+
+</Terminal>
+
+</Step>
+<Step>
+
+### Work without a connection
+
+Add a function inside `Library` that clears the writes the instance has answered:
+
+```swift title="Library.swift"
+    func clearAnswered() async {
+        _ = try? await copy?.queue.forgetAnswered()
+        await queue?.refresh()
+    }
+```
+
+Clearing tells the copy's streams nothing, so `refresh()` reads the queue again.
+
+Add a section that shows each write in the queue at the end of `ContentView.swift`, and put `ChangesSection(library: library)` last inside the `List`:
+
+```swift title="ContentView.swift"
+struct ChangesSection: View {
+    let library: Library
+
+    var body: some View {
+        Section("Changes") {
+            ForEach(library.queue?.value ?? [], id: \.id) { Text(describe($0)) }
+            Button("Clear Answered") {
+                Task { await library.clearAnswered() }
+            }
+        }
+    }
+
+    private func describe(_ write: QueuedWrite) -> String {
+        switch write.verdict {
+        case nil: write.waiting ? "Waiting for an earlier change" : "Waiting to send"
+        case .accepted: "Sent"
+        case .merged(let fields): "Merged \(fields.joined(separator: ", ")) with a newer change"
+        case .conflicted: "Changed elsewhere too. Your text is in a conflicted copy."
+        case .refused(let refusal): "Refused: \(refusal.message ?? refusal.reason)"
+        default: "Not sent. It needs attention."
+        }
+    }
+}
+```
+
+A write has no `verdict` until the instance answers it. [Devices](/devices#verdicts) explains each verdict.
+
+Run the app. **Changes** shows Bleak House as Sent; choose **Clear Answered**. Then stop the server: in its terminal, press Control-C. Add `Middlemarch`. It appears in the list, **Changes** shows Waiting to send, and the line at the bottom shows the connection error.
+
+Start the server again with `pnpm dev`. The copy keeps trying the server, less often as time goes on, and sends the write by itself when it gets through. Choose **Sync** to send it now. **Changes** shows Sent.
+
+</Step>
+<Step>
+
+### Rename a note
+
+Add a function inside `Library` that changes a note's title:
+
+```swift title="Library.swift"
+    func rename(_ note: Item, to title: String) async {
+        await write { copy in
+            try await copy.items.update(
+                note.id, Edit(properties: ["title": .string(title)], baseVersion: note.version))
+        }
+    }
+```
+
+The `Edit` carries the version of the note the app read, so the instance can tell whether someone else changed it since. [Write safely](/build/write-safely) explains versions from the API's side.
+
+Add an editable row at the end of `ContentView.swift`, and replace `Text(note.title ?? "Untitled")` in `ContentView` with `NoteRow(library: library, note: note)`:
+
+```swift title="ContentView.swift"
+struct NoteRow: View {
+    let library: Library
+    let note: Item
+    @State private var title = ""
+
+    var body: some View {
+        TextField("Title", text: $title)
+            .onAppear { title = note.title ?? "" }
+            .onChange(of: note.version) { title = note.title ?? "" }
+            .onSubmit { Task { await library.rename(note, to: title) } }
+    }
+}
+```
+
+Run the app, change Middlemarch to `Middlemarch, by George Eliot`, and press Return. **Changes** shows Sent.
+
+</Step>
+<Step>
+
+### See a verdict
+
+Now two devices change one note. Stop the server, rename Bleak House to `Bleak House, by Dickens`, and quit the app. The rename waits in the queue, which **survives the app quitting**.
+
+Start the server. In the Quickstart terminal, change the same note's title as another device would, with the ID from the list in the Add a note step. The note is still at version 1 on the instance:
+
+<Terminal>
+
+```bash
+marfa items update <id> --version 1 --prop title="Changed elsewhere"
+```
+
+```text
+01a15f23-f2a4-7440-aeaa-46498e1819ac  core.note  2026-10-21T15:45:53.842Z  Changed elsewhere
+{
+  "body": "",
+  "title": "Changed elsewhere"
+}
+```
+
+</Terminal>
+
+Press Command-R. The app catches up and sends the rename, and **Changes** shows Merged title with a newer change. The note keeps your title, because a note **keeps the last writer's title**. Had both changed the body, the instance would have kept both texts, yours in a conflicted copy, as [Versions](/versions) explains.
+
+</Step>
+</Steps>
+
+## Next steps
+
+<Cards>
+  <Card title="Swift SDK" href="/swift-sdk">Keep a key in the keychain, handle each error, and declare your own types.</Card>
+  <Card title="Devices" href="/devices">How a working copy stays current, and what each verdict means.</Card>
+  <Card title="Sync a folder" href="/run/sync-a-folder">Keep your notes as Markdown files in a folder on your Mac.</Card>
+  <Card title="Write safely" href="/build/write-safely">How versions and conflicts work from the API's side.</Card>
+</Cards>

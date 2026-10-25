@@ -21,22 +21,24 @@ describe('buildDocsMap', () => {
   const map = buildDocsMap();
   const lines = map.split('\n');
 
-  it('lists the four tabs in order, as H2 headings', () => {
-    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Overview', '## Guides', '## Catalog', '## Reference']);
+  it('lists the five tabs in order, as H2 headings', () => {
+    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Overview', '## Build', '## Run', '## Catalog', '## Reference']);
   });
 
   it('groups each tab as the sidebar does', () => {
-    const overview = lines.slice(lines.indexOf('## Overview'), lines.indexOf('## Guides'));
+    const overview = lines.slice(lines.indexOf('## Overview'), lines.indexOf('## Build'));
     expect(overview.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Concepts', '### AI tools']);
     expect(overview.some((line) => line.startsWith('- [Docs MCP server](/docs-mcp-server)'))).toBe(true);
     expect(overview.some((line) => line.startsWith('- [Overview](/overview)'))).toBe(true);
     expect(overview.some((line) => line.startsWith('- [Glossary](/glossary)'))).toBe(true);
 
-    const guides = lines.slice(lines.indexOf('## Guides'), lines.indexOf('## Catalog'));
-    expect(guides).toContain('### Build apps and agents');
-    expect(guides).not.toContain('### AI agents');
-    expect(guides.some((line) => line.startsWith('- [Use Marfa with AI agents](/guides/ai-agents)'))).toBe(true);
-    expect(guides.some((line) => line.startsWith('- [Troubleshooting](/guides/troubleshooting)'))).toBe(true);
+    const build = lines.slice(lines.indexOf('## Build'), lines.indexOf('## Run'));
+    expect(build.filter((line) => line.startsWith('### '))).toEqual(['### Tutorials', '### Build apps and agents', '### Build connectors']);
+    expect(build.some((line) => line.startsWith('- [Use Marfa with AI agents](/build/ai-agents)'))).toBe(true);
+
+    const run = lines.slice(lines.indexOf('## Run'), lines.indexOf('## Catalog'));
+    expect(run.filter((line) => line.startsWith('### '))).toEqual(['### Set up', '### Keys and access', '### Folders', '### Connectors', '### Look after it']);
+    expect(run.some((line) => line.startsWith('- [Troubleshooting](/run/troubleshooting)'))).toBe(true);
 
     // The Catalog has no group headings: the Types and Connectors pages are folders, so their pages nest under them.
     const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Reference'));

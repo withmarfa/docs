@@ -1,0 +1,132 @@
+---
+title: Define a type
+description: Register a type for items no shipped type fits, with the properties Marfa checks on every item of it.
+---
+
+When no type Marfa ships fits what your app keeps, register one of your own, and Marfa checks the properties it declares on every item of that type. This guide registers a type for receipt photos, `app.example.receipt`. [Items and types](/items-and-types) explains what a type is and when to build on another.
+
+## Write the definition
+
+Keep the definition in a file. Each call on this page sends the file as it stands:
+
+```json title="receipt.json"
+{
+  "id": "app.example.receipt",
+  "parent": "core.file.image",
+  "fields": {
+    "merchant": { "type": "string", "required": true, "description": "Where the purchase was made" },
+    "total": { "type": "number" },
+    "currency": { "type": "string", "maxLength": 3 }
+  }
+}
+```
+
+- **`id`** says who the type is for: `app.<app name>.<type>` for your app's own types, `user.<type>` for types you keep for yourself, or a name of your own, such as `acme.deal`, for types you publish. Name a type with a singular noun, and write words in `snake_case`. [Type rules](/catalog/your-own-types#identifier) lists what an identifier must meet.
+- **`parent`** makes the type a child of another. A receipt is an image with a merchant and a total, so it takes every property of `core.file.image` as well as its own.
+- **`fields`** declares the type's own properties. Each needs a `type`, one of the [field kinds](/catalog/field-kinds). `required` defaults to `false`, an enum needs `enum_values` and an array needs `items_type`. [Type rules](/catalog/your-own-types#fields) lists every key a field takes.
+
+A property can't share a name with a field every item has, such as `source` or `version`: the Catalog lists the [reserved field names](/catalog/your-own-types#reserved-field-names). Keep the time the thing happened in the item's own `occurred_at`. [Register a type](/api-reference/types/registerType) lists the rest a type can declare, such as its label, display hints and policies.
+
+Marfa keeps a property the type doesn't declare and serves it back. To refuse one, name the type in the `strict_mode` lever, as [Settings](/run/settings#what-the-enforcement-levers-do) shows.
+
+To start from a scaffold, `marfa types scaffold` prints a definition. It needs no server or key:
+
+```bash
+marfa types scaffold app.example.receipt --parent core.file.image \
+  --field merchant:string --field total:number --field currency:string \
+  --required merchant > receipt.json
+```
+
+A field is `NAME:TYPE`, an enum `NAME:enum:one,two` and an array `NAME:array:TYPE`. The command refuses what registration would refuse, and says why. It can't set a field's `description` or `maxLength`, so add them to the file.
+
+### Make it readable as another type
+
+To make a type readable as another without taking its properties, name that type in `compatible_with`. A connector does this so a person can keep one of its feed items as an item of a core type. A recipe that requires a `body` can be read as a note:
+
+```json title="recipe.json"
+{
+  "id": "user.recipe",
+  "compatible_with": ["core.note"],
+  "fields": {
+    "title": { "type": "string" },
+    "body": { "type": "string", "required": true },
+    "servings": { "type": "integer" }
+  }
+}
+```
+
+Marfa checks the claim against the [compatibility rules](/catalog/your-own-types#compatible-with) when you register or replace the type, and refuses one that doesn't hold with `422 compatible_with_violation`, naming the property. It then refuses the same way any replacement or deletion of the target that would break the claim, and `details.dependent_type_ids` names the types that claim it. A compatible type inherits nothing, so a listing of `core.note` leaves recipes out.
+
+## Register the type
+
+```bash tab="CLI" tab-group="client"
+marfa types register --file receipt.json
+```
+
+```http tab="HTTP"
+POST /types
+Authorization: Bearer <key>
+Content-Type: application/json
+
+<the contents of receipt.json>
+```
+
+```ts tab="TypeScript"
+import { readFile } from "node:fs/promises";
+
+const definition = JSON.parse(await readFile("receipt.json", "utf8"));
+const { data, error } = await marfa.POST("/types", { body: definition });
+```
+
+```swift tab="Swift"
+import MarfaAPI
+
+let api = Client(server)
+let definition = try JSONDecoder().decode(
+    Components.Schemas.TypeDefinitionInput.self, from: Data(contentsOf: receiptURL))
+let registered = try await api.register(itemType: definition)
+```
+
+The TypeScript examples use a client made as [the TypeScript SDK](/typescript-sdk) shows, and the Swift examples a `Client` made as [the Swift SDK](/swift-sdk#call-the-server-directly) shows, with `receiptURL` the file's location. Marfa answers `201` with the type as it stored it:
+
+```json title="Response" status="201"
+{
+  "type": {
+    "id": "app.example.receipt",
+    "label": "Receipt",
+    "version": 0,
+    "fields": {
+      "merchant": { "type": "string", "description": "Where the purchase was made", "required": true },
+      "total": { "type": "number" },
+      "currency": { "type": "string", "maxLength": 3 }
+    },
+    "parent": "core.file.image",
+    "provenance": {
+      "origin": "user",
+      "created_by": { "kind": "key", "id": "01a15f3c-13ee-70ba-8ba1-6e00b9a76552", "name": "admin" }
+    }
+  }
+}
+```
+
+Marfa made the label from the identifier, and `provenance.created_by` names who registered the type. A replacement keeps that creator, and a type with no recorded creator has `created_by: null`. The `version` is **yours to keep**: Marfa stores the number you send, 0 when you send none, and never changes it. An identifier that is already registered is refused `409 type_already_exists`.
+
+`marfa types get app.example.receipt` (`GET /types/{id}`) answers the type with the properties it inherits, such as `blob_ref`, `mime_type`, `width` and `height`. An item must hold **every required property along the chain**, so a receipt needs a `blob_ref`, a `mime_type` and a `merchant`. A write that lacks one is refused `400 invalid_properties`, naming it.
+
+Once the type is registered, [change or delete it](/build/change-a-type) as your app grows.
+
+## What your key needs
+
+Each operation needs a key whose type map grants write on the type's identifier, plus a grant of its own:
+
+| Operation | Also needs |
+| --- | --- |
+| Register | `metadata.types:write`, the `types` entry of the key's metadata map. |
+| Replace | `metadata.types:write` when the change only adds optional properties no item holds a value under, or changes the label, a description, the display hints or the version. Any other change, such as removing a property or making one required, needs the `schema.write` permission. |
+| Delete | `schema.write`. |
+
+A new parent or `compatible_with` target that isn't a platform type also needs write on that type; one the type already names doesn't, so a connector can update its type after its permissions narrow. A missing write is refused `403 type_not_permitted`, and `details.grant` names it.
+
+A replacement that needs `schema.write` from a key without it is refused `403 forbidden`, and `details.changes` lists each part that needs it. Send those parts with a key that holds `schema.write`. [Manage keys](/run/manage-keys) shows how to give a key its maps and permissions.
+
+The rules behind this guide are in the [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) chapter of the contract.

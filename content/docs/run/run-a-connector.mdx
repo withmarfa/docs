@@ -1,0 +1,122 @@
+---
+title: Run a connector
+description: Build a connector from the marfa-connectors repository, give it a key of its own, and run it once or on a schedule.
+---
+
+A connector is **a program you run yourself**, with a key of its own and the vendor's credentials in its environment. [Connectors](/connectors) explains why the server never runs one. These steps run any connector in [withmarfa/marfa-connectors](https://github.com/withmarfa/marfa-connectors), whether one Marfa ships or [one you built](/build/connector). Marfa ships six: [GitHub](/catalog/connectors/github), [Google Calendar](/catalog/connectors/google-calendar), [Todoist](/catalog/connectors/todoist), [Readwise](/catalog/connectors/readwise), [Readwise Reader](/catalog/connectors/readwise-reader) and [RSS](/catalog/connectors/rss). The [Catalog](/catalog/connectors) says what each reads and writes back, and lists its settings.
+
+A connector that signs in to Google needs a Google Cloud project of your own first: [Create a Google Cloud project for Google connectors](/run/google-project).
+
+The repository **has no releases and publishes no package**, so build from its `main` branch, and run it against an instance on the latest Marfa release.
+
+## Run one
+
+The steps use the RSS connector. You need the instance and CLI from the [Quickstart](/quickstart), with a key that holds `keys.mint`, such as the Quickstart's. You also need Git, [Node.js](https://nodejs.org) 22.13 or later and [pnpm](https://pnpm.io/installation) 11.
+
+<Steps>
+<Step>
+
+### Build the connector
+
+The build compiles every connector in the repository:
+
+```bash
+git clone https://github.com/withmarfa/marfa-connectors.git
+cd marfa-connectors
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+</Step>
+<Step>
+
+### Make its key
+
+Give each connector a key of its own: its source is the connector's `source`, and it holds only what the connector writes. The RSS connector writes `rss.entry`:
+
+```bash
+marfa keys create --label rss --source rss --type-permission rss.entry=write \
+  --metadata-permission types=write --default-tier feed
+```
+
+`--metadata-permission types=write` lets the connector register its type on the first start. **Copy the key from the answer**, because Marfa shows it once. The connector **refuses a key that holds more, or less**, and names what to change. [Manage keys](/run/manage-keys) explains each flag.
+
+</Step>
+<Step>
+
+### Run it once
+
+In a terminal of its own, so the connector's key doesn't replace your CLI's, set its environment and run it with `--once`. `RSS_FEEDS` holds one feed on each line, as an address or as `name=address`; a named feed keeps its items when its address changes. A feed's address can carry a token, so keep `RSS_FEEDS` and the key out of any file in the checkout. Replace the two addresses with your own feeds:
+
+<Terminal>
+
+```bash
+export MARFA_API_URL=http://localhost:8600
+export MARFA_API_KEY=<the connector's key>
+export RSS_FEEDS='https://example.org/feed.xml
+news=https://example.com/atom.xml'
+node connectors/rss/dist/main.js --once
+```
+
+```text
+2026-10-21T15:41:15.500Z info registered as 01a15f1f-b268-77df-acbb-e84c10f5ae22
+2026-10-21T15:41:16.439Z info run succeeded: created 3, updated 0, archived 0, unchanged 0, skipped 0
+```
+
+</Terminal>
+
+</Step>
+<Step>
+
+### Check its runs
+
+With your own key, list the connectors. Each shows its last run and that run's summary or error:
+
+<Terminal>
+
+```bash
+marfa connectors list
+```
+
+```text
+01a15f1f-b268-77df-acbb-e84c10f5ae22  rss  rss  succeeded  2026-10-21T15:41:16.439Z  created 3, updated 0, archived 0, unchanged 0, skipped 0
+```
+
+</Terminal>
+
+`marfa connectors runs <connector id>` lists its recent runs, and `marfa items list --type rss.entry` lists what it wrote.
+
+</Step>
+</Steps>
+
+To keep it running, start it with `--every 15m` in place of `--once`, which reads every feed every 15 minutes, or run `--once` from cron or launchd. The connector keeps no file: its place in each feed is on the instance, so a new process or container carries on from the last run. The repository's template README shows a launchd file and a container image.
+
+## Check and manage it in the browser
+
+The owner's **Connectors** page at `/auth/owner/connectors` lists registrations and their reported state. Open a connector to see its details, current problems and recent runs. **Failing** means its latest run failed; **Problems** means it reported an issue; **Not heard from** means it has not reported a heartbeat, run or registration for more than a day. Check the process where it runs for the cause.
+
+The detail page offers two actions that cannot be undone:
+
+- **Clear saved state** removes the state and agreements for that connector's source. If a replacement key has registered under the same source, this also clears its saved state. The source's next run starts from the beginning.
+- **Remove connector** deletes the selected registration and its runs. It also deletes the source's inbound endpoints and retained deliveries if this is its current registration. Removing an older registration leaves the successor's endpoints and deliveries in place.
+
+Neither action stops the external process or revokes its key. Stop the process where it runs and revoke the key separately if you no longer need it. The [connector contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md) and [inbound webhook contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/inbound-webhooks.md#inbound-webhookssource-old-delete-keeps) define the effects.
+
+## Exit codes
+
+A run with `--once` ends with one of these codes:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The run succeeded, or the connector was stopped cleanly. |
+| `1` | The run failed, or the connector couldn't start, such as on a key it refuses. |
+| `2` | A setting is missing or malformed. The log names the setting, never its value. |
+
+A failed run loses nothing, and the next run reads the vendor again.
+
+## Keep it running
+
+- **`--every 15m`** keeps one process running every 15 minutes. Runs never overlap, and a failed run lengthens the wait before the next.
+- **`--once` from a scheduler**, such as cron, launchd or a scheduled container.
+
+The connector keeps its place at the vendor on the instance, not in a file, so a new process carries on from the last run. **Run one process for each connector**: a second under the same key waits under `--every` and exits under `--once`, as [Holds and retries](/build/connector-holds-and-retries) explains. The [template README](https://github.com/withmarfa/marfa-connectors/blob/main/template/README.md#run-it) has a launchd file and a container image.

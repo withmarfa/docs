@@ -20,8 +20,8 @@ describe('grewTooMuch', () => {
 
 describe('growthWarning', () => {
   it('is a workflow annotation on the file, pointing to STYLE.md', () => {
-    expect(growthWarning('content/docs/guides/files.mdx', 4000, 6000)).toBe(
-      '::warning file=content/docs/guides/files.mdx::This page grew from 4000 to 6000 characters (50 percent longer). ' +
+    expect(growthWarning('content/docs/build/files.mdx', 4000, 6000)).toBe(
+      '::warning file=content/docs/build/files.mdx::This page grew from 4000 to 6000 characters (50 percent longer). ' +
         'Check whether the new text belongs in the API reference or the contract instead, ' +
         'or replaces something already here: STYLE.md, "Keeping pages current".',
     );
@@ -38,14 +38,14 @@ describe('parseChangedPages', () => {
       'M\tcontent/docs/a.mdx',
       'A\tcontent/docs/added.mdx',
       'D\tcontent/docs/deleted.mdx',
-      'R087\tcontent/docs/old.mdx\tcontent/docs/guides/new.mdx',
+      'R087\tcontent/docs/old.mdx\tcontent/docs/build/new.mdx',
       'M\tcontent/docs/meta.json',
       'M\tREADME.md',
       '',
     ].join('\n');
     expect(parseChangedPages(status)).toEqual([
       { path: 'content/docs/a.mdx', basePath: 'content/docs/a.mdx' },
-      { path: 'content/docs/guides/new.mdx', basePath: 'content/docs/old.mdx' },
+      { path: 'content/docs/build/new.mdx', basePath: 'content/docs/old.mdx' },
     ]);
   });
 });

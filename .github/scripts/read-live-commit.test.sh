@@ -465,13 +465,13 @@ verdict() { # verdict <target> <path>...
   if printf '%s\n' "$@" | paths_touch_target "$target"; then printf 'publish'; else printf 'skip'; fi
 }
 
-check "docs: a content page publishes the docs site" publish "$(verdict docs content/docs/guides/x.mdx)"
+check "docs: a content page publishes the docs site" publish "$(verdict docs content/docs/build/x.mdx)"
 check "docs: the status source does not" skip "$(verdict docs src/status/lib/state.ts)"
 check "docs: the status configs do not" skip "$(verdict docs vite.status.config.ts wrangler.status.jsonc tsconfig.status.json)"
 check "docs: a mixed change publishes it" publish "$(verdict docs src/status/lib/state.ts content/docs/x.mdx)"
 
 check "status: its own source publishes it" publish "$(verdict status src/status/lib/state.ts)"
-check "status: a content page does not" skip "$(verdict status content/docs/guides/x.mdx)"
+check "status: a content page does not" skip "$(verdict status content/docs/build/x.mdx)"
 check "status: a docs route does not" skip "$(verdict status src/routes/mcp.ts)"
 check "status: a shared component publishes it" publish "$(verdict status src/components/error-page.tsx)"
 check "status: a workflow change does not" skip "$(verdict status .github/workflows/publish.yml)"

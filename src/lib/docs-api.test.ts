@@ -13,7 +13,7 @@ describe('GET /api/docs/search', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/json');
     const body = (await res.json()) as { hits: { title: string; url: string; snippets: string[] }[] };
-    expect(body.hits.map((h) => h.url)).toContain('/guides/housekeeping');
+    expect(body.hits.map((h) => h.url)).toContain('/run/housekeeping');
   });
 
   it('honors limit', async () => {
