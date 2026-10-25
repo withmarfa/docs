@@ -55,7 +55,12 @@ export function Callout({
       className={cn('my-6 flex flex-col gap-0.5 rounded-xl px-4 py-3 text-sm leading-relaxed', tint.panel, className)}
     >
       <p className={cn('my-0! font-semibold', tint.title)}>{title}</p>
-      <div className={cn('[&>:first-child]:mt-0 [&>:last-child]:mb-0', tint.body)}>{children}</div>
+      <div
+        className={cn(
+          '[&>:first-child]:mt-0 [&>:last-child]:mb-0 [&_a]:text-inherit [&_strong]:font-semibold [&_strong]:text-inherit',
+          tint.body,
+        )}
+      >{children}</div>
     </div>
   );
 }

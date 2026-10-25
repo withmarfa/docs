@@ -42,7 +42,7 @@ type BlockProps = Omit<ComponentProps<'pre'>, 'title'> & {
   icon?: unknown;
 };
 
-/** Stands in for an absent title, so that every block draws one header row. */
+/** Stands in for an absent title when a note or status gives the header row something to hold. */
 const NO_TITLE = <></>;
 
 function Status({ code }: { code: string }) {
@@ -71,10 +71,6 @@ function actions(note: string | undefined, status: string | undefined) {
   };
 }
 
-function wantsCopy(allowCopy: BlockProps['allowCopy']) {
-  return allowCopy !== false && allowCopy !== 'false';
-}
-
 /**
  * The `pre` of every Markdown code block: Fumadocs' code block under one
  * header row, folded to its first lines when it is long, so a page doesn't
@@ -89,7 +85,6 @@ export function FoldingCodeBlock({ title, note, status, icon: _icon, ...props }:
       title={title}
       note={note}
       status={status === undefined ? undefined : String(status)}
-      allowCopy={props.allowCopy}
       block={props as ComponentProps<typeof CodeBlock>}
     >
       <Pre>{props.children}</Pre>
@@ -102,7 +97,6 @@ function CodeBlockCard({
   title,
   note,
   status,
-  allowCopy,
   block,
   children,
 }: {
@@ -110,14 +104,13 @@ function CodeBlockCard({
   title?: string;
   note?: string;
   status?: string;
-  allowCopy?: BlockProps['allowCopy'];
   block: ComponentProps<typeof CodeBlock>;
   children: ReactNode;
 }) {
   return (
     <InCodeTabs.Consumer>
       {(inTabs) => {
-        const header = !inTabs && Boolean(title || note || status || wantsCopy(allowCopy));
+        const header = !inTabs && Boolean(title || note || status);
         const card = (
           <CodeBlock
             {...block}
