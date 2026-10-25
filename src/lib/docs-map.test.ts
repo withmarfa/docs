@@ -38,7 +38,7 @@ describe('buildDocsMap', () => {
     expect(guides.some((line) => line.startsWith('- [Use Marfa with AI agents](/guides/ai-agents)'))).toBe(true);
     expect(guides.some((line) => line.startsWith('- [Troubleshooting](/guides/troubleshooting)'))).toBe(true);
 
-    // The Catalog has no group headings: the Types page is a folder, so its pages nest under it.
+    // The Catalog has no group headings: the Types and Connectors pages are folders, so their pages nest under them.
     const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Reference'));
     expect(catalog.filter((line) => line.startsWith('### '))).toEqual([]);
     expect(catalog.filter((line) => /^(- |  - |    - )/.test(line)).map((line) => line.replace(/\]\(.*$/, ']').replace(/^( *- )\[/, '$1'))).toEqual([
@@ -54,7 +54,10 @@ describe('buildDocsMap', () => {
       '- Edges]',
       '- Events]',
       '- Permissions]',
+      '- Connectors]',
+      ...['GitHub', 'Google Calendar', 'Todoist', 'Readwise', 'Readwise Reader', 'RSS'].map((title) => `  - ${title}]`),
     ]);
+    expect(catalog.some((line) => line.startsWith('  - [GitHub](/catalog/connectors/github)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('    - [Media](/catalog/media)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('- [Types](/catalog/types)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('- [Catalog](/catalog)'))).toBe(true);

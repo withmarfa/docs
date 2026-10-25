@@ -1,0 +1,78 @@
+---
+title: GitHub
+description: Repositories, issues, discussions, comments, pull requests and notifications from GitHub, with edits to issues, discussions and comments carried back.
+---
+
+The GitHub connector reads your repositories into the feed. With a GitHub App it also carries changes to issues, discussions and comments back to GitHub.
+
+## What it reads
+
+You choose how it signs in, and the choice decides whether anything can go back:
+
+- **A fine-grained personal access token** only reads, even if the token could write.
+- **A GitHub App** reads and writes. You register it from a manifest the connector serves, and install it on the repositories to sync.
+
+It reads:
+
+- **Repositories.** Every repository the token or App can reach, or only those named in `GITHUB_REPOSITORIES`. A repository left out of that setting is paused, not archived: its rows stay as they are. With a personal token, or a notifications token and no personal one, it also reads the repositories you have starred.
+- **Issues and pull requests.** Everything open, and what closed or changed in the last 90 days. An older issue comes in once anything happens to it. A pull request carries its state, draft flag, branches and check results.
+- **Discussions and comments.** The discussions of each repository that has Discussions turned on, with their comments and replies, and the comments on issues.
+- **Relations.** Sub-issues, blockers, related issues, duplicates, and which pull request closed which issue.
+- **Notifications.** With `GITHUB_NOTIFICATIONS_TOKEN` set, every thread in its owner's notifications, read and unread.
+- **Files.** Images and files that GitHub signs in issue and comment bodies, kept as files.
+
+## Types it writes
+
+| Type | Parent type | Holds |
+| --- | --- | --- |
+| `github.repository` | [Entity](/catalog/entity) | A repository, with whether you starred it |
+| `github.issue` | [Task](/catalog/task) | An issue. Its status is `pending` while open, `completed` when closed as completed and `canceled` when closed as not planned or as a duplicate |
+| `github.pull_request` | [Task](/catalog/task) | A pull request, read only |
+| `github.discussion` | [Note](/catalog/note) | A discussion, with its category and whether it is answered |
+| `github.comment` | [Message](/catalog/message) | A comment on an issue or a discussion |
+| `github.notification` | [Message](/catalog/message) | A notification thread, read only |
+| `github.file`, `github.file.image` | [File](/catalog/file) | Bytes kept from an attachment, read only |
+
+Every row holds `github_id`, which is how the connector finds the same thing on GitHub again. The connector registers these types on its first start.
+
+It also writes the connections `github.in-repository`, `github.sub-issue-of`, `github.blocked-by`, `github.relates-to`, `github.duplicate-of`, `github.closes` and `github.closed-by`, and uses Marfa's own `in-thread`, `references`, `parent-of` and `attached-to`.
+
+## What goes back
+
+Only with a GitHub App, and only for issues, discussions, comments and the relations between issues:
+
+- **Edits.** An issue's title, body, labels, assignees and status; a discussion's title, body and whether it is closed; a comment's text.
+- **New rows.** An issue or discussion made in Marfa is created in the repository its `github.in-repository` connection names, and a comment in its thread is posted. A discussion also needs a `category` that the repository has.
+- **Relations.** A `github.sub-issue-of`, `github.blocked-by` or `github.relates-to` connection drawn or removed in Marfa is made or removed on GitHub.
+- **Removal.** Trashing an open issue closes it as not planned, and a discussion is left as it is. Trashing a comment the App wrote deletes it.
+
+Repositories, pull requests, notifications, files, duplicates and closing links are always read only. A change to one in Marfa is put back from GitHub. Edits to someone else's comment are put back too.
+
+## Settings
+
+| Setting | What it holds |
+| --- | --- |
+| `GITHUB_PERSONAL_TOKEN` | A fine-grained personal access token. A secret. Use it alone, without the App settings. |
+| `GITHUB_APP_ID` | The App's ID. |
+| `GITHUB_PRIVATE_KEY` | The App's private key. A secret. |
+| `GITHUB_WEBHOOK_SECRET` | The secret GitHub signs deliveries with. A secret. |
+| `GITHUB_NOTIFICATIONS_TOKEN` | A classic token with only the `notifications` scope. A secret. Optional. It works beside either way of signing in. |
+| `GITHUB_REPOSITORIES` | The repositories to sync, as `owner/repo` or `owner/*`, separated by commas or whitespace. Every repository it can see otherwise. |
+| `GITHUB_READ_ONLY` | `true`, or a comma-separated list of kinds to keep read only: `repository`, `issue`, `comment`, `discussion`, `pull_request`, `notification`, `file` and `image`. |
+| `GITHUB_PUBLIC_URL` | The public address of your instance, so GitHub can post webhooks to it. |
+| `GITHUB_ORGANIZATION` | The organization that owns the App, for setup. |
+| `GITHUB_APP_NAME` | The App's name, for setup. |
+
+## What to know
+
+- **Pick one way to sign in.** The connector refuses a personal token set beside the App settings.
+- **Every `github.issue` syncs.** With an App, every issue, discussion and comment on the instance is sent to GitHub, whoever made it. A row meant to stay in Marfa is a core task, note or message instead.
+- **Changes arrive on a schedule.** With the App, setting `GITHUB_PUBLIC_URL` turns on GitHub's webhook, and changes arrive within seconds. A personal token has no webhook.
+- **`private` is a marker, not a lock.** Each row says whether its repository is private. Marfa gives a key access by type, not by that field, so read it before you copy a row somewhere public.
+- **GitHub can refuse a change.** A change in an archived repository, say. The run names it and does not send it again until the row changes.
+- **Stars are read on scheduled runs only.** A repository loses its star mark only after two runs in a row lack it.
+- **It never marks a notification read.**
+
+## Run it
+
+[Run a connector](/guides/run-a-connector) runs any connector. The [README](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/github/README.md) lists the permissions this connector's key needs and walks through registering the GitHub App.
