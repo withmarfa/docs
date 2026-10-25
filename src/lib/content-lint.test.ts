@@ -28,6 +28,7 @@ type Rule =
   | 'frontmatter'
   | 'coming-soon'
   | 'callout-title'
+  | 'tutorial-length'
   | 'link'
   | 'include';
 
