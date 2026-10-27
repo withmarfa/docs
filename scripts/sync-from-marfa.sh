@@ -530,7 +530,7 @@ STRATEGIES = {"last_writer_wins", "keep_both_copies"}
 CARDINALITIES = {"one-to-one", "one-to-many", "many-to-one", "many-to-many"}
 CASCADES = {"orphan", "cascade"}
 ROLES = {"container"}
-HINT_KEYS = ("title_field", "body_field")
+HINT_KEYS = ("title_field", "body_field", "icon")
 RULES = "/catalog/your-own-types"
 
 
@@ -636,11 +636,11 @@ def render_types(types):
     def settings(t, parent):
         """The definition's keys other than its fields. A subtype gives only those its parent does not."""
         rows = []
-        hints, parent_hints = hints_of(t), (hints_of(parent) if parent else None)
-        if hints is not None and hints != parent_hints:
-            for key in HINT_KEYS:
-                if key in hints:
-                    rows.append([f"[{code(key)}]({RULES}#fields)", code(hints[key])])
+        hints, parent_hints = hints_of(t), (hints_of(parent) if parent else None) or {}
+        for key in HINT_KEYS:
+            # A hint comes from the nearest type that sets it, so a subtype says only the ones it changes.
+            if hints is not None and key in hints and hints[key] != parent_hints.get(key):
+                rows.append([f"[{code(key)}]({RULES}#display-hints)", code(hints[key])])
         policy = t.get("merge_policy")
         if isinstance(policy, dict) and (parent is None or policy != parent.get("merge_policy")):
             rows.append([f"[{code('merge_policy')}]({RULES}#merge-policy)", merge_policy_value(t["id"], policy)])
