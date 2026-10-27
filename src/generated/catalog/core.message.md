@@ -10,5 +10,6 @@
 
 | Setting                                                | Value                                                                   |
 | ------------------------------------------------------ | ----------------------------------------------------------------------- |
-| [`body_field`](/catalog/your-own-types#fields)         | `body`                                                                  |
+| [`body_field`](/catalog/your-own-types#display-hints)  | `body`                                                                  |
+| [`icon`](/catalog/your-own-types#display-hints)        | `message-square`                                                        |
 | [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for `body`; `last_writer_wins` for every other field |

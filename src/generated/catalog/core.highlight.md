@@ -13,6 +13,7 @@
 
 | Setting                                                | Value                                                                   |
 | ------------------------------------------------------ | ----------------------------------------------------------------------- |
-| [`title_field`](/catalog/your-own-types#fields)        | `text`                                                                  |
-| [`body_field`](/catalog/your-own-types#fields)         | `note`                                                                  |
+| [`title_field`](/catalog/your-own-types#display-hints) | `text`                                                                  |
+| [`body_field`](/catalog/your-own-types#display-hints)  | `note`                                                                  |
+| [`icon`](/catalog/your-own-types#display-hints)        | `highlighter`                                                           |
 | [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for `note`; `last_writer_wins` for every other field |
