@@ -59,3 +59,7 @@ Video files. Inherits all core.file fields.
 | `latitude`  | `number`           | No       | Subject latitude                                                                                |
 | `longitude` | `number`           | No       | Subject longitude                                                                               |
 | `altitude`  | `number`           | No       | Altitude in meters                                                                              |
+
+### core.file.webpage [#core-file-webpage]
+
+An HTML page held as a file, such as a report an agent wrote. Inherits all core.file fields.
