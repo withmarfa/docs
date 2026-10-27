@@ -7,6 +7,69 @@ Each release of Marfa ships the server and its container image, the CLI for macO
 
 **A new build updates the database an earlier build wrote, in place,** after it copies the database to a file beside it, which it keeps until you remove it. Going back to an earlier build means starting it on that copy. [Upgrade](/run/upgrade) shows each step.
 
+## v0.0.42
+
+Released October 27, 2026. [v0.0.42 on GitHub](https://github.com/withmarfa/marfa/releases/tag/v0.0.42)
+
+**This release updates a database in place, so an instance on v0.0.38 to v0.0.40 needs no export to upgrade.** Start v0.0.42 on the data directory of one of those builds and the server copies the database, then adds the `type_icons` table that v0.0.41 introduced. A database v0.0.41 wrote already has that shape, so v0.0.42 records its schema version in the file and takes no copy. The API and the working copy keep the shapes they had in v0.0.41. [Upgrade](/run/upgrade) covers the update and the way back.
+
+For running an instance:
+
+- **The server copies the database before it changes it, and keeps the copy.** The copy sits beside the database as `marfa.db.backup-schema-<from>-to-<to>-<time>`, and nothing removes it. The update is one transaction, and the server commits it only if every table it kept holds as many rows as before and the result has the build's own shape. A server stopped partway leaves the database as it was and updates it again at the next start. The log line that says the database was updated carries `schema_from`, `schema_to` and `backup_path`.
+- **A build refuses a database it cannot update, and changes nothing in it.** That covers a database a newer build wrote, one whose shape matches no earlier build's schema, a failed update and a disk with less than twice the database's size free. The server opens no port and exits with status `78`. For a shape no build knows, the log says to export with the build that wrote the file and restore into this one, which [Export and restore](/run/export-and-restore) covers.
+- **To go back, start the earlier build on the copy, not on the updated database.** Delete `marfa.db-wal` and `marfa.db-shm` first, because SQLite applies a log it finds beside a database file. Writes made after the upgrade aren't in the copy, and with a bucket the copy needs a new `S3_PREFIX`. See [Go back to the earlier build](/run/upgrade#go-back-to-the-earlier-build).
+- **`marfa server upgrade` says where the copy is.** It still refuses a release older than the one installed, because an older build doesn't know what a newer one changed. See [Change, upgrade or remove it](/run/install#change-upgrade-or-remove-it).
+- **Two test settings are new, `MARFA_TEST_MIGRATION_FAULT` and `MARFA_TEST_FREE_DISK_BYTES`.** Both need `MARFA_TEST_HOOKS`, are for the conformance harness, and have no use on an instance that holds real data. See [Settings](/run/settings).
+
+For folders (upgrade the CLI, or the core embedded in your app, to get these):
+
+- **A file moved to another folder on the same Mac keeps its item and every edit.** The receiving folder binds the moved file to the item, whether or not its query holds the item, and delivers the edits made to the file before the move and after it. Two moves still make a new item in the receiving folder: a Markdown note moved before its `marfa_id` line was written, after which the first folder trashes nothing, and an item the server won't show to the receiving folder. See [Folder safeguards](/run/folder-safeguards#what-removes-a-file-or-an-item).
+- **A sweep trashes every file it found missing together.** Files deleted at once are all trashed, whichever the sweep reaches first and whether they link one another. A link line shows the note it names by title, and a note trashed earlier in the same sweep no longer reads as a change made elsewhere. The sweep decides each deletion on everything it read of the item, its version, tags and edges, and queues it only while the working copy still holds exactly that.
+
+## v0.0.41
+
+Released October 27, 2026. [v0.0.41 on GitHub](https://github.com/withmarfa/marfa/releases/tag/v0.0.41)
+
+**This release changes the database's shape, so v0.0.41 refuses an existing v0.0.40 database without changing it.** A new `type_icons` table holds the icons the owner chooses for types. v0.0.41 migrates nothing, so to move an instance that holds data, export it with v0.0.40 and restore the archive into a fresh v0.0.41 instance. An archive carries the owner's type icons. The working copy keeps the shape it had in v0.0.40, and v0.0.42 and later builds update a v0.0.40 database in place instead.
+
+For apps and the API:
+
+- **The owner chooses a type's icon.** `PUT /types/{id}/icon` sets it and `DELETE /types/{id}/icon` clears it, as [`setTypeIcon`](/api-reference/types/setTypeIcon) and [`clearTypeIcon`](/api-reference/types/clearTypeIcon). It works on any registered type, a core type or a connector's among them, without replacing the definition. A replacement keeps the choice, and `GET /types/{id}`, `GET /types` and the answer to `PUT /types/{id}` show it as `display_hints.icon` in place of the author's. The owner's session, a local process, and a key with `schema.write` and write on the type may set it; a key without those is refused `403` with `forbidden` or `type_not_permitted`. A type nothing registered answers `404 type_not_found`, and deleting a type discards its icon. Each change is audited as `type.icon.set` or `type.icon.clear`. See [The owner's icon](/catalog/your-own-types#the-owners-icon).
+- **An icon is a Lucide name.** `display_hints.icon` takes the kebab-case name of an icon in Lucide 1.61.0, the one release Marfa pins, and every operation that takes a type definition refuses any other name `400 invalid_schema`, naming `display_hints.icon`. Every type Marfa ships has an icon. See [Display hints](/catalog/your-own-types#display-hints).
+- **Each display hint comes from the nearest type that sets it.** Before, a type that set any of `title_field`, `body_field` and `icon` lost all of its parent's. Now `GET /types/{id}` answers each hint on its own, so a subtype that sets only some hints may show a different title or body than before. A hint a type doesn't set, written back as the `GET` answered it, isn't stored, and `GET /types` lists the hints each type declares itself. The text in `body_field` is Markdown, which the server stores as sent. See [Change a type](/build/change-a-type).
+- **An archive carries the owner's type icons.** `types.ndjson` holds one `type_icon` line for each, and the manifest counts them in `type_icon_count`. A restore sets an icon only for a type that has none from the owner, and answers `type_icons_added`, `type_icons_skipped` and `type_icons_skipped_reasons`, with the reasons `already_set` and `unknown_icon`. See [Restore an archive](/run/export-and-restore#restore-an-archive).
+- **Web Page, `core.file.webpage`, holds an HTML page as a file.** It inherits `core.file` and uses the `globe` icon. The enrichment sweep writes the text a person would read in the page, without markup, script or style, as its `extracted_text`, so search finds a page by its words. It stops at the first limit a page passes, which is 8 MiB of source, 512 open elements at one point or `MARFA_ENRICHMENT_MAX_TEXT_CHARS` of text, and keeps the text before it. See [File](/catalog/file).
+- **`marfa types set-icon <id> <icon>` and `marfa types clear-icon <id>` set and clear the owner's icon.**
+
+For devices and folders:
+
+- **A device types a file as a Web Page where its MIME type is `text/html` or `application/xhtml+xml`.** `marfa items add` and `marfa items attach` do so when given no `--type`, and a folder does for a nonempty file at an `.html`, `.htm` or `.xhtml` name.
+- **A working copy holds each type's icon, the owner's choice included, and reads each hint from the nearest type that sets it.** A catalog that differs from an interrupted hydration's only in an icon is adopted without restarting the hydration.
+
+## v0.0.40
+
+Released October 27, 2026. [v0.0.40 on GitHub](https://github.com/withmarfa/marfa/releases/tag/v0.0.40)
+
+The server's database, the API and the working copy keep the shapes they had in v0.0.39, so an instance needs no export to upgrade.
+
+For folders:
+
+- **`marfa folders add` warns when git tracks the directory.** A directory is tracked when it is in a git work tree and that work tree's index holds a file in it. The warning is one line on standard error that begins `marfa: warning: ` and names git and the directory, and the command adds the folder all the same. A directory git ignores, one outside every work tree, and a machine where git can't be run get no warning. See [Add the directory](/run/sync-a-folder#add-the-directory).
+
+For devices and the API:
+
+- **The contract states that a search finds a file by its extracted text.** The server matches a query against the text the enrichment sweep wrote on a file item that isn't in the bin, and a working copy matches the same text once it holds it. Until a file has `extracted_text`, a search finds it by its other properties and tags alone.
+
+## v0.0.39
+
+Released October 26, 2026. [v0.0.39 on GitHub](https://github.com/withmarfa/marfa/releases/tag/v0.0.39)
+
+The server's database, the API and the working copy keep the shapes they had in v0.0.38, so an instance needs no export to upgrade.
+
+For apps and the API:
+
+- **Collection, `core.collection`, gathers items of any type.** It requires a `title` and takes a `description`, which is its `body_field`. It declares the `container` role, so items join it through `in-collection` edges and it can hold any item except another container. Every other shipped container is a kind of media. See [Collection](/catalog/collection).
+
 ## v0.0.38
 
 Released October 25, 2026. [v0.0.38 on GitHub](https://github.com/withmarfa/marfa/releases/tag/v0.0.38)
