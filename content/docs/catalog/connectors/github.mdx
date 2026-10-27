@@ -1,6 +1,6 @@
 ---
 title: GitHub
-description: Repositories, issues, discussions, comments, pull requests and notifications from GitHub, with edits to issues, discussions and comments carried back.
+description: Repositories, issues, discussions, comments, pull requests, notifications and Markdown files from GitHub, with edits to issues, discussions and comments carried back.
 ---
 
 The GitHub connector reads your repositories into the feed. With a GitHub App it also carries changes to issues, discussions and comments back to GitHub.
@@ -20,6 +20,7 @@ It reads:
 - **Relations.** Sub-issues, blockers, related issues, duplicates, and which pull request closed which issue.
 - **Notifications.** With `GITHUB_NOTIFICATIONS_TOKEN` set, every thread in its owner's notifications, read and unread.
 - **Files.** Images and files that GitHub signs in issue and comment bodies, kept as files.
+- **Repository files.** With `GITHUB_FILES` set, the Markdown files under the paths it names, on each repository's default branch, as notes, and the directories that hold them as collections. A file moved or renamed with the same content keeps its item, and a removed one is archived.
 
 ## Types it writes
 
@@ -32,10 +33,12 @@ It reads:
 | `github.comment` | [Message](/catalog/message) | A comment on an issue or a discussion |
 | `github.notification` | [Message](/catalog/message) | A notification thread, read only |
 | `github.file`, `github.file.image` | [File](/catalog/file) | Bytes kept from an attachment, read only |
+| `github.repository_file` | [Note](/catalog/note) | A Markdown file from a repository, with its text as the body, read only |
+| `github.directory` | [Collection](/catalog/collection) | A directory that holds synced Markdown files, read only |
 
-Every row holds `github_id`, which is how the connector finds the same thing on GitHub again. The connector registers these types on its first start.
+Every row of the other types holds `github_id`, which is how the connector finds the same thing on GitHub again; a repository file or directory is known by its repository and path. The connector registers these types on its first start.
 
-It also writes the connections `github.in-repository`, `github.sub-issue-of`, `github.blocked-by`, `github.relates-to`, `github.duplicate-of`, `github.closes` and `github.closed-by`, and uses Marfa's own `in-thread`, `references`, `parent-of` and `attached-to`.
+It also writes the connections `github.in-repository`, `github.sub-issue-of`, `github.blocked-by`, `github.relates-to`, `github.duplicate-of`, `github.closes` and `github.closed-by`, and uses Marfa's own `in-thread`, `references`, `parent-of`, `attached-to` and `in-collection`. A repository file joins its directory through `in-collection`, and a directory joins its parent directory through `parent-of`.
 
 ## What goes back
 
@@ -46,7 +49,7 @@ Only with a GitHub App, and only for issues, discussions, comments and the relat
 - **Relations.** A `github.sub-issue-of`, `github.blocked-by` or `github.relates-to` connection drawn or removed in Marfa is made or removed on GitHub.
 - **Removal.** Trashing an open issue closes it as not planned, and a discussion is left as it is. Trashing a comment the App wrote deletes it.
 
-Repositories, pull requests, notifications, files, duplicates and closing links are always read only. A change to one in Marfa is put back from GitHub. Edits to someone else's comment are put back too.
+Repositories, pull requests, notifications, files, repository files, directories, duplicates and closing links are always read only, whatever `GITHUB_READ_ONLY` says. A change to one in Marfa is put back from GitHub. Edits to someone else's comment are put back too.
 
 ## Settings
 
@@ -58,6 +61,7 @@ Repositories, pull requests, notifications, files, duplicates and closing links 
 | `GITHUB_WEBHOOK_SECRET` | The secret GitHub signs deliveries with. A secret. |
 | `GITHUB_NOTIFICATIONS_TOKEN` | A classic token with only the `notifications` scope. A secret. Optional. It works beside either way of signing in. |
 | `GITHUB_REPOSITORIES` | The repositories to sync, as `owner/repo` or `owner/*`, separated by commas or whitespace. Unset, every repository it can see. |
+| `GITHUB_FILES` | The repositories and paths whose Markdown files to mirror, as `owner/repo:path`, with paths separated by commas and entries by whitespace or semicolons, such as `someone/agents:runbooks,skills`. Optional. |
 | `GITHUB_READ_ONLY` | `true`, or a comma-separated list of kinds to keep read only: `repository`, `issue`, `comment`, `discussion`, `pull_request`, `notification`, `file` and `image`. |
 | `GITHUB_STARS` | `true` (the default) or `false`. `false` stops this process reading stars and leaves every star mark as it is. |
 | `GITHUB_PUBLIC_URL` | The public address of your instance, so GitHub can post webhooks to it. |
@@ -72,8 +76,10 @@ Repositories, pull requests, notifications, files, duplicates and closing links 
 - **`private` is a marker, not a lock.** Each row says whether its repository is private. Marfa gives a key access by type, not by that field, so read it before you copy a row somewhere public.
 - **GitHub can refuse a change,** such as one in an archived repository. The run names it and does not send it again until the row changes.
 - **Stars are read on scheduled runs only.** A repository loses its star mark only after two scheduled runs in a row list your stars and lack it. A repository that a process syncs, or once synced, only loses its mark. A repository kept for its star alone is archived, unless an earlier version of the connector wrote its row: that row only loses its mark, so archive it in Marfa yourself if you no longer want it.
-- **Two processes on one instance need one star reader.** To read repositories under two owners, such as an organization and your own account, run the connector twice with a token and a set of `GITHUB_REPOSITORIES` each, and no repository in both. Give each process its own key with its own source; every key after the first passes `--claim github`. Set `GITHUB_STARS=false` on every process but one. Otherwise each process reads the stars from its own view and unmarks the rows the other one marked. The star reader only marks and unmarks the repositories the other process syncs, and never archives them for a lost star. Give each repository to one process for good: if a process's token loses a repository that the other process then syncs, the first process archives its issues, discussions, comments, and pull requests, and the other process doesn't bring them back. Restore them in Marfa if that happens. Run the same connector version in both processes.
+- **Two processes on one instance need one star reader.** To read repositories under two owners, such as an organization and your own account, run the connector twice with a token and a set of `GITHUB_REPOSITORIES` each, and no repository in both. Give each process its own key with its own source; every key after the first passes `--claim github`. Set `GITHUB_STARS=false` on every process but one. Otherwise each process reads the stars from its own view and unmarks the rows the other one marked. The star reader only marks and unmarks the repositories the other process syncs, and never archives them for a lost star. Give each repository to one process for good: if a process's token loses a repository that the other process then syncs, the first process archives its issues, discussions, comments, pull requests, repository files, and directories, and the other process doesn't bring them back. Restore them in Marfa if that happens. Run the same connector version in both processes.
 - **It never marks a notification read.**
+- **Repository files need Contents read access.** A personal token needs it on the repositories `GITHUB_FILES` names, and the App asks for it. A repository the run doesn't sync, a path that isn't on the default branch, a tree GitHub cuts short or refuses, and a file over 512 KiB or not in UTF-8 are named in the run, and nothing is archived for them.
+- **Trashing a directory in Marfa trashes the directories below it,** since `parent-of` cascades, but not the files in them. The directories stay in the bin until you restore them; a later run doesn't bring them back. A trashed file stays in the bin the same way.
 
 ## Run it
 
