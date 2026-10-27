@@ -320,7 +320,7 @@ catalog_json="$(cat <<'EOF'
         "title": { "type": "string", "description": "A title | or not" },
         "language": { "type": "string", "description": "A language", "format": "bcp47" }
       },
-      "display_hints": { "title_field": "title", "body_field": "body" },
+      "display_hints": { "title_field": "title", "body_field": "body", "icon": "sticky-note" },
       "merge_policy": { "fields": { "body": "keep_both_copies" }, "default": "last_writer_wins" }
     },
     {
@@ -336,7 +336,7 @@ catalog_json="$(cat <<'EOF'
         "level": { "type": "enum", "description": "How urgent", "enum_values": ["low", "high"] },
         "to": { "type": "array", "description": "Who it is for", "items_type": "string" }
       },
-      "display_hints": { "title_field": "title", "body_field": "body" },
+      "display_hints": { "icon": "notebook-pen" },
       "merge_policy": { "fields": { "body": "keep_both_copies" }, "default": "last_writer_wins" },
       "roles": ["container"]
     },
@@ -409,8 +409,9 @@ note_expected="$(cat <<'EOF'
 
 | Setting                                                | Value                                                                   |
 | ------------------------------------------------------ | ----------------------------------------------------------------------- |
-| [`title_field`](/catalog/your-own-types#fields)        | `title`                                                                 |
-| [`body_field`](/catalog/your-own-types#fields)         | `body`                                                                  |
+| [`title_field`](/catalog/your-own-types#display-hints) | `title`                                                                 |
+| [`body_field`](/catalog/your-own-types#display-hints)  | `body`                                                                  |
+| [`icon`](/catalog/your-own-types#display-hints)        | `sticky-note`                                                           |
 | [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for `body`; `last_writer_wins` for every other field |
 
 ## Subtypes
@@ -419,9 +420,10 @@ note_expected="$(cat <<'EOF'
 
 A memo (for a team) with a level.
 
-| Setting                                  | Value       |
-| ---------------------------------------- | ----------- |
-| [`roles`](/catalog/your-own-types#roles) | `container` |
+| Setting                                         | Value          |
+| ----------------------------------------------- | -------------- |
+| [`icon`](/catalog/your-own-types#display-hints) | `notebook-pen` |
+| [`roles`](/catalog/your-own-types#roles)        | `container`    |
 
 | Field   | Kind                | Required | Description                        |
 | ------- | ------------------- | -------- | ---------------------------------- |
@@ -1169,7 +1171,7 @@ check "a subtype equal to its parent says nothing of hints or merge policy" \
   "$(printf '### core.note.same [#core-note-same]\n\nSays what the parent says.')" \
   "$(sed -n '/^### core.note.same/,/^### core.note.drift/p' "${drift_file}" | sed '$d')"
 check "a subtype that differs says its hints and merge policy as values" \
-  "$(printf '%s\n%s\n%s' '| [`title_field`](/catalog/your-own-types#fields)        | `language`                         |' '| [`body_field`](/catalog/your-own-types#fields)         | `body`                             |' '| [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for every field |')" \
+  "$(printf '%s\n%s' '| [`title_field`](/catalog/your-own-types#display-hints) | `language`                         |' '| [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for every field |')" \
   "$(sed -n '/^### core.note.drift/,$p' "${drift_file}" | grep '^| \[`')"
 check "the parent says its own hints once, and a subtype equal to it adds none" 1 \
   "$(grep -cE '^\| \[`title_field`\].*\| `title` +\|$' "${drift_file}")"

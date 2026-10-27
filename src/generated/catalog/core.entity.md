@@ -17,7 +17,8 @@
 
 | Setting                                                | Value                              |
 | ------------------------------------------------------ | ---------------------------------- |
-| [`title_field`](/catalog/your-own-types#fields)        | `name`                             |
+| [`title_field`](/catalog/your-own-types#display-hints) | `name`                             |
+| [`icon`](/catalog/your-own-types#display-hints)        | `shapes`                           |
 | [`merge_policy`](/catalog/your-own-types#merge-policy) | `last_writer_wins` for every field |
 
 ## Subtypes
@@ -25,6 +26,10 @@
 ### core.entity.person [#core-entity-person]
 
 Contact information for an individual. Inherits all core.entity fields.
+
+| Setting                                         | Value  |
+| ----------------------------------------------- | ------ |
+| [`icon`](/catalog/your-own-types#display-hints) | `user` |
 
 | Field          | Kind     | Required | Description                        |
 | -------------- | -------- | -------- | ---------------------------------- |
@@ -43,6 +48,10 @@ Contact information for an individual. Inherits all core.entity fields.
 ### core.entity.place [#core-entity-place]
 
 A location or venue. Inherits all core.entity fields.
+
+| Setting                                         | Value     |
+| ----------------------------------------------- | --------- |
+| [`icon`](/catalog/your-own-types#display-hints) | `map-pin` |
 
 | Field            | Kind                 | Required | Description                        |
 | ---------------- | -------------------- | -------- | ---------------------------------- |

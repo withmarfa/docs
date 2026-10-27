@@ -18,8 +18,9 @@
 
 | Setting                                                | Value                                                                               |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| [`title_field`](/catalog/your-own-types#fields)        | `title`                                                                             |
-| [`body_field`](/catalog/your-own-types#fields)         | `body`                                                                              |
+| [`title_field`](/catalog/your-own-types#display-hints) | `title`                                                                             |
+| [`body_field`](/catalog/your-own-types#display-hints)  | `body`                                                                              |
+| [`icon`](/catalog/your-own-types#display-hints)        | `library-big`                                                                       |
 | [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for `body` and `notes`; `last_writer_wins` for every other field |
 
 ## Subtypes
@@ -28,9 +29,10 @@
 
 An album. Inherits all core.media fields.
 
-| Setting                                  | Value       |
-| ---------------------------------------- | ----------- |
-| [`roles`](/catalog/your-own-types#roles) | `container` |
+| Setting                                         | Value       |
+| ----------------------------------------------- | ----------- |
+| [`icon`](/catalog/your-own-types#display-hints) | `disc-3`    |
+| [`roles`](/catalog/your-own-types#roles)        | `container` |
 
 | Field          | Kind      | Required | Description                           |
 | -------------- | --------- | -------- | ------------------------------------- |
@@ -40,6 +42,10 @@ An album. Inherits all core.media fields.
 ### core.media.article [#core-media-article]
 
 An article. Inherits all core.media fields.
+
+| Setting                                         | Value       |
+| ----------------------------------------------- | ----------- |
+| [`icon`](/catalog/your-own-types#display-hints) | `newspaper` |
 
 | Field        | Kind      | Required | Description                |
 | ------------ | --------- | -------- | -------------------------- |
@@ -51,6 +57,10 @@ An article. Inherits all core.media fields.
 
 A book. Inherits all core.media fields.
 
+| Setting                                         | Value       |
+| ----------------------------------------------- | ----------- |
+| [`icon`](/catalog/your-own-types#display-hints) | `book-open` |
+
 | Field        | Kind      | Required | Description                                   |
 | ------------ | --------- | -------- | --------------------------------------------- |
 | `isbn`       | `string`  | No       | International Standard Book Number (ISO 2108) |
@@ -60,6 +70,10 @@ A book. Inherits all core.media fields.
 ### core.media.episode [#core-media-episode]
 
 Any member of an ongoing series: a TV episode, a podcast episode, one part of a serial. Inherits all core.media fields. Joins its series through the in-collection edge, so one episode can belong to several series and outlives any of them.
+
+| Setting                                         | Value         |
+| ----------------------------------------------- | ------------- |
+| [`icon`](/catalog/your-own-types#display-hints) | `circle-play` |
 
 | Field            | Kind      | Required | Description                                                                                                                                                                     |
 | ---------------- | --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -74,6 +88,10 @@ Any member of an ongoing series: a TV episode, a podcast episode, one part of a 
 
 A film. Inherits all core.media fields.
 
+| Setting                                         | Value  |
+| ----------------------------------------------- | ------ |
+| [`icon`](/catalog/your-own-types#display-hints) | `film` |
+
 | Field            | Kind     | Required | Description                                                                                                                                                                     |
 | ---------------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `duration`       | `number` | No       | Runtime in seconds                                                                                                                                                              |
@@ -86,9 +104,10 @@ A film. Inherits all core.media fields.
 
 Any ongoing media container: a TV show, a podcast, a radio serial, a video series. Inherits all core.media fields. Episodes join it through the in-collection edge; containment is never part of a type name.
 
-| Setting                                  | Value       |
-| ---------------------------------------- | ----------- |
-| [`roles`](/catalog/your-own-types#roles) | `container` |
+| Setting                                         | Value       |
+| ----------------------------------------------- | ----------- |
+| [`icon`](/catalog/your-own-types#display-hints) | `tv`        |
+| [`roles`](/catalog/your-own-types#roles)        | `container` |
 
 | Field    | Kind   | Required | Description                                                                                |
 | -------- | ------ | -------- | ------------------------------------------------------------------------------------------ |
@@ -98,6 +117,10 @@ Any ongoing media container: a TV show, a podcast, a radio serial, a video serie
 ### core.media.song [#core-media-song]
 
 A song. Inherits all core.media fields.
+
+| Setting                                         | Value         |
+| ----------------------------------------------- | ------------- |
+| [`icon`](/catalog/your-own-types#display-hints) | `audio-lines` |
 
 | Field          | Kind      | Required | Description                                                                                                                                                                     |
 | -------------- | --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

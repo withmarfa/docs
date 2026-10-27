@@ -19,7 +19,8 @@
 
 | Setting                                                | Value                              |
 | ------------------------------------------------------ | ---------------------------------- |
-| [`title_field`](/catalog/your-own-types#fields)        | `title`                            |
+| [`title_field`](/catalog/your-own-types#display-hints) | `title`                            |
+| [`icon`](/catalog/your-own-types#display-hints)        | `file`                             |
 | [`merge_policy`](/catalog/your-own-types#merge-policy) | `last_writer_wins` for every field |
 
 ## Subtypes
@@ -27,6 +28,10 @@
 ### core.file.audio [#core-file-audio]
 
 Recordings, music files, voice memos. Inherits all core.file fields.
+
+| Setting                                         | Value        |
+| ----------------------------------------------- | ------------ |
+| [`icon`](/catalog/your-own-types#display-hints) | `file-music` |
 
 | Field      | Kind               | Required | Description                                                                                     |
 | ---------- | ------------------ | -------- | ----------------------------------------------------------------------------------------------- |
@@ -36,6 +41,10 @@ Recordings, music files, voice memos. Inherits all core.file fields.
 ### core.file.image [#core-file-image]
 
 Photos, screenshots, diagrams. Inherits all core.file fields.
+
+| Setting                                         | Value        |
+| ----------------------------------------------- | ------------ |
+| [`icon`](/catalog/your-own-types#display-hints) | `file-image` |
 
 | Field       | Kind        | Required | Description                                                                                    |
 | ----------- | ----------- | -------- | ---------------------------------------------------------------------------------------------- |
@@ -50,6 +59,10 @@ Photos, screenshots, diagrams. Inherits all core.file fields.
 
 Video files. Inherits all core.file fields.
 
+| Setting                                         | Value               |
+| ----------------------------------------------- | ------------------- |
+| [`icon`](/catalog/your-own-types#display-hints) | `file-video-camera` |
+
 | Field       | Kind               | Required | Description                                                                                     |
 | ----------- | ------------------ | -------- | ----------------------------------------------------------------------------------------------- |
 | `language`  | `string` (`bcp47`) | No       | BCP 47 language code (for spoken content)                                                       |
@@ -63,3 +76,7 @@ Video files. Inherits all core.file fields.
 ### core.file.webpage [#core-file-webpage]
 
 An HTML page held as a file, such as a report an agent wrote. Inherits all core.file fields.
+
+| Setting                                         | Value   |
+| ----------------------------------------------- | ------- |
+| [`icon`](/catalog/your-own-types#display-hints) | `globe` |

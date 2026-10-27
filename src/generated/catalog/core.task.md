@@ -19,6 +19,7 @@
 
 | Setting                                                | Value                                                                               |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| [`title_field`](/catalog/your-own-types#fields)        | `title`                                                                             |
-| [`body_field`](/catalog/your-own-types#fields)         | `body`                                                                              |
+| [`title_field`](/catalog/your-own-types#display-hints) | `title`                                                                             |
+| [`body_field`](/catalog/your-own-types#display-hints)  | `body`                                                                              |
+| [`icon`](/catalog/your-own-types#display-hints)        | `square-check-big`                                                                  |
 | [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for `body` and `notes`; `last_writer_wins` for every other field |
