@@ -76,3 +76,7 @@ Video files. Inherits all core.file fields.
 ### core.file.webpage [#core-file-webpage]
 
 An HTML page held as a file, such as a report an agent wrote. Inherits all core.file fields.
+
+| Setting                                         | Value   |
+| ----------------------------------------------- | ------- |
+| [`icon`](/catalog/your-own-types#display-hints) | `globe` |
