@@ -1,85 +1,73 @@
 ---
 title: Upgrade
-description: Check a new build against your database while keeping a way back to the build that wrote it.
+description: Move an instance to a new build, which updates its database in place after copying it, and go back if you need to.
 ---
 
-A build **never upgrades a database in place**. It refuses a database whose schema differs from its own or that holds retired tables or settings. If a new build refuses your database, keep the previous build and its data, and test the move on separate storage before you switch.
+A new build **updates your database in place** the first time it starts on it. Before it changes anything, it copies the database to a file beside it, and **it keeps that copy until you remove it**. The copy is your way back to the build you upgraded from.
 
-[`marfa server upgrade`](/run/install#change-upgrade-or-remove-it) moves a server that `marfa server install` set up to a release, and does not move data. When the [changelog](/changelog) says a release changes the database's shape, follow the steps below instead.
+With an install the CLI set up, [`marfa server upgrade`](/run/install#change-upgrade-or-remove-it) moves the server to a release and prints where the copy is. In your own container or on your own machine, stop the server and start the new build on the same data directory, or the same volume.
 
 ## What a new build does with your database
 
-When the server starts, it checks the database before it changes anything. If a table, an index or a trigger differs from the build's own, or the database holds something the build retired, it refuses: **it leaves the file as it found it**, opens no port, and exits with status `78`. The error in its log names what it found and the file's path, then says what to do, which is the steps below:
+When the server starts, it reads the database's schema version before it opens a port. A database at the build's own version opens as it is, with no copy. A database an earlier build wrote is updated:
+
+1. **The server checks for room.** The disk that holds the database needs at least twice the database's size free, counting the `marfa.db-wal` log beside it: room for the copy and for the update. With less, it refuses to start and changes nothing.
+2. **It copies the database** to a file beside it named `marfa.db.backup-schema-<from>-to-<to>-<time>`, such as `marfa.db.backup-schema-1-to-2-20261027T101500000Z`. The numbers are the two schema versions and the time is in UTC. It writes the copy under a name that ends in `.partial`, checks it, then renames it, so a file without that ending is always a whole copy.
+3. **It updates the database in one transaction.** Before it commits, it checks that every table it kept holds as many rows as before, that no more rows refer to missing rows than before, and that the result has the build's own shape. If a check fails, it rolls the update back and refuses to start.
+4. **It logs the update.** The line says the database was updated, from which schema version to which, and where the copy is:
 
 ```text
-RefusedDatabaseError: The type registry in /srv/marfa/data/marfa.db is still held in custom_types, which this build does not read. Nothing is upgraded in place. …
+Updated the database in /data/marfa.db from schema version 1 to 2. The copy taken before the update is at /data/marfa.db.backup-schema-1-to-2-20261027T101500000Z, and stays until you remove it.
 ```
 
-A build's version doesn't tell you whether its database differs, so **treat every new build as one that might refuse**. Starting the old build again on the same file brings the instance back. In the container, a refused database doesn't stop the container: it stays up and unhealthy with the reason in its log, so a restart policy can't loop on it.
+In the JSON log, the same line carries `schema_from`, `schema_to` and `backup_path`.
 
-## Move data to a different schema
+Because the update is one transaction, **a server stopped or killed partway leaves the database as it was**, and the next start updates it again, with a copy of its own. A `.partial` file left by a server stopped while it wrote the copy isn't a whole copy, and you can delete it. A later start of the same build finds the database already updated and makes no second copy.
 
-Use these steps to test a move when the new build refuses your database. A build that accepts the existing schema can keep using the same storage. **Keep the old build, its data and its export until the new build has accepted and verified the restore.** An archive is guaranteed only for the build that wrote it.
+## When a build refuses the database
+
+A build refuses some databases. **It leaves the file as it found it**, opens no port, and exits with status `78`. The error in its log names the file and the reason:
+
+- **A newer build wrote it.** The build doesn't know what the newer one changed. Run that build or a newer one.
+- **Its shape matches no build's schema**, such as a database changed by hand, or one that holds tables or settings a build retired. The log says to export the data with the build that wrote it and restore the archive into this build, which [Export and restore](/run/export-and-restore) covers. A different build may refuse the archive, so keep the old build and its data until the restore has answered.
+- **The update couldn't finish**: the disk lacked room, the copy couldn't be made, or the update failed a check. When the copy was made, the message names it.
+
+The build you upgraded from still reads a database the new build refused, so starting it again brings the instance back. In the container, a refused database doesn't stop the container: it stays up and unhealthy with the reason in its log, so a restart policy can't loop on it. `marfa server upgrade` waits for the server, and when it refuses the database, says so and how to set the release back.
+
+## Go back to the earlier build
+
+To go back, start the earlier build on the copy, not on the updated database. A build that knows schema versions refuses a database a newer build updated, and an older build may open it without knowing what the update changed. **Writes made since the upgrade aren't in the copy.**
 
 <Steps>
 <Step>
 
-### Export with the running build
+### Stop the instance
 
-Follow [Export an archive](/run/export-and-restore#export-an-archive). **Stop your apps first**, so the archive holds every write, and check that the file unpacks.
-
-Note which build this is. `GET /` answers its `release` beside `version`, which is the commit, and `marfa status` shows both. **The image of that release, `ghcr.io/withmarfa/marfa-server:<release>`, stays available under that tag**, so you can start the old build again at any time, even on a machine that has pulled a newer one. A build made from a clone has no `release`, so note its `version` and keep that clone.
+Note the release you're going back to. Its image, `ghcr.io/withmarfa/marfa-server:<release>`, stays available under that tag.
 
 </Step>
 <Step>
 
-### Start the new build on empty storage
+### Put the copy in place
 
-Give the new build a new database file and an empty blob folder. In a container, that's a new volume, and the new container can run beside the old one on **its own volume and its own port**, such as `-p 127.0.0.1:8601:8600`.
-
-If you use a bucket, **give the new instance an `S3_PREFIX` of its own**, such as `v2/blobs`, or a new bucket. On an empty volume, the container restores the database it finds under its prefix, and under the old instance's prefix that is the old database. If that database has the incompatible schema, the new build refuses it again. An instance keeps its blobs and its database replica under its prefix, so a new prefix on the same bucket leaves the old instance's replica as it is.
+In the data directory, delete `marfa.db-wal` and `marfa.db-shm`, then rename the copy to `marfa.db`, replacing the updated database. SQLite applies a log it finds beside a database file even when the log belongs to another file, so **delete the log first**.
 
 </Step>
 <Step>
 
-### Claim the new instance
+### Start the earlier build
 
-Claim it as you did the first, with `marfa --socket /srv/marfa/data/control/marfa.sock setup open`. The new instance has an `instance_id` of its own.
-
-</Step>
-<Step>
-
-### Restore the archive
-
-Try the restore as the owner, through the private socket of the new instance. **The new build may refuse an archive from the old build**, even when that archive is valid:
-
-```bash
-marfa --socket /srv/marfa/data/control/marfa.sock restore marfa-archive.tar.gz
-```
-
-[Restore an archive](/run/export-and-restore#restore-an-archive) explains the answer.
-
-</Step>
-<Step>
-
-### Recreate what an archive doesn't hold
-
-An archive carries the icons you chose for types, so those need no step here. Make your keys again, register your webhooks again, set the configuration again and upload the owner's picture again: **an archive carries none of them**. Sign your apps in again too. Restored app connections are revoked historical records, and their items carry `restored:` sources rather than the sources of the apps you reconnect. [Manage keys](/run/manage-keys), [Settings](/run/settings) and [Change the owner's profile](/run/sign-in-as-the-owner#change-the-owners-profile) cover them.
-
-</Step>
-<Step>
-
-### Check, then retire the old build
-
-`GET /` answers the build that's running, as `release` and `version`. Remove the old build and its data **only when the new instance holds what you expect**.
+With a bucket, the copy is older than the bucket's copy, so the container doesn't start it under the same `S3_PREFIX`. Give it a new prefix, as [Back up and restore](/run/back-up-and-restore#with-a-bucket) describes. Then read `GET /`, which answers the running build as `release`.
 
 </Step>
 </Steps>
 
-## If the new build refuses the archive
+With `marfa server upgrade`, the copy is in the install's data volume. `docker cp <name>:<copy> .` copies it out, and the CLI refuses to move the install to an older release, so start the older release on the copy yourself.
 
-A refused restore writes nothing, so the new instance is unchanged and the old build still holds your data. **Keep running the old build until a build can read the archive.** Treat an archive as a way to move only once the target build has accepted it and you have checked what it holds.
+## Remove the copy
 
-On Railway, [update the server](https://github.com/withmarfa/marfa/blob/main/deploy/railway.md#update-the-server) applies these steps: template updates are opt-in, and a rollback changes the deployment, not the database.
+The copy is a whole database, as large as the one it copies, and **nothing removes it**. Once the new build holds what you expect and you won't go back, delete the file. In the container, `docker exec <container> rm /data/<copy>` removes it. Litestream replicates only `marfa.db`, so the copy isn't in the bucket. A machine backup holds the copy too, and you can leave it out once you won't go back.
 
-The rules behind this page are in the [upgrading](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#upgrading) section of the instance chapter and the [restore](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#restore) section of the search and filters chapter of the contract.
+On Railway, [update the server](https://github.com/withmarfa/marfa/blob/main/deploy/railway.md#update-the-server) says how to change the image's tag and go back with a volume backup.
+
+The rules behind this page are in the [upgrading](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#upgrading) section of the instance chapter of the contract, and the steps for a container and a bucket are in the [deployment guide](https://github.com/withmarfa/marfa/blob/main/deploy/README.md#upgrading).
