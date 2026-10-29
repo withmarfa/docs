@@ -9,7 +9,8 @@ The Readwise Reader connector keeps the documents, highlights and annotations of
 
 - **Documents** in your saved library. Feed documents are left out unless you set `READWISE_READER_INCLUDE_FEED`.
 - **Highlights and annotations** on those documents. Reader supplies the canonical passage. A note record is folded into the annotation.
-- **Content.** A copy of each document's HTML, its original file where there is one, Readwise-hosted images, text too long for a field, and a manifest of what was kept, pending or unavailable. Each is a `readwise.file` row. Downloads come only from Readwise's asset storage host, and no API credentials go to it.
+- **Content.** A copy of each document's HTML, its original file where there is one, Readwise-hosted images, text too long for a field, and a manifest of what was kept, pending or unavailable. Each is a `readwise.file` row. Content downloads come only from Readwise's asset storage host, and no API credentials go to it.
+- **Pictures from other websites,** only if you set `READWISE_READER_PICTURES`. By default the manifest lists their addresses and nothing is fetched ([Saving pictures](#saving-pictures)).
 
 A listing walk starts from the last completed walk with a five-minute overlap, and a full reconciliation repeats daily.
 
@@ -31,6 +32,42 @@ The Readwise connector writes the same types, so one row can hold what both conn
 
 Only changed supported fields are sent. Body replacement, passage edits, reading progress and original-file upload stay read only. Trashing a row changes nothing in Reader.
 
+## Saving pictures
+
+A document's HTML often shows pictures from other websites. `READWISE_READER_PICTURES` decides what happens to them. Pictures on Readwise's own storage are kept whatever it says.
+
+- **`addresses`:** the manifest lists each picture from another website as not kept, with the reason `third-party`, and nothing is fetched.
+- **`save`:** the connector fetches and saves the pictures of every document.
+- **`save-in-library`:** it saves the pictures only of documents whose `readwise.source` row is in the [library](/items-and-types#library-and-feed). A document in the feed is treated as with `addresses`.
+
+**The HTML is not changed:** it keeps the addresses the document gave. A picture is the address in an `img` element's `src`, or in its `data-src` when it has no `src`, or the document's cover `image_url`. Each whole address is one picture, so two addresses that differ only in the query are two pictures. Other image references, such as `srcset` candidates and relative or `data:` addresses, stay listed with the reason `third-party` and are never fetched.
+
+Each saved picture is a `readwise.file` row with `resource_kind` `picture`, the picture's bytes and `mime_type`, and `source_url`, the address it was saved from. An `attached-to` connection runs from the picture to its document, and the picture takes the document's tier when it is created.
+
+**Pictures never hold up a document's content.** The connector keeps a document's HTML and other content first, and its manifest is complete without the pictures. Saving pictures is separate work, with its own queue and limits, that runs after the listing and the content in each scheduled run. It reads the document from Reader once, saves its pictures, and writes the manifest again at the same revision. A run that a webhook started, or that Reader asks to slow down, leaves pictures to the next run.
+
+The manifest lists each picture with what became of it:
+
+- **Kept:** Marfa holds the picture, with its bytes and address, and its `attached-to` connection to the document. This holds whichever connector wrote the manifest and whatever the setting, so a manifest the [Readwise](/catalog/connectors/readwise) connector writes lists the pictures this one saved. A saved picture that lacks its connection, as a run that stopped early can leave one, gets it again and is kept from the next run. If the connection still hasn't landed after 5 such repairs in a row, the connector stops, lists the picture as not kept with the reason `third-party`, and raises a condition whose key is `readwise:pictures-repair:` followed by a hash of the document's canonical key.
+- **Not kept,** with a reason. `third-party` is a picture not saved yet, or not saved under this setting. `not_https` is an `http:` address. `over-document-limit` is a picture past the first 50 of a document. `removed` is a picture a person moved to the bin, archived or purged, and it is never fetched again.
+- **Unavailable,** with the reason the fetch gave and the HTTP status where there is one. The fetch refuses a private address, a known tracker's counting pixel, an SVG, a one-pixel image, and a response that is not a picture or is too large. A refused picture is not fetched again: the connector remembers the 1,024 most recent refusals across runs. A timeout, a failed connection, a failed upload, or an HTTP 408, 425, 429 or 5xx is tried again in later runs, 3 times in all, and is then unavailable.
+
+One failed picture never fails its document or the run.
+
+| Limit | Value | Past it |
+| --- | --- | --- |
+| Pictures saved from one document | 50 | The rest are not kept, with the reason `over-document-limit` |
+| Pictures fetched in one run | 100 | The rest wait for the next run |
+| Bytes saved in one run | 200 MiB | The rest wait, from the picture that would pass it |
+| Time spent fetching pictures | 10 minutes from the run's first picture fetch | The rest wait |
+| Documents read for pictures in one run | 25 | The rest wait |
+
+A run that reaches one of the limits raises the condition `readwise:reader-pictures-limit`, and the next run goes on. At most 256 documents wait for pictures; past that, the connector raises `readwise:reader-pictures-backlog` and later goes over the documents it keeps again.
+
+**A document is tried again, never dropped.** When a document's picture work fails, its content isn't kept yet, or a picture needed its connection repaired, the connector tries the document again in a later run, after a wait that doubles from 2 minutes up to 24 hours, as it does for content. If the connector's saved picture progress can't be read, it raises `readwise:reader-pictures-invalid`, starts again from an empty queue, and goes over the documents it keeps again, and the listing goes on. With the setting at `addresses`, it clears that progress.
+
+**Turning the setting on reaches documents already kept.** The connector doesn't walk the Reader listing again. It goes over the documents it keeps in Marfa a batch at a time, with one Reader request for each document, so each gets its pictures over later runs. It uploads nothing already kept, and changes no existing row except to add pictures and update the manifest. Turning the setting off stops this work, and turning it on again starts it over.
+
 ## Settings
 
 | Setting | What it holds |
@@ -41,6 +78,7 @@ Only changed supported fields are sent. Body replacement, passage edits, reading
 | `READWISE_READER_INBOUND_ONLY` | `true` turns off every edit going back. The default is `false`. |
 | `READWISE_READER_PROPAGATE_PURGE` | `true` lets a permanent purge in Marfa delete the Reader record. The default is `false`. |
 | `READWISE_CONTENT_MAX_BYTES` | The largest resource to keep, in bytes, up to 1,073,741,824. The default is 268,435,456 (256 MiB). |
+| `READWISE_READER_PICTURES` | What to do with pictures on other websites: `addresses` (the default), `save` or `save-in-library`. Any other value stops the connector at start. |
 
 ## What to know
 
@@ -53,4 +91,4 @@ Only changed supported fields are sent. Body replacement, passage edits, reading
 
 ## Run it
 
-[Run a connector](/run/run-a-connector) runs any connector. This one's key holds write on `readwise.source`, `readwise.highlight` and `readwise.file`, and on the `references` and `attached-to` connections, and its [README](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/readwise-reader/README.md) lists what the key needs.
+[Run a connector](/run/run-a-connector) runs any connector. This one's key holds write on `readwise.source`, `readwise.highlight` and `readwise.file`, and on the `references` and `attached-to` connections, and its [README](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/readwise-reader/README.md) lists what the key needs. Saving pictures needs no other permission.
