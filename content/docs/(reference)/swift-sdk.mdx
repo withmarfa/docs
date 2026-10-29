@@ -27,6 +27,8 @@ Each release carries Marfa's core already built, so your app needs no Rust toolc
 | `MarfaTypes` | The server's wire types, generated from the API description, and `marfaContractVersion`. |
 | `MarfaAPI` | `Client`, for the [calls only the instance can answer](#call-the-server-directly), such as registering a type or [moving the items of one](#move-the-items-of-a-type). It includes `MarfaTypes`. |
 | `MarfaTesting` | `WorkingCopy.fake(items:itemTypes:)`, a working copy for tests and previews with no store, server or core. Pass its `copy` where your code takes a `WorkingCopy`. It compiles empty in a release build, so wrap its uses in `#if DEBUG`. [Test against a fake copy](#test-against-a-fake-copy) says what it answers. |
+| `MarfaIcons` | `TypeIcon`, which [draws a type's icon](#draw-a-types-icon). |
+| `MarfaTelemetry` | Sends an app's errors, and a fixed set of log events, to a PostHog project the app chooses. It is inert until the app configures it. [Report errors and events from an app](#report-errors-and-events-from-an-app) says how. |
 
 ## Open a working copy
 
@@ -532,6 +534,44 @@ While it runs, the watch's threads run at utility quality of service, so its wor
 Its `FolderEvent` values are `.watching` when it starts and `.passed` after a pass with something to report. `.watcherFailed`, `.retrying`, `.unreachable`, `.reachable` and `.waiting` (the directory is gone) are states it rides out. `.handedOver` and `.takenBack` bracket a time another call or command held the folder, and `.heldElsewhere` means another process kept it unasked. After `.removed` or `.unlisted`, the watch ends without an error.
 
 **One process works a folder at a time.** A call such as `sync(_:)`, or a command such as `marfa folders confirm`, asks the watch to let the folder go, and throws `MarfaError.readingHandle` if it isn't free within 10 seconds. A sandboxed app has its own home directory, and so its own list of folders.
+
+## Report errors and events from an app
+
+The `MarfaTelemetry` product sends an app's errors, and a short list of events it chooses, to a PostHog project. **It does nothing until the app gives it a destination and turns it on.** It has no token and no destination of its own, and an app that doesn't add the product carries none of it. [What apps send](/run/telemetry#what-apps-send) says what Marfa's own apps send and how a person turns it off.
+
+```swift
+import Marfa
+import MarfaTelemetry
+
+Telemetry.shared.configure(
+    Telemetry.Configuration(
+        destination: try Telemetry.Destination(
+            host: URL(string: "https://eu.i.posthog.com")!, projectToken: projectToken),
+        serviceName: "notes",
+        serviceVersion: appVersion))
+Telemetry.shared.isEnabled = reportingIsOn
+```
+
+`Destination` throws `ConfigurationError` for a host that isn't `https`, or `http` on the same machine for a test, and for a host with a user name or password. **Read the project token from a build setting, and leave it out of public source**, so a copy built from the source reports nowhere. **No report carries the instance's ID**, name or address.
+
+`isEnabled` starts off. Set it again whenever the person changes the choice: **turning it off drops every report waiting to go, stops a send under way and sends nothing more.**
+
+Report an error where the app handles it, and an event where something worth counting happens:
+
+```swift
+Telemetry.shared.report(error, during: "drain")
+Telemetry.shared.report(type: "editor_ended", sentence: "the editor's web process ended", during: "editing")
+Telemetry.shared.log("drain_finished", attributes: ["pending": 3, "complete": true])
+
+await Telemetry.shared.flush()  // when the app quits; waits at most two seconds
+```
+
+Each call returns at once and does its work away from the main actor. A report that can't be sent is lost, with no retry.
+
+- **An error** becomes one PostHog exception, posted to `/i/v0/e/` on the host as the CLI does. A `MarfaError` is described by `MarfaError.fixedText`: a type such as `not_found`, one sentence fixed in the SDK and the error's `code` when it has the shape of one: lowercase letters and underscores, at most 48 characters. **No `message`, and no other value the error carries, reaches a report.** A new `MarfaError` case needs its sentence before the SDK compiles. The event has no stack frames, no person and no location lookup. **A failure that repeats is reported at most once a minute for each type and operation, and 30 times an hour in all.** Each exception carries `dropped_since_last`, the number held back since the previous one.
+- **An event** becomes an OTLP record, posted as JSON to `/i/v1/logs` with the project token as a bearer token. Records go out in a batch of 50, after 30 seconds, or when you call `flush()`. At most 500 wait: the oldest is dropped, and the next batch counts what was.
+
+**Pass only what is safe to send.** An error's operation, an event's name and its attribute names are `StaticString`s, and an attribute's value is a number, a boolean or a `StaticString`, so a `String` read at run time doesn't compile. Never get around this with a note's text, a title, a tag, an item ID, a natural key, a key, the instance's ID or address, a file path, a search or an error's `message` or `localizedDescription`.
 
 ## Test against a fake copy
 
