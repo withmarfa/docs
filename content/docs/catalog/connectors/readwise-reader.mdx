@@ -42,25 +42,29 @@ A document's HTML often shows pictures from other websites. `READWISE_READER_PIC
 
 **The HTML is not changed:** it keeps the addresses the document gave. A picture is the address in an `img` element's `src`, or in its `data-src` when it has no `src`, or the document's cover `image_url`. Each whole address is one picture, so two addresses that differ only in the query are two pictures. Other image references, such as `srcset` candidates and relative or `data:` addresses, stay listed with the reason `third-party` and are never fetched.
 
-Each saved picture is a `readwise.file` row with `resource_kind` `picture`, the picture's bytes and `mime_type`, and `source_url`, the address it was saved from. An `attached-to` connection runs from the picture to its document, and the picture takes the document's tier when it is created. The manifest lists each picture with what became of it:
+Each saved picture is a `readwise.file` row with `resource_kind` `picture`, the picture's bytes and `mime_type`, and `source_url`, the address it was saved from. An `attached-to` connection runs from the picture to its document, and the picture takes the document's tier when it is created.
 
-- **Kept:** the picture is held in Marfa. This holds whichever connector wrote the manifest and whatever the setting.
-- **Not kept,** with a reason. `not_https` is an `http:` address. `over-document-limit` is a picture past the first 50 of a document. `removed` is a picture a person moved to the bin or purged, and it is never fetched again.
-- **Unavailable,** with the reason the fetch gave and the HTTP status where there is one. The fetch refuses a private address, a known tracker's counting pixel, an SVG, a one-pixel image, and a response that is not a picture or is too large. A refused picture is not fetched again.
-- **Pending:** the picture waits for a later run. A timeout, a failed connection, a failed upload, or an HTTP 408, 425, 429 or 5xx is tried again in later runs, 3 times in all, and is then unavailable.
+**Pictures never hold up a document's content.** The connector keeps a document's HTML and other content first, and its manifest is complete without the pictures. Saving pictures is separate work, with its own queue and limits, that runs after the listing and the content in each scheduled run. It reads the document from Reader once, saves its pictures, and writes the manifest again at the same revision. A run that a webhook started, or that Reader asks to slow down, leaves pictures to the next run.
+
+The manifest lists each picture with what became of it:
+
+- **Kept:** Marfa holds the picture, with its bytes and address, and its `attached-to` connection to the document. This holds whichever connector wrote the manifest and whatever the setting, so a manifest the [Readwise](/catalog/connectors/readwise) connector writes lists the pictures this one saved. A saved picture that lacks its connection, as a run that stopped early can leave one, gets it again and is kept from the next run.
+- **Not kept,** with a reason. `third-party` is a picture not saved yet, or not saved under this setting. `not_https` is an `http:` address. `over-document-limit` is a picture past the first 50 of a document. `removed` is a picture a person moved to the bin or purged, and it is never fetched again.
+- **Unavailable,** with the reason the fetch gave and the HTTP status where there is one. The fetch refuses a private address, a known tracker's counting pixel, an SVG, a one-pixel image, and a response that is not a picture or is too large. A refused picture is not fetched again, and the connector remembers it across runs. A timeout, a failed connection, a failed upload, or an HTTP 408, 425, 429 or 5xx is tried again in later runs, 3 times in all, and is then unavailable.
 
 One failed picture never fails its document or the run.
 
 | Limit | Value | Past it |
 | --- | --- | --- |
 | Pictures saved from one document | 50 | The rest are not kept, with the reason `over-document-limit` |
-| Pictures fetched in one run | 100 | The rest stay pending, with the reason `run-limit` |
-| Bytes saved in one run | 200 MiB | The rest stay pending, from the picture that would pass it |
-| Time spent fetching pictures | 10 minutes | The rest stay pending |
+| Pictures fetched in one run | 100 | The rest wait for the next run |
+| Bytes saved in one run | 200 MiB | The rest wait, from the picture that would pass it |
+| Time spent fetching pictures | 10 minutes from the run's first picture fetch | The rest wait |
+| Documents read for pictures in one run | 25 | The rest wait |
 
-A run that reaches one of the run limits raises the condition `readwise:content:pictures-limit`, and the next run takes up the pending pictures.
+A run that reaches one of the limits raises the condition `readwise:reader-pictures-limit`, and the next run goes on. At most 256 documents wait for pictures; past that, the connector raises `readwise:reader-pictures-backlog` and later goes over the documents it keeps again.
 
-**Changing the setting reaches documents already kept.** The next listing walk covers the whole Reader listing again and resumes where it stopped, so each document gets its pictures over later runs. It uploads nothing already kept, and changes no existing row except to add pictures and update the manifest.
+**Turning the setting on reaches documents already kept.** The connector doesn't walk the Reader listing again. It goes over the documents it keeps in Marfa a batch at a time, with one Reader request for each document, so each gets its pictures over later runs. It uploads nothing already kept, and changes no existing row except to add pictures and update the manifest. Turning the setting off stops this work, and turning it on again starts it over.
 
 ## Settings
 
