@@ -9,13 +9,13 @@ The rules behind this page are in the [MCP chapter](https://github.com/withmarfa
 
 ## Endpoints
 
-Three endpoints serve the tools. Each serves the six everyday tools, and two add a group of their own. **Connect an agent to the smallest endpoint that does its work**, so it isn't offered tools it doesn't need.
+Three endpoints serve the tools. Each serves the everyday tools, and two add a group of their own. **Connect an agent to the smallest endpoint that does its work**, so it isn't offered tools it doesn't need.
 
 | Endpoint | Tools | For |
 | --- | --- | --- |
 | `/mcp` | The six everyday tools | Finding, reading, saving and changing items |
-| `/mcp/schema` | The six, and the schema tools | Shaping what the instance holds: types, views, moves and imports |
-| `/mcp/admin` | The six, and the admin tools | Running the instance: health, the audit log, keys and webhooks |
+| `/mcp/schema` | The everyday tools, and the schema tools | Shaping what the instance holds: types, views, moves and imports |
+| `/mcp/admin` | The everyday tools, and the admin tools | Running the instance: health, the audit log, keys and webhooks |
 
 ## Credentials and sign-in
 
@@ -37,11 +37,13 @@ WWW-Authenticate: Bearer resource_metadata="https://marfa.example.com/.well-know
 
 ## Tools
 
-The instance lists to each credential only the tools it can use, so an agent doesn't spend its context on tools that would fail. The everyday tools follow the credential's types:
+The instance lists to each credential only the tools it can use, so an agent doesn't spend its context on tools that would fail. The everyday tools follow the credential's types, at every endpoint:
 
 - **A credential that may write at least one type** is offered all six.
 - **A credential that may only read** is offered `marfa_overview`, `marfa_find` and `marfa_get`.
-- **A credential that reaches no type** is offered none of them.
+- **A credential that reaches no type** is offered none of them. At `/mcp` it is offered no tools at all, because every tool there reads or writes items.
+
+The schema and admin tools follow what the credential may do, not which types it reaches. A credential that holds only `webhooks.manage` and reaches no type is offered `marfa_webhooks` and `marfa_manage_webhook` at `/mcp/admin`, and `marfa_search_docs` at `/mcp/schema`.
 
 The last column of each table says what makes the instance offer the tool.
 
@@ -103,9 +105,20 @@ Four tools act in two calls, so the person sees what will happen before it does.
 | `marfa_delete` | Every item the trash would take, including the items that go with the named ones, and in `total` how many items that is, counting once an item that two named items share |
 | `marfa_move_items` | The items the move would take |
 | `marfa_revoke_key` | The key |
-| `marfa_manage_webhook` | Where a webhook would post and what it would send, when the call makes one or changes its `url`, `events` or `type_filter` |
+| `marfa_manage_webhook` | The webhook's `url` and its `host`, its `events`, its `type_filter`, whether it is `active`, and a `sends` text that says what each delivery holds and that it leaves the instance. It previews a call that makes a webhook or changes its `url`, `events` or `type_filter`. |
 
-A token is refused with the tool error `confirmation_stale` when **another credential sends it, five minutes have passed, or what the preview showed has changed**, such as an item the trash would take or its version. The agent then previews again. Pausing, resuming or deleting a webhook takes one call, because none of them sends anything the person hasn't already agreed to.
+A token is refused with the tool error `confirmation_stale` when **another credential sends it, five minutes have passed, or what the preview showed has changed**, such as an item the trash would take or its version. The agent then previews again.
+
+### Making and changing a webhook
+
+`marfa_manage_webhook` takes an `action`: `make`, `change` or `delete`.
+
+- **A new webhook starts active and gets its own ID.** A `make` call that names `active` or `id` is refused with `validation_error`, and the preview of a make shows `active: true`. It needs a `url` and `events`, and answers the webhook's signing secret once, in the call that makes it. Hand the secret to whoever receives the deliveries, because the instance never shows it again.
+- **`type_filter` is a type or a pattern such as `app.*`.** The tool trims it, and refuses a blank one. `null` sends item events for every type.
+- **A confirmation makes one webhook.** The token is refused with `confirmation_stale` once any webhook the credential can read has been made or deleted since the preview, the one it just made included, so a client that sends the confirmation twice makes one webhook, not two.
+- **Pausing, resuming and deleting take one call**, because none of them sends anything to an address or of a kind the person hasn't already agreed to. A `change` that names only `active` is a pause or a resume.
+
+[Receive webhooks](/build/receive-webhooks) shows what a webhook delivers and how to check its signature.
 
 `marfa_delete` moves everything the preview named in one transaction. If what the trash would take changes after the token is checked and before the trash commits, nothing moves and the call answers `trash_plan_changed`. The API's own preview and trash operations, [Preview trashing items](/api-reference/items/previewItemTrash) and [Trash items](/api-reference/items/trashItems), work the same way.
 
