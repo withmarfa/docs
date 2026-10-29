@@ -143,7 +143,7 @@ The bound includes items changed at that instant, so **skip the ones you already
 
 ## Search
 
-[Search items](/api-reference/search/searchItems) finds items by the words they hold, best match first:
+[Search items](/api-reference/search/searchItems) finds items by the words they hold, best match first unless you sort it:
 
 ```bash tab="CLI" tab-group="client"
 marfa search tide --type core.note
@@ -171,7 +171,42 @@ Each entry in `data` holds the `item`, its `metadata`, a `relevance_score`, and 
 
 **Every word** in `q` must match, in any order, in the item's [searched fields](/catalog/items#searched-fields) or its tags. Words match by their stem, so `tides` finds `tide`, and the last word matches as the start of a word, so a search run on each keystroke finds results as someone types.
 
-Put a query in double quotes to match a phrase. A search takes a listing's parameters too, such as `type`, `tags` and `filter`.
+Put a query in double quotes to match a phrase.
+
+### Narrow and sort a search
+
+A search takes the listing's narrowing parameters, so words and filters work in one call: `type`, `tags`, `state`, `tier`, `source`, `filter`, `occurred_after` and `occurred_before`, and `updated_after` and `updated_before`. As on a listing, `updated_after` includes items changed at that instant, and `updated_before` and the `occurred_` bounds leave out the instant they name. This finds the notes about tides that changed since October 19, the most recently changed first:
+
+```bash tab="CLI" tab-group="client"
+marfa search tide --type core.note --updated-after 2026-10-19T00:00:00Z --sort updated-at
+```
+
+```http tab="HTTP"
+GET /search?q=tide&type=core.note&updated_after=2026-10-19T00:00:00Z&sort=updated_at
+Authorization: Bearer <key>
+```
+
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/search", {
+  params: {
+    query: { q: "tide", type: "core.note", updated_after: "2026-10-19T00:00:00Z", sort: "updated_at" },
+  },
+});
+```
+
+`sort` takes `relevance`, `created_at`, `updated_at`, `occurred_at` or `properties.<field>`, and `direction` takes `asc` or `desc`. The default is `relevance` and `desc`:
+
+| `sort` | `desc` (the default) | `asc` |
+| --- | --- | --- |
+| `relevance` | Best match first | Worst match first |
+| `created_at`, `updated_at`, `occurred_at` | Newest first | Oldest first |
+| `properties.<field>` | Highest value first | Lowest value first |
+
+Items that lack the property come last in either direction, and hits that tie on relevance or on a property come in order of `id`. The CLI's `--sort` takes `created-at`, `updated-at` and `occurred-at` as well as `relevance` and `properties.<field>`.
+
+Two things differ from a listing. **`updated_after` doesn't set the order of a search**, where it forces a listing into oldest change first, so it works with any `sort`. And a search reads **at most the first 10,000 hits** of its ranking, so narrow a search that would reach further.
+
+Send `next_cursor` back as `cursor`, as for a listing, with the same query. Marfa refuses a cursor from a search with another `sort`, `direction` or bound, or another listing's cursor, with `400 validation_error`.
 
 Search also reads the text of a file. After the `enrichment-sweep` job has read a file item's bytes and written its `extracted_text`, a search finds the file by any word in that text, as it finds any other `string` field, on the server and in a copy on a device. Until then, a search finds the file only by its other fields and tags. See [Handle files](/build/handle-files#find-a-file-by-its-text).
 
