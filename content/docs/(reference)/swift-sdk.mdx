@@ -159,7 +159,7 @@ While a fill runs, `status()` gives `itemsListed`, the items the fill has brough
 
 ### Read while the copy fills
 
-While a hydration is in progress, a list or a search answers the items that have arrived and says so. `items.list(_:sort:)`, `search(_:filters:limit:)` and the saved-view reads return `Rows`, a collection of `rows` with a `completeness`:
+While a hydration is in progress, a list or a search answers the items that have arrived and says so. `items.list(_:sort:)`, `items.get(_:includingBin:)`, `search(_:filters:limit:)` and the saved-view reads return `Rows`, a collection of `rows` with a `completeness`:
 
 | `Completeness` | Meaning |
 | --- | --- |
@@ -173,7 +173,7 @@ if notes.completeness == .partial { /* show the notes, and a note that more are 
 for note in notes { print(note.title ?? "") }
 ```
 
-`Rows` is a random-access collection, so a loop or a `ForEach` takes it as it is. **Some calls can't be answered until the copy is whole and throw `hydrationIncomplete`:** `items.get(_:)` for an item that hasn't arrived, edge reads, and every edge write (`edges.create`, `edges.update` and `edges.delete`). A write to an item the copy holds, or to a new item, is queued during a fill, and so is a file item or an `attach`; a write to an item that hasn't arrived throws `hydrationIncomplete`, because there is no version to base it on.
+`Rows` is a random-access collection, so a loop or a `ForEach` takes it as it is. **Some calls can't be answered until the copy is whole and throw `hydrationIncomplete`:** `items.get(_:)` for an item that hasn't arrived, edge reads, `changes(since:most:)`, and every edge write (`edges.create`, `edges.update` and `edges.delete`). A write to an item the copy holds, or to a new item, is queued during a fill, and so is a file item or an `attach`; a write to an item that hasn't arrived throws `hydrationIncomplete`, because there is no version to base it on.
 
 A `hydrate` call announces `.refreshed(.hydrated)` when it completes, and `.refreshed(.unfinished)` when it throws or is canceled, because the rows it wrote stay. A `LiveQuery` over a partial copy therefore reads again after a fill that failed part way, and a follow failure it shows stays shown.
 
@@ -208,21 +208,22 @@ guard let id = created.itemId, let note = try await copy.items.get(id) else { re
 _ = try await copy.items.update(id, Edit(properties: ["title": "Books to read"], baseVersion: note.version))
 ```
 
-Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `create`, `update`, `delete`), `tags` (`add` and `remove`, one at a time), `metadata` (`replaceTags`, which writes the whole set), `extensions` (`write` and `delete` by namespace), `blobs` (`put(file:mimeType:)` queues an upload, and `withFile(_:_:)` calls your closure with where a blob's bytes are held, fetching them first if they aren't, within the copy's [file budget](#keep-files-on-the-device)), the [`queue`](#send-writes-and-read-verdicts) and the `catalog` of types the copy holds. Each `EdgeType` in the catalog has a `label` for the source's end and a `reverseLabel` for the target's, such as `Children` and `Parent`. **An edge type registered with no reverse label has a `reverseLabel` equal to its `label`**, which names both ends alike.
+Besides `items`, the copy has `edges` (`from`, `to`, `ofType`, `get` for one ID or many, `create`, `update`, `delete`), `tags` (`add` and `remove`, one at a time), `metadata` (`replaceTags`, which writes the whole set), `extensions` (`write` and `delete` by namespace), `blobs` (`put(file:mimeType:)` queues an upload, and `withFile(_:_:)` calls your closure with where a blob's bytes are held, fetching them first if they aren't, within the copy's [file budget](#keep-files-on-the-device)), the [`queue`](#send-writes-and-read-verdicts) and the `catalog` of types the copy holds. Each `EdgeType` in the catalog has a `label` for the source's end and a `reverseLabel` for the target's, such as `Children` and `Parent`. **An edge type registered with no reverse label has a `reverseLabel` equal to its `label`**, which names both ends alike.
 
 | `items` call | What it does |
 | --- | --- |
 | `list(_:sort:)`, `get(_:)` | Items matching a `ListFilters`, newest first unless a `Sort` says otherwise. One item, or `nil` when it's in the bin or not held. |
+| `get(_:includingBin:)` | The items of many IDs, read at one moment, each once and in the order first named. An ID the copy doesn't hold is left out, and so is an item in the bin unless `includingBin` is `true`. |
 | `create(_:)`, `update(_:_:)` | Queue a `Draft` or an `Edit`. An update is refused unless `baseVersion` is the version the copy holds. |
 | `updateAsRead(_:_:)` | Queues an edit based on an older version, which the server merges. |
 | `delete(_:)`, `restore(_:)`, `transition(_:to:)` | Move an item to the bin or out of it, or change its `ItemState`. |
 | `bin(type:after:limit:)`, `purge(_:version:)` | Read a page of the server's bin, and destroy an item in it. Both need the server and neither is queued. A page can be short or empty and still carry a `nextCursor`. A purge needs `items.purge` and write on the type. |
 | `attach(to:file:_:)`, `embed(file:in:_:)` | Queue the upload, a file item and an `attached-to` edge, each with its own verdict. `embed` also adds the file's embed to the body, and throws `EmbedFailure` if that step fails. |
 | `addFile(_:_:tags:)` | Adds a file as an item of its own, attached to nothing: it queues the upload and the file item, and a write for each tag. It returns an `Added` with the first two. |
-| `links(in:)`, `embedText(of:in:)` | The links and file embeds in a body, and the `![[title]]` text for an attached file. |
+| `links(in:)`, `embedText(of:in:)` | The links and file embeds in a body, and the `![[title]]` text for an attached file. `links(in:)` also takes many IDs and returns a dictionary by ID, leaving out an item that isn't held, is in the bin or can't be read. |
 | `conflictedCopies(of:)`, `original(ofConflictedCopy:)` | An item's held conflicted copies, and the ID of the item a copy was made from. |
 
-- **Read `title` and `body`** rather than `properties`: they read the properties the item's type uses for them. Where `properties` is empty, `unreadableProperties` says why.
+- **Read `title` and `body`** rather than `properties`: they read the properties the item's type uses for them. Where `properties` is empty, `unreadableProperties` says why: the copy holds properties that aren't JSON, aren't an object, or nest more than 64 levels deep, counting the properties object.
 - **An `Edit` changes the properties it names.** With `replaceProperties: true`, they become the item's whole set.
 - **A `Draft` takes every field a create takes.** Besides the type and the properties, it carries `state` (`.active`, `.archived` or `.trashed`; `.revoked` is refused), `captureLatitude` with `captureLongitude`, and `edges`, a dictionary from an edge type to the IDs of the items it points at. An `Item` reads the capture location back in the same two properties.
 - **A create is one write.** Its state, location and edges go in the body of the write that creates the item. If the instance refuses any edge, for example because a target doesn't exist, it creates neither the item nor its edges, and the write stays in the queue as refused. The copy shows each edge at once, and an empty list for an edge type queues no edge. An edge may point at an item that is still waiting to be created: the write waits for that create. If that create lands on an item the instance already holds, because the two share a source and a `sourceId`, the edge points at the item the instance holds.
@@ -356,13 +357,41 @@ Each `Change` names the `itemId` or `edgeId` it concerns, and its `origin` says 
 | `Change.Origin` | Meaning | What the app does |
 | --- | --- | --- |
 | `.local`, `.server` | A write in this copy, or an event from the instance. | Show it. |
-| `.refreshed`, `.saved` | Many rows may have changed at once, or the writer saved. | Read again. |
+| `.refreshed`, `.saved` | Many rows may have changed at once, or the writer saved. | Read again, or [reread only what changed](#reread-only-what-changed). |
 | `.answered` | A drain answered a write. | Show the verdict. |
 | `.serverUnreachable`, `.serverReachable` | The server went away or came back. | Show the app as offline or online, and start nothing. |
 | `.queueDrained`, `.queueNotDrained` | The drain the stream ran when the server came back ended, or stopped with an error. | Nothing: the stream drains by itself. |
 | `.stopped(MarfaError)` | What fed the stream stopped. Local writes are still told. | See below. |
 
 **Two stops need the app's help.** On `.copyExpired`, hydrate again: the queue survives. Read `status().hydration` first: a `.stale` copy is told this stop only when it [can't refill itself](#refill-a-stale-copy), and hydrating the same slice fills it again in place where the instance and reach allow. Any other expired copy must be filled from scratch. The `reason`, such as `reach_changed`, `instance_changed` or `catchup_too_old`, is an open string, so keep a `default`. On `.unauthorized` or `.signedOut`, give the copy a new credential with `useKey(_:)`.
+
+### Reread only what changed
+
+An app that keeps a large library in memory reads it whole once, then rereads only the rows that changed. `changes(since:most:)` names the items and edges that changed since a `ChangeCursor`, and gives the cursor to pass next. **Take the cursor before you read what it covers**, so a change made between the two is named again rather than missed.
+
+```swift
+var cursor = try await copy.changes(since: nil).next
+var notes = try await copy.items.list(ListFilters(type: "core.note"))
+
+// After a .refreshed or .saved change:
+switch try await copy.changes(since: cursor) {
+case .everything(let next):
+    notes = try await copy.items.list(ListFilters(type: "core.note"))
+    cursor = next
+case .named(let changed, let next):
+    let reread = try await copy.items.get(changed.items)
+    // Replace those rows and drop changed.removedItems. Drop an ID the reread
+    // left out too, unless reread.completeness is .partial.
+    cursor = next
+}
+```
+
+- **`.everything` asks for a full read.** It's the answer with no cursor; with a cursor from another store, from beyond what the copy has recorded, from before a change to the types, or from before a removed edge the copy no longer records; and when more than `most` items or more than `most` edges changed (1,000 unless you pass another limit). Read the whole copy again, then keep `next`.
+- **`ChangedRows` holds four lists of IDs.** `items` and `edges` are rows the copy holds, and `removedItems` and `removedEdges` are rows it no longer holds. An item in `items` that `items.get(_:includingBin:)` leaves out has gone to the bin or been removed since the answer, unless the answer is `.partial`: then a hydration started after `changes(since:most:)` answered, and the item may not have arrived again yet. Read changed edges with `edges.get(_:)`.
+- **A name can change nothing on screen.** An item is named when its row, its tags, an edge at either end, its pin or a write queued for it changed.
+- **Changed body links aren't always named.** An item whose links read differently only because another item changed, such as a link that resolves once its target arrives, isn't named. An app that shows links reads `items.links(in:)` again for the rows it shows whenever an answer names an item added, changed or removed.
+- **A refusal during a fill keeps the cursor.** While a hydration is part way or the copy is stale, `changes(since:most:)` and the edge reads throw `hydrationIncomplete`. Keep the cursor you passed, and ask again from it after `.refreshed(.hydrated)`. Move to `next` only after the reread of what an answer names succeeds.
+- **A cursor keeps across launches.** Store its `rawValue`, or encode it, since it's `Codable`. Text that isn't a cursor throws `invalid`.
 
 ## Send writes and read verdicts
 
@@ -579,12 +608,12 @@ Each call returns at once and does its work away from the main actor. A report t
 
 The fake answers these calls:
 
-- **Reads:** `items.list(_:sort:)` without a `filter`, including the `source`, updated and occurred ranges and a sort on a property; `items.get(_:)`; the edge reads; the `catalog` reads; `declaredTypes()`; and `status()`.
+- **Reads:** `items.list(_:sort:)` without a `filter`, including the `source`, updated and occurred ranges and a sort on a property; `items.get(_:)` and `items.get(_:includingBin:)`; the edge reads, including `edges.get(_:)`; the `catalog` reads; `declaredTypes()`; and `status()`.
 - **Writes:** `items.create(_:)` without a `sourceId`, including `state`, a capture location and `edges`; `items.update(_:_:)`, including `occurredAt` and `clearOccurredAt`; the other item, edge, tag, metadata and extension writes; and `declareTypes(_:)`.
 - **Views:** `createView(_:idempotencyKey:)`, `changeView(_:_:baseVersion:idempotencyKey:)`, `deleteView(_:idempotencyKey:)`, `items.views()`, `items.view(_:)`, `items.list(inView:limit:offset:)` and `items.groups(inView:timeZone:)`. Pass `views:` to hold saved views from the start. A view write is never queued and announces the same changes as a real copy, and a change based on an older version merges or throws `version_conflict` as the instance does. A view lists the items its `query` names (`types` with their subtypes, `tier`, `state`, `beneath`), in its `sort`, and groups them as the core does. The fake can't judge a `filter` in a view's query: it stores one, and a list or a grouping of that view throws `unsupported`.
 - **The queue and changes:** `queue.all()`, `queue.drain()`, `queue.withdraw(_:)`, `queue.discard(_:)`, `queue.forgetAnswered()` and `changes()`.
 
-**A call, or an input to a call, that the fake can't match exactly throws `FakeCopyError.unsupported(call:)`** instead of answering differently. That covers a `filter`, `search` (including `search(_:inView:)`), hydration, files and folders, a capture coordinate that is out of range or has no partner, and an `occurredAt` in a form the fake doesn't check. The fake knows only the types you give it and the ones your app declares, not Marfa's built-in catalog, and it doesn't check an edge type's constraints. Because the fake has no instance, a create never lands on an item the instance already holds.
+**A call, or an input to a call, that the fake can't match exactly throws `FakeCopyError.unsupported(call:)`** instead of answering differently. That covers a `filter`, `search` (including `search(_:inView:)`), body links, `changes(since:most:)`, hydration, files and folders, a capture coordinate that is out of range or has no partner, and an `occurredAt` in a form the fake doesn't check. The fake knows only the types you give it and the ones your app declares, not Marfa's built-in catalog, and it doesn't check an edge type's constraints. Because the fake has no instance, a create never lands on an item the instance already holds.
 
 ## Handle errors
 
