@@ -1,6 +1,6 @@
 ---
 title: Write safely
-description: Change an item without overwriting someone else's change, handle a conflict when one happens, and retry a write without making it twice.
+description: Change an item without overwriting someone else's change, create one without overwriting an existing item, handle a conflict when one happens, and retry a write without making it twice.
 ---
 
 When your app changes an item, another app or device may have changed it since you read it. Marfa can tell, as long as your write names the **version** it read. [Versions](/versions) explains what the version counts and why Marfa works this way. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows.
@@ -169,6 +169,56 @@ Marfa compares a stale write against the snapshot it kept of the version you rea
 `current` is trimmed here; it carries the same fields as in a conflict.
 
 Make your change again **on top of `current`**, and send it at the version `current` holds. Sending your old values at the new version overwrites whatever arrived since.
+
+## Create without overwriting
+
+A create that names a `source` and `source_id` an item already holds **updates that item**, and a create that repeats an `id` you already made answers with the stored item and writes nothing. That suits a connector that syncs the same row again. A caller that must never change an item, such as an agent that may send the same create twice, adds `mode: "create_only"`:
+
+```bash tab="CLI" tab-group="client"
+marfa items create --type core.note --source-id reading-list --create-only \
+  --prop title="Reading list" --prop body="Start with the essays."
+```
+
+```http tab="HTTP"
+POST /items
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{
+  "type": "core.note",
+  "source_id": "reading-list",
+  "mode": "create_only",
+  "properties": { "title": "Reading list", "body": "Start with the essays." }
+}
+```
+
+```ts tab="TypeScript"
+const { data, error } = await marfa.POST("/items", {
+  body: {
+    type: "core.note",
+    source_id: "reading-list",
+    mode: "create_only",
+    properties: { title: "Reading list", body: "Start with the essays." },
+  },
+});
+```
+
+If no item holds the source and source id, or the `id`, Marfa creates the item and answers `201` as usual. If one does, in any state and the bin included, Marfa **writes nothing** and answers `409 item_exists`. The refusal names the item that holds the key:
+
+```json title="Response" status="409"
+{
+  "error": {
+    "code": "item_exists",
+    "status": 409,
+    "message": "An item already holds this source and source id",
+    "details": { "existing_id": "01a12312-394e-75d2-acdd-d19c6d58a423", "matched_by": "source_id" }
+  }
+}
+```
+
+`matched_by` is `source_id` or `id`. When a request matches both, the source and source id decide, as they do without the mode. To change that item, read it and [send the version you read](#send-the-version-you-read).
+
+A key that can't read the type of the item it matches learns only that the key is taken: Marfa answers `403 type_not_permitted` for a source and source id, and `409 conflict` for an `id`, and names nothing of the item. [Upsert items in bulk](/api-reference/items/bulkUpsertItems) takes the same `mode` and reports such an entry as `skipped` instead of refusing the batch.
 
 ## Retry with an Idempotency-Key
 

@@ -1,13 +1,52 @@
 ---
-title: Read a view offline
-description: Read a saved view's items and groups from a device's working copy.
+title: Read a view
+description: Read the items a saved view lists from the server, or its items and groups from a device's working copy.
 ---
 
-A [view](/catalog/view) saves which items to list, in what order and how they group. **The device core answers a view offline** from a [working copy](/devices), so an app uses the same sorting and grouping as the CLI.
+A [view](/catalog/view) saves which items to list, in what order and how they group. **The server lists a view's items a page at a time**, for an app, a web page or an agent with no working copy. **The device core answers the same view offline** from a [working copy](/devices), in the same order, and it also reads the view's groups.
+
+In the TypeScript example, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows.
+
+## Read a view's items from the server
+
+[List a view's items](/api-reference/views/listViewItems) answers one page of the items the view lists, in the view's sort order. The credential needs read on `system.view` and on the types of the items. The examples use the view of open tasks from [Save a list as a view](/build/save-a-view):
+
+```bash tab="CLI" tab-group="client"
+marfa views items <view-id> --limit 50
+```
+
+```http tab="HTTP"
+GET /views/<view-id>/items?limit=50
+Authorization: Bearer <key>
+```
+
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/views/{id}/items", {
+  params: { path: { id: viewId }, query: { limit: 50 } },
+});
+```
+
+The answer holds the page in `data` and a cursor in `next_cursor`, as a listing does. `limit` defaults to 50 and takes at most 200. Send the cursor back as `cursor` for the next page, and stop only when **`next_cursor` is `null`**. A cursor belongs to one view and one version of it: Marfa refuses one from another view, or from before the view changed, with `400 validation_error`.
+
+The page lists what the view's query names, with these rules:
+
+- **Types, state and tier:** the items of the named `types` and their subtypes. With no `state`, the view lists active and archived items, and with no `tier`, both tiers. The `filter` narrows them further.
+- **Beneath:** a view with `beneath` lists that item and everything under it by `parent-of`, at any depth. A trashed item is left out, and a `beneath` that names no item lists nothing.
+- **Order:** the view's `sort` keys in turn, first key first, or the newest `occurred_at` first when the view has none. An item that lacks a sort field comes last in either direction.
+- **Readable items only:** an item of a type the credential can't read is left out, and so is every `system.*` item. A `beneath` walk passes only through items the credential can read, so an unreadable parent hides its readable children.
+- **No groups:** the server applies the view's query and sort, not its `group`. Read groups from a working copy, as below.
+
+Marfa refuses a read it can't answer exactly: `404 item_not_found` for an ID that is no view the credential can read, `400 invalid_transition` for a revoked view, and `403 edge_permission_denied` when the view's `beneath`, or an `edge` or `backref` term in its `filter`, needs an edge type the credential can't read. [List a view's items](/api-reference/views/listViewItems) lists every refusal.
+
+The rules are in the contract's [views](https://github.com/withmarfa/marfa/blob/main/conformance/spec/views.md#reading-what-a-view-lists) chapter.
+
+## Read a view from a working copy
+
+A device answers the same view with no connection, and **lists the same IDs in the same order as the server** when its copy holds the view, the types in its query and the `parent-of` edges.
 
 Start with a view [saved on the instance](/build/save-a-view) and a credential that can read `system.view` and every content type its query names. The examples use a view of `core.task` items.
 
-## Fill the working copy
+### Fill the working copy
 
 While connected, hydrate the view type and the types its query needs:
 
@@ -19,7 +58,7 @@ marfa device --db ./copy.sqlite hydrate --types system.view,core.task --tier all
 
 Hydration needs the server and a credential, as [Connect to a server](/cli#connect-to-a-server) describes. The reads below need neither a connection nor a new hydration while the copy remains complete.
 
-## Choose the view
+### Choose the view
 
 List the views held in the copy, then read the selected view's settings:
 
@@ -42,7 +81,7 @@ To search within the view's query, pass the view ID to search. Search orders mat
 marfa device --db ./copy.sqlite search "meeting" --view <view-id> --json
 ```
 
-## Read groups
+### Read groups
 
 A view with a `group` returns one count per group. A view with no `group` returns one group, with the count of every item it lists.
 
@@ -60,7 +99,7 @@ A date group uses the view's `group.bucket`: `day`, `week`, `month` or `year`. I
 marfa device --db ./copy.sqlite views groups <view-id> --time-zone Europe/London --json
 ```
 
-## Read a view in an app
+### Read a view in an app
 
 Use the core's view reads on the same handle as other working-copy reads. Rust exposes `list_views`, `view`, `list_in_view`, `search_in_view` and `view_groups`; the core's Node binding exposes the corresponding camel-case methods, and the [Swift SDK](/swift-sdk#saved-views) wraps them in its own types.
 
@@ -88,7 +127,7 @@ let groups = try await copy.items.groups(inView: viewID)
 
 Pass the device's time zone when asking for date groups. The Swift SDK also writes views and follows one with a live query: [Saved views](/swift-sdk#saved-views) shows both.
 
-## Handle a refused view
+### Handle a refused view
 
 **A view's items and groups are never answered in part.** If the working copy cannot answer the whole query or grouping, the read is refused with a reason. This includes an unfinished hydration, a query outside the held types or tiers, and an edge group or a `backref` condition whose edge type is not held whole. Listing the view settings during a fill can return `partial`; that does not make their item queries answerable.
 
