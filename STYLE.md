@@ -161,7 +161,7 @@ Every visual follows these rules:
 
 - **The prose carries every fact.** A visual shows the shape of what the text says; nothing is only in the visual, and no list after it repeats it.
 - **Use HTML and CSS on the site's theme tokens** (`--color-fd-*`, and `--marfa-diagram-accent` for the one accent color), so light and dark both work. No images and no hard-coded colors.
-- **The server render shows the whole visual,** and nothing moves when it's used: a control changes what's highlighted, never the layout.
+- **The server render shows the whole visual,** and nothing moves when it's used: a control changes what's highlighted, never the layout. A filter on a lookup page, such as the Changelog's part filters, may show and hide entries.
 - **Fit at phone width** (375 px) with no horizontal scroll, and keep labels to a few words on one line.
 - **Make controls usable by keyboard,** with visible focus. Selections are buttons with `aria-pressed`.
 
