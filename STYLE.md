@@ -144,6 +144,8 @@ Use a component for what it's for, and only where it helps the reader.
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
 
+Wrap a lookup table whose names are long, a generated include among them, in `ReferenceList`, so it fits at phone width. It draws each table under it as a list of names with their details, keeps the headings, and leaves out a detail that reads "None"; the Markdown copy keeps the table.
+
 The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence`, `Files` and `Terminal` (the command, then "Output:" and its output) as plain Markdown, and a block's `note` or `status` as a line above it, such as "Response (Server-sent events):", and leaves the visuals out (`source.config.ts`). `Changelog` writes every release and every line of its notes. A component outside those lists is left out of the copy too, so add it there before a page relies on it.
 
 ## Visuals
@@ -162,6 +164,8 @@ Every visual follows these rules:
 - **The prose carries every fact.** A visual shows the shape of what the text says; nothing is only in the visual, and no list after it repeats it.
 - **Use HTML and CSS on the site's theme tokens** (`--color-fd-*`, and `--marfa-diagram-accent` for the one accent color), so light and dark both work. No images and no hard-coded colors.
 - **The server render shows the whole visual,** and nothing moves when it's used: a control changes what's highlighted, never the layout. A filter on a lookup page, such as the Changelog's part filters, may show and hide entries.
+- **The accent means one thing in a figure,** such as what a listing returns, and a `caption` says what to look at. The caption states no fact the prose lacks.
+- **An interactive diagram has one control,** a single row of choices, not one row for each thing that varies.
 - **Fit at phone width** (375 px) with no horizontal scroll, and keep labels to a few words on one line.
 - **Make controls usable by keyboard,** with visible focus. Selections are buttons with `aria-pressed`.
 
