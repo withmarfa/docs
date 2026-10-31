@@ -1,0 +1,65 @@
+---
+title: Staying in step
+description: Fix a working copy that can't catch up, belongs to another instance or was made by another build.
+---
+
+A working copy follows one instance through its event log. [Devices](/devices) explains what the copy holds and when it falls behind.
+
+## 409 reach_changed
+
+What your credential may read has changed since the working copy was built, for example because its key was narrowed or an item moved to another type. The copy can't resume, because what it holds no longer matches what the credential reads.
+
+Build the working copy again. [When the copy falls behind](/devices#when-the-copy-falls-behind) explains when a copy starts over.
+
+## this working copy can no longer be kept current
+
+The CLI's device commands report `catchup_too_old`, `reach_changed` and `instance_changed` this way, with the code `copy_expired` and exit code `4`. The message ends `rebuild the copy from the server`. Writes waiting in the queue are kept.
+
+A device can change its own reach. When the server takes a write that moves an item to another type, or an edge to another source, the device sends the writes queued behind it, then reports `reach_changed` once.
+
+Run `marfa device hydrate` again. Leave out of `--types` any type the credential no longer reads, or the hydrate is refused `type_not_permitted`. Until it finishes:
+
+- **After `catchup_too_old`,** `marfa device status` reports the copy as `stale`. It keeps answering reads, marked `stale`, while the hydrate fills it in place. `marfa device drain` and `marfa device catch-up` keep answering `copy_expired`.
+- **After `instance_changed`,** the hydrate builds the copy from the instance now at the address, and holds each waiting write as `blocked` with the reason `instance_changed`, so none reaches that instance by itself. Check `marfa device queue`, then send the ones you want with `marfa device release --reason instance_changed`, or take one out with `marfa device withdraw <id>`.
+
+`marfa device hydrate --in-place-only` gives the same error where it can't fill the copy in place, with the reason `instance_changed`, `reach_changed`, `slice_changed` or `head_past_log`. It changes nothing, so run `marfa device hydrate` without the option.
+
+For a folder, run `marfa folders push` instead, which builds the copy again itself.
+
+## this working copy is not waiting to be filled again in place (not_stale)
+
+`marfa device hydrate --in-place-only` fills only a copy whose cursor the instance's event log let go. This copy is whole, or was never built. Nothing changed.
+
+Run `marfa device catch-up` to bring a whole copy up to date, or `marfa device hydrate` without the option to build it again.
+
+## wrong_server
+
+Before a device sends a credential or a write, it checks that the copy's address still answers as the instance the copy was made from. Another instance answered, so the device refused and named both addresses. The copy and its queued writes are kept.
+
+Point the device back at the instance the copy was made from. To work with the other instance, open a new working copy for it.
+
+## wrong_schema: made by another build of the core
+
+The message ends `was made by another build of the core`. A working copy is a file that one build of the core made, and a build with a different schema refuses to open it, even to read. The CLI exits with `4` and names the file. **Nothing is deleted or changed.** It happens after a move to a release that changed the working copy's tables, which the [changelog](/changelog) names.
+
+The message counts the writes in the file that the server hasn't taken: waiting, blocked, refused or dead. Only the build that made the file can send them.
+
+- **None.** Run `marfa device hydrate` to build a new copy.
+- **Some.** Open the file with the build that made it, run `marfa device drain` to send the writes, and `marfa device discard` any refused write you don't want. Then hydrate a new copy with the newer build. Keep the old file until then, because deleting it loses those writes.
+
+If the message names a kind of write the current build no longer queues, such as `1 write of kind merge_metadata`, that write is a tag merge the server no longer takes. Read its tags with `marfa device queue`, and add them with `marfa items tag`.
+
+An app replaces or removes a refused copy itself, as [Replace a refused copy](/swift-sdk#replace-a-refused-copy) and [Remove a copy](/swift-sdk#remove-a-copy) describe. A folder replaces its own store, as [Folders](/run/troubleshooting/folders#wrong_schema-on-a-folders-store) describes.
+
+## A declared type is in unreplacedTypes
+
+An app declared an `app.*` type that the instance holds in another definition, and the instance refused to replace it. The hydration finished, and **the type stays as the instance holds it**, so a write that relies on the new definition may be refused. A key without `schema.write` can add optional fields and change a label, but not make a field required or remove one.
+
+Hydrate again with a credential that may change the type, or change the declaration to match what the instance holds. [Declare an app type](/swift-sdk#declare-an-app-type) says what a hydration does with each declared type.
+
+## Covered in their guides
+
+| What you see | Guide |
+| --- | --- |
+| An event stream ends with `catchup_too_old` or `cursor_ahead` | [When the stream ends](/build/keep-in-sync#when-the-stream-ends) |
+| A Swift app's copy is `.stale` | [Refill a stale copy](/swift-sdk#refill-a-stale-copy) |

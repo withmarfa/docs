@@ -33,7 +33,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['retry a write safely', ['/build/write-safely']],
   [
     'rate limit 429',
-    ['/run/troubleshooting', '/run/folder-safeguards', '/build/connector-holds-and-retries', '/run/settings'],
+    ['/run/troubleshooting/credentials-and-access', '/run/folder-safeguards', '/build/connector-holds-and-retries', '/run/settings'],
   ],
   ['retry-after', ['/build/connector-webhooks', '/build/connector-holds-and-retries', '/build/keep-in-sync']],
   ['CORS', ['/run/settings']],
