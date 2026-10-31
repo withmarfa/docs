@@ -1,9 +1,9 @@
 ## Fields
 
-| Field         | Kind     | Required | Description                 |
-| ------------- | -------- | -------- | --------------------------- |
-| `title`       | `string` | Yes      | Name of the collection      |
-| `description` | `string` | No       | What the collection gathers |
+| Field         | Kind               | Description                  |
+| ------------- | ------------------ | ---------------------------- |
+| `title`       | `string`, required | Name of the collection.      |
+| `description` | `string`           | What the collection gathers. |
 
 ## Settings
 

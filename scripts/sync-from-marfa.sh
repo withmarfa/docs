@@ -555,12 +555,32 @@ def with_values(description, values):
     """An enum's values follow its description, which keeps the Kind column narrow."""
     if not values:
         return description
-    text = description.rstrip()
-    if text and text[-1] not in ".:;!?":
-        text += "."
-    # A status field's values are a word and the group it counts in.
-    shown = [code(v) if isinstance(v, str) else f"{code(v['value'])} in {code(v['group'])}" for v in values]
-    return (text + " " if text else "") + "Values: " + ", ".join(shown) + "."
+    return " ".join(p for p in (sentence(description), "Values: " + ", ".join(code(v) for v in values) + ".") if p)
+
+
+def sentence(text):
+    text = text.rstrip()
+    return text + "." if text and text[-1] not in ".:;!?" else text
+
+
+def statuses(values):
+    """A status field's words, each with the group it counts in. Where every word is the name of its
+    own group, as a task's are, the groups are said once rather than repeated beside each word."""
+    if all(v["value"] == v["group"] for v in values):
+        return ", ".join(code(v["value"]) for v in values) + ", each in the group of the same name"
+    return ", ".join(f"{code(v['value'])} (group {code(v['group'])})" for v in values)
+
+
+def described(field):
+    """The description, then the values an enum or status takes and the label a field declares, as
+    values under labels, which keeps the table to three columns."""
+    parts = [field["description"]]
+    values = values_of(field)
+    if values:
+        parts.append("Values: " + (statuses(values) if field["type"] == "status" else ", ".join(code(v) for v in values)))
+    if "label" in field:
+        parts.append("Label: " + field["label"])
+    return " ".join(sentence(p) for p in parts if p.strip())
 
 
 def values_of(field):
@@ -691,14 +711,9 @@ def render_types(types):
             rows.append((code(n), f))
             # The members of a list of entries follow their field, named as the field's entries are: emails[].value.
             rows += [(code(f"{n}[].{m}"), mf) for m, mf in f.get("items_fields", {}).items()]
-        # The Label column appears only where a field in the table names one.
-        labelled = any("label" in f for _, f in rows)
-        cells = [
-            [name, *([f.get("label", "")] if labelled else []), kind(f), "Yes" if f.get("required") else "No", with_values(f["description"], values_of(f))]
-            for name, f in rows
-        ]
-        header = ["Field", *(["Label"] if labelled else []), "Kind", "Required", "Description"]
-        return [table(header, cells), ""] if cells else []
+        # Whether a field is required is part of its kind, so the table keeps to three columns.
+        cells = [[name, kind(f) + (", required" if f.get("required") else ""), described(f)] for name, f in rows]
+        return [table(["Field", "Kind", "Description"], cells), ""] if cells else []
 
     def page(t):
         """A top-level type has a page of its own, whose header gives its label, description and
@@ -720,23 +735,14 @@ def render_types(types):
     for t in top:
         write(t["id"] + ".md", page(t))
 
-    # The Catalog's front page: each family's top-level types, linked to their pages.
+    # The Catalog's front page: each family's top-level types, linked to their pages, which list
+    # their subtypes.
     index = []
     for family, heading in (("core", "Core types"), ("system", "System types")):
-        rows = []
-        for t in top:
-            if t["id"].split(".")[0] != family:
-                continue
-            subtypes = ", ".join(
-                f"[{code(c['id'][len(t['id']) + 1:])}](/catalog/{slug(t)}#{c['id'].replace('.', '-')})" for c in descendants(t)
-            )
-            rows.append([f"[{code(t['id'])}](/catalog/{slug(t)})", t["description"], subtypes])
+        rows = [[f"[{code(t['id'])}](/catalog/{slug(t)})", t["description"]] for t in top if t["id"].split(".")[0] == family]
         if not rows:
             refuse(catalog_path, f"has no top-level {family} type")
-        if any(row[2] for row in rows):
-            index += [f"## {heading}", "", table(["Type", "Description", "Subtypes"], rows), ""]
-        else:
-            index += [f"## {heading}", "", table(["Type", "Description"], [row[:2] for row in rows]), ""]
+        index += [f"## {heading}", "", table(["Type", "Description"], rows), ""]
     if {t["id"].split(".")[0] for t in top} - {"core", "system"}:
         refuse(catalog_path, "has a top-level type outside the core and system families")
     write("types.md", index)
@@ -813,7 +819,7 @@ def render_edges(edges, type_ids):
         props = e.get("property_schema") or {}
         if props:
             check_fields(f"{e['id']} property", props, FIELD_KEYS)
-            rows = [[code(n), kind(f), with_values(f["description"], values_of(f))] for n, f in props.items()]
+            rows = [[code(n), kind(f) + (", required" if f.get("required") else ""), described(f)] for n, f in props.items()]
             lines += [table(["Property", "Kind", "Description"], rows), ""]
         sections += lines
     write("edges.md", sections)

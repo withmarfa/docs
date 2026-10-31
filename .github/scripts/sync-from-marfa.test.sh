@@ -405,11 +405,11 @@ EOF
 note_expected="$(cat <<'EOF'
 ## Fields
 
-| Field      | Kind               | Required | Description       |
-| ---------- | ------------------ | -------- | ----------------- |
-| `body`     | `string`           | Yes      | The text \<raw>   |
-| `title`    | `string`           | No       | A title \| or not |
-| `language` | `string` (`bcp47`) | No       | A language        |
+| Field      | Kind               | Description        |
+| ---------- | ------------------ | ------------------ |
+| `body`     | `string`, required | The text \<raw>.   |
+| `title`    | `string`           | A title \| or not. |
+| `language` | `string` (`bcp47`) | A language.        |
 
 ## Settings
 
@@ -431,20 +431,20 @@ A memo (for a team) with a level.
 | [`icon`](/catalog/type-rules#display-hints) | `notebook-pen` |
 | [`roles`](/catalog/type-rules#roles)        | `container`    |
 
-| Field   | Kind                | Required | Description                        |
-| ------- | ------------------- | -------- | ---------------------------------- |
-| `body`  | `string`            | Yes      | The memo text                      |
-| `title` | `string`            | Yes      | A title \| or not                  |
-| `level` | `enum`              | No       | How urgent. Values: `low`, `high`. |
-| `to`    | `array` of `string` | No       | Who it is for                      |
+| Field   | Kind                | Description                        |
+| ------- | ------------------- | ---------------------------------- |
+| `body`  | `string`, required  | The memo text.                     |
+| `title` | `string`, required  | A title \| or not.                 |
+| `level` | `enum`              | How urgent. Values: `low`, `high`. |
+| `to`    | `array` of `string` | Who it is for.                     |
 EOF
 )"
 folder_expected="$(cat <<'EOF'
 ## Fields
 
-| Field   | Kind     | Required | Description       |
-| ------- | -------- | -------- | ----------------- |
-| `title` | `string` | Yes      | The folder's name |
+| Field   | Kind               | Description        |
+| ------- | ------------------ | ------------------ |
+| `title` | `string`, required | The folder's name. |
 EOF
 )"
 edge_table_expected="$(cat <<'EOF'
@@ -481,9 +481,9 @@ EOF
 types_index_expected="$(cat <<'EOF'
 ## Core types
 
-| Type                         | Description                | Subtypes                               |
-| ---------------------------- | -------------------------- | -------------------------------------- |
-| [`core.note`](/catalog/note) | Text you wrote: a thought. | [`memo`](/catalog/note#core-note-memo) |
+| Type                         | Description                |
+| ---------------------------- | -------------------------- |
+| [`core.note`](/catalog/note) | Text you wrote: a thought. |
 
 ## System types
 
@@ -811,7 +811,7 @@ check "the edge types are a table, with a Source types column only when an edge 
   "${edge_table_expected}" "$(cat "${catalog_dir}/edge-types.md")"
 check "each edge type is a section with its properties, and where it is written only when that is its target" \
   "${catalog_edges_expected}" "$(cat "${catalog_dir}/edges.md")"
-check "the index lists each family's top-level types, linked to their pages, with a subtype linked to its section and a pipe escaped" \
+check "the index lists each family's top-level types, linked to their pages, in two columns, with a pipe escaped" \
   "${types_index_expected}" "$(cat "${catalog_dir}/types.md")"
 check "the reserved roots are one paragraph" '`app`, `core`' "$(cat "${catalog_dir}/reserved-type-roots.md")"
 check "the reserved field names are one paragraph" '`id`, `type`' "$(cat "${catalog_dir}/reserved-field-names.md")"
@@ -1186,16 +1186,17 @@ check "the parent says its own hints once, and a subtype equal to it adds none" 
 # a status field's words and groups, and an edge type's acyclic flag.
 echo "a type catalog with plurals, labels, members, ranges and statuses"
 fixture labels "${work}/untagged.json"
-catalog_with 'n = c["types"][0]; n["plural"] = "Notes"; n["fields"]["title"]["label"] = "Heading"; n["fields"]["rating"] = {"type": "integer", "description": "A rating", "minimum": 1, "maximum": 5}; n["fields"]["progress"] = {"type": "status", "description": "Progress", "status_values": [{"value": "planned", "group": "not_started"}, {"value": "done", "group": "completed"}]}; n["fields"]["links"] = {"type": "array", "description": "Links", "items_type": "object", "items_fields": {"value": {"type": "url", "label": "Link", "description": "The link", "required": True}}}; c["edge_types"][1]["acyclic"] = True' \
+catalog_with 'n = c["types"][0]; n["plural"] = "Notes"; n["fields"]["title"]["label"] = "Heading"; n["fields"]["rating"] = {"type": "integer", "description": "A rating", "minimum": 1, "maximum": 5}; n["fields"]["progress"] = {"type": "status", "description": "Progress", "status_values": [{"value": "planned", "group": "not_started"}, {"value": "done", "group": "completed"}]}; n["fields"]["stage"] = {"type": "status", "description": "Stage", "status_values": [{"value": "not_started", "group": "not_started"}, {"value": "completed", "group": "completed"}]}; n["fields"]["links"] = {"type": "array", "description": "Links", "items_type": "object", "items_fields": {"value": {"type": "url", "label": "Link", "description": "The link", "required": True}}}; c["edge_types"][1]["acyclic"] = True' \
   > "${work}/labels/marfa/core/marfa-core/src/builtin_catalog.json"
 sync labels
 labels_file="${work}/labels/docs/src/generated/catalog/core.note.md"
 check "plurals, labels, members, ranges and statuses: the script succeeds" 0 "${status}"
 check "the plural is a setting" 1 "$(grep -cF '| `plural`' "${labels_file}")"
-check "a field's label has a column that appears with it" 1 "$(grep -cE '^\| `title` +\| Heading +\|' "${labels_file}")"
+check "a field's label follows its description" 1 "$(grep -cE '^\| `title` +\| `string` +\| A title \\\| or not\. Label: Heading\. +\|$' "${labels_file}")"
 check "a range is in the kind" 1 "$(grep -cF '`integer` (1 to 5)' "${labels_file}")"
-check "a status field's words are listed with their groups" 1 "$(grep -cF 'Values: `planned` in `not_started`, `done` in `completed`.' "${labels_file}")"
-check "a member of a list of entries follows its field, with its label" 1 "$(grep -cE '^\| `links\[\]\.value` +\| Link +\| `url` +\| Yes' "${labels_file}")"
+check "a status field's words are listed with their groups" 1 "$(grep -cF 'Progress. Values: `planned` (group `not_started`), `done` (group `completed`).' "${labels_file}")"
+check "words named as their own groups say the groups once" 1 "$(grep -cF 'Stage. Values: `not_started`, `completed`, each in the group of the same name.' "${labels_file}")"
+check "a member of a list of entries follows its field, with its label" 1 "$(grep -cE '^\| `links\[\]\.value` +\| `url`, required +\| The link\. Label: Link\. +\|$' "${labels_file}")"
 check "an acyclic edge type says so" 1 "$(grep -cF '**acyclic:** `true`' "${work}/labels/docs/src/generated/catalog/edges.md")"
 refuse_catalog "a field with an empty label" "${cat_file} has a field core.note.body whose label is not a label. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["label"] = ""')"
 refuse_catalog "a status with no words" "${cat_file} has a status core.note.body whose status_values are not a list of values and groups. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["type"] = "status"; c["types"][0]["fields"]["body"]["status_values"] = []')"

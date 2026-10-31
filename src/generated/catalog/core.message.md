@@ -1,10 +1,10 @@
 ## Fields
 
-| Field  | Kind                | Required | Description                                                            |
-| ------ | ------------------- | -------- | ---------------------------------------------------------------------- |
-| `body` | `string`            | No       | The message text                                                       |
-| `from` | `string`            | Yes      | Sender identifier: format-agnostic (phone number, email, handle, etc.) |
-| `to`   | `array` of `string` | No       | Recipient identifiers: same format-agnostic shape as from              |
+| Field  | Kind                | Description                                                             |
+| ------ | ------------------- | ----------------------------------------------------------------------- |
+| `body` | `string`            | The message text.                                                       |
+| `from` | `string`, required  | Sender identifier: format-agnostic (phone number, email, handle, etc.). |
+| `to`   | `array` of `string` | Recipient identifiers: same format-agnostic shape as from.              |
 
 ## Settings
 

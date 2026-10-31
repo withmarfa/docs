@@ -30,9 +30,7 @@ describe('type inheritance figure', () => {
   });
 
   it('draws a shipped child type under the parent the catalog gives it', () => {
-    const table = readFileSync(new URL('../../generated/catalog/types.md', import.meta.url), 'utf8');
-    const row = table.split('\n').find((line) => line.startsWith('| [`core.file`]'));
-    expect(row, 'core.file row').toBeDefined();
-    expect(row).toContain('#core-file-image');
+    const page = readFileSync(new URL('../../generated/catalog/core.file.md', import.meta.url), 'utf8');
+    expect(page).toMatch(/^### core\.file\.image \[#core-file-image\]$/m);
   });
 });

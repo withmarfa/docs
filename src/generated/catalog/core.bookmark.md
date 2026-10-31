@@ -1,18 +1,18 @@
 ## Fields
 
-| Field          | Label      | Kind               | Required | Description                                       |
-| -------------- | ---------- | ------------------ | -------- | ------------------------------------------------- |
-| `url`          | URL        | `url`              | No       | The saved URL                                     |
-| `body`         |            | `string`           | No       | Captured text (a highlight, excerpt, or clipping) |
-| `title`        |            | `string`           | No       | Title of the saved content                        |
-| `description`  |            | `string`           | No       | Summary                                           |
-| `source_url`   | Source URL | `url`              | No       | Where the content was sourced from                |
-| `source_title` |            | `string`           | No       | Title of the source                               |
-| `author`       |            | `string`           | No       | Who created the original content                  |
-| `published_at` | Published  | `datetime`         | No       | When the original content was published           |
-| `image_url`    | Image URL  | `url`              | No       | Preview image                                     |
-| `language`     |            | `string` (`bcp47`) | No       | BCP 47 language code                              |
-| `notes`        |            | `string`           | No       | Personal annotations                              |
+| Field          | Kind               | Description                                                |
+| -------------- | ------------------ | ---------------------------------------------------------- |
+| `url`          | `url`              | The saved URL. Label: URL.                                 |
+| `body`         | `string`           | Captured text (a highlight, excerpt, or clipping).         |
+| `title`        | `string`           | Title of the saved content.                                |
+| `description`  | `string`           | Summary.                                                   |
+| `source_url`   | `url`              | Where the content was sourced from. Label: Source URL.     |
+| `source_title` | `string`           | Title of the source.                                       |
+| `author`       | `string`           | Who created the original content.                          |
+| `published_at` | `datetime`         | When the original content was published. Label: Published. |
+| `image_url`    | `url`              | Preview image. Label: Image URL.                           |
+| `language`     | `string` (`bcp47`) | BCP 47 language code.                                      |
+| `notes`        | `string`           | Personal annotations.                                      |
 
 ## Settings
 
