@@ -1,26 +1,27 @@
 ## Fields
 
-| Field            | Kind               | Required | Description                                                                                                                                                |
-| ---------------- | ------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `blob_ref`       | `string`           | Yes      | Reference to the binary content (sha256:\<hex>)                                                                                                            |
-| `mime_type`      | `string`           | Yes      | MIME type                                                                                                                                                  |
-| `title`          | `string`           | No       | Filename or title                                                                                                                                          |
-| `description`    | `string`           | No       | What the file contains                                                                                                                                     |
-| `url`            | `url`              | No       | Web address                                                                                                                                                |
-| `source_url`     | `url`              | No       | Where the file was sourced from                                                                                                                            |
-| `author`         | `string`           | No       | Who created the file                                                                                                                                       |
-| `language`       | `string` (`bcp47`) | No       | BCP 47 language code                                                                                                                                       |
-| `notes`          | `string`           | No       | Personal annotations                                                                                                                                       |
-| `extracted_text` | `string`           | No       | Machine-extracted text content of the referenced blob (server enrichment: document text or image OCR)                                                      |
-| `executable`     | `boolean`          | No       | Whether the file may be run as a program; absent means it may not                                                                                          |
-| `size_bytes`     | `integer`          | No       | Size in bytes of the referenced blob (set by the server from the bytes the instance holds; absent where whoever named blob_ref never proved it holds them) |
+| Field            | Label          | Kind               | Required | Description                                                                                                                                                |
+| ---------------- | -------------- | ------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `blob_ref`       | Blob Reference | `string`           | Yes      | Reference to the binary content (sha256:\<hex>)                                                                                                            |
+| `mime_type`      | MIME Type      | `string`           | Yes      | MIME type                                                                                                                                                  |
+| `title`          |                | `string`           | No       | Filename or title                                                                                                                                          |
+| `description`    |                | `string`           | No       | What the file contains                                                                                                                                     |
+| `url`            | URL            | `url`              | No       | Web address                                                                                                                                                |
+| `source_url`     | Source URL     | `url`              | No       | Where the file was sourced from                                                                                                                            |
+| `author`         |                | `string`           | No       | Who created the file                                                                                                                                       |
+| `language`       |                | `string` (`bcp47`) | No       | BCP 47 language code                                                                                                                                       |
+| `notes`          |                | `string`           | No       | Personal annotations                                                                                                                                       |
+| `extracted_text` |                | `string`           | No       | Machine-extracted text content of the referenced blob (server enrichment: document text or image OCR)                                                      |
+| `executable`     |                | `boolean`          | No       | Whether the file may be run as a program; absent means it may not                                                                                          |
+| `size_bytes`     | Size           | `integer`          | No       | Size in bytes of the referenced blob (set by the server from the bytes the instance holds; absent where whoever named blob_ref never proved it holds them) |
 
 ## Settings
 
 | Setting                                                | Value                              |
 | ------------------------------------------------------ | ---------------------------------- |
+| `plural`                                               | Files                              |
 | [`title_field`](/catalog/your-own-types#display-hints) | `title`                            |
-| [`icon`](/catalog/your-own-types#display-hints)        | `file`                             |
+| [`icon`](/catalog/your-own-types#display-hints)        | `lucide:file`                      |
 | [`merge_policy`](/catalog/your-own-types#merge-policy) | `last_writer_wins` for every field |
 
 ## Subtypes
@@ -29,9 +30,10 @@
 
 Recordings, music files, voice memos. Inherits all core.file fields.
 
-| Setting                                         | Value        |
-| ----------------------------------------------- | ------------ |
-| [`icon`](/catalog/your-own-types#display-hints) | `file-music` |
+| Setting                                         | Value               |
+| ----------------------------------------------- | ------------------- |
+| `plural`                                        | Audio               |
+| [`icon`](/catalog/your-own-types#display-hints) | `lucide:file-music` |
 
 | Field      | Kind               | Required | Description                                                                                     |
 | ---------- | ------------------ | -------- | ----------------------------------------------------------------------------------------------- |
@@ -42,9 +44,10 @@ Recordings, music files, voice memos. Inherits all core.file fields.
 
 Photos, screenshots, diagrams. Inherits all core.file fields.
 
-| Setting                                         | Value        |
-| ----------------------------------------------- | ------------ |
-| [`icon`](/catalog/your-own-types#display-hints) | `file-image` |
+| Setting                                         | Value               |
+| ----------------------------------------------- | ------------------- |
+| `plural`                                        | Images              |
+| [`icon`](/catalog/your-own-types#display-hints) | `lucide:file-image` |
 
 | Field       | Kind        | Required | Description                                                                                    |
 | ----------- | ----------- | -------- | ---------------------------------------------------------------------------------------------- |
@@ -59,9 +62,10 @@ Photos, screenshots, diagrams. Inherits all core.file fields.
 
 Video files. Inherits all core.file fields.
 
-| Setting                                         | Value               |
-| ----------------------------------------------- | ------------------- |
-| [`icon`](/catalog/your-own-types#display-hints) | `file-video-camera` |
+| Setting                                         | Value                      |
+| ----------------------------------------------- | -------------------------- |
+| `plural`                                        | Videos                     |
+| [`icon`](/catalog/your-own-types#display-hints) | `lucide:file-video-camera` |
 
 | Field       | Kind               | Required | Description                                                                                     |
 | ----------- | ------------------ | -------- | ----------------------------------------------------------------------------------------------- |
@@ -77,6 +81,7 @@ Video files. Inherits all core.file fields.
 
 An HTML page held as a file, such as a report an agent wrote. Inherits all core.file fields.
 
-| Setting                                         | Value   |
-| ----------------------------------------------- | ------- |
-| [`icon`](/catalog/your-own-types#display-hints) | `globe` |
+| Setting                                         | Value          |
+| ----------------------------------------------- | -------------- |
+| `plural`                                        | Web Pages      |
+| [`icon`](/catalog/your-own-types#display-hints) | `lucide:globe` |

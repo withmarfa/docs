@@ -2,7 +2,6 @@
 | --------------- | ------------- | --------------- | ---------------- | -------------- | --------- | ---------------------------------- |
 | `about`         | About         | Subject of      | None             | `many-to-many` | `orphan`  | Any type                           |
 | `attached-to`   | Attached to   | Attachments     | `has-attachment` | `many-to-many` | `orphan`  | Any type                           |
-| `authored-by`   | Authored by   | Author of       | None             | `many-to-many` | `orphan`  | Any type                           |
 | `derived-from`  | Derived from  | Basis for       | None             | `many-to-many` | `orphan`  | Any type                           |
 | `in-collection` | In collection | Contents        | None             | `many-to-many` | `orphan`  | Any type with the role `container` |
 | `in-folder`     | In folder     | Folder contents | None             | `many-to-many` | `orphan`  | `system.folder`                    |

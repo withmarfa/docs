@@ -1176,6 +1176,28 @@ check "a subtype that differs says its hints and merge policy as values" \
 check "the parent says its own hints once, and a subtype equal to it adds none" 1 \
   "$(grep -cE '^\| \[`title_field`\].*\| `title` +\|$' "${drift_file}")"
 
+# Keys a type and its fields gain: a plural, field labels, a list of entries with members, a range,
+# a status field's words and groups, and an edge type's acyclic flag.
+echo "a type catalog with plurals, labels, members, ranges and statuses"
+fixture labels "${work}/untagged.json"
+catalog_with 'n = c["types"][0]; n["plural"] = "Notes"; n["fields"]["title"]["label"] = "Heading"; n["fields"]["rating"] = {"type": "integer", "description": "A rating", "minimum": 1, "maximum": 5}; n["fields"]["progress"] = {"type": "status", "description": "Progress", "status_values": [{"value": "planned", "group": "not_started"}, {"value": "done", "group": "completed"}]}; n["fields"]["links"] = {"type": "array", "description": "Links", "items_type": "object", "items_fields": {"value": {"type": "url", "label": "Link", "description": "The link", "required": True}}}; c["edge_types"][1]["acyclic"] = True' \
+  > "${work}/labels/marfa/core/marfa-core/src/builtin_catalog.json"
+sync labels
+labels_file="${work}/labels/docs/src/generated/catalog/core.note.md"
+check "plurals, labels, members, ranges and statuses: the script succeeds" 0 "${status}"
+check "the plural is a setting" 1 "$(grep -cF '| `plural`' "${labels_file}")"
+check "a field's label has a column that appears with it" 1 "$(grep -cE '^\| `title` +\| Heading +\|' "${labels_file}")"
+check "a range is in the kind" 1 "$(grep -cF '`integer` (1 to 5)' "${labels_file}")"
+check "a status field's words are listed with their groups" 1 "$(grep -cF 'Values: `planned` in `not_started`, `done` in `completed`.' "${labels_file}")"
+check "a member of a list of entries follows its field, with its label" 1 "$(grep -cE '^\| `links\[\]\.value` +\| Link +\| `url` +\| Yes' "${labels_file}")"
+check "an acyclic edge type says so" 1 "$(grep -cF '**acyclic:** `true`' "${work}/labels/docs/src/generated/catalog/edges.md")"
+refuse_catalog "a field with an empty label" "${cat_file} has a field core.note.body whose label is not a label. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["label"] = ""')"
+refuse_catalog "a status with no words" "${cat_file} has a status core.note.body whose status_values are not a list of values and groups. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["type"] = "status"; c["types"][0]["fields"]["body"]["status_values"] = []')"
+refuse_catalog "status words on a field that is not a status" "${cat_file} has status_values on core.note.body, which is not a status. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["status_values"] = []')"
+refuse_catalog "a range that is not a number" "${cat_file} has a minimum on core.note.body that is not a number. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["minimum"] = "1"')"
+refuse_catalog "members on a field that is not a list of objects" "${cat_file} has items_fields on core.note.body, which is not an array of objects. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["items_fields"] = {"a": {"type": "string", "description": "A"}}')"
+refuse_catalog "an acyclic flag that is not true or false" "${cat_file} has the edge type in-collection with an acyclic that is not true or false. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["acyclic"] = "yes"')"
+
 # spec_with <python statements on the spec s>: the fixture's spec, changed.
 spec_with() {
   python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); exec(sys.argv[2]); print(json.dumps(s))' "${work}/untagged.json" "$1"

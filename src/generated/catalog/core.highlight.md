@@ -13,7 +13,8 @@
 
 | Setting                                                | Value                                                                   |
 | ------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `plural`                                               | Highlights                                                              |
 | [`title_field`](/catalog/your-own-types#display-hints) | `text`                                                                  |
 | [`body_field`](/catalog/your-own-types#display-hints)  | `note`                                                                  |
-| [`icon`](/catalog/your-own-types#display-hints)        | `highlighter`                                                           |
+| [`icon`](/catalog/your-own-types#display-hints)        | `lucide:highlighter`                                                    |
 | [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for `note`; `last_writer_wins` for every other field |

@@ -6,10 +6,6 @@ Source item is about the target item. Topical connection between items across ty
 
 Source is a file attached to the target. Many-to-many: a file may be attached to multiple hosts; a host may have multiple attachments. Deleting the host orphans the attachment (it may still be attached to other items). The attachment's own file writes the edge, saying what it was made for; where the attachment cannot carry frontmatter, such as an image, the host's file writes it under the reverse name, `has-attachment`.
 
-## authored-by
-
-Source was authored by the target (usually a core.entity.person).
-
 ## derived-from
 
 Source was produced from the target (imports, AI generation, transformations). Both items remain valid in parallel.
@@ -17,6 +13,8 @@ Source was produced from the target (imports, AI generation, transformations). B
 ## in-collection
 
 Source item is a member of the target container. The target may be any type declaring the `container` role, such as a collection, an ongoing series, an album or a publisher's own container type, rather than a fixed list of type names, so a connector writing its own vocabulary can express containment without the platform naming its types first. An item may belong to any number of containers, and a container holds any number of members. A container may not itself be a member: containment here is flat, and `parent-of` is what hierarchy is for. Deleting the container leaves its members in place. Carries position for ordering within the container.
+
+**flat:** `true`
 
 | Property   | Kind     | Description                               |
 | ---------- | -------- | ----------------------------------------- |
@@ -28,9 +26,9 @@ Where an item's file sits in a folder: the source is the item, the target the fo
 
 **written_at:** `none`
 
-| Property | Kind     | Description                                                                                                                                                |
-| -------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `path`   | `string` | The file's path relative to the folder's root, with `/` between names; required, and it may not climb out of the folder. The edge takes no other property. |
+| Property | Kind     | Description                                                                                                                           |
+| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`   | `string` | The file's path relative to the folder's root, with `/` between names; required, with no `..` name. The edge takes no other property. |
 
 ## in-thread
 
@@ -46,6 +44,8 @@ Source is the parent of the target. Target has at most one parent. Deleting the 
 
 **written_at:** `target`
 
+**acyclic:** `true`
+
 ## references
 
 Source explicitly references the target. Distinct from `about` (topical) and `derived-from` (provenance). Covers wikilink-style mentions and the highlight-on-a-book case.
@@ -53,3 +53,5 @@ Source explicitly references the target. Distinct from `about` (topical) and `de
 ## supersedes
 
 Source replaces the target as the current version. Linear chain; no cycles. Deleting the head does not promote the predecessor (orphan).
+
+**acyclic:** `true`
