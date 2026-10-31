@@ -66,6 +66,8 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['litestream', ['/run/deploy', '/run/back-up-and-restore']],
   ['s3 bucket', ['/run/settings', '/run/deploy', '/run/install', '/run/back-up-and-restore']],
   ['upgrade server', ['/run/upgrade']],
+  ['folders autostart', ['/run/sync-from-login']],
+  ['watch key file', ['/run/sync-from-login']],
   ['change instance name', ['/run/settings']],
   ['install marfa on linux', ['/cli', '/run/install', '/quickstart']],
   ['how do I back up my data', ['/run/back-up-and-restore', '/run/export-and-restore']],
