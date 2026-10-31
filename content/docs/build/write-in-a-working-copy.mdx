@@ -1,0 +1,86 @@
+---
+title: Write in a working copy
+description: Keep part of an instance on your machine with marfa device, read and write it with no connection, and send the writes when you can.
+---
+
+`marfa device` keeps a [working copy](/devices) of part of an instance in one file. It answers reads from the copy and puts each write in a queue that waits for the server. Use it for a script or an agent that must keep working offline. An app built on the [Swift SDK](/swift-sdk) keeps the same kind of copy.
+
+Every `marfa device` command names the file with `--db`, or with `MARFA_DB` for a whole shell. `hydrate`, `catch-up` and `drain` reach the server, so they need a server and a credential, as [Connect to a server](/cli#connect-to-a-server) shows. The other commands work on the copy alone.
+
+## Fill the copy
+
+Choose the types and the tier to keep, then fill the copy:
+
+```bash
+export MARFA_DB=./copy.sqlite
+marfa device hydrate --types core.note,core.task --tier library
+marfa device status
+```
+
+`--types *` keeps every type except `system.*`, and `--tier all` keeps the library and the feed. `--edge-type` keeps every edge of a type the credential reads; repeat it for more. `marfa device status` says whether the copy is `complete`. A hydration that stops partway carries on from where it stopped when you run it again.
+
+## Read from the copy
+
+`marfa device items get`, `items list` and `search` answer the way the server does, from the copy. A list or a search says on standard error, or as `completeness` under `--json`, whether the copy is `complete`, still filling (`partial`) or behind the server (`stale`).
+
+| Command | Options the server also takes |
+| --- | --- |
+| `marfa device items list` | `--source`, `--updated-after` (inclusive), `--updated-before` (exclusive), and `--sort` with `--direction` |
+| `marfa device search <text>` | `--tier`, `--occurred-after` and `--occurred-before` (both exclusive) |
+
+`--updated-after` lists in change order, oldest first. `--sort updated-at` or `--direction asc` alone keeps that order; any other sort or direction is refused with `validation_error`. A `--sort properties.<field>` puts numbers and booleans first, then text, then items where the field is missing, null, an object or an array, in either direction. Items that compare equal go by ID.
+
+[Read a view](/build/read-a-view#read-a-view-from-a-working-copy) answers a saved view from the copy.
+
+## Create an item
+
+A create shows in the copy at once and waits in the queue. This note is captured at a place and is about another item:
+
+```bash
+marfa device items create --type core.note \
+  --properties '{"title": "Call with the builder"}' \
+  --capture-latitude 51.5072 --capture-longitude -0.1276 \
+  --edges '{"about": ["<item-id>"]}'
+```
+
+**A create is one write.** The state from `--state`, the capture location and the edges go in the body of the write that creates the item, and each `--tag` goes as a write of its own after it.
+
+- **If the instance refuses any edge**, such as one whose target doesn't exist, it creates neither the item nor its edges. The write stays in the queue as `refused`, with its body.
+- **While the write waits**, the copy shows each edge. When the instance answers, the copy holds the edges the instance made in their place. An answer carries at most 50 edges of one type, so an edge it leaves out stays shown until the next catch-up brings the instance's own.
+- **A create the instance would refuse as malformed** is refused before it's queued, with the code the instance would answer: a `revoked` state, a coordinate that isn't a finite number, or an edge type or target that isn't valid.
+
+An edge in a create, like any edge write, waits until the copy is whole: before then it's refused `hydration_incomplete`.
+
+## Change an item
+
+An update names the version it was based on, as it does at the server:
+
+```bash
+marfa device items update <id> --version 3 --properties '{"title": "Call with the architect"}'
+marfa device items update <id> --version 4 --occurred-at 2026-10-30T09:00:00Z
+```
+
+`--occurred-at` sets the item's own time. `--clear-occurred-at` gives the item no time of its own, so it sits at its creation time; if the item's create hasn't been sent yet, the copy shows the time the create was queued until the instance answers. An update can't name both.
+
+## Send the queue
+
+`marfa device drain` sends the queued writes in order and records each answer. A write that met a network error stays for the next drain.
+
+```bash
+marfa device drain
+marfa device queue
+```
+
+`marfa device queue` lists every write, its body and its [verdict](/devices#verdicts). Act on the three that need you:
+
+- **`refused`:** read the body, fix it in a new write, then take the refused one out with `marfa device discard <id>`.
+- **`blocked`:** do what its reason needs, as [Verdicts](/devices#verdicts) lists. `marfa device release <id>` sends it again, and `marfa device withdraw <id>` takes it out and puts the copy back to what the instance holds.
+- **`dead`:** `marfa device release <id>` sends it again.
+
+`marfa device forget` clears the writes the instance has answered, which keeps later writes fast.
+
+## Keep it current
+
+`marfa device catch-up` applies what changed on the instance since the last hydration or catch-up. A copy away longer than the instance keeps events becomes `stale`, and one whose instance or reach changed expires: [Staying in step](/run/troubleshooting/staying-in-step) says what to run for each.
+
+The rules behind this guide are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) and [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) chapters of the contract.
