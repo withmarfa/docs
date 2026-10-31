@@ -3,7 +3,6 @@ import { ConnectorParts } from './connector-parts';
 import { EventFlow } from './event-flow';
 import { Arrow, Box, Branch, Branches, Chip, Figure, Flow, Group } from './figure';
 import { FileStorage } from './file-storage';
-import { ItemAnatomy } from './item-anatomy';
 import { ItemLifecycle } from './item-lifecycle';
 import { KeyReach } from './key-reach';
 import { MarfaAtAGlance } from './marfa-at-a-glance';
@@ -26,7 +25,6 @@ export const visualComponents = {
   FileStorage,
   Flow,
   Group,
-  ItemAnatomy,
   ItemLifecycle,
   KeyReach,
   MarfaAtAGlance,

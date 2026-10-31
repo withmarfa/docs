@@ -1,65 +1,63 @@
-import { Fragment, type ReactNode } from 'react';
-import { Arrow, Box, Figure, Group } from './figure';
+import type { ReactNode } from 'react';
+import { Box, Figure } from './figure';
 
-export type TypeEntry = { id: string; subtitle: ReactNode };
-
-/** A chain of types, parent first. Each names the one before it as its `parent`. */
-export const chain: readonly TypeEntry[] = [
-  {
-    id: 'core.file',
-    subtitle: (
-      <>
-        Requires <code>blob_ref</code> and <code>mime_type</code>
-      </>
-    ),
-  },
-  { id: 'core.file.image', subtitle: 'Adds width, height, location' },
-  { id: 'app.example.receipt', subtitle: 'An app’s own type' },
-];
-
-/** A type and one that names it in `compatible_with`, so inherits nothing from it. */
-export const compatible: { target: TypeEntry; claimant: TypeEntry } = {
-  target: {
-    id: 'core.note',
-    subtitle: (
-      <>
-        Requires <code>body</code>
-      </>
-    ),
-  },
-  claimant: {
-    id: 'user.recipe',
-    subtitle: (
-      <>
-        Your type, requires <code>body</code> too
-      </>
-    ),
-  },
+export type TreeNode = {
+  id: string;
+  /** How many `parent` steps the type is below the listing's type. */
+  depth: number;
+  /** A type that names the listing's type in `compatible_with`, so the listing leaves it out. */
+  left?: boolean;
 };
 
 /**
- * What a listing that names a type returns, drawn as a frame around it: the
- * types under a type through `parent` are inside its listing, and a type that
- * is only compatible with it stays outside.
+ * Two listings, each with the types it returns. A listing of a type returns
+ * every type whose chain of `parent` reaches it (`types/listing-subtree`),
+ * and not a type that only names it in `compatible_with`.
+ */
+export const listings: readonly { title: string; nodes: readonly TreeNode[] }[] = [
+  {
+    title: 'List files',
+    nodes: [
+      { id: 'core.file', depth: 0 },
+      { id: 'core.file.image', depth: 1 },
+      { id: 'app.example.receipt', depth: 2 },
+    ],
+  },
+  {
+    title: 'List notes',
+    nodes: [
+      { id: 'core.note', depth: 0 },
+      { id: 'user.recipe', depth: 0, left: true },
+    ],
+  },
+];
+
+function Node({ node }: { node: TreeNode }): ReactNode {
+  return (
+    <li className="marfa-ti-node" data-depth={node.depth || undefined} data-left={node.left || undefined}>
+      <code>{node.id}</code>
+      {node.left ? <span className="marfa-ti-note">Compatible, not returned</span> : null}
+    </li>
+  );
+}
+
+/**
+ * Two small trees side by side: what listing files returns, the type and
+ * every type beneath it, and what listing notes returns, which leaves out a
+ * type that is only compatible with notes.
  */
 export function TypeInheritance({ caption }: { caption?: ReactNode }) {
   return (
     <Figure label="Which types a listing of a type returns" caption={caption} className="marfa-ti">
-      <Group label={<code>GET /items?type=core.file</code>} subtitle="Returns all three" className="marfa-ti-listing">
-        {chain.map((type, index) => (
-          <Fragment key={type.id}>
-            {index > 0 ? <Arrow axis="down" direction="back" label={<code>parent</code>} /> : null}
-            <Box title={<code>{type.id}</code>} subtitle={type.subtitle} />
-          </Fragment>
-        ))}
-      </Group>
-      <div className="marfa-ti-side">
-        <Group label={<code>GET /items?type=core.note</code>} subtitle={<>Leaves <code>user.recipe</code> out</>} className="marfa-ti-listing">
-          <Box title={<code>{compatible.target.id}</code>} subtitle={compatible.target.subtitle} />
-        </Group>
-        <Arrow axis="down" direction="back" dashed label={<code>compatible_with</code>} />
-        <Box tone="dashed" title={<code>{compatible.claimant.id}</code>} subtitle={compatible.claimant.subtitle} />
-      </div>
+      {listings.map((listing) => (
+        <Box key={listing.title} title={listing.title}>
+          <ul className="marfa-ti-tree">
+            {listing.nodes.map((node) => (
+              <Node key={node.id} node={node} />
+            ))}
+          </ul>
+        </Box>
+      ))}
     </Figure>
   );
 }
