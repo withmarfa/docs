@@ -520,11 +520,12 @@ def write(name, lines):
 
 # The type catalog
 
-FIELD_KEYS = {"type", "description", "required", "format", "enum_values", "items_type"}
-TYPE_KEYS = {"id", "parent", "label", "description", "version", "fields", "display_hints", "merge_policy", "roles"}
+FIELD_KEYS = {"type", "label", "description", "required", "format", "enum_values", "items_type", "items_fields", "status_values", "minimum", "maximum"}
+MEMBER_KEYS = {"type", "label", "description", "required", "enum_values", "format", "minimum", "maximum"}
+TYPE_KEYS = {"id", "parent", "label", "plural", "description", "version", "fields", "display_hints", "merge_policy", "roles"}
 EDGE_KEYS = {
     "id", "label", "reverse_label", "description", "cardinality", "source_type_constraints", "target_type_constraints",
-    "cascade_on_delete", "reverse_name", "written_at", "property_schema", "shipped",
+    "cascade_on_delete", "reverse_name", "written_at", "property_schema", "shipped", "acyclic", "flat",
 }
 STRATEGIES = {"last_writer_wins", "keep_both_copies"}
 CARDINALITIES = {"one-to-one", "one-to-many", "many-to-one", "many-to-many"}
@@ -540,6 +541,13 @@ def kind(field):
         out += " of " + code(field["items_type"])
     if "format" in field:
         out += f" ({code(field['format'])})"
+    low, high = field.get("minimum"), field.get("maximum")
+    if low is not None and high is not None:
+        out += f" ({low} to {high})"
+    elif low is not None:
+        out += f" (at least {low})"
+    elif high is not None:
+        out += f" (at most {high})"
     return out
 
 
@@ -550,7 +558,13 @@ def with_values(description, values):
     text = description.rstrip()
     if text and text[-1] not in ".:;!?":
         text += "."
-    return (text + " " if text else "") + "Values: " + ", ".join(code(v) for v in values) + "."
+    # A status field's values are a word and the group it counts in.
+    shown = [code(v) if isinstance(v, str) else f"{code(v['value'])} in {code(v['group'])}" for v in values]
+    return (text + " " if text else "") + "Values: " + ", ".join(shown) + "."
+
+
+def values_of(field):
+    return field.get("enum_values") or field.get("status_values")
 
 
 def check_fields(owner, fields, allowed):
@@ -567,6 +581,24 @@ def check_fields(owner, fields, allowed):
             refuse(catalog_path, f"has an enum {owner}.{name} without values")
         if field["type"] == "array" and not field.get("items_type"):
             refuse(catalog_path, f"has an array {owner}.{name} without an items_type")
+        if "label" in field and not (isinstance(field["label"], str) and field["label"]):
+            refuse(catalog_path, f"has a field {owner}.{name} whose label is not a label")
+        if field["type"] == "status":
+            # A subtype may declare the status field it inherits without its words.
+            values = field.get("status_values", [{"value": "inherited", "group": "inherited"}])
+            if not isinstance(values, list) or not values or not all(
+                isinstance(v, dict) and set(v) == {"value", "group"} and all(isinstance(x, str) and x for x in v.values()) for v in values
+            ):
+                refuse(catalog_path, f"has a status {owner}.{name} whose status_values are not a list of values and groups")
+        elif "status_values" in field:
+            refuse(catalog_path, f"has status_values on {owner}.{name}, which is not a status")
+        for bound in ("minimum", "maximum"):
+            if bound in field and (isinstance(field[bound], bool) or not isinstance(field[bound], (int, float))):
+                refuse(catalog_path, f"has a {bound} on {owner}.{name} that is not a number")
+        if "items_fields" in field:
+            if field["type"] != "array" or field.get("items_type") != "object":
+                refuse(catalog_path, f"has items_fields on {owner}.{name}, which is not an array of objects")
+            check_fields(f"{owner}.{name}[]", field["items_fields"], MEMBER_KEYS)
 
 
 def merge_policy_value(owner, policy):
@@ -636,6 +668,8 @@ def render_types(types):
     def settings(t, parent):
         """The definition's keys other than its fields. A subtype gives only those its parent does not."""
         rows = []
+        if t.get("plural") and (parent is None or t["plural"] != parent.get("plural")):
+            rows.append([code("plural"), t["plural"]])
         hints, parent_hints = hints_of(t), (hints_of(parent) if parent else None) or {}
         for key in HINT_KEYS:
             # A hint comes from the nearest type that sets it, so a subtype says only the ones it changes.
@@ -650,12 +684,21 @@ def render_types(types):
 
     def fields_table(t, parent):
         """A subtype lists only the fields it adds or changes."""
-        rows = [
-            [code(n), kind(f), "Yes" if f.get("required") else "No", with_values(f["description"], f.get("enum_values"))]
-            for n, f in t["fields"].items()
-            if parent is None or parent["fields"].get(n) != f
+        rows = []
+        for n, f in t["fields"].items():
+            if parent is not None and parent["fields"].get(n) == f:
+                continue
+            rows.append((code(n), f))
+            # The members of a list of entries follow their field, named as the field's entries are: emails[].value.
+            rows += [(code(f"{n}[].{m}"), mf) for m, mf in f.get("items_fields", {}).items()]
+        # The Label column appears only where a field in the table names one.
+        labelled = any("label" in f for _, f in rows)
+        cells = [
+            [name, *([f.get("label", "")] if labelled else []), kind(f), "Yes" if f.get("required") else "No", with_values(f["description"], values_of(f))]
+            for name, f in rows
         ]
-        return [table(["Field", "Kind", "Required", "Description"], rows), ""] if rows else []
+        header = ["Field", *(["Label"] if labelled else []), "Kind", "Required", "Description"]
+        return [table(header, cells), ""] if cells else []
 
     def page(t):
         """A top-level type has a page of its own, whose header gives its label, description and
@@ -762,10 +805,15 @@ def render_edges(edges, type_ids):
         lines = [f"## {e['id']}", "", safe(plain(e["description"])), ""]
         if e["written_at"] != "source":
             lines += [f"**written_at:** {code(e['written_at'])}", ""]
+        for flag in ("acyclic", "flat"):
+            if not isinstance(e.get(flag, False), bool):
+                refuse(catalog_path, f"has the edge type {e['id']} with an {flag} that is not true or false")
+            if e.get(flag):
+                lines += [f"**{flag}:** {code('true')}", ""]
         props = e.get("property_schema") or {}
         if props:
             check_fields(f"{e['id']} property", props, FIELD_KEYS)
-            rows = [[code(n), kind(f), with_values(f["description"], f.get("enum_values"))] for n, f in props.items()]
+            rows = [[code(n), kind(f), with_values(f["description"], values_of(f))] for n, f in props.items()]
             lines += [table(["Property", "Kind", "Description"], rows), ""]
         sections += lines
     write("edges.md", sections)
@@ -889,7 +937,7 @@ ITEM_GROUPS = (
     ("Identity", ("id", "type", "tier")),
     ("Content", ("properties", "edges", "extensions")),
     ("Origin", ("source", "source_id", "capture_latitude", "capture_longitude")),
-    ("State", ("state", "trashed_by_cascade", "trashed_with")),
+    ("State", ("state", "trashed_at", "trashed_by_cascade", "trashed_with")),
     ("Version", ("version", "schema_version")),
     ("Time", ("occurred_at", "created_at", "updated_at")),
 )
