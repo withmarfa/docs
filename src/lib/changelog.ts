@@ -1,8 +1,8 @@
 /**
  * The Changelog page's release notes. `scripts/sync-changelog.ts` writes the
  * releases to `src/generated/changelog.json`; this module reads their notes
- * and writes the Markdown copy of the page. It imports nothing from the site
- * so that `source.config.ts` can use it.
+ * and writes the page's Markdown copy and search rows. It imports nothing from
+ * the site so that `source.config.ts` can use it.
  *
  * The notes have a fixed shape, which an agent writes after each release: a
  * one-sentence summary, an optional `**Breaking:**` paragraph, a `###` section
@@ -39,10 +39,10 @@ export interface ListItem {
 }
 
 export interface Notes {
-  /** What the release changed for a person: everything before the first part, apart from the Breaking paragraph. */
+  /** What the release changed for a person: everything before the Breaking paragraph, or before the first part when there is none. */
   summary: Block[];
-  /** The paragraph that starts `**Breaking:**`, or `null`. */
-  breaking: Block | null;
+  /** From the paragraph that starts `**Breaking:**` to the first part, so a list after it stays with it. Empty when the release breaks nothing. */
+  breaking: Block[];
   parts: { name: string; blocks: Block[] }[];
   /** The address the `**Full changelog:**` line names, or `null`. */
   fullChangelog: string | null;
@@ -154,7 +154,10 @@ export function parseBlocks(lines: string[]): Block[] {
 // ── Release notes ───────────────────────────────────────────────────────
 
 const HEADING = /^#{2,3}\s+(.+?)\s*#*\s*$/;
-const FULL_CHANGELOG = /^\*\*Full changelog:?\*\*:?\s*(\S+)\s*$/i;
+/** `**Full changelog:** <address>` or `**Full changelog:** [text](<address>)`, which is what GitHub's generated notes write. */
+const FULL_CHANGELOG = /^\*\*Full changelog:?\*\*:?\s*(?:\[[^\]]*\]\((\S+)\)|(\S+))\s*$/i;
+/** A line that starts the Breaking paragraph. */
+const BREAKING_LINE = /^\s*\*\*breaking:?\*\*/i;
 
 function isBreaking(block: Block): boolean {
   if (block.type !== 'paragraph') return false;
@@ -162,7 +165,7 @@ function isBreaking(block: Block): boolean {
   return first?.type === 'strong' && /^breaking:?$/i.test(plainText(first.children).trim());
 }
 
-/** The notes of one release, split into its summary, Breaking paragraph, parts and Full changelog link. */
+/** The notes of one release, split into its summary, Breaking paragraphs, parts and Full changelog link. */
 export function parseNotes(body: string): Notes {
   const sections: { name: string | null; lines: string[] }[] = [{ name: null, lines: [] }];
   let fullChangelog: string | null = null;
@@ -174,15 +177,20 @@ export function parseNotes(body: string): Notes {
     const heading = fence === null && marker === null ? HEADING.exec(line) : null;
     const link = fence === null && marker === null ? FULL_CHANGELOG.exec(line.trim()) : null;
     if (heading) sections.push({ name: plainText(parseInline(heading[1])).trim(), lines: [] });
-    else if (link) fullChangelog = link[1];
-    else sections[sections.length - 1].lines.push(line);
+    else if (link) fullChangelog = link[1] ?? link[2];
+    else {
+      const lines = sections[sections.length - 1].lines;
+      // A Breaking line that follows the summary with no blank line between is still its own paragraph.
+      if (sections.length === 1 && fence === null && marker === null && BREAKING_LINE.test(line) && lines.length > 0 && lines[lines.length - 1].trim() !== '') lines.push('');
+      lines.push(line);
+    }
   }
 
   const lead = parseBlocks(sections[0].lines);
   const at = lead.findIndex(isBreaking);
   return {
-    summary: lead.filter((_, index) => index !== at),
-    breaking: at === -1 ? null : lead[at],
+    summary: at === -1 ? lead : lead.slice(0, at),
+    breaking: at === -1 ? [] : lead.slice(at),
     parts: sections.slice(1).map(({ name, lines }) => ({ name: name ?? '', blocks: parseBlocks(lines) })),
     fullChangelog,
   };
@@ -236,4 +244,76 @@ export function changelogMarkdown(releases: Release[]): string {
       return body ? `${head}\n\n${body}` : head;
     })
     .join('\n\n');
+}
+
+// ── Search ──────────────────────────────────────────────────────────────
+
+/** A passage of the page's text for the search index: the words of one block, or of one item with the part it belongs to. */
+export interface IndexRow {
+  /** The id of the release's heading, which the passage's search result links to. */
+  heading: string;
+  content: string;
+}
+
+function itemTexts(items: ListItem[]): string[] {
+  return items.flatMap((item) => [plainText(item.inline), ...item.children.flatMap(blockTexts)]);
+}
+
+function blockTexts(block: Block): string[] {
+  switch (block.type) {
+    case 'paragraph':
+      return [plainText(block.inline)];
+    case 'code':
+      return [block.value];
+    case 'list':
+      return itemTexts(block.items);
+  }
+}
+
+/**
+ * The text of the releases as search passages. The page draws its releases from
+ * a data file, so its MDX holds nothing to index; these are what a reader
+ * could find there: each release's version and date, its summary and Breaking
+ * paragraphs, and each change under the part it names.
+ */
+export function releaseRows(releases: Release[]): IndexRow[] {
+  return releases.flatMap((release) => {
+    const heading = headingId(release.tag);
+    const notes = parseNotes(release.body);
+    const rows = [
+      `${release.tag}, released ${formatDate(release.publishedAt)}`,
+      ...[...notes.summary, ...notes.breaking].flatMap(blockTexts),
+      ...notes.parts.flatMap((part) => part.blocks.flatMap(blockTexts).map((text) => `${part.name}: ${text}`)),
+    ];
+    return rows.filter((content) => content.trim() !== '').map((content) => ({ heading, content }));
+  });
+}
+
+/** The part of an MDX syntax tree node that the search step reads. */
+interface TreeNode {
+  type: string;
+  name?: string | null;
+  children?: TreeNode[];
+  data?: object;
+}
+
+/**
+ * A remark plugin that puts the releases into the Changelog page's search
+ * index. Fumadocs indexes the text of each page's MDX, and `<Changelog />` has
+ * no text there. Fumadocs's structure step reads `data.structuredData` from a
+ * node it stringifies, so the step runs after this one and takes the rows from
+ * the component's node. The page itself is unchanged.
+ */
+export function remarkChangelogIndex(read: () => Release[]) {
+  return () => {
+    let rows: IndexRow[] | undefined;
+    const visit = (node: TreeNode) => {
+      if (node.type === 'mdxJsxFlowElement' && node.name === 'Changelog') {
+        rows ??= releaseRows(read());
+        node.data = { ...node.data, structuredData: { contents: rows } };
+      }
+      node.children?.forEach(visit);
+    };
+    return (tree: TreeNode) => visit(tree);
+  };
 }

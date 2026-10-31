@@ -13,6 +13,10 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     testTimeout: 30000,
+    // Vitest keys its cache of transformed modules on a module's own text. A page's compiled MDX also depends on
+    // `source.config.ts` and, for the Changelog, `src/generated/changelog.json`, so a cached page would keep the
+    // releases from before the last sync. Compiling again costs about two seconds.
+    fsModuleCache: false,
   },
   resolve: {
     alias: {

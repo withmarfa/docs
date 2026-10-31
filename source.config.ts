@@ -4,9 +4,14 @@ import { pageSchema } from 'fumadocs-core/source/schema';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { LLMsOptions } from 'fumadocs-core/mdx-plugins/remark-llms';
-import { changelogMarkdown, type Release } from './src/lib/changelog';
+import { changelogMarkdown, remarkChangelogIndex, type Release } from './src/lib/changelog';
 import { statusLabel } from './src/lib/http-status';
 import { sseLanguage } from './src/lib/sse-language';
+
+/** The releases the Changelog page draws, from the file `scripts/sync-changelog.ts` writes. */
+function readReleases(): Release[] {
+  return JSON.parse(readFileSync('src/generated/changelog.json', 'utf8'));
+}
 
 /** The part of an MDX JSX node this file reads (mdast-util-mdx's shape). */
 type JsxElement = {
@@ -146,8 +151,7 @@ const llms: LLMsOptions = {
       }
       case 'Changelog': {
         // The component draws releases from a data file, so the copy writes the same releases as Markdown.
-        const releases: Release[] = JSON.parse(readFileSync('src/generated/changelog.json', 'utf8'));
-        return changelogMarkdown(releases);
+        return changelogMarkdown(readReleases());
       }
       case 'Files':
         return ['```text', ...fileTree(node), '```'].join('\n');
@@ -182,6 +186,9 @@ export const docs = defineDocs({
 // knows, so these two are read here and handed on as props of the block.
 export default defineConfig({
   mdxOptions: {
+    // Before Fumadocs's structure step, which builds the search index: the Changelog page's releases are
+    // data the component draws, so the index would otherwise hold none of their notes.
+    remarkPlugins: [remarkChangelogIndex(readReleases)],
     rehypeCodeOptions: {
       ...rehypeCodeDefaultOptions,
       langs: ['yaml', 'markdown', 'json', sseLanguage as never],

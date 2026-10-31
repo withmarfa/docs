@@ -57,6 +57,24 @@ describe('the changelog on the server', () => {
     expect(html).toContain('href="https://github.com/withmarfa/marfa/releases/tag/v0.0.51"');
   });
 
+  it('links a Full changelog written as a Markdown link, and falls back to the release for an unsafe address', () => {
+    const link = (line: string): Release[] => [
+      { tag: 'v0.0.60', publishedAt: '2026-11-04T10:00:00Z', url: 'https://github.com/withmarfa/marfa/releases/tag/v0.0.60', body: `A fix.\n\n${line}` },
+    ];
+    const linked = renderToStaticMarkup(<ChangelogView releases={link('**Full changelog:** [v0.0.59...v0.0.60](https://github.com/withmarfa/marfa/compare/v0.0.59...v0.0.60)')} />);
+    expect(linked).toMatch(/href="https:\/\/github\.com\/withmarfa\/marfa\/compare\/v0\.0\.59\.\.\.v0\.0\.60"[^>]*>Full changelog<\/a>/);
+    const unsafe = renderToStaticMarkup(<ChangelogView releases={link('**Full changelog:** javascript:alert(1)')} />);
+    expect(unsafe).not.toContain('javascript:');
+    expect(unsafe).toMatch(/href="https:\/\/github\.com\/withmarfa\/marfa\/releases\/tag\/v0\.0\.60"[^>]*>Release on GitHub<\/a>/);
+  });
+
+  it('keeps a list after the Breaking paragraph under the Breaking label', () => {
+    const breaking = renderToStaticMarkup(
+      <ChangelogView releases={[{ tag: 'v0.0.61', publishedAt: '2026-11-05T10:00:00Z', url: 'https://x.test/r', body: 'A change.\n\n**Breaking:** two things moved.\n\n- First moved.\n- Second moved.\n\n### CLI\n- a' }]} />,
+    );
+    expect(breaking).toContain('<strong>Breaking:</strong> two things moved.</p><ul><li>First moved.</li><li>Second moved.</li></ul>');
+  });
+
   it('shows nothing when there are no releases', () => {
     expect(renderToStaticMarkup(<ChangelogView releases={[]} />)).toBe('');
   });

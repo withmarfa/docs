@@ -129,17 +129,18 @@ export function ChangelogView({ releases }: { releases: Release[] }) {
 
 function ReleaseEntry({ release, notes, selected }: { release: Release; notes: Notes; selected: ReadonlySet<string> }) {
   const filtering = selected.size > 0;
+  const fullChangelog = notes.fullChangelog ? safeHref(notes.fullChangelog) : null;
   const shown = notes.parts.filter((part) => !filtering || selected.has(part.name));
   return (
     <article className="marfa-cl-release">
       <H2 id={headingId(release.tag)}>{release.tag}</H2>
       <div className="marfa-cl-meta">
         <time dateTime={release.publishedAt}>{formatDate(release.publishedAt)}</time>
-        {notes.breaking ? <span className="marfa-cl-breaking">Breaking</span> : null}
-        <Link href={notes.fullChangelog ?? release.url}>{notes.fullChangelog ? 'Full changelog' : 'Release on GitHub'}</Link>
+        {notes.breaking.length > 0 ? <span className="marfa-cl-breaking">Breaking</span> : null}
+        <Link href={fullChangelog ?? release.url}>{fullChangelog ? 'Full changelog' : 'Release on GitHub'}</Link>
       </div>
       <Blocks blocks={notes.summary} />
-      {notes.breaking ? <Blocks blocks={[notes.breaking]} /> : null}
+      <Blocks blocks={notes.breaking} />
       {notes.parts.map((part) => (
         <section key={part.name} className="marfa-cl-part" aria-label={part.name} hidden={!shown.includes(part)}>
           <span className="marfa-cl-tag">{part.name}</span>

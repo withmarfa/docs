@@ -67,7 +67,7 @@ node --experimental-strip-types scripts/sync-changelog.ts   # GITHUB_TOKEN is us
 
 - The Changelog page is built from the GitHub release notes of withmarfa/marfa, never written by hand. The script reads the published releases and writes `src/generated/changelog.json`, newest first, from `FIRST_VERSION` in the script (earlier releases were written in an older shape and stay on GitHub). It skips drafts and pre-releases.
 - Run it after each Marfa release's notes are written, and open a pull request with the file. The release notes have a fixed shape, which `src/lib/changelog.ts` reads: a summary, an optional `**Breaking:**` paragraph, a `###` section for each part (Server, CLI, Core, TypeScript SDK, Swift SDK) and a `**Full changelog:**` link. Fix a wrong note on the release in GitHub and run the script again.
-- `source.config.ts` writes the same releases into the page's Markdown copy.
+- `source.config.ts` writes the same releases into the page's Markdown copy and, through `remarkChangelogIndex`, into its search index.
 
 ## Docs pass at each release
 
