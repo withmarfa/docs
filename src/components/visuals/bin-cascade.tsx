@@ -1,7 +1,7 @@
 import { BookOpen, StickyNote } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Arrow, Box, Figure } from './figure';
-import { Choices, Controls, Result } from './interactive';
+import { Choices, Controls, Result, Swap } from './interactive';
 
 /** The three items the figure draws: a note, its child note and a book it is about. */
 export type ItemId = 'note' | 'child' | 'book';
@@ -23,9 +23,9 @@ export const edges: readonly { type: string; onDelete: OnDelete; to: ItemId }[] 
 ];
 
 export const choices: readonly { id: ItemId; label: string }[] = [
-  { id: 'note', label: 'The note' },
-  { id: 'child', label: 'The child note' },
-  { id: 'book', label: 'The book' },
+  { id: 'note', label: 'Bin the note' },
+  { id: 'child', label: 'Bin the child note' },
+  { id: 'book', label: 'Bin the book' },
 ];
 
 /**
@@ -36,39 +36,27 @@ export const choices: readonly { id: ItemId; label: string }[] = [
  * other end active, whichever end is trashed, and the edge stays
  * (`edges/orphan-shipped`).
  */
-export function trashed(root: ItemId | null): ItemId[] {
-  if (root === 'note') return ['note', 'child'];
-  return root ? [root] : [];
+export function trashed(root: ItemId): ItemId[] {
+  return root === 'note' ? ['note', 'child'] : [root];
 }
 
-/** The items an edge decided about: taken into the bin by a cascade, or left active by an orphan. */
-export function reached(root: ItemId | null): ItemId[] {
-  if (root === 'note') return ['child', 'book'];
-  if (root === 'book') return ['note'];
-  return [];
-}
-
-export type Message = 'none' | ItemId;
-
-export const messages: Record<Message, string> = {
-  none: 'Move an item to the bin to see where each edge takes it.',
-  note: 'The child note goes with it, because `parent-of` cascades. The book stays active, because `about` orphans: the edge stays and the book is left alone.',
-  child: 'Only the child note goes. A cascade follows an edge from its source to its target, never back, so the note stays.',
-  book: 'Only the book goes. `about` orphans, so the note stays active and its edge stays.',
+export const messages: Record<ItemId, string> = {
+  note: 'The child note goes too, because `parent-of` cascades. The book stays, because `about` orphans.',
+  child: 'Only the child note goes. A cascade runs from an edge\'s source to its target, never back.',
+  book: 'Only the book goes. `about` orphans, so the note stays and keeps its edge.',
 };
 
-function ItemBox({ item, root }: { item: Item; root: ItemId | null }) {
+function ItemBox({ item, root }: { item: Item; root: ItemId }) {
   const gone = trashed(root).includes(item.id);
   return (
     <Box
       className="marfa-ix-box"
       tone={gone ? 'dashed' : 'default'}
-      highlight={reached(root).includes(item.id)}
       icon={item.id === 'book' ? BookOpen : StickyNote}
       title={item.title}
       aside={
         <span className="marfa-ix-pill" data-lit={gone || undefined}>
-          {gone ? 'trashed' : 'active'}
+          <Swap values={{ active: 'active', trashed: 'trashed' }} current={gone ? 'trashed' : 'active'} />
         </span>
       }
       subtitle={<code>{item.type}</code>}
@@ -79,18 +67,19 @@ function ItemBox({ item, root }: { item: Item; root: ItemId | null }) {
 /**
  * One note with a child note and a book, and what trashing each of them does
  * to the others: the `parent-of` edge cascades and the `about` edge orphans.
- * Only highlights, borders and text change, so the layout never moves.
+ * It opens with the note in the bin. Only highlights, borders and text
+ * change, so the layout never moves.
  */
 export function BinCascade({ caption }: { caption?: ReactNode }) {
-  const [root, setRoot] = useState<ItemId | null>(null);
+  const [root, setRoot] = useState<ItemId>('note');
 
   return (
     <Figure label="What moving an item to the bin does to the items its edges reach" caption={caption} className="marfa-ix marfa-bc">
-      <Controls onReset={() => setRoot(null)}>
-        <Choices label="Move to the bin" options={choices} value={root} onChange={(id) => setRoot((current) => (current === id ? null : id))} />
+      <Controls>
+        <Choices label="Move an item to the bin" options={choices} value={root} onChange={setRoot} />
       </Controls>
 
-      <Result messages={messages} current={root ?? 'none'} />
+      <Result messages={messages} current={root} />
 
       <div className="marfa-ix-parts">
         <ItemBox item={items.note} root={root} />

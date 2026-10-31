@@ -1,7 +1,7 @@
 import { KeyRound } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Box, Figure } from './figure';
-import { Choices, Controls, Result } from './interactive';
+import { Choices, Controls, Menu, Result, Swap } from './interactive';
 
 export type Level = 'read' | 'write';
 
@@ -66,24 +66,27 @@ export function answers(reason: Reason): { read: Answer; change: Answer } {
 
 export const messages: Record<Reason, string> = {
   'no-map':
-    'A permission opens operations, not items. A key with no type map reaches no item, so every item operation is refused `403 type_not_permitted`.',
+    'A key with no type map reaches no item, so every item operation is refused `403 type_not_permitted`.',
   'out-of-reach':
-    'The key reaches no item of this type, so the item answers `404 item_not_found`, exactly as an item that does not exist does.',
+    'The key reaches no item of this type, so the item answers `404 item_not_found`, as an item that doesn\'t exist does.',
   'read-only':
     'The key may read this type, so it already knows the item is there. Changing it is refused `403 type_not_permitted`.',
   write: 'The key may read and write this type, so both operations go through.',
 };
 
-function Status({ answer }: { answer: Answer }) {
-  return answer.code ? (
-    <code>
-      {answer.status} {answer.code}
-    </code>
-  ) : (
+const statuses = {
+  allowed: (
     <>
-      <code>{answer.status}</code> allowed
+      <code>200</code> allowed
     </>
-  );
+  ),
+  forbidden: <code>403 type_not_permitted</code>,
+  missing: <code>404 item_not_found</code>,
+};
+
+/** An answer, laid over the others so a row never changes height. */
+function Status({ answer }: { answer: Answer }) {
+  return <Swap values={statuses} current={answer.status === 200 ? 'allowed' : answer.status === 403 ? 'forbidden' : 'missing'} />;
 }
 
 export const initial = { key: 'notes' as KeyId, type: 'core.note' as ItemType };
@@ -102,16 +105,16 @@ export function KeyReach({ caption }: { caption?: ReactNode }) {
 
   return (
     <Figure label="What a key is answered for an item, by its type map and the item's type" caption={caption} className="marfa-ix marfa-kr">
-      <Controls onReset={() => setState(initial)}>
+      <Controls>
         <Choices
           label="Key"
           options={keys}
           value={state.key}
           onChange={(id) => setState((current) => ({ ...current, key: id }))}
         />
-        <Choices
+        <Menu
           label="Item type"
-          options={itemTypes.map((id) => ({ id, label: <code>{id}</code> }))}
+          options={itemTypes.map((id) => ({ id, label: id }))}
           value={state.type}
           onChange={(type) => setState((current) => ({ ...current, type }))}
         />
@@ -124,7 +127,23 @@ export function KeyReach({ caption }: { caption?: ReactNode }) {
           className="marfa-ix-box"
           icon={KeyRound}
           title="The key holds"
-          subtitle={key.types ? 'A type map' : <>No type map, only <code>{key.permission}</code></>}
+          subtitle={
+            <Swap
+              values={Object.fromEntries(
+                keys.map((candidate) => [
+                  candidate.id,
+                  candidate.types ? (
+                    'A type map'
+                  ) : (
+                    <>
+                      No type map, only <code>{candidate.permission}</code>
+                    </>
+                  ),
+                ]),
+              ) as Record<KeyId, ReactNode>}
+              current={key.id}
+            />
+          }
         >
           <dl className="marfa-ix-rows marfa-kr-types">
             {itemTypes.map((id) => (
@@ -143,7 +162,11 @@ export function KeyReach({ caption }: { caption?: ReactNode }) {
           title="Marfa answers"
           subtitle={
             <>
-              For an item of <code>{state.type}</code>, by its id
+              By its id, for an item of{' '}
+              <Swap
+                values={Object.fromEntries(itemTypes.map((id) => [id, <code key={id}>{id}</code>])) as Record<ItemType, ReactNode>}
+                current={state.type}
+              />
             </>
           }
         >

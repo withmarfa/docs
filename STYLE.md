@@ -61,7 +61,7 @@ A page that needs a list the Catalog holds, such as the types, edge types, permi
 - **Bold the names of things on screen**, such as a button or a menu item, and write a menu path with `>` between bolded items: **File** > **New** > **Project**. Keys are written as on the keyboard: Command-R.
 - **Bold the key fact.** In each section, bold the few words a skimming reader must not miss. In a list a reader scans, bold the lead-in of each item, then explain it after a full stop or a colon. Never bold whole sentences.
 - **A list carries items that are parallel**: steps, options, things to check. A page never opens with a list, except the three opening lines of a tutorial, and a list never stands in for an explanation of why.
-- **A table compares things or holds what a reader looks up**: fields, settings, commands, options, a choice between two ways. Keep cells short.
+- **A table compares things or holds what a reader looks up**: fields, settings, commands, options, a choice between two ways. Keep cells short. **Tables stay tables**: never turn one into a list to fit a phone. At phone width every table stacks each row, and a table of three or more columns puts each cell after the first under its column's name, so give each column a header that reads as a label.
 - **Explain, then point.** A concept page explains the idea and the rules a reader meets in normal use, with one small example. Rare cases, limits, exact numbers and error codes go in a guide, the API reference or the contract, with a link.
 - **Less is clearer.** If a page is hard going, cut before you add. A page past its limit is usually two pages, or holds detail that belongs in the reference: a guide that covers two jobs done at different times is two guides. `pnpm test` enforces the limits, counting the words after the frontmatter, code included: **900 for a concept page, 1,500 for a guide, a tutorial or a Catalog connector page.** The folder decides the kind. A lookup page (Settings, the CLI and SDK pages, the Glossary, the API reference, the Catalog type pages and the Changelog) has a limit of its own, and so does a tutorial or guide whose kind differs from its folder's. Those exceptions, each with its reason, are in `src/lib/page-limits.json`, and no page is exempt. When a page is over, the failure names it and the way out: split it, move detail to the reference, or cut. A page that is over today is listed there as rewrite pending, with its current count as a ceiling that it must not pass.
 - **Describe the present.** No history, no "now", no "new", nothing about what changed.
@@ -143,6 +143,8 @@ Use a component for what it's for, and only where it helps the reader.
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
 
+An interactive figure builds its controls from `Controls`, `Choices` and `Menu` in `src/components/visuals/interactive.tsx`, and nothing else: one style of control on every page (see Visuals).
+
 The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence`, `Files` and `Terminal` (the command, then "Output:" and its output) as plain Markdown, and a block's `note` or `status` as a line above it, such as "Response (Server-sent events):", and leaves the visuals out (`source.config.ts`). `Changelog` writes every release and every line of its notes. A component outside those lists is left out of the copy too, so add it there before a page relies on it.
 
 ## Visuals
@@ -153,16 +155,19 @@ A visual earns its place by showing what prose can't, in the form that suits the
 
 - **A static figure** shows a shape: what connects to what, what holds what, which way things flow. Build it with `Figure` in `src/components/visuals/`.
 - **A sequence** shows order in time: two writers editing one item, a write going from queue to verdict. Build it with `Sequence`, which takes an ordered list in the MDX and shows every step at once on a numbered timeline, so the reader sees the whole story and the Markdown copy keeps every step.
-- **An interactive diagram** shows cause and effect a reader explores, such as which writes move an item's version. Use one only when the interaction is the point.
+- **An interactive diagram** shows cause and effect a reader explores, such as what moving an item to the bin takes with it. Use one only when the interaction is the point; a few cases side by side are often clearer as a static figure.
 - **A table** is often the right visual for a comparison.
 
 Every visual follows these rules:
 
 - **The prose carries every fact.** A visual shows the shape of what the text says; nothing is only in the visual, and no list after it repeats it.
 - **Use HTML and CSS on the site's theme tokens** (`--color-fd-*`, and `--marfa-diagram-accent` for the one accent color), so light and dark both work. No images and no hard-coded colors.
-- **The server render shows the whole visual,** and nothing moves when it's used: a control changes what's highlighted, never the layout. A filter on a lookup page, such as the Changelog's part filters, may show and hide entries.
-- **Fit at phone width** (375 px) with no horizontal scroll, and keep labels to a few words on one line.
-- **Make controls usable by keyboard,** with visible focus. Selections are buttons with `aria-pressed`.
+- **Caption short, or none.** The lead-in sentence before a figure says what it shows. A caption, if any, is one short line.
+- **Color marks one thing**: the part the page is about, such as the items a cascade takes. Everything else stays neutral.
+- **One style of control.** One row of the site's buttons, each named for its choice ("Bin the note", "Notes app"), with no label, prompt, tabs or reset. The figure opens with a choice made. A second choice is one compact menu at the right of the same row; in a narrow figure it always sits on its own line under the buttons, so nothing moves when the reader chooses.
+- **Nothing moves.** A choice changes what's highlighted and what the text says, never a size or the layout: the figure keeps one height, and every changing word sits in a place as large as its longest version. The server render shows the whole visual. A filter on a lookup page, such as the Changelog's part filters, may show and hide entries.
+- **Fit at phone width** (375 px) with no horizontal scroll, and keep labels to a few words on one line. Only a figure's row of buttons may scroll sideways; it never wraps.
+- **Make controls usable by keyboard,** with visible focus. Choices are buttons with `aria-pressed`, and a menu's options are `menuitemradio` items that arrow keys move through.
 
 ## Keeping pages current
 
