@@ -3,7 +3,7 @@ title: Holds and retries
 description: Keep one process of a connector writing at a time, keep its place between runs, and send a failed request again without harm.
 ---
 
-A connector can be started twice by mistake, lose the network in the middle of a write, or crash between two requests. The connector kit handles all three for you. The operations below do the same for a connector built directly on the API.
+A connector can be started twice by mistake, lose the network mid-write, or crash between two requests. The connector kit handles all three; the operations below do the same for a connector built directly on the API.
 
 The examples follow a task manager connector with a key of its own. In the TypeScript examples, `marfa` is a [TypeScript SDK](/typescript-sdk) client made with that key, `connectorId` is the registration's ID and `processName` is the process's name.
 
@@ -43,9 +43,9 @@ const { data, error } = await marfa.POST("/connectors/{id}/hold", {
 { "expires_at": "2026-10-09T23:54:09.991Z", "ttl_ms": 180000, "renewed": false }
 ```
 
-Make the name **unique to the process**, such as a UUID made when it starts: two processes that share a name look like one to Marfa. The hold lasts `ttl_ms` from each take or renewal, three minutes unless the instance sets another window.
+Make the name **unique to the process**, such as a UUID made when it starts: two processes that share a name look like one to Marfa. The hold lasts `ttl_ms` from each take or renewal, three minutes unless the instance sets another.
 
-If another process holds a live hold, Marfa refuses the take and leaves that hold alone. `details.expires_at` says when it ends:
+If another process holds a live hold, Marfa refuses the take; `details.expires_at` says when it ends:
 
 ```json title="Response" status="409"
 {
@@ -57,15 +57,15 @@ If another process holds a live hold, Marfa refuses the take and leaves that hol
 }
 ```
 
-Wait until then and try again. Once a hold lapses, any process can take it, so a process that crashes holds nothing for long.
+Try again then. Once a hold lapses, any process can take it, so a crashed process holds nothing for long.
 
 ## Renew it while the process runs
 
-Renew the hold by sending the same request, under the same name, **well before `expires_at`**. Marfa moves `expires_at` a full window on and answers `renewed: true`. Use `ttl_ms` to time the next renewal, rather than comparing your clock with Marfa's: the kit renews every third of a window.
+Renew the hold by sending the same request, under the same name, **well before `expires_at`**. Marfa moves `expires_at` a full window on and answers `renewed: true`. Time renewals from `ttl_ms`, not by comparing clocks: the kit renews every third of a window.
 
-`renewed: true` means your hold was live when the request arrived, so no other process wrote. `false` is expected on a first take. On a renewal, it means the hold lapsed and another process may have written: read the state document and the agreements **again** before you write anything.
+`renewed: false` is expected on a first take. On a renewal, it means the hold lapsed and another process may have written: read the state document and the agreements **again** before you write.
 
-If a renewal doesn't land, you can't know whether the hold is still yours once `expires_at` passes. **Stop writing**, to Marfa and to the vendor, until a renewal succeeds: Marfa can't stop a process without a live hold from changing the vendor.
+If a renewal doesn't land, you can't know whether the hold is still yours once `expires_at` passes. **Stop writing**, to Marfa and to the vendor, until a renewal succeeds: Marfa can't stop you changing the vendor.
 
 When the process ends cleanly, [release the hold](/api-reference/connector-state/releaseConnectorHold), so that the next process can start at once:
 
@@ -80,11 +80,11 @@ await marfa.DELETE("/connectors/{id}/hold", {
 });
 ```
 
-Marfa answers `{ "ok": true }` whether or not that process held the hold, and never releases another process's hold. A [heartbeat](/api-reference/connectors/sendConnectorHeartbeat) neither takes nor renews the hold, so send heartbeats on their own timer.
+Marfa answers `{ "ok": true }` either way, and never releases another process's hold. A [heartbeat](/api-reference/connectors/sendConnectorHeartbeat) neither takes nor renews the hold, so send heartbeats on their own timer.
 
 ## Keep your place in the state document
 
-The state document keeps a connector's place at the vendor, such as a sync token, so that a restart, even on another machine, resumes instead of reading everything again. [Get a connector's state](/api-reference/connector-state/getConnectorState) answers an empty `state`, empty `problems` and `updated_at: null` until state is written. [Replace a connector's state](/api-reference/connector-state/replaceConnectorState) under the hold:
+The state document keeps a connector's place at the vendor, such as a sync token, so a restart, even on another machine, resumes instead of reading everything again. [Get a connector's state](/api-reference/connector-state/getConnectorState) answers an empty `state` and `problems`, and `updated_at: null`, until state is written. [Replace a connector's state](/api-reference/connector-state/replaceConnectorState) under the hold:
 
 ```http tab="HTTP" tab-group="client"
 PUT /connectors/01a12313-d219-7e92-8869-1f6546b43dbc/state
@@ -107,29 +107,27 @@ await marfa.PUT("/connectors/{id}/state", {
 
 ### Replace, don't merge
 
-The request **replaces the whole document**; it doesn't merge into it. To change one value, read the document, change the value, and send it all.
+The request **replaces the whole document**. To change one value, read the document, change it, and send it all.
 
 ### Save the state last
 
-Write the new place only after everything it covers has landed in Marfa. A run that stops before the save leaves the old place, so the next run reads that part of the vendor again and writes it again, which the natural key makes harmless. A place saved first would skip what the run never wrote.
+Write the new place only after everything it covers has landed in Marfa. A run that stops before the save leaves the old place, so the next run writes that part again, which the natural key makes harmless. A place saved first would skip what the run never wrote.
 
 ### Report problems
 
-The same state write can carry a `problems` map: opaque keys with messages about work that remains unresolved.
+The same state write can carry a `problems` map: keys of your choosing, with messages about work still unresolved.
 
-- **It replaces the map** together with the state, under the live hold. Omit `problems` to keep the existing messages, or send `problems: {}` to clear them. A refused write changes neither.
+- **It replaces the map** with the state, under the live hold. Omit `problems` to keep the messages, or send `problems: {}` to clear them. A refused write changes neither.
 - **The registration shows problems,** but not the private state document.
-- **Nothing clears them for you:** not a heartbeat, a succeeded run, a registration change, a new key or a restart. Remove a problem when it is resolved.
+- **Nothing else clears them:** not a heartbeat, a run that succeeds, a registration change, a new key or a restart. Remove a problem when it's resolved.
 
 ### When the document is empty
 
-Expect to find the document empty. The owner, or a key that holds `connectors.manage`, can [delete it](/api-reference/connector-state/deleteConnectorState), and the agreements and current problems go with it. A connector that finds no state reads the vendor whole.
-
-The document belongs to the key's source, not to one key, so a new key under the same source carries on from it.
+The owner, or a key with `connectors.manage`, can [delete the document](/api-reference/connector-state/deleteConnectorState), and its agreements and problems go with it. A connector that finds no state reads the vendor whole. The document belongs to the key's source, not to one key, so a new key under the same source carries on from it.
 
 ## Record agreements
 
-An agreement records, for one item, what the connector and the vendor last agreed it holds. [Pull and push](/build/connector-pull-and-push#watch-for-changes-made-in-marfa) shows how a connector uses them. [Write connector agreements](/api-reference/connector-state/writeConnectorAgreements) sets some and clears others in one request, under the hold:
+An agreement records what the connector and the vendor last agreed an item holds, as [Pull and push](/build/connector-pull-and-push#watch-for-changes-made-in-marfa) shows. [Write connector agreements](/api-reference/connector-state/writeConnectorAgreements) sets some and clears others in one request, under the hold:
 
 ```http tab="HTTP" tab-group="client"
 POST /connectors/01a12313-d219-7e92-8869-1f6546b43dbc/agreements
@@ -170,17 +168,15 @@ await marfa.POST("/connectors/{id}/agreements", {
 { "written": 1, "cleared": 0, "skipped": ["01a12313-fd4a-78a1-af1e-32792c3df63b"] }
 ```
 
-Each entry of `set` replaces the item's agreement, and `record` holds whatever you need to tell later what the two sides agreed.
+Each entry of `set` replaces the item's agreement; `record` holds whatever tells you later what the two sides agreed.
 
-When no item has an ID, or the item's type is one the key can't read, the ID is `skipped` and the rest of the request **goes through**. Here the item to clear had been purged, which removed its agreement already. A trashed item keeps its agreement.
+An ID that no item has, or whose type the key can't read, is `skipped`, and the rest of the request **goes through**. Here the item to clear had been purged, which removed its agreement already. An item in the bin keeps its agreement.
 
 ## Send a request again
 
-Each failure has a safe response:
-
 | Answer | What it means | What to do |
 | --- | --- | --- |
-| `409 connector_held` | Another process holds a live hold, or this process holds none, so a take or a write was refused. Nothing was written. | Take the hold, after `details.expires_at` if the answer has one. If `renewed` is `false`, read the state and agreements again before you write. |
+| `409 connector_held` | Another process holds the hold, or this one holds none. Nothing was written. | Take the hold, after `details.expires_at` if the answer has one. If `renewed` is `false`, read the state and agreements again before you write. |
 | `429 rate_limited` | The key sent too many requests. | Wait the seconds `Retry-After` names, then send the same request. |
 | `503 write_contention` | The database was busy. Nothing changed. | Send the same request again. |
 | `500 internal_error` | The request may or may not have completed. | Read what you changed before you send a write again. |
@@ -188,7 +184,7 @@ Each failure has a safe response:
 A write whose answer you never saw is the hard case:
 
 - **The state document and agreements replace what's there**, so sending one again under the hold leaves the same result.
-- **Items written by natural key land on the same items when repeated**, and can't make a second one, though each repeat raises the items' `version`.
+- **A repeated write by natural key lands on the same items**, though each repeat raises their `version`.
 - **A create without a natural key can make a second item** unless it carries an `Idempotency-Key`, which makes Marfa answer a repeat with the first answer and write nothing:
 
 ```http tab="HTTP" tab-group="client"
@@ -207,7 +203,7 @@ await marfa.POST("/items", {
 });
 ```
 
-A write to the vendor is **yours to make safe**. Send the vendor an idempotency key, if it takes one, made from something that doesn't change between attempts, such as the item's ID. Record the vendor's ID for a record you made as soon as you have it, in the type's `link_field`, so a retry updates that record instead of making another.
+A write to the vendor is **yours to make safe**. Send the vendor an idempotency key, if it takes one, made from something that doesn't change between attempts, such as the item's ID. Record the vendor's ID in the type's `link_field` as soon as you have it, so a retry updates that record.
 
 [Write safely](/build/write-safely) covers versions and idempotency keys in full.
 
@@ -240,6 +236,6 @@ await marfa.POST("/connectors/{id}/runs", {
 });
 ```
 
-A run that fails reports `failed` with its `error`, and the next run starts from the last state document that was saved. **Reporting needs no hold**, and the registration keeps the last 100 runs, which `marfa connectors runs <connector-id>` lists, newest first.
+A run that fails reports `failed` with its `error`, and the next run starts from the last state saved. **Reporting needs no hold**. The registration keeps the last 100 runs, which `marfa connectors runs <connector-id>` lists, newest first.
 
-The rules behind this page are in the [connectors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md) chapter of the contract, which holds the rule for [a take after a lapse](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md#connectorshold-lapsed-not-renewed).
+The rules behind this page are in the [connectors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md) chapter of the contract.

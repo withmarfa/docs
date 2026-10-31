@@ -7,7 +7,7 @@ A webhook lets a service react to changes in your instance without holding a con
 
 To register or change a webhook, you need its maker's credential with the `webhooks.manage` permission. The webhook belongs to that key, or to the app that registered it: Marfa sends it nothing once the key is revoked or expires, and deletes it when the app's access is revoked.
 
-The owner can inspect subscriptions and delivery metadata on the **API keys** and **Connected apps** detail pages, without reading event payloads or making a key. Retrying a failed delivery there needs a sign-in from the last five minutes; the private socket needs none.
+The owner sees each webhook and its deliveries, without their payloads, on the **API keys** and **Connected apps** detail pages.
 
 ## Register a webhook
 
@@ -56,13 +56,9 @@ Marfa answers with the webhook, its `secret` included:
 }
 ```
 
-Marfa shows the secret **only this once**. Every later read shows `****` and its last four characters. Keep it where your receiver can read it and nothing else can, as you would a password. The CLI prints the secret alone on the first line, as `marfa keys create` does with a key, and doesn't print back a secret you gave.
+Marfa shows the secret **only this once**; every later read shows `****` and its last four characters. Keep it where only your receiver can read it, as you would a password. The CLI prints it alone on the first line. To use a secret of your own, send `secret` with at least 32 characters.
 
-To use a secret of your own instead, send `secret` with at least 32 characters.
-
-The webhook receives events written after you registered it, and nothing earlier.
-
-Marfa refuses a `url` that points at a private address. [Receive deliveries on a private network](#receive-deliveries-on-a-private-network) says which addresses, and how to allow them.
+The webhook receives events written after you registered it, and nothing earlier. A `url` at a private address is refused unless [the instance allows it](#receive-deliveries-on-a-private-network).
 
 ## Check each delivery
 
@@ -225,18 +221,18 @@ await marfa.POST("/webhooks/{id}/deliveries/{delivery_id}/redeliver", {
 });
 ```
 
-Only a retained `dead_letter` delivery can be sent again, while its subscription is active and its maker still has the required access. This holds for an owner's retry too, and a retry from the owner's browser needs a [recent sign-in](/run/sign-in-as-the-owner#confirm-its-you). A `409 conflict` carries the reason in `details.reason`; [Redeliver a webhook delivery](/api-reference/webhooks/redeliverWebhookDelivery) lists the refusals. A delivery's record is kept for as long as the instance keeps its audit log.
+Only a `dead_letter` delivery still on record can be sent again, while its webhook is active and its maker keeps the access it needs, even when the owner retries it. A retry from the owner's browser needs a [recent sign-in](/run/sign-in-as-the-owner#confirm-its-you). A refusal is `409 conflict`, with the reason in `details.reason`. A delivery's record is kept as long as the instance keeps its audit log.
 
 ## Change what a webhook sends
 
 [Update a webhook](/api-reference/webhooks/updateWebhook) changes its `url`, its `events`, its `type_filter` or whether it is `active`. A change ends the pending deliveries it no longer allows, so a receiver is never sent an event the owner has since excluded.
 
-- **Narrowing `events` or `type_filter`** settles each pending delivery they no longer select as `canceled`, with the error `The subscription's events or type filter no longer select this event.`, before the update answers. A delivery being sent when the change commits ends the same way. Widening them again revives nothing already settled, and a change that still selects an event settles nothing.
+- **Narrowing `events` or `type_filter`** settles each pending delivery they no longer select as `canceled` before the update answers, including one being sent as the change commits. Widening them again revives nothing.
 - **Changing the `url` or setting `active` to `false`** settles every pending delivery as `canceled`, so none goes to the old address.
 
 ## Receive deliveries on a private network
 
-By default, Marfa posts only to public addresses. It refuses, with `400 validation_error`, a `url` whose host is a loopback, private, link-local, unique-local or carrier-grade NAT address, such as `localhost` or a Tailscale address. It checks a host written as a name too, so a receiver on a Tailscale or home-network name meets this refusal first. The message names the setting that allows it, `MARFA_WEBHOOK_ALLOW_PRIVATE_ADDRESSES`, which [Settings](/run/settings#let-webhooks-reach-a-private-network) shows how to set.
+By default, Marfa posts only to public addresses. It refuses, with `400 validation_error`, a `url` whose host, named or written as an address, is loopback, private, link-local, unique-local or carrier-grade NAT, such as `localhost` or a Tailscale address. [`MARFA_WEBHOOK_ALLOW_PRIVATE_ADDRESSES`](/run/settings#let-webhooks-reach-a-private-network) allows them.
 
 Marfa checks a name again at each delivery. One that now resolves to an address that isn't public is never sent: the delivery is recorded as `dead_letter`, with the error "The receiver's address is not public.". Once the setting allows it or the name is fixed, [redeliver it](#when-a-delivery-fails).
 
