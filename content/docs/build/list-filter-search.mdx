@@ -3,11 +3,11 @@ title: List, filter and search
 description: Read the items you need from an instance, a page at a time, narrowed by type, tags and properties, or found by the words they hold.
 ---
 
-Most of what an app reads, it reads as a listing: the notes tagged `reading`, the tasks due this week, everything changed since it last looked. Each operation reads only the items your key or token can read. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows. To keep a listing so every app shows the same one, [save it as a view](/build/save-a-view), and to list events by the days they fall on, [read a calendar](/build/read-a-calendar).
+Most of what an app reads, it reads as a listing: the notes tagged `reading`, the tasks due this week, everything changed since it last looked. Each operation reads only what your credential can read. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows. To keep a listing so every app shows the same one, [save it as a view](/build/save-a-view), and to list events by the days they fall on, [read a calendar](/build/read-a-calendar).
 
 ## List a page at a time
 
-[List items](/api-reference/items/listItems) answers one page and describes every parameter. Name the type, and narrow it as the next section shows:
+[List items](/api-reference/items/listItems) answers one page and describes every parameter:
 
 ```bash tab="CLI" tab-group="client"
 marfa items list --type core.note --tag reading --limit 20
@@ -28,7 +28,7 @@ The answer holds the page in `data` and a cursor in `next_cursor`. Send the curs
 
 Stop only when **`next_cursor` is `null`**: a page can be short, or even empty, and still have more after it. The CLI prints the cursor to send as `more: --cursor <cursor>`.
 
-The TypeScript SDK's `pages` follows the cursor for you:
+In the TypeScript SDK, `pages` follows the cursor:
 
 ```ts
 import { pages } from "@withmarfa/client";
@@ -54,15 +54,15 @@ With no parameters, a listing returns the **active items** of every type you can
 
 | Parameter | Keeps |
 | --- | --- |
-| `type` | A type and every type beneath it, so `core.file` includes images. A pattern such as `core.*` matches every type under the prefix. |
+| `type` | Up to 10 types, comma-separated, each with every type beneath it, so `core.file` includes images. A pattern such as `core.*` matches every type under the prefix. |
 | `tags` | Items that carry every tag in a comma-separated list. |
-| `state` | One state, such as `archived`, or `any`. |
+| `state` | One state, such as `archived`; a comma-separated list, such as `active,archived`; or `any` on its own. |
 | `tier` | `library` or `feed` items. |
 | `source` | Items one writer created. |
 | `occurred_after`, `occurred_before` | Items whose `occurred_at` falls between two times. |
 | `backref[<edge type>]` | Items an edge from another item points to: `backref[parent-of]=<id>` lists a task's subtasks. |
 
-`include=metadata` or `include=edges` adds each item's tags and extensions, or its edges, to the answer.
+A list's blank entries and repeats count for nothing. `include=metadata` or `include=edges` adds each item's tags and extensions, or its edges, to the answer.
 
 ## Filter by properties
 
@@ -90,13 +90,13 @@ const { data } = await marfa.GET("/items", {
 });
 ```
 
-Strings go in double quotes, and a query string needs the filter URL-encoded, as `--data-urlencode` does. A filter can test tags and an item's own fields too, with operators such as `eq`, `neq`, `gt`, `lt`, `contains`, `starts_with`, `exists` and `not_exists`.
+Strings go in double quotes. **Inside a string, write `\"` for a double quote and `\\` for a backslash**; any other backslash stays as typed. A query string needs the filter URL-encoded, as `--data-urlencode` does. A filter can test tags and an item's own fields too, with operators such as `eq`, `neq`, `gt`, `lt`, `contains`, `starts_with`, `exists` and `not_exists`.
 
 To find items where a property is missing or `null`, use **`not_exists`**: Marfa refuses a comparison with `null`. The [search and filters](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md) chapter of the contract has the whole grammar.
 
 ## Sort
 
-A listing comes **newest first**. `sort` orders it by `created_at`, `updated_at`, `occurred_at` or a property, and `direction` takes `asc` or `desc`. This lists tasks due before October 21, soonest first:
+A listing comes **newest first**: by `created_at`, or, for a listing of the bin alone (`state=trashed`), by `trashed_at`, when each item went to the bin. `sort` orders it by `created_at`, `updated_at`, `occurred_at` or a property, and `direction` takes `asc` or `desc`. This lists tasks due before October 21, soonest first:
 
 ```bash tab="HTTP" tab-group="client"
 curl -G "$MARFA_API_URL/items" -H "Authorization: Bearer $MARFA_API_KEY" \
@@ -139,7 +139,7 @@ const { data } = await marfa.GET("/items", {
 });
 ```
 
-The bound includes items changed at that instant, so **skip the ones you already hold by `id`**: items written together share an `updated_at`. This listing is always oldest change first, and any other `sort` or `direction` is refused. A listing **can't report a purged item**: to hear of every change, purges included, follow the event stream as [Keep a copy in sync](/build/keep-in-sync) shows.
+The bound includes items changed at that instant, so **skip the ones you already hold by `id`**: items written together share an `updated_at`. This listing is always oldest change first, and refuses any other `sort` or `direction`. A listing **can't report a purged item**: to hear of every change, purges included, follow the event stream as [Keep a copy in sync](/build/keep-in-sync) shows.
 
 ## Search
 
@@ -171,9 +171,9 @@ Each entry in `data` holds the `item`, its `metadata`, a `relevance_score`, and 
 
 **Every word** in `q` must match, in any order, in the item's [searched fields](/catalog/items#searched-fields) or its tags. Words match by their stem, so `tides` finds `tide`, and the last word matches as the start of a word, so a search run on each keystroke finds results as someone types.
 
-Put a query in double quotes to match a phrase. A search takes a listing's narrowing parameters too, `filter`, `updated_after` and `updated_before` among them, so words and conditions work in one call.
+Put a query in double quotes to match a phrase. A search takes a listing's narrowing parameters too, `filter`, `updated_after` and `updated_before` among them, so words and conditions work in one call. **A search never matches an item in the bin**, whatever `state` it names.
 
-Search also reads the text of a file. After the `enrichment-sweep` job has read a file item's bytes and written its `extracted_text`, a search finds the file by any word in that text, as it finds any other `string` field, on the server and in a copy on a device. Until then, a search finds the file only by its other fields and tags. See [Handle files](/build/handle-files#find-a-file-by-its-text).
+Search also reads a file's text, once Marfa has extracted it, as [Handle files](/build/handle-files#find-a-file-by-its-text) shows.
 
 ### Sort a search
 
@@ -188,9 +188,9 @@ GET /search?q=tide&type=core.note&updated_after=2026-10-19T00:00:00Z&sort=update
 Authorization: Bearer <key>
 ```
 
-Unlike a listing, **`updated_after` doesn't set the order of a search**, so it works with any `sort`. Items that lack a sorted property come last, and hits that tie come in order of `id`. The CLI's `--sort` takes `relevance`, `created-at`, `updated-at`, `occurred-at` or `properties.<field>`.
+Unlike a listing, **`updated_after` doesn't set the order of a search**, so it works with any `sort`. Items that lack a sorted property come last, and ties go by `id`.
 
-Send `next_cursor` back as `cursor` with the same query. A cursor from a search with another `sort`, `direction`, `source`, `updated_after` or `updated_before` is refused with `400 validation_error`. A search reads **at most the first 10,000 hits** of its ranking, so narrow one that would reach further.
+A cursor works only with the query that gave it: sent with another `sort`, `direction`, `source`, `updated_after` or `updated_before`, it's refused `400 validation_error`. A search reads **at most the first 10,000 hits** of its ranking, so narrow one that would reach further.
 
 ## Count items
 
@@ -222,7 +222,8 @@ Over HTTP and in the TypeScript SDK, a count takes a listing's narrowing paramet
 Marfa refuses a query it can't answer exactly, rather than answer a different one:
 
 - **A parameter the operation doesn't take**, such as `tag` for `tags`, answers `400 validation_error` and lists it in `details.unknown_parameters`. Marfa ignores any parameter that starts with `_`, so use that prefix for your own.
-- **A `type`, `tags`, `source` or `filter` sent empty** answers `400 validation_error`, so an unset variable doesn't read everything.
+- **A `type`, `tags`, `state`, `source` or `filter` sent empty**, or as a list of blank entries, answers `400 validation_error`, so an unset variable doesn't read everything.
+- **More than 10 types, or `any` beside another state,** answers `400 validation_error`.
 - **A `type` nothing registers** answers `400 unknown_type`.
 - **A `type` you can't read** answers `403 type_not_permitted`.
 
