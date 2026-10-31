@@ -25,12 +25,12 @@
 
 ## Settings
 
-| Setting                                                | Value                              |
-| ------------------------------------------------------ | ---------------------------------- |
-| `plural`                                               | Entities                           |
-| [`title_field`](/catalog/your-own-types#display-hints) | `name`                             |
-| [`icon`](/catalog/your-own-types#display-hints)        | `lucide:shapes`                    |
-| [`merge_policy`](/catalog/your-own-types#merge-policy) | `last_writer_wins` for every field |
+| Setting                                            | Value                              |
+| -------------------------------------------------- | ---------------------------------- |
+| `plural`                                           | Entities                           |
+| [`title_field`](/catalog/type-rules#display-hints) | `name`                             |
+| [`icon`](/catalog/type-rules#display-hints)        | `lucide:shapes`                    |
+| [`merge_policy`](/catalog/type-rules#merge-policy) | `last_writer_wins` for every field |
 
 ## Subtypes
 
@@ -38,10 +38,10 @@
 
 Contact information for an individual. Inherits all core.entity fields.
 
-| Setting                                         | Value         |
-| ----------------------------------------------- | ------------- |
-| `plural`                                        | People        |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:user` |
+| Setting                                     | Value         |
+| ------------------------------------------- | ------------- |
+| `plural`                                    | People        |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:user` |
 
 | Field          | Kind     | Required | Description                        |
 | -------------- | -------- | -------- | ---------------------------------- |
@@ -61,10 +61,10 @@ Contact information for an individual. Inherits all core.entity fields.
 
 A location or venue. Inherits all core.entity fields.
 
-| Setting                                         | Value            |
-| ----------------------------------------------- | ---------------- |
-| `plural`                                        | Places           |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:map-pin` |
+| Setting                                     | Value            |
+| ------------------------------------------- | ---------------- |
+| `plural`                                    | Places           |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:map-pin` |
 
 | Field            | Label     | Kind                 | Required | Description                        |
 | ---------------- | --------- | -------------------- | -------- | ---------------------------------- |
