@@ -27,8 +27,9 @@ export const listings: readonly { title: string; nodes: readonly TreeNode[] }[] 
 
 /**
  * A type, with the types beneath it in a list nested in its own, so a screen
- * reader hears each one's depth. A type the listing returns is marked with
- * the accent; one it leaves out is dashed.
+ * reader hears each one's depth. Safari drops the list semantics of a list
+ * drawn without markers, so each list names its role. A type the listing
+ * returns is marked with the accent; one it leaves out is dashed.
  */
 function Node({ node }: { node: TreeNode }): ReactNode {
   return (
@@ -38,7 +39,7 @@ function Node({ node }: { node: TreeNode }): ReactNode {
         {node.left ? <span className="marfa-ti-note">Compatible, not returned</span> : null}
       </span>
       {node.children?.length ? (
-        <ul>
+        <ul role="list">
           {node.children.map((child) => (
             <Node key={child.id} node={child} />
           ))}
@@ -58,7 +59,7 @@ export function TypeInheritance({ caption }: { caption?: ReactNode }) {
     <Figure label="Which types a listing of a type returns" caption={caption} className="marfa-ti">
       {listings.map((listing) => (
         <Box key={listing.title} title={listing.title}>
-          <ul className="marfa-ti-tree">
+          <ul className="marfa-ti-tree" role="list">
             {listing.nodes.map((node) => (
               <Node key={node.id} node={node} />
             ))}

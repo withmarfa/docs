@@ -24,7 +24,7 @@ describe('type inheritance figure', () => {
 
   it('nests each type in the list of its parent, and marks only the types a listing returns', () => {
     const html = renderToStaticMarkup(createElement(TypeInheritance));
-    expect(html).toMatch(/<li><span class="marfa-ti-node" data-returned="true"><code>core.file<\/code><\/span><ul><li><span[^>]*><code>core.file.image<\/code><\/span><ul><li>/);
+    expect(html).toMatch(/<li><span class="marfa-ti-node" data-returned="true"><code>core.file<\/code><\/span><ul role="list"><li><span[^>]*><code>core.file.image<\/code><\/span><ul role="list"><li>/);
     expect(html.match(/data-returned/g)).toHaveLength(4);
     expect(html).toMatch(/data-left="true"><code>user.recipe<\/code>/);
   });
