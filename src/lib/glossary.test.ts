@@ -40,9 +40,9 @@ function glossaryRows(): Map<string, string> {
   return rows(words, /^\| \*\*(.+?)\*\* +\| (.+?) +\|$/);
 }
 
-/** The page's rows, `| [**word**](/link) | meaning |`. */
+/** The page's rows, `| [**word**](/link) | meaning |`, or a row whose word has no link. */
 function pageRows(): Map<string, string> {
-  return rows(readFileSync(PAGE, 'utf8'), /^\| \[\*\*(.+?)\*\*\]\([^)]*\) \| (.+) \|$/);
+  return rows(readFileSync(PAGE, 'utf8'), /^\| \[?\*\*(.+?)\*\*(?:\]\([^)]*\))? \| (.+) \|$/);
 }
 
 export function fingerprint(glossary: string, page: string): string {
