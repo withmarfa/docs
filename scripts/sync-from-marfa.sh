@@ -334,7 +334,7 @@ for heading, body, usage in sections:
         "options": options(body),
         "subcommands": "<COMMAND>" in words,
         "positional": any(
-            re.fullmatch(r"[<\[][A-Za-z_]+(\.\.\.)?[>\]]", w) and w not in ("<COMMAND>", "[OPTIONS]")
+            re.fullmatch(r"[<\[][A-Za-z_]+(\.\.\.)?[>\]](\.\.\.)?", w) and w not in ("<COMMAND>", "[OPTIONS]")
             for w in words
         ),
     }
