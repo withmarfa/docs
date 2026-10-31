@@ -96,6 +96,52 @@ describe('ReferenceList', () => {
     expect(required).toContain('<span class="marfa-ref-label">Default</span> false');
   });
 
+  it('draws each table of an included file as its own list, and keeps the heading over it', () => {
+    const html = renderToStaticMarkup(
+      <ReferenceList>
+        <>
+          <h2 id="core-types">Core types</h2>
+        {table([
+          ['Type', 'Description'],
+          ['core.note', 'Text you wrote.'],
+        ])}
+        <h2 id="system-types">System types</h2>
+        {table([
+          ['Type', 'Description'],
+          ['system.view', 'A saved list.'],
+        ])}
+        </>
+      </ReferenceList>,
+    );
+    expect(html.match(/<dl class="marfa-ref">/g)).toHaveLength(2);
+    expect(html.match(/class="marfa-ref-entry"/g)).toHaveLength(2);
+    expect(html).not.toContain('<code>Type</code>');
+    expect(html.indexOf('id="system-types"')).toBeGreaterThan(html.indexOf('core.note'));
+    expect(html.indexOf('id="system-types"')).toBeLessThan(html.indexOf('system.view'));
+  });
+
+  it('leaves out a detail that reads None', () => {
+    const html = renderToStaticMarkup(
+      <ReferenceList>
+        <table>
+          <tbody>
+            <tr>
+              <th>Variable</th>
+              <th>What it does</th>
+              <th>Default</th>
+            </tr>
+            <tr>
+              <td>HOST</td>
+              <td>Where it goes.</td>
+              <td>None</td>
+            </tr>
+          </tbody>
+        </table>
+      </ReferenceList>,
+    );
+    expect(html).not.toContain('Default');
+  });
+
   it('leaves its children alone when they hold no table with rows', () => {
     const html = renderToStaticMarkup(
       <ReferenceList>
