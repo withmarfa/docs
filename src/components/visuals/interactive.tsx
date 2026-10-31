@@ -2,10 +2,12 @@ import { Check, ChevronDown } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type ToggleEvent } from 'react';
 
 /**
- * The one row of controls an interactive figure has: a set of buttons, and at
- * most one menu at its right. The row never wraps; on a narrow screen it
- * scrolls sideways. A figure opens with a choice already made and always has
- * one, so it needs no label, no prompt and no reset.
+ * The controls an interactive figure has: a row of buttons, and at most one
+ * menu at its right. In a narrow figure the menu always sits on its own line
+ * under the buttons, so the layout never depends on the choice. The buttons
+ * never wrap; when they can't fit, their row scrolls sideways. A figure opens
+ * with a choice already made and always has one, so it needs no label, no
+ * prompt and no reset.
  */
 export function Controls({ children }: { children: ReactNode }) {
   return <div className="marfa-ix-controls">{children}</div>;
@@ -46,11 +48,23 @@ export function Choices<T extends string>({
   );
 }
 
+/** The space a menu's list keeps from the edge of the viewport. */
+const EDGE = 8;
+
+/**
+ * Where a menu's list starts: at its button's left edge, moved left as far as
+ * it needs to end inside the viewport, and never past the viewport's left edge.
+ */
+export function menuLeft(buttonLeft: number, listWidth: number, viewportWidth: number): number {
+  return Math.max(EDGE, Math.min(buttonLeft, viewportWidth - EDGE - listWidth));
+}
+
 /**
  * A second choice, as a compact menu. Its button is always as wide as its
  * longest option, so choosing one moves nothing. The list opens in the top
  * layer as a popover, which the scrolling row can't clip; it closes on a
- * click outside, on Escape, on a choice and when the page scrolls.
+ * click outside, on Escape, on a choice and when the page scrolls, and
+ * Escape or a choice puts focus back on the button.
  */
 export function Menu<T extends string>({
   label,
@@ -71,22 +85,34 @@ export function Menu<T extends string>({
 
   useEffect(() => {
     if (!open) return;
-    const close = () => list.current?.hidePopover();
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
+    const dismiss = () => list.current?.hidePopover();
+    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('resize', dismiss);
     return () => {
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', dismiss, true);
+      window.removeEventListener('resize', dismiss);
     };
   }, [open]);
 
-  // Placed under the button, at its left edge and at least as wide.
+  // Placed under the button and at least as wide. The list has no width until
+  // it is shown, so it is kept inside the viewport in the next frame, which
+  // comes before it is first painted.
   function place(event: ToggleEvent<HTMLDivElement>) {
     if (event.newState !== 'open' || !button.current || !list.current) return;
     const rect = button.current.getBoundingClientRect();
-    list.current.style.top = `${rect.bottom + 4}px`;
-    list.current.style.left = `${rect.left}px`;
-    list.current.style.minWidth = `${rect.width}px`;
+    const element = list.current;
+    element.style.top = `${rect.bottom + 4}px`;
+    element.style.left = `${rect.left}px`;
+    element.style.minWidth = `${rect.width}px`;
+    requestAnimationFrame(() => {
+      const viewport = document.documentElement.clientWidth;
+      element.style.left = `${menuLeft(rect.left, element.offsetWidth, viewport)}px`;
+    });
+  }
+
+  function close() {
+    list.current?.hidePopover();
+    button.current?.focus();
   }
 
   function toggled(event: ToggleEvent<HTMLDivElement>) {
@@ -109,7 +135,10 @@ export function Menu<T extends string>({
               ? last
               : null;
     if (next === null) {
-      if (event.key === 'Tab') list.current?.hidePopover();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+      } else if (event.key === 'Tab') list.current?.hidePopover();
       return;
     }
     event.preventDefault();
@@ -126,6 +155,7 @@ export function Menu<T extends string>({
         className="marfa-ix-button marfa-ix-menu"
         popoverTarget={id}
         aria-haspopup="menu"
+        aria-expanded={open}
         aria-label={`${label}: ${typeof current?.label === 'string' ? current.label : value}`}
       >
         <span className="marfa-ix-menu-value">
@@ -159,8 +189,7 @@ export function Menu<T extends string>({
             aria-checked={option.id === value}
             onClick={() => {
               onChange(option.id);
-              list.current?.hidePopover();
-              button.current?.focus();
+              close();
             }}
           >
             {option.label}
