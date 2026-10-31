@@ -3,8 +3,8 @@ import { Box, Figure } from './figure';
 
 export type TreeNode = {
   id: string;
-  /** How many `parent` steps the type is below the listing's type. */
-  depth: number;
+  /** The types whose `parent` is this one. */
+  children?: readonly TreeNode[];
   /** A type that names the listing's type in `compatible_with`, so the listing leaves it out. */
   left?: boolean;
 };
@@ -17,26 +17,33 @@ export type TreeNode = {
 export const listings: readonly { title: string; nodes: readonly TreeNode[] }[] = [
   {
     title: 'List files',
-    nodes: [
-      { id: 'core.file', depth: 0 },
-      { id: 'core.file.image', depth: 1 },
-      { id: 'app.example.receipt', depth: 2 },
-    ],
+    nodes: [{ id: 'core.file', children: [{ id: 'core.file.image', children: [{ id: 'app.example.receipt' }] }] }],
   },
   {
     title: 'List notes',
-    nodes: [
-      { id: 'core.note', depth: 0 },
-      { id: 'user.recipe', depth: 0, left: true },
-    ],
+    nodes: [{ id: 'core.note' }, { id: 'user.recipe', left: true }],
   },
 ];
 
+/**
+ * A type, with the types beneath it in a list nested in its own, so a screen
+ * reader hears each one's depth. A type the listing returns is marked with
+ * the accent; one it leaves out is dashed.
+ */
 function Node({ node }: { node: TreeNode }): ReactNode {
   return (
-    <li className="marfa-ti-node" data-depth={node.depth || undefined} data-left={node.left || undefined}>
-      <code>{node.id}</code>
-      {node.left ? <span className="marfa-ti-note">Compatible, not returned</span> : null}
+    <li>
+      <span className="marfa-ti-node" data-returned={!node.left || undefined} data-left={node.left || undefined}>
+        <code>{node.id}</code>
+        {node.left ? <span className="marfa-ti-note">Compatible, not returned</span> : null}
+      </span>
+      {node.children?.length ? (
+        <ul>
+          {node.children.map((child) => (
+            <Node key={child.id} node={child} />
+          ))}
+        </ul>
+      ) : null}
     </li>
   );
 }
