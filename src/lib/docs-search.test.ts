@@ -60,6 +60,9 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['print-token', ['/cli']],
   ['--print-token', ['/cli']],
 
+  ['edge type', ['/edges', '/catalog/edges']],
+  ['edge_cycle', ['/edges']],
+
   // Running an instance.
   ['environment variables', ['/run/settings']],
   ['docker compose', ['/run/install', '/run/deploy']],

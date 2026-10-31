@@ -498,7 +498,7 @@ describe('the edge type table', () => {
 
   it('is included by the Edges page, which says that any type is a source exactly when the table has no column for it', () => {
     expect(edgesPage).toContain('<include cwd>src/generated/catalog/edge-types.md</include>');
-    const sentence = 'Any type can be the source of every edge type.';
+    const sentence = 'Every shipped edge type takes any type as its source';
     expect(edgesPage.includes(sentence)).toBe(!header.includes('Source types'));
   });
 });
