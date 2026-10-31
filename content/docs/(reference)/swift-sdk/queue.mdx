@@ -16,7 +16,7 @@ Every write waits in the copy's queue until a drain sends it, and the instance a
 | `unavailable`, `stopped` | Why the drain ended before the queue was through, and the key refusal that stopped the queue. |
 | `retryAfterSeconds` | How long a rate limit asked the app to wait. |
 
-**A drain throws `hydrationIncomplete` while a fill is under way or was interrupted**, sending nothing. A stale copy drains.
+**A drain throws `hydrationIncomplete` while a fill is under way or was interrupted**, sending nothing. A stale copy refuses a drain with `copyExpired` and the reason `catchup_too_old` until a fill has [refilled it](/swift-sdk/working-copy#refill-a-stale-copy). Its writes stay queued.
 
 ## Read the queue
 
@@ -65,7 +65,7 @@ The contract gives a blocked write [one of seven reasons](https://github.com/wit
 | `.ancestorUnavailable` | The key can't read the version the write was based on. | `withdraw(_:)`, or `release(_:)` once the key can read it. |
 | `.conflictUnresolved` | The instance refused the write's version as overtaken, `version_conflict`. | `withdraw(_:)`. Sent again, it's blocked the same way. |
 | `.failingAlone` | The write keeps failing while the instance answers other writes. | `release(_:)` to try again, or `withdraw(_:)`. |
-| `.instanceChanged` | The write was queued against another instance than the one the copy was filled from since. | `release(_:)` to send it to the instance there now, or `withdraw(_:)`. |
+| `.instanceChanged` | The write was queued against another instance than the one the copy has since been filled from. | `release(_:)` to send it to the instance there now, or `withdraw(_:)`. |
 
 **A write blocked for any reason but `.credentialRefused` is never sent until the app acts**, so show it to the person. The writes that depend on a write blocked `.failingAlone` wait behind it, and a release takes them with it.
 
@@ -83,7 +83,7 @@ An answer to the write, a refusal and a release clear both.
 `withdraw(_:)` takes a write blocked `.ancestorUnavailable`, `.conflictUnresolved`, `.failingAlone` or `.instanceChanged` out of the queue, and puts its row back as the instance holds it. It returns `false` for any other write.
 
 - **It reads the row from the server first**, so it needs the server, and changes nothing when the read fails. It returns `false` when the copy moved during the read: ask again.
-- **The writes waiting on a withdrawn write are refused unsent.** A withdrawn create's writes are refused with the reason `the <kind> it waits for was withdrawn`, such as an edit or an edge for the item it would have made.
+- **The writes waiting on a withdrawn write are refused unsent**, with the reason `the <kind> it waits for was withdrawn`, where `<kind>` is the withdrawn write's kind. For a withdrawn create, these include the edits and edges for the item it would have made.
 - **A write refused this way is never released**, since the write it waited for is gone.
 
 The [withdraw rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictswithdraw-refuses-held) are in the contract.
