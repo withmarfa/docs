@@ -41,4 +41,17 @@ describe('labelTable', () => {
     labelTable(node);
     expect(labels(node)).toEqual([[undefined, undefined, 'Kind']]);
   });
+
+  it('gives every part of the table its role, so stacking keeps it a table', () => {
+    const node = table(['Code', 'Meaning'], ['0', 'Success']);
+    labelTable(node);
+    const role = (n: HastNode | undefined) => n?.properties?.role;
+    const [head, body] = node.children ?? [];
+    expect(role(node)).toBe('table');
+    expect([role(head), role(body)]).toEqual(['rowgroup', 'rowgroup']);
+    expect(role(head?.children?.[0])).toBe('row');
+    expect(head?.children?.[0]?.children?.map(role)).toEqual(['columnheader', 'columnheader']);
+    expect(role(body?.children?.[0])).toBe('row');
+    expect(body?.children?.[0]?.children?.map(role)).toEqual(['cell', 'cell']);
+  });
 });
