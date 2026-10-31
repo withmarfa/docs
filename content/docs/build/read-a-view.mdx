@@ -1,13 +1,52 @@
 ---
-title: Read a view offline
-description: Read a saved view's items and groups from a device's working copy.
+title: Read a view
+description: Read the items a saved view lists from the server, or its items and groups from a device's working copy.
 ---
 
-A [view](/catalog/view) saves which items to list, in what order and how they group. **The device core answers a view offline** from a [working copy](/devices), so an app uses the same sorting and grouping as the CLI.
+A [view](/catalog/view) saves which items to list, in what order and how they group. **Read it from the server** for a page of its items, or **read it offline** from a device's [working copy](/devices), which also counts its groups.
 
-Start with a view [saved on the instance](/build/save-a-view) and a credential that can read `system.view` and every content type its query names. The examples use a view of `core.task` items.
+Start with a view [saved on the instance](/build/save-a-view) and a credential that can read `system.view` and the types the view lists. The examples use a view of `core.task` items. In the TypeScript example, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows.
 
-## Fill the working copy
+## Read a view's items from the server
+
+Ask for a page of the items the view lists:
+
+```bash tab="CLI" tab-group="client"
+marfa views items <view-id> --limit 50
+```
+
+```http tab="HTTP"
+GET /views/<view-id>/items?limit=50
+Authorization: Bearer <key>
+```
+
+```ts tab="TypeScript"
+const { data } = await marfa.GET("/views/{id}/items", {
+  params: { path: { id: viewId }, query: { limit: 50 } },
+});
+```
+
+The answer holds `data`, the items in the view's order, and `next_cursor`. Send the cursor back as `cursor` for the next page, and **stop only when it's `null`**: a page can be short, or empty, with more to follow. A page holds 50 items unless you ask for 1 to 200.
+
+What the server lists:
+
+- **Only what the credential can read.** A view never widens access: an item of a type the credential can't read is left out, and so is anything reached through it.
+- **No system items.** A view lists what a person keeps, not the records Marfa keeps for itself.
+- **The view's order.** Sort keys apply in turn, first key first. An item missing a sorted field comes after every item that holds it, in either direction. Ties go by ascending ID, or in the key's direction when the view sorts by one timestamp alone. A view with no sort lists the newest `occurred_at` first, and ties by descending ID.
+- **Under `beneath`, the item and everything under it** by `parent-of`, at any depth, each once, and nothing in the bin. A `beneath` that names no item answers an empty page.
+
+A read is refused with:
+
+- `400 validation_error` for a `limit` out of range, or a cursor from another view or an earlier version of this one. Start again without the cursor.
+- `400 invalid_transition` for a view revoked when the item it belonged to was deleted.
+- `403 type_not_permitted` when the credential reads no type, and `403 edge_permission_denied` when the credential can't read an edge type the view's filter names, or `parent-of` edges for a view that names `beneath`.
+- `404 item_not_found` when no view the credential can read has the ID.
+
+## Read a view from a working copy
+
+The device core answers a view with no connection. It sorts and groups the items its working copy holds the way the server does.
+
+### Fill the working copy
 
 While connected, hydrate the view type and the types its query needs:
 
@@ -19,7 +58,7 @@ marfa device --db ./copy.sqlite hydrate --types system.view,core.task --tier all
 
 Hydration needs the server and a credential, as [Connect to a server](/cli#connect-to-a-server) describes. The reads below need neither a connection nor a new hydration while the copy remains complete.
 
-## Choose the view
+### Choose the view
 
 List the views held in the copy, then read the selected view's settings:
 
@@ -28,13 +67,13 @@ marfa device --db ./copy.sqlite views list --json
 marfa device --db ./copy.sqlite views get <view-id> --json
 ```
 
-Read the view's items in its sort order:
+Read the view's items in its order:
 
 ```bash
 marfa device --db ./copy.sqlite items list --view <view-id> --limit 50 --offset 0 --json
 ```
 
-**Sort keys apply in their declared order.** Property values use the server's ordering, missing and null values come last in either direction, and item IDs break ties. A property that no item holds leaves every item tied on that key.
+The order follows the rules in [the server's read](#read-a-views-items-from-the-server); a property that no item holds leaves every item tied on that key.
 
 To search within the view's query, pass the view ID to search. Search orders matches by relevance:
 
@@ -42,7 +81,7 @@ To search within the view's query, pass the view ID to search. Search orders mat
 marfa device --db ./copy.sqlite search "meeting" --view <view-id> --json
 ```
 
-## Read groups
+### Read groups
 
 A view with a `group` returns one count per group. A view with no `group` returns one group, with the count of every item it lists.
 
@@ -60,7 +99,7 @@ A date group uses the view's `group.bucket`: `day`, `week`, `month` or `year`. I
 marfa device --db ./copy.sqlite views groups <view-id> --time-zone Europe/London --json
 ```
 
-## Read a view in an app
+### Read a view in an app
 
 Use the core's view reads on the same handle as other working-copy reads. Rust exposes `list_views`, `view`, `list_in_view`, `search_in_view` and `view_groups`; the core's Node binding exposes the corresponding camel-case methods, and the [Swift SDK](/swift-sdk#saved-views) wraps them in its own types.
 
@@ -88,10 +127,10 @@ let groups = try await copy.items.groups(inView: viewID)
 
 Pass the device's time zone when asking for date groups. The Swift SDK also writes views and follows one with a live query: [Saved views](/swift-sdk#saved-views) shows both.
 
-## Handle a refused view
+### Handle a refused read
 
 **A view's items and groups are never answered in part.** If the working copy cannot answer the whole query or grouping, the read is refused with a reason. This includes an unfinished hydration, a query outside the held types or tiers, and an edge group or a `backref` condition whose edge type is not held whole. Listing the view settings during a fill can return `partial`; that does not make their item queries answerable.
 
 Show the reason and, when connected, hydrate the slice and edge types the view needs before reading again. A field that no matching item holds is not a refusal: it sorts as missing and groups under `null`.
 
-The rules are in the contract's [views read from a copy](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#views-read-from-a-copy) section and [views](https://github.com/withmarfa/marfa/blob/main/conformance/spec/views.md) chapter.
+The rules are in the contract's [views](https://github.com/withmarfa/marfa/blob/main/conformance/spec/views.md#reading-what-a-view-lists) chapter and the [views read from a copy](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#views-read-from-a-copy) section of its device chapter.

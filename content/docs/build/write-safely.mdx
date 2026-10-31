@@ -1,9 +1,9 @@
 ---
 title: Write safely
-description: Change an item without overwriting someone else's change, handle a conflict when one happens, and retry a write without making it twice.
+description: Change an item without overwriting someone else's change, handle a conflict when one happens, create an item only once, and retry a write without making it twice.
 ---
 
-When your app changes an item, another app or device may have changed it since you read it. Marfa can tell, as long as your write names the **version** it read. [Versions](/versions) explains what the version counts and why Marfa works this way. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows.
+Another app or device may change an item after you read it. Marfa can tell, as long as your write names the **version** it read. [Versions](/versions) explains what the version counts and why Marfa works this way. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows.
 
 ## Send the version you read
 
@@ -38,7 +38,7 @@ Marfa answers in one of three ways:
 
 ## Resolve a conflict yourself
 
-A conflict leaves the choice **with you**. The refusal carries what you need to make it. `current` is the item as it is now, `ancestor` is the item at the version you read, and `conflicting_fields` lists the fields both writes changed.
+A conflict leaves the choice **with you**. `current` is the item as it is now, `ancestor` is the item at the version you read, and `conflicting_fields` lists the fields both writes changed.
 
 <Steps>
 <Step>
@@ -66,14 +66,14 @@ Here another app changed the note's body after you read version 3:
 }
 ```
 
-The answer has more fields, including the type's `merge_policy`. In the TypeScript SDK, the refusal comes back as `error`, with `error.error.code` set to `version_conflict`. The CLI prints the conflicting fields and exits with status 1; read the item again with `marfa items get` to see what it holds now.
+In the TypeScript SDK, the refusal comes back as `error`, with `error.error.code` set to `version_conflict`. The CLI prints the conflicting fields and exits with status 1.
 
 </Step>
 <Step>
 
 ### Decide each value
 
-For each field in `conflicting_fields`, compare your value with the one in `ancestor` and the one in `current`, and choose what to keep. You might combine the two, keep one, or show both to the person. A conflict can name `tier`, `occurred_at`, `source_id` or `type` as well as properties.
+For each field in `conflicting_fields`, compare your value with the one in `ancestor` and the one in `current`, and choose what to keep: combine the two, keep one, or show both to the person. A conflict can name `tier`, `occurred_at`, `source_id` or `type` as well as properties.
 
 </Step>
 <Step>
@@ -95,7 +95,7 @@ Content-Type: application/json
 ```
 
 ```ts tab="TypeScript"
-await marfa.PATCH("/items/{id}", {
+const { data, error } = await marfa.PATCH("/items/{id}", {
   params: { path: { id } },
   body: { version: 4, properties: { body: "Start with the letters, then the essays." } },
 });
@@ -123,7 +123,7 @@ Content-Type: application/json
 ```
 
 ```ts tab="TypeScript"
-const { data } = await marfa.PATCH("/items/{id}", {
+const { data, error } = await marfa.PATCH("/items/{id}", {
   params: { path: { id }, query: { conflict: "auto" } },
   body: { version: 3, properties: { body: "Start with the essays, then the letters." } },
 });
@@ -143,36 +143,39 @@ The answer is `200` with the item, and beside it `conflict_resolution` says what
 }
 ```
 
-`conflicted_copy_id` is the **only place** the copy's `id` appears, so show the copy to the person or keep the `id`. A write that collides on nothing carries no `conflict_resolution`. Marfa doesn't resolve a write that collides and also moves the item to another type: it answers `409 version_conflict`, and you resolve it yourself.
+`conflicted_copy_id` is the **only place** the copy's `id` appears, so keep the `id` or show the person the copy. A write that collides on nothing carries no `conflict_resolution`. Marfa doesn't resolve a write that collides and also moves the item to another type: it answers `409 version_conflict`, and you resolve it yourself.
 
 Apps built with the Swift SDK, and the CLI's `device` commands, write through a working copy that always asks Marfa to resolve. [Devices](/devices) explains how a device writes.
 
 ## When Marfa no longer holds your version
 
-Marfa compares a stale write against the snapshot it kept of the version you read. Snapshots are **thinned as they age**, so an edit held for a long time can name a version Marfa no longer has. Marfa then answers `409 ancestor_unavailable`, whatever `conflict` the write names:
-
-```json title="Response" status="409"
-{
-  "error": {
-    "code": "ancestor_unavailable",
-    "status": 409,
-    "message": "No snapshot of version 9 is available to this write, so it cannot be merged. Re-read the item at version 4 and re-apply the change."
-  },
-  "current": {
-    "version": 4,
-    "properties": { "title": "Reading list", "body": "Start with the letters." }
-  },
-  "requested_version": 9
-}
-```
-
-`current` is trimmed here; it carries the same fields as in a conflict.
+Marfa compares a stale write against its snapshot of the version you read. Snapshots are **thinned as they age**, so a long-held edit can name a version Marfa no longer has. Marfa then answers `409 ancestor_unavailable`, whatever `conflict` the write names, with the item as it is now in `current` and the version you sent in `requested_version`.
 
 Make your change again **on top of `current`**, and send it at the version `current` holds. Sending your old values at the new version overwrites whatever arrived since.
 
+## Create an item only once
+
+A create that names a `source_id` an item already holds under its source **updates that item**, and a create that repeats an `id` answers the stored item. To create an item or change nothing, as an agent that may repeat a create should, add `mode: "create_only"`:
+
+```bash tab="CLI" tab-group="client"
+marfa items create --type core.note --source-id reading-list --create-only --prop title="Reading list"
+```
+
+```http tab="HTTP"
+POST /items
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "type": "core.note", "source_id": "reading-list", "mode": "create_only", "properties": { "title": "Reading list" } }
+```
+
+If an item holds the `source_id` or the `id`, live or in the bin, Marfa **writes nothing** and answers `409 item_exists`, with the item's ID in `details.existing_id` and `source_id` or `id` in `details.matched_by`. The `source_id` decides when both match. [Upsert items in bulk](/api-reference/items/bulkUpsertItems) takes the same `mode` and reports such an entry `skipped`. To change that item, read it and [send the version you read](#send-the-version-you-read).
+
+A key that can't read the item's type learns nothing about it: a `source_id` match answers `403 type_not_permitted`, and an `id` match `409 conflict`.
+
 ## Retry with an Idempotency-Key
 
-When you don't know whether a write landed, because the connection dropped or Marfa answered `503 write_contention` or `429 rate_limited`, send the same request again. Give each write an `Idempotency-Key` header holding a fresh unique value, such as a UUID, and **use the same key when you retry it**:
+When you don't know whether a write landed, because the connection dropped or Marfa answered `503 write_contention` or `429 rate_limited`, send it again. Give each write an `Idempotency-Key` header holding a fresh unique value, such as a UUID, and **use the same key when you retry it**:
 
 ```bash tab="CLI" tab-group="client"
 marfa items update <id> --version 3 --idempotency-key 0199a9d1-4e5f-7a6b-9c7d-8e9f0a1b2c3d \
@@ -207,7 +210,7 @@ The item operations that write one item, the edge, folder and view write operati
 
 ### Rare replay answers
 
-- A request refused `404 blob_not_found`, because a file item named bytes that weren't uploaded yet, keeps no answer. The same key works once you upload the bytes.
-- Marfa keeps only the **status** of a first answer larger than 1,048,576 bytes. A repeat answers `422 idempotency_result_not_retained`, writes nothing, and gives that status in `details.original_status`. A status from `200` to `299` there means the first write landed, so read what it changed instead of sending it again.
+- A request refused `404 blob_not_found` keeps no answer, so the same key works once you upload the bytes.
+- Marfa keeps only the **status** of a first answer larger than 1,048,576 bytes. A repeat writes nothing and answers `422 idempotency_result_not_retained`, with that status in `details.original_status`. A `2xx` status there means the first write landed.
 
-The rules behind this guide are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md) and [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#idempotency-keys) chapters of the contract, and the idempotency rules in its [errors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/errors.md#errorsidem-not-retained) chapter.
+The contract holds the rules: [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md), [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#idempotency-keys) and [errors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/errors.md#errorsidem-not-retained).

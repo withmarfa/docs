@@ -3,7 +3,7 @@ title: List, filter and search
 description: Read the items you need from an instance, a page at a time, narrowed by type, tags and properties, or found by the words they hold.
 ---
 
-Most of what an app reads, it reads as a listing: the notes tagged `reading`, the tasks due this week, everything changed since it last looked. Each operation reads only the items your key or token can read. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows. To keep a listing so every app shows the same one, [save it as a view](/build/save-a-view).
+Most of what an app reads, it reads as a listing: the notes tagged `reading`, the tasks due this week, everything changed since it last looked. Each operation reads only the items your key or token can read. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows. To keep a listing so every app shows the same one, [save it as a view](/build/save-a-view), and to list events by the days they fall on, [read a calendar](/build/read-a-calendar).
 
 ## List a page at a time
 
@@ -143,7 +143,7 @@ The bound includes items changed at that instant, so **skip the ones you already
 
 ## Search
 
-[Search items](/api-reference/search/searchItems) finds items by the words they hold, best match first:
+[Search items](/api-reference/search/searchItems) finds items by the words they hold, best match first unless you sort it:
 
 ```bash tab="CLI" tab-group="client"
 marfa search tide --type core.note
@@ -171,9 +171,26 @@ Each entry in `data` holds the `item`, its `metadata`, a `relevance_score`, and 
 
 **Every word** in `q` must match, in any order, in the item's [searched fields](/catalog/items#searched-fields) or its tags. Words match by their stem, so `tides` finds `tide`, and the last word matches as the start of a word, so a search run on each keystroke finds results as someone types.
 
-Put a query in double quotes to match a phrase. A search takes a listing's parameters too, such as `type`, `tags` and `filter`.
+Put a query in double quotes to match a phrase. A search takes a listing's narrowing parameters too, `filter`, `updated_after` and `updated_before` among them, so words and conditions work in one call.
 
 Search also reads the text of a file. After the `enrichment-sweep` job has read a file item's bytes and written its `extracted_text`, a search finds the file by any word in that text, as it finds any other `string` field, on the server and in a copy on a device. Until then, a search finds the file only by its other fields and tags. See [Handle files](/build/handle-files#find-a-file-by-its-text).
+
+### Sort a search
+
+`sort` orders a search by `relevance`, the default, or by `created_at`, `updated_at`, `occurred_at` or a property, as a listing sorts. `direction` takes `asc` or `desc`, and under `relevance`, `desc` puts the best match first. This finds the notes about tides changed since October 19, the most recently changed first:
+
+```bash tab="CLI" tab-group="client"
+marfa search tide --type core.note --updated-after 2026-10-19T00:00:00Z --sort updated-at
+```
+
+```http tab="HTTP"
+GET /search?q=tide&type=core.note&updated_after=2026-10-19T00:00:00Z&sort=updated_at
+Authorization: Bearer <key>
+```
+
+Unlike a listing, **`updated_after` doesn't set the order of a search**, so it works with any `sort`. Items that lack a sorted property come last, and hits that tie come in order of `id`. The CLI's `--sort` takes `relevance`, `created-at`, `updated-at`, `occurred-at` or `properties.<field>`.
+
+Send `next_cursor` back as `cursor` with the same query. A cursor from a search with another `sort`, `direction`, `source`, `updated_after` or `updated_before` is refused with `400 validation_error`. A search reads **at most the first 10,000 hits** of its ranking, so narrow one that would reach further.
 
 ## Count items
 
@@ -200,39 +217,6 @@ const { data } = await marfa.GET("/items/stats", {
 
 Over HTTP and in the TypeScript SDK, a count takes a listing's narrowing parameters, such as `tags=reading`. Unlike a listing, **it includes every state unless you name one**, the bin included.
 
-## Read a calendar
-
-[List event occurrences](/api-reference/items/listOccurrences) answers the events that fall in a window of time, with each recurring event unfolded into one entry for each time it happens:
-
-```bash tab="CLI" tab-group="client"
-marfa items occurrences --from 2026-10-12 --to 2026-10-26
-```
-
-```http tab="HTTP"
-GET /occurrences?from=2026-10-12&to=2026-10-26
-Authorization: Bearer <key>
-```
-
-```ts tab="TypeScript"
-const { data } = await marfa.GET("/occurrences", {
-  params: { query: { from: "2026-10-12", to: "2026-10-26" } },
-});
-```
-
-Each entry has a `starts_at`, an `ends_at` where the event has one, and the `item`. An occurrence of a recurring event also carries a `series_id`, the `id` of the `core.event` whose `recurrence` rule made it:
-
-```json
-{
-  "starts_at": "2026-10-13T07:00:00.000Z",
-  "ends_at": "2026-10-13T08:00:00.000Z",
-  "series_id": "01a12313-ad0e-71cd-99b4-7a176c5a9f18"
-}
-```
-
-Marfa reads a bound as it reads any other time you send: a time with no zone, such as `2026-10-12T09:00:00`, is UTC, a date with no time is its midnight in UTC, and an offset or `Z` is honored. A bound that isn't an ISO 8601 time, or names a date that doesn't exist such as `2026-02-30`, is refused with `400 validation_error`, and `details.field` says whether it was `from` or `to`.
-
-The whole window comes in one page, in order of `starts_at`. A window spans at most **400 days**, and Marfa refuses one with too many occurrences rather than trim it, so narrow the window. If the answer carries `expansion_incomplete: true`, **the calendar is missing something**: `series_errors` names the series that couldn't be unfolded.
-
 ## When a query is refused
 
 Marfa refuses a query it can't answer exactly, rather than answer a different one:
@@ -242,4 +226,4 @@ Marfa refuses a query it can't answer exactly, rather than answer a different on
 - **A `type` nothing registers** answers `400 unknown_type`.
 - **A `type` you can't read** answers `403 type_not_permitted`.
 
-The rules behind this guide are in the [search and filters](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md) and [occurrences](https://github.com/withmarfa/marfa/blob/main/conformance/spec/occurrences.md) chapters of the contract.
+The rules behind this guide are in the [search and filters](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md) chapter of the contract.
