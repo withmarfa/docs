@@ -12,12 +12,11 @@ describe('version outcome figure', () => {
     expect(outcome('auto')).toBe('copy');
   });
 
-  // `versions/merge-version`: a merged or resolved write is the version after the
-  // one the item held; a refused write changes nothing (`versions/refused-keeps-history`).
-  it('moves the note to version 5 unless the write is refused, and names the refusal', () => {
-    expect(answer('title')).toMatchObject({ status: '200', version: 5 });
-    expect(answer('body')).toMatchObject({ status: '409 version_conflict', version: 4 });
-    expect(answer('auto')).toMatchObject({ status: '200', version: 5 });
+  // `versions/stale-collision`: a collision is refused `409 version_conflict`.
+  it('answers 200 unless the write is refused, and names the refusal', () => {
+    expect(answer('title').status).toBe('200');
+    expect(answer('body').status).toBe('409 version_conflict');
+    expect(answer('auto').status).toBe('200');
   });
 
   // `versions/collision-omitted`: a field the write does not carry never collides.

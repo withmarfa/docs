@@ -42,15 +42,12 @@ const theirs = "The other app's";
 
 /**
  * What Marfa answers and what the note and a conflicted copy hold after. A
- * merged or resolved write moves the note one version past the 4 it held
- * (`versions/merge-version`); a refused one changes nothing
- * (`versions/refused-keeps-history`).
+ * refused write changes nothing (`versions/refused-keeps-history`).
  */
 export function answer(current: Case) {
   const result = outcome(current);
   return {
     status: result === 'conflict' ? '409 version_conflict' : '200',
-    version: result === 'conflict' ? 4 : 5,
     title: result === 'merged' ? theirs : 'Unchanged',
     body: result === 'merged' ? 'Yours' : theirs,
     copy: result === 'copy' ? 'Yours' : 'None',
@@ -94,7 +91,7 @@ export function VersionOutcome({ caption }: { caption?: ReactNode }) {
                 <dd>{after.body}</dd>
               </div>
               <div data-lit={result === 'copy' || undefined}>
-                <dt>Copy</dt>
+                <dt>Conflicted copy</dt>
                 <dd>{after.copy}</dd>
               </div>
             </dl>
