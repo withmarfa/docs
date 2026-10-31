@@ -36,7 +36,7 @@ export const SERVER_VERSION = '1.0.0';
  * the model that will choose among the tools.
  */
 export const SERVER_INSTRUCTIONS = [
-  'This server reads the Marfa documentation at docs.marfa.so and nothing else. It cannot reach a Marfa instance or anyone\'s data.',
+  'This server reads the Marfa documentation at docs.marfa.so and nothing else. It cannot reach a Marfa instance or anyone\'s data. To work with a person\'s data, an agent connects to their own instance\'s MCP server, which the page /marfa-mcp-server describes.',
   'Use docs_search to find pages. It returns matching passages and page paths, never a written answer. Use docs_fetch with a path from a result to read the whole page as Markdown, or add section, a heading from that page, to read only that part of a long page. Use docs_list_topics to list every page.',
   'Write your answer from what the pages say.',
 ].join('\n\n');
@@ -119,7 +119,7 @@ export function createDocsServer(): McpServer {
     DOCS_TOOL_NAMES[1],
     {
       description:
-        'Fetch the markdown body of a single docs page by its URL path (e.g. "/properties-metadata-and-edges"). Returns the same markdown the `<path>.md` copy returns: a heading with the page title and path, then the full prose with code blocks preserved. Pass `section`, a heading from the page, to get only that heading and what is under it; an unknown heading is an error that lists the page\'s headings.',
+        'Fetch the markdown body of a single docs page by its URL path (e.g. "/build/write-safely"). Returns the same markdown the `<path>.md` copy returns: a heading with the page title and path, then the full prose with code blocks preserved. Pass `section`, a heading from the page, to get only that heading and what is under it; an unknown heading is an error that lists the page\'s headings.',
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.object({
         path: z

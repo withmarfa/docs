@@ -27,14 +27,15 @@ describe('buildDocsMap', () => {
 
   it('groups each tab as the sidebar does', () => {
     const overview = lines.slice(lines.indexOf('## Overview'), lines.indexOf('## Build'));
-    expect(overview.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Concepts', '### AI tools']);
-    expect(overview.some((line) => line.startsWith('- [Docs MCP server](/docs-mcp-server)'))).toBe(true);
+    expect(overview.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Concepts']);
+    expect(overview.some((line) => line.startsWith('- [Agents, the CLI and MCP](/agents-cli-and-mcp)'))).toBe(true);
     expect(overview.some((line) => line.startsWith('- [Overview](/overview)'))).toBe(true);
     expect(overview.some((line) => line.startsWith('- [Glossary](/glossary)'))).toBe(true);
 
     const build = lines.slice(lines.indexOf('## Build'), lines.indexOf('## Run'));
     expect(build.filter((line) => line.startsWith('### '))).toEqual(['### Tutorials', '### Build apps and agents', '### Build connectors']);
     expect(build.some((line) => line.startsWith('- [Use Marfa with AI agents](/build/ai-agents)'))).toBe(true);
+    expect(build.some((line) => line.startsWith('- [Connect Claude and ChatGPT](/build/connect-claude-and-chatgpt)'))).toBe(true);
 
     const run = lines.slice(lines.indexOf('## Run'), lines.indexOf('## Catalog'));
     expect(run.filter((line) => line.startsWith('### '))).toEqual(['### Set up', '### Keys and access', '### Folders', '### Connectors', '### Look after it']);
@@ -67,9 +68,11 @@ describe('buildDocsMap', () => {
     const reference = lines.slice(lines.indexOf('## Reference'));
     const groups = reference.filter((line) => line.startsWith('### '));
     expect(reference[2]).toMatch(/^- \[Reference\]\(\/reference\)/);
-    expect(groups.slice(0, 2)).toEqual(['### SDKs and CLI', '### HTTP API']);
+    expect(groups.slice(0, 2)).toEqual(['### SDKs, CLI and MCP', '### HTTP API']);
     expect(groups.at(-1)).toBe('### Resources');
     expect(reference.some((line) => line.startsWith('- [TypeScript SDK](/typescript-sdk)'))).toBe(true);
+    expect(reference.some((line) => line.startsWith('- [Marfa MCP server](/marfa-mcp-server)'))).toBe(true);
+    expect(reference.some((line) => line.startsWith('- [Read these docs from an agent](/docs-for-agents)'))).toBe(true);
     expect(reference.some((line) => line.startsWith('- [The contract](https://github.com/'))).toBe(true);
   });
 
