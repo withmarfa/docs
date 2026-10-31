@@ -5,106 +5,78 @@ description: How an app keeps a copy of your data on a phone or a Mac, works wit
 
 An app on your phone shouldn't stop working on a train. A **device** is a program that keeps a **working copy** of part of an instance on the machine it runs on. It reads from that copy, and puts its writes in a **queue** that it sends when it can reach the server.
 
-An app built on the [Swift SDK](/swift-sdk) is a device, and so is the [CLI](/cli) when it runs its `marfa device` commands. A device syncs only with the instance, never with another device, because the instance is the [source of truth](/how-marfa-works#the-instance).
+An app built on the [Swift SDK](/swift-sdk) is a device, and so is the [CLI](/cli)'s `marfa device`. A device syncs only with the instance, never another device, because the instance is the [source of truth](/how-marfa-works#the-instance).
 
 ## The working copy
 
-A device chooses the **slice** of the instance it keeps: a list of types, a tier, and the edge types it holds. For example, every `core.note` and `core.task` in the library. It fills its copy once by reading every item in the slice, then keeps it current from the instance's [event stream](/events). To hold every type except `system.*`, declare `*` alone: the device reads the whole slice in one pass, with no need to read the catalog and name its types first. `*` beside `system.*` types adds them, and `*` beside any other type is refused `invalid` before anything is read.
+A device chooses the **slice** it keeps: a list of types, a tier and the edge types it holds, such as every `core.note` and `core.task` in the library. `*` alone holds every type except `system.*`. A device can also **pin** an item to keep it whatever the slice says.
 
-Reads come from the copy, with no connection needed. A file's bytes are there once the device has fetched them. The core also [reads saved views](/build/read-a-view), including sort order, groups and counts. **A view's item or group read needs the whole query held** and is refused with a reason if the copy cannot answer it completely.
+The device fills its copy once, by a **hydration** that reads every item in the slice, then keeps it current from the instance's [event stream](/events). Reads, [saved views](/build/read-a-view) included, need no connection.
 
-**While a device fills its copy, it answers direct item reads from what has arrived.** A list or search without a saved view returns the items the copy holds so far and marks the answer `partial`; once the copy is whole, the same read is marked `complete`. A read of one item by ID answers for an item that has arrived, and is refused `hydration_incomplete` for one that hasn't; a read of many by ID answers those that have arrived and marks the answer `partial`. Until the copy is whole, edge reads are refused `hydration_incomplete`, because an edge's two ends can arrive on different pages, and so is a read of what changed since a cursor. A write to an item that has arrived, or a new item, is queued against the version the copy holds and sent once the copy is whole. This includes a file added on its own or attached to an item that has arrived: the device keeps its bytes and uploads them with the rest of the queue. A write to an item that hasn't arrived, or a file attached to one, is refused `hydration_incomplete`, because there is no version to base it on, and a drain is refused `hydration_incomplete` until the copy is whole. **Edge writes are refused `hydration_incomplete` until the copy is whole**, because a page still to arrive can bring the instance's edge in place of the one a write was made against. An edit that changes an item's body is still queued, and the device reads the body's links and embeds and makes their edges once the server answers the edit. The device's status reports how many items the fill has brought so far and, where the instance counted them, how many the slice held when the fill began, so an app can show how far the fill has come. Compare those two figures, not the count of items the copy holds, which also includes pinned items and creates that are still queued. The Swift SDK returns these answers as `Rows` with a `completeness`.
+**While the copy fills, the device answers from what has arrived**, marking a list or search `partial`. A saved view's items, any edge read or write, and a read or write of an item that hasn't arrived are refused `hydration_incomplete`. Other writes wait in the queue until the copy is whole.
 
-**A fill that stops partway resumes from the page it reached.** The device saves its place with each page, so a fill that was stopped, lost its connection or ended with the app keeps the items it has, and the next fill reads only the pages left. It then applies what changed on the instance while it was stopped, so the copy is as whole as one filled in a single run. The next fill **starts again from the first page** when resuming couldn't give a whole copy: the slice is different, another instance answers at the address, the credential reads other items, the instance's types changed, the event log no longer reaches back to where the fill began or ends before it, as after a restore, or the server refuses the page the device saved. The fill's report says whether it resumed, and if it started again, why. A fill that completed is never resumed: the next one reads every page.
+**A fill that stops partway resumes where it stopped**, unless something such as the slice has changed.
 
-A device keeps the files it fetched within a **file budget**, so they don't fill the disk. By default the budget is a tenth of the volume, never under 2 GiB, and small enough to leave a twentieth of the volume free, but **never below 256 MiB**. If the device can't read the volume's size, the default is 2 GiB, and its status says so. If it can't read its own cache folder, its status gives the bytes held as unknown, with the reason, and it removes nothing until it can. When the files kept pass the budget, the device removes the ones read longest ago, and fetches them again when they are asked for. It never removes the bytes of a queued upload, or bytes a caller in the same app is still waiting for. Once a path is answered, a later trim can remove its file, so open it straight away. A person can set a byte count instead, or choose to keep every file, with `marfa device blobs budget`, which reports the bytes removed, and an app built on the core's Node binding or the Swift SDK can do the same.
+### Files on the device
 
-**Files attached to an item the copy holds stay on the device.** A file item with an `attached-to` edge to an item in the copy is an attachment. The device never removes its bytes to fit the budget, and they don't count against it, so the default budget counts only the other files' bytes as ones a trim can free. After the copy fills, and after each catch-up, an app asks the device to fetch the attachments it doesn't hold yet, smallest first: `marfa device blobs fetch-kept`, or `fetchKept` in the core's Node binding or the Swift SDK. The fetch resumes any attachment a fetch left part way. When the server asks it to wait a minute or less, it waits and asks again; it stops at the first file the volume has no room for, when the server can't be reached, or when the server asks for a longer wait. It goes on past a file the server doesn't hold, and past any other file it can't fetch or read, so one bad file never keeps the rest off the device.
+A device keeps the files it fetched within a **file budget**, removing the ones read longest ago and fetching them again when asked. The default is the larger of 2 GiB and a tenth of the volume, leaving a twentieth free, and never below 256 MiB.
 
-The device's status counts the attachments it holds and their bytes, and the ones it doesn't hold, by reason: not fetched yet, no room, the server unreachable, the server's rate limit, absent on the server, failed, or not in the copy. A reason comes from any fetch of the file, a read included, and stays until the bytes arrive, so an app can say which files are on the device and why the others aren't. Once a file's last edge to an item in the copy goes, or that item goes to the bin or leaves the copy, the file is cached like any other. **From the start of a fill until one completes, the device keeps the bytes of every file that was an attachment when the fill began or has become one since**, because the pages that make a file an attachment may not have arrived again. It still removes other files to fit the budget, and its status gives the attachments as unknown. Once a fill completes, a file that is no longer an attachment is cached like any other.
+**Attachments of items in the copy stay**, outside the budget. On Apple platforms, fetched files stay out of backups. `marfa device blobs` and the Swift SDK's [file calls](/swift-sdk#keep-files-on-the-device) set the budget and fetch attachments ahead of time.
 
-**A file larger than the budget is still fetched.** The size the item states, or the length the link gives where the item states none, bounds the fetch, not the budget. The device keeps the file while a caller reads it, and a file kept for that reason doesn't count against the budget, so the trim after the fetch leaves the other files alone. The next trim removes it before any other file. A fetch refuses a link that sends more than that bound, and refuses a link that gives no length for an item that states no size, both with `bytes_absent`. Before it starts, the device checks the free bytes on the volume. If the file doesn't fit, the device first removes the partial files of other fetches that nothing is writing, other than attachments', and if it still doesn't fit, the fetch is refused with `no_room`, which names the file's size and the bytes free. Nothing is left behind, except the bytes an earlier fetch of an attachment received, which the next fetch with room resumes. If the volume fills while the file arrives, the fetch is refused with `storage_full` and the bytes received are removed.
+## When the copy falls behind
 
-**A fetch that stops part way resumes.** When the link breaks or goes quiet, the device keeps the bytes received. The next fetch of the file asks for a fresh link and requests the rest with a `Range` header, and the device checks the hash of the whole file at the end. If the link doesn't serve ranges, the fetch starts again from the beginning. Bytes held for a fetch that nobody resumes count in the bytes held and, unless they're an attachment's, toward the file budget, so a trim removes them like any other file once no fetch is writing them. The device also removes them the first time it opens after seven days, but never an attachment's, which stay for the next fetch to resume.
+A copy sometimes needs filling again, and its **queued writes wait** for the fill.
 
-On Apple platforms, the device keeps **each file it fetched out of backups**, including the partial file of a fetch that stopped, because the server holds those bytes. The bytes of a queued upload stay in backups, because until the server takes them they are the only copy. If the system refuses to mark a fetched file or a partial file, the device's status says why until a later fetch is marked.
+- **After a device was away longer than the instance keeps events**, its copy is `stale`. It answers reads by ID, lists and searches, marking the last two `stale`, until a hydration refills it in place.
+- **When another instance answers at the address, or the credential's reach changed**, the copy has expired. It refuses reads and writes until a hydration, which empties it first. A hydration also empties a copy ahead of an instance restored from backup.
 
-Sometimes a copy can't be brought up to date, and has to be filled again by a hydration. Its **queued writes survive** either way.
-
-**After the device was away longer than the instance keeps events, it fills the copy again in place.** This holds while the instance, the credential's reach and the slice are the ones the copy was built under. Until the hydration finishes, the device's status reports the copy's hydration as `stale`, and a list or search answers from the items the copy holds and marks the answer `stale`, because some may have changed or gone on the instance. A read by ID answers for an item the copy holds. Edge reads are refused `hydration_incomplete`, and so is a read of what changed since a cursor. Writes are taken as during a first fill. A drain or a catch-up is refused `copy_expired` with the reason `catchup_too_old` until the hydration finishes. A follow started before the hydration is refused the same way, and one started while the hydration runs, or after it stopped part way, waits for it to finish. The hydration updates the items that changed and adds the new ones. Once it has read every page, it removes the items the instance no longer lists, except pinned items, items a queued write names, and the items at either end of an edge a queued write creates, moves or edits. A hydration that stops part way leaves the copy `stale`, removes nothing, and carries on in place when run again.
-
-The hydration **empties the copy first** if the instance's event log now ends before the point the copy had reached, or before the point where a stopped hydration started, as it does on an instance restored from a backup, because the copy may hold versions the restored instance never had. It also does so if the hydration finds another instance at the address or a credential whose reach changed. The copy stops being `stale` at once, even if that hydration then fails, and it does the same when the instance refuses the hydration because the credential has ended or its reach changed, so it never answers rows the credential can no longer read. A hydration that fails for another reason, such as the instance being unavailable, leaves the copy `stale`.
-
-**For any other reason, the copy refuses reads and writes until a hydration, which empties it first.** Examples are another instance answering at the same address, or a credential whose reach changed. A device's own change of an item's type or move of an edge's source, once the server takes it, also changes the reach: the device sends the writes queued behind it, then expires the copy once.
-
-**An app that refills a stale copy by itself can ask for a fill only in place.** Such a hydration never empties the copy. Where the fill can't be in place, it's refused `copy_expired` before it changes anything, and the copy, its queued writes and its files stay as they were. The reason says why:
-
-| Reason | Why the fill can't be in place |
-| --- | --- |
-| `instance_changed` | Another instance now answers at the copy's address. |
-| `reach_changed` | What the credential may read has changed. |
-| `slice_changed` | The types, tier or edge types asked for aren't the ones the copy holds. |
-| `head_past_log` | The instance's event log ends before the point the copy had reached, as after a restore from a backup. |
-| `not_stale` | The copy isn't waiting to be filled again, for example because it's whole. |
-
-The app can then ask the person whether to build the copy again, which empties it, or keep it as it is. The CLI's `marfa device hydrate --in-place-only` does the same.
-
-A fill only in place guards against the device emptying the copy, not against the instance refusing the credential. **If the instance refuses the hydration because the credential has ended or its reach changed, the stale copy still ends**, as it does for any hydration, and the queued writes are kept. That refusal can also carry `reach_changed`, so before the app offers to keep the copy, it checks the copy's hydration state: a refused fill leaves a stale copy `stale`, and an ended copy is `expired`, which only a hydration that doesn't ask for a fill in place can build again.
-
-**Writes queued against one instance aren't sent to another.** When a hydration builds the copy from an instance other than the one it was built from, each write still waiting is `blocked` with the reason `instance_changed`, because the instance now at the address may never have held the items the write was made against. A release sends it to that instance; a withdrawal takes it out of the queue.
-
-A copy made by an earlier build of the core can have a different shape. The device **refuses to open it** with `wrong_schema`, deletes nothing, and says how many writes the file holds that the server hasn't taken, because only the build that made it can send them. If some are of a kind the current build no longer sends, it names the kind. [Troubleshooting](/run/troubleshooting#staying-in-step) says what to do. An app built on the core's Node or Swift binding can replace a refused copy that holds nothing unsent with an empty one; the files the copy downloaded and the file budget's setting stay. A [folder](/run/sync-a-folder#move-to-a-newer-cli) can replace its own copy itself.
-
-**An app can remove its working copy, with the unsent writes the person agreed to lose.** An app passes the number of writes the server hasn't taken that it showed the person, through `WorkingCopy.remove(store:unsent:)` in the Swift SDK or the core's Node binding (`MarfaCore.removeStore`). The device removes the copy only when the copy holds exactly that number, whatever build made it: the file, its logs, the files it downloaded and its lock, and nothing else beside them. A symbolic link at one of those names is removed, never what it leads to. If the copy holds another number, or one the device can't read, the device refuses with `unsent_differs`, says the copy's own number, or that it can't read one, and leaves the copy, its logs, its downloaded files and its lock as they were. It refuses with `reading_handle` while anything else writes the copy, the app's own open copy included, so the app closes its copy first. A helper process that only reads the copy doesn't stop the removal, and keeps showing the old copy until it reopens. A folder's copy goes only with the folder, so the device refuses it with `invalid`. A path with no copy holds no unsent write, so removing it again finishes a removal that stopped part way.
+An app can ask for a fill **only in place**, as `marfa device hydrate --in-place-only` does. If it can't, the fill is refused `copy_expired` with a [reason](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#devicerefill-in-place-only) and changes nothing, so the app can ask the person.
 
 ## A write made offline
 
-Every write a device makes shows in its copy at once, and waits in the queue until the instance answers it. Sending the queue is a **drain**. The timeline follows one note through it.
+A write waits in the queue until the instance answers it. Sending the queue is a **drain**.
 
 <Sequence title="A note edited on a train">
 
-1. You edit a note in an app, offline. The app writes to its working copy, and the note shows your change at once.
+1. You edit a note offline, and see the change at once.
 2. The write waits in the queue, with the version of the note it was based on.
-3. The app tries to drain the queue and can't reach the server. Nothing is lost: the write stays queued.
-4. Back online, the app sends its queued writes in the order they were made. If an answer is lost on the way, the retry is recognized, so the instance never applies a write twice.
-5. The instance answers each write, the device gives it a verdict, and the device brings its copy into line with what the instance now holds.
+3. A drain can't reach the server, so the write stays.
+4. Back online, a drain sends the queued writes in order. The instance recognizes a retry, so it never applies a write twice.
+5. The device gives each answered write a verdict, and the copy takes what the instance now holds.
 
 </Sequence>
 
-A device sends every update with `conflict=auto`, so the instance settles most collisions itself, as [Versions](/versions#when-two-apps-write-the-same-item) explains.
+A device sends every update with `conflict=auto`, so the instance settles most collisions, as [Versions](/versions#when-two-apps-write-the-same-item) explains.
 
 ## Verdicts
 
-Each write the device settles gets one verdict:
+Each write a drain settles gets one verdict:
 
 | Verdict | What happened |
 | --- | --- |
 | `accepted` | The instance applied the write. |
-| `merged` | Another change had touched the same field, and the instance settled the two by the type's rule, such as keeping the later title. |
-| `conflicted` | The two changes collided, and the instance kept both: the item keeps its value, and the write's value goes to a conflicted copy. |
-| `refused` | The instance refused the write, for example because it broke the item's type. The device keeps its content so an app can offer it back. |
-| `blocked` | Something has to change before the write can go, such as an expired credential. |
-| `dead` | The write failed five times in ways that count against it, such as an answer the device couldn't read. A lost connection, a timeout or a server error never counts. |
+| `merged` | The write collided with another change to the same field, and the type's merge rule settled it. |
+| `conflicted` | The write collided, and the type's merge rule put its value in a conflicted copy. |
+| `refused` | The instance refused the write, whose content is kept to offer back. |
+| `blocked` | Something must change before the write can go. |
+| `dead` | The write failed five times, not counting lost connections, timeouts, rate limits or server errors. |
 
-Only `refused`, `blocked` and `dead` need an **app's attention**. A write with no answer yet has no verdict.
+Only `refused`, `blocked` and `dead` need an **app's attention**. A `blocked` write says why:
 
-A `blocked` write carries one of seven reasons. Six hold it until something changes:
+| Reason | What clears it |
+| --- | --- |
+| `credential_refused` | A credential with the access it needs |
+| `key_spent` | A release |
+| `ancestor_unavailable` | A withdrawal, or a release once the credential can read the write's base version |
+| `conflict_unresolved` | A withdrawal |
+| `failing_alone` | A release or a withdrawal |
+| `instance_changed` | A release, to the new instance, or a withdrawal |
+| `awaiting_dependency` | Nothing: the answer to the write it waits for |
 
-| Reason | What holds the write | What clears it |
-| --- | --- | --- |
-| `credential_refused` | The instance refused the credential, or the credential lacks access the write needs. | A new credential or the missing access. The next drain sends the write again by itself. |
-| `key_spent` | The instance already answered the write's idempotency key for a different request. | A release. |
-| `ancestor_unavailable` | The instance no longer holds the version the write was based on. | A withdrawal, or a release once the credential has come to read that version. Sent again before then, the write is refused the same way. |
-| `conflict_unresolved` | A newer change collided with the write, and the instance didn't settle the two. | A withdrawal. Sent again, the write is refused the same way. |
-| `failing_alone` | The write keeps failing as if the server were down, while the writes behind it go through. | A release or a withdrawal. |
-| `instance_changed` | The write was made against an instance other than the one the copy is now built from. | A release, which sends it to the instance now at the address, or a withdrawal. |
-
-A **release** sends the write again in the next drain, under a fresh idempotency key. A **withdrawal** takes the write out of the queue and puts the copy back to what the instance holds. Withdrawing a create, or a write blocked `failing_alone`, also refuses the writes that wait on it. The Swift SDK's [queue](/swift-sdk#send-writes-and-read-verdicts) and the CLI's `marfa device release` and `marfa device withdraw` do both.
-
-The seventh reason, `awaiting_dependency`, marks a write waiting behind another that has no answer yet, such as an edit of a note whose create hasn't been answered. Nothing needs to be done: the Swift SDK shows it as waiting, and the answer to the write it waits for releases it.
+A **release** sends the write again in the next drain, under a fresh idempotency key. A **withdrawal** takes it out of the queue and puts the copy back to what the instance holds. `marfa device release`, `marfa device withdraw` and the Swift SDK's [queue](/swift-sdk#send-writes-and-read-verdicts) do these.
 
 ## Folders
 
-A device's working copy can also be **a folder**, a directory of files on your computer in which each item is a file, such as a note as a Markdown file. [Sync a folder](/run/sync-a-folder) explains how a folder works and sets one up.
+A working copy can also be **a folder**: each item is a file, such as a note in Markdown. [Sync a folder](/run/sync-a-folder) explains how.
 
 The rules behind this page are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) and [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapters of the contract.
