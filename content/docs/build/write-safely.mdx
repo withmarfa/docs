@@ -1,6 +1,6 @@
 ---
 title: Write safely
-description: Change an item without overwriting someone else's change, handle a conflict when one happens, and retry a write without making it twice.
+description: Change an item without overwriting someone else's change, handle a conflict when one happens, create an item only once, and retry a write without making it twice.
 ---
 
 When your app changes an item, another app or device may have changed it since you read it. Marfa can tell, as long as your write names the **version** it read. [Versions](/versions) explains what the version counts and why Marfa works this way. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows.
@@ -94,13 +94,6 @@ Content-Type: application/json
 { "version": 4, "properties": { "body": "Start with the letters, then the essays." } }
 ```
 
-```ts tab="TypeScript"
-await marfa.PATCH("/items/{id}", {
-  params: { path: { id } },
-  body: { version: 4, properties: { body: "Start with the letters, then the essays." } },
-});
-```
-
 If someone writes again first, Marfa answers the same way. After a few tries, **show the person the conflict**.
 
 </Step>
@@ -120,13 +113,6 @@ Authorization: Bearer <key>
 Content-Type: application/json
 
 { "version": 3, "properties": { "body": "Start with the essays, then the letters." } }
-```
-
-```ts tab="TypeScript"
-const { data } = await marfa.PATCH("/items/{id}", {
-  params: { path: { id }, query: { conflict: "auto" } },
-  body: { version: 3, properties: { body: "Start with the essays, then the letters." } },
-});
 ```
 
 A type's [merge policy](/catalog/your-own-types#merge-policy) gives each field one of two strategies. `last_writer_wins` takes your value. `keep_both_copies` keeps the value the item holds now and writes yours to a conflicted copy. The copy is a new item of the same type, tagged `conflicted-copy`, with a `derived-from` edge to the original.
@@ -149,26 +135,29 @@ Apps built with the Swift SDK, and the CLI's `device` commands, write through a 
 
 ## When Marfa no longer holds your version
 
-Marfa compares a stale write against the snapshot it kept of the version you read. Snapshots are **thinned as they age**, so an edit held for a long time can name a version Marfa no longer has. Marfa then answers `409 ancestor_unavailable`, whatever `conflict` the write names:
-
-```json title="Response" status="409"
-{
-  "error": {
-    "code": "ancestor_unavailable",
-    "status": 409,
-    "message": "No snapshot of version 9 is available to this write, so it cannot be merged. Re-read the item at version 4 and re-apply the change."
-  },
-  "current": {
-    "version": 4,
-    "properties": { "title": "Reading list", "body": "Start with the letters." }
-  },
-  "requested_version": 9
-}
-```
-
-`current` is trimmed here; it carries the same fields as in a conflict.
+Marfa compares a stale write against the snapshot it kept of the version you read. Snapshots are **thinned as they age**, so an edit held for a long time can name a version Marfa no longer has. Marfa then answers `409 ancestor_unavailable`, whatever `conflict` the write names, with the item as it is now in `current` and the version you sent in `requested_version`.
 
 Make your change again **on top of `current`**, and send it at the version `current` holds. Sending your old values at the new version overwrites whatever arrived since.
+
+## Create an item only once
+
+A create that names a `source_id` an item already holds under its source **updates that item**, and a create that repeats an `id` answers the stored item. To create an item or change nothing, as an agent that may send the same create twice should, add `mode: "create_only"`:
+
+```bash tab="CLI" tab-group="client"
+marfa items create --type core.note --source-id reading-list --create-only --prop title="Reading list"
+```
+
+```http tab="HTTP"
+POST /items
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "type": "core.note", "source_id": "reading-list", "mode": "create_only", "properties": { "title": "Reading list" } }
+```
+
+If an item holds the `source_id` or the `id`, live or in the bin, Marfa **writes nothing** and answers `409 item_exists`, with the item's ID in `details.existing_id` and `source_id` or `id` in `details.matched_by`. The `source_id` decides when both match. To change that item, read it and [send the version you read](#send-the-version-you-read).
+
+A key that can't read the item's type learns nothing about it: a `source_id` match answers `403 type_not_permitted`, and an `id` match `409 conflict`. [Upsert items in bulk](/api-reference/items/bulkUpsertItems) takes the same `mode` and reports such an entry `skipped`.
 
 ## Retry with an Idempotency-Key
 
@@ -207,7 +196,7 @@ The item operations that write one item, the edge, folder and view write operati
 
 ### Rare replay answers
 
-- A request refused `404 blob_not_found`, because a file item named bytes that weren't uploaded yet, keeps no answer. The same key works once you upload the bytes.
-- Marfa keeps only the **status** of a first answer larger than 1,048,576 bytes. A repeat answers `422 idempotency_result_not_retained`, writes nothing, and gives that status in `details.original_status`. A status from `200` to `299` there means the first write landed, so read what it changed instead of sending it again.
+- A request refused `404 blob_not_found`, because a file item named bytes not yet uploaded, keeps no answer, so the same key works once you upload them.
+- Marfa keeps only the **status** of a first answer larger than 1,048,576 bytes. A repeat writes nothing and answers `422 idempotency_result_not_retained`, with that status in `details.original_status`. A `2xx` status there means the first write landed.
 
 The rules behind this guide are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md) and [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#idempotency-keys) chapters of the contract, and the idempotency rules in its [errors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/errors.md#errorsidem-not-retained) chapter.
