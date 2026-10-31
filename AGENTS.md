@@ -17,14 +17,16 @@ The source of the public documentation site at `docs.marfa.so` and the status pa
 - TypeScript and ESM. pnpm with the committed lockfile, on Node 22.22.2 or later (24.15 or later on Node 24), which jsdom, the component tests' DOM, requires; TanStack Start, Vite and Vitest need only 22.12. CI uses Node 22.
 - This repository is public. Commit no internal hostname, private IP address, personal path, key or token, in a page or anywhere else.
 - A comment says only what the code cannot: the reason, the constraint or the trade-off. It never names a tracker, ticket number or project phase.
+- A code change in another repository opens a docs issue here, not a docs pull request. Pages are rewritten whole from those issues after each Marfa release ("Docs pass at each release").
+- Pages have word limits that fail `pnpm test`: 900 words for a concept, 1,500 for a guide, a tutorial or a Catalog connector page, and a limit of its own for each lookup page. `src/lib/page-limits.json` holds the exceptions, each with a reason, and a ceiling for each page that is over its limit until it is rewritten (`STYLE.md`, "Less is clearer"). Remove a ceiling when a rewrite brings its page under the limit.
 
 ## Layout
 
 - `content/docs/`: the pages, one folder per tab, ordered by `meta.json` files.
 - `src/routes/`, `src/lib/` and `src/components/`: the docs site, including the Worker entry `src/server.ts`, the Markdown copies, `llms.txt`, the docs MCP server at `/mcp` and the JSON addresses under `/api/docs/`.
 - `src/status/`: the status page, a second Vite target built by `vite.status.config.ts` into `dist-status/` and deployed from `wrangler.status.jsonc`.
-- `src/generated/` and `openapi.json`: written only by the sync script. Never edit them by hand.
-- `scripts/`: the sync from marfa, the staleness report and the page-growth report. The two reports use only Node built-ins, because CI runs them without installing anything. Their tests are in `src/lib/`, the only place Vitest looks.
+- `src/generated/` and `openapi.json`: written only by the sync scripts. Never edit them by hand.
+- `scripts/`: the sync from marfa, the changelog sync and the staleness report. The changelog sync and the report use only Node built-ins, because CI runs the report without installing anything. Their tests are in `src/lib/`, the only place Vitest looks.
 - `.github/scripts/`: the CI change classifier and the publish checks, each with a `.test.sh` beside it, and the sync script's test.
 - `public/`: static files for both targets.
 
@@ -51,18 +53,29 @@ MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh   # defaults to ../marfa
 ```
 
 - Use a marfa checkout on an up-to-date `main` with its tags fetched. The script copies committed files and runs nothing, and it checks every input before it writes anything. Its header lists what it writes.
-- After an API, glossary, CLI, contract table or release change lands in marfa, run the sync and open a sync pull request. A code change gets no other docs pull request (`STYLE.md`, "Keeping pages current").
+- After an API, glossary, CLI, contract table or release change lands in marfa, run the sync and open a sync pull request. A code change opens a docs issue, not a docs pull request (`STYLE.md`, "Keeping pages current").
 - Fix a gap in `openapi.json` or a generated table in marfa's generator, never here.
 - The script takes only what marfa generates and commits: a file of its own, Markdown between markers, or a committed data file such as `builtin_catalog.json` and the schemas in `openapi.json`, which it renders into tables and lists under labels with no sentence of its own. What a value means is written on the page that includes the file. A list marfa does not generate gets a source there first.
 - The script also writes the command tree, `src/generated/cli-commands.json`, from the same `COMMANDS.md`: every command with its options. `src/lib/command-check.test.ts` checks the pages' commands and options against it (`STYLE.md`, "Examples"), so a CLI change that renames or removes a command fails the next sync pull request on every page that still names it.
 - After changing the script, run `.github/scripts/sync-from-marfa.test.sh`. It pins what the script writes and every input it refuses.
 
+### The changelog
+
+```bash
+node --experimental-strip-types scripts/sync-changelog.ts   # GITHUB_TOKEN is used when set
+```
+
+- The Changelog page is built from the GitHub release notes of withmarfa/marfa, never written by hand. The script reads the published releases and writes `src/generated/changelog.json`, newest first, from `FIRST_VERSION` in the script (earlier releases were written in an older shape and stay on GitHub). It skips drafts and pre-releases.
+- Run it after each Marfa release's notes are written, and open a pull request with the file. The release notes have a fixed shape, which `src/lib/changelog.ts` reads: a summary, an optional `**Breaking:**` paragraph, a `###` section for each part (Server, CLI, Core, TypeScript SDK, Swift SDK) and a `**Full changelog:**` link. Fix a wrong note on the release in GitHub and run the script again.
+- `source.config.ts` writes the same releases into the page's Markdown copy.
+
 ## Docs pass at each release
 
-The reports name pages to read again. They never ask for a change, and "no change needed" is a normal answer.
+After each Marfa release, one docs agent works the open docs issues and rewrites each page they name whole, to `STYLE.md`. Nobody else edits a page for a code change. The staleness report is the backstop: it finds the pages that cite something a release changed and that no issue named. It names pages to read again, never asks for a change, and "no change needed" is a normal answer.
 
-1. If no docs commit has synced the new release tag, run the sync and merge its pull request first.
-2. Find the commits that synced the previous release and the new one, and run the staleness report between them:
+1. If no docs commit has synced the new release tag, run the sync and merge its pull request first. Run the changelog sync once the release's notes are written.
+2. Work the open docs issues. Close each when its page is right.
+3. Find the commits that synced the previous release and the new one, and run the staleness report between them:
 
    ```bash
    git log --format='%h %ad %s' --date=short -- src/generated/marfa-release.json
@@ -70,9 +83,9 @@ The reports name pages to read again. They never ask for a change, and "no chang
    node --experimental-strip-types scripts/staleness-report.ts <previous-release-commit> <new-release-commit>
    ```
 
-3. Read each page it lists against the contract and the API description. Rewrite a page whole to `STYLE.md` if it is out of date, and leave it alone if it is right. Do the pages under "chapter changed" last.
+4. Read each page it lists that no issue covered against the contract and the API description. Rewrite a page whole if it is out of date, and leave it alone if it is right. Do the pages under "chapter changed" last.
 
-On a pull request, the `Docs reports` job writes the same report to the job summary when `openapi.json` or `src/generated/contract-index.json` changed, and warns on a page that grew by more than 30% and 2,000 characters. Neither report can fail the job.
+On a pull request, the `Docs reports` job writes the same report to the job summary when `openapi.json` or `src/generated/contract-index.json` changed. It cannot fail the job.
 
 ## CI and publishing
 
