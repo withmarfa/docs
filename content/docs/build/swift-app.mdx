@@ -13,7 +13,7 @@ description: Build an iOS and macOS app that lists your notes, keeps working wit
 ### Create the project and its key
 
 1. In Xcode, choose **File** > **New** > **Project**, then **Multiplatform** > **App**. Name it `ReadingList`, and leave **Storage** set to **None**.
-2. Choose **File** > **Add Package Dependencies**, and enter `https://github.com/withmarfa/marfa-swift`. Set **Dependency Rule** to **Exact Version** with the version of the [latest release](https://github.com/withmarfa/marfa-swift/releases/latest), and add the `Marfa` product to the `ReadingList` target.
+2. Choose **File** > **Add Package Dependencies**, and enter `https://github.com/withmarfa/marfa-swift`. Set **Dependency Rule** to **Up to Next Major Version**, and add the `Marfa` product to the `ReadingList` target.
 3. In the target's **Build Settings**, set **Excluded Architectures** for **Any iOS Simulator SDK** to `x86_64`. Marfa's core is built for Apple silicon only.
 4. In the target's **Signing & Capabilities**, under **App Sandbox**, turn on **Outgoing Connections (Client)**, so the Mac app can reach the server.
 
@@ -37,7 +37,7 @@ key 01a15f23-d9b6-7160-957d-cc2f7aded236 (Reading List); the plaintext is shown 
 
 Choose **Product** > **Scheme** > **Edit Scheme**, select **Run**, and open **Arguments**. Under **Environment Variables**, add `MARFA_API_URL` with the value `http://localhost:8600`, and `MARFA_API_KEY` with the key.
 
-**The scheme now holds the key**, and Xcode shares a scheme with the project by default. Choose **Product** > **Scheme** > **Manage Schemes** and turn off **Shared** for `ReadingList`, which moves the scheme into `xcuserdata`, and keep `xcuserdata` out of version control. An app you ship keeps its key in the keychain instead, as [Open a working copy](/swift-sdk#open-a-working-copy) shows.
+**The scheme now holds the key**, and Xcode shares schemes by default. Choose **Product** > **Scheme** > **Manage Schemes**, turn off **Shared** for `ReadingList`, and keep `xcuserdata` out of version control. An app you ship keeps its key in the keychain instead, as [Open a copy](/swift-sdk/working-copy#open-a-copy) shows.
 
 Press Command-B. The project builds, and still shows the template's Hello, world.
 
@@ -69,7 +69,7 @@ final class Library {
             let copy = try await WorkingCopy.open(
                 store: folder.appending(path: "notes.sqlite"), server: try Server.fromEnvironment())
             self.copy = copy
-            notes = LiveQuery(copy, reading: .list(ListFilters(type: "core.note")))
+            notes = LiveQuery(copy, reading: .list(ListFilters(types: ["core.note"])))
             queue = LiveQuery(copy, reading: .queue)
             await sync()
         } catch { message = error.localizedDescription }
@@ -85,9 +85,7 @@ Add `sync()` inside the class, after `open()`:
     func sync() async {
         guard let copy else { return }
         do {
-            if try await copy.status().hydration == .complete {
-                _ = try await copy.catchUp()
-            } else {
+            if try await copy.status().hydration != .complete {
                 _ = try await copy.hydrate(types: ["core.note"], tier: .library)
             }
             _ = try await copy.queue.drain()
@@ -96,7 +94,7 @@ Add `sync()` inside the class, after `open()`:
     }
 ```
 
-The first time, `hydrate(types:tier:)` fills the empty copy with every note in your library. After that, `catchUp()` applies only what changed, and `queue.drain()` sends any writes waiting in the queue. [Devices](/devices) explains the working copy and its queue.
+The first time, `hydrate(types:tier:)` fills the empty copy with every note in your library, and `queue.drain()` sends any writes waiting. **The app never catches up by hand**: each `LiveQuery` holds the copy's [updates](/swift-sdk/updates), so the copy follows the instance, keeps trying while the server is away, and sends the queue when it's back. [Devices](/devices) explains the working copy and its queue.
 
 Press Command-B to check that it builds.
 
@@ -222,11 +220,10 @@ Add a function inside `Library` that clears the writes the instance has answered
 ```swift title="Library.swift"
     func clearAnswered() async {
         _ = try? await copy?.queue.forgetAnswered()
-        await queue?.refresh()
     }
 ```
 
-Clearing tells the copy's streams nothing, so `refresh()` reads the queue again.
+Clearing tells the copy's updates, so the `queue` query reads again.
 
 Add a section that shows each write in the queue at the end of `ContentView.swift`, and put `ChangesSection(library: library)` last inside the `List`:
 
@@ -250,7 +247,7 @@ struct ChangesSection: View {
         case .merged(let fields): "Merged \(fields.joined(separator: ", ")) with a newer change"
         case .conflicted: "Changed elsewhere too. Your text is in a conflicted copy."
         case .refused(let refusal): "Refused: \(refusal.message ?? refusal.reason)"
-        default: "Not sent. It needs attention."
+        case .blocked, .dead: "Stopped. Needs attention."
         }
     }
 }
@@ -260,7 +257,7 @@ A write has no `verdict` until the instance answers it. [Devices](/devices#verdi
 
 Run the app. **Changes** shows Bleak House as Sent; choose **Clear Answered**. Then stop the server: in its terminal, press Control-C. Add `Middlemarch`. It appears in the list, **Changes** shows Waiting to send, and the line at the bottom shows the connection error.
 
-Start the server again with `pnpm dev`. The copy keeps trying the server, less often as time goes on, and sends the write by itself when it gets through. Choose **Sync** to send it now. **Changes** shows Sent.
+Start the server again with `pnpm dev`. The copy sends the write by itself once it gets through, or choose **Sync** to send it now. **Changes** shows Sent.
 
 </Step>
 <Step>

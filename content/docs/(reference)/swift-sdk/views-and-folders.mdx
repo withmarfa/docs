@@ -1,0 +1,132 @@
+---
+title: Views and folders
+description: Read and write saved views from a Swift app's working copy, and keep a folder of files on a Mac in step with the instance.
+---
+
+A saved view and a folder are both items whose settings Marfa keeps: a [`system.view`](/catalog/view) and a [`system.folder`](/catalog/folder). The working copy answers a view offline. **A view or folder write goes to the instance at once and is never queued**, so with no server, or none reachable, it throws and nothing waits to be sent.
+
+## Saved views
+
+A `SavedView` holds a title, a query, an optional sort and an optional grouping, in its `settings`. **A view holds no layout**: how an app draws the items is the app's own. Because the copy answers a view itself, every app lists and groups the same items the same way.
+
+[Read a view](/build/read-a-view#read-a-view-from-a-working-copy) explains what the copy needs: `system.view` and every type the view's query names, at the tier it lists, and the edge type of a `backref` condition or an edge group, hydrated whole.
+
+```swift
+_ = try await copy.hydrate(types: ["system.view", "core.task"], tier: .all)
+
+guard let view = try await copy.items.view(viewID) else { return }
+let tasks = try await copy.items.list(inView: view.id, limit: 50)
+let groups = try await copy.items.groups(inView: view.id)
+```
+
+| `ViewSettings` field | Holds |
+| --- | --- |
+| `title` | The view's name. |
+| `query` | A `ViewQuery`: the `types`, each with its subtypes, the `tier`, the `states`, a `filter` and `beneath`. Empty `types` lists every type except `system.*` ones. |
+| `sort` | `ViewSort` values, first key first, each a field in `by` and a `direction`. Empty keeps the default order. |
+| `group` | A `ViewGrouping`, or `nil` for a view that groups nothing. |
+
+A `ViewGrouping` names a field in `by`, or `edge[<type>]` or `backref[<type>]` for the item an edge of that type joins. A date field takes a `bucket`, the span each group covers. `order` lists the groups that come first, and `hidden` the groups to leave out.
+
+### Read a view
+
+| Call | Answers |
+| --- | --- |
+| `items.views()` | Every view the copy holds. |
+| `items.view(_:)` | One view, or `nil` when the copy doesn't hold it. |
+| `items.list(inView:limit:offset:)` | A page of the view's items, in its sort. Items that tie go by ID. |
+| `items.groups(inView:timeZone:)` | The view's groups, each a `ViewGroup` with its `key` and `count`. Date groups follow `timeZone`, or the device's. |
+| `copy.search(_:inView:limit:)` | A full-text search within what the view lists. |
+
+- **Groups come in the view's order**: those `order` names first, then the rest by key, with the `null` group of items that have no value last.
+- **A hidden group leaves `groups(inView:)` and not `list(inView:)`.** The view still lists its items.
+- **A view that groups nothing** answers one `null` group that holds every item.
+
+**A view's items, groups and search throw `hydrationIncomplete` during a fill and while the copy is stale**, since a count from a partial copy would be wrong. Read the view again once the copy is whole. The copy's other reads go on answering meanwhile, and `items.views()` lists the views that have arrived. The [rule](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#deviceview-incomplete) is in the contract.
+
+A view the copy can't answer whole throws `invalid`, naming the reason: a type or tier the query lists that the copy doesn't hold, `beneath` without `parent-of` held whole, a `backref` or edge group whose edge type the copy doesn't hold whole, or a revoked view. A view the copy doesn't hold throws `notFound` with the code `not_held`.
+
+A [live query](/swift-sdk/updates#live-queries) over a view reads again when an item enters the view, leaves it or changes group, so a SwiftUI view keeps its counts current:
+
+```swift
+@MainActor @Observable
+final class Board {
+    let groups: LiveQuery<Rows<ViewGroup>>
+    let tasks: LiveQuery<Rows<Item>>
+
+    init(copy: WorkingCopy, viewID: String) {
+        groups = LiveQuery(copy, reading: .groups(inView: viewID))
+        tasks = LiveQuery(copy, reading: .list(inView: viewID))
+    }
+}
+```
+
+### Write a view
+
+`createView(_:idempotencyKey:)`, `changeView(_:_:baseVersion:idempotencyKey:)` and `deleteView(_:idempotencyKey:)` write at once. **A change replaces each setting it names whole**, and a `nil` setting stays as it is.
+
+```swift
+let work = FilterExpression(conditions: [
+    FilterCondition(field: .tags, operator: .contains, value: .text("work"))
+])
+let made = try await copy.createView(
+    ViewSettings(
+        title: "Open tasks",
+        query: ViewQuery(types: ["core.task"], filter: try work.encoded()),
+        sort: [ViewSort(by: "created_at", direction: .descending)],
+        group: ViewGrouping(
+            by: "properties.status", order: ["in_progress", "not_started"],
+            hidden: ["completed", "canceled"])),
+    idempotencyKey: UUID().uuidString)
+
+let renamed = try await copy.changeView(
+    made.id, ViewSettingsChange(title: "Work tasks"), baseVersion: made.version)
+```
+
+- **To remove a sort, change it to `[]`. To remove the grouping, change it to `.clear`.** The grouping is the one setting a change can remove.
+- **Retry a create or a delete with the same `idempotencyKey`.** If the connection drops after the request went out, the instance may have made the change, and the same key answers it again. Without a key, the SDK makes one for each call.
+- **Name the version you changed from.** The instance merges a change to settings nobody else touched since `baseVersion`. A setting changed since throws `versionConflict`, and the copy keeps the view it held: read it again and decide.
+- **A delete removes the view for good**, and the copy drops it at once. A revoked view can be deleted.
+
+| Refusal | Thrown as |
+| --- | --- |
+| A query, sort or grouping the instance doesn't accept | `validation` with the code `validation_error` |
+| A key that may not write `system.view` | `forbidden` with the code `type_not_permitted` |
+| A change to a revoked view | `validation` with the code `invalid_transition` |
+| A change to a setting that moved since `baseVersion` | `versionConflict` |
+| A change or delete of a view that's gone | `notFound` with the code `item_not_found` |
+| No server, or none reachable | `noServer`, or `network` |
+
+The rules are in the contract's [views written through a copy](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#views-written-through-a-copy) section.
+
+## Folders on a Mac
+
+On macOS, `Folders` keeps a directory of files in step with a folder on the instance, and shares the Mac's list of folders with `marfa folders`. **Nothing is written into the directory or sent until the first sync is confirmed.** [Sync a folder from a Mac app](/run/folder-from-a-mac-app) sets one up.
+
+`copy.createFolder(_:idempotencyKey:)`, `changeFolder(_:_:baseVersion:idempotencyKey:)` and `revokeFolder(_:idempotencyKey:)` write a folder's settings, and `copy.items.folder(_:)` reads them. `Folders(server:)` works the directories on this Mac:
+
+| Call | What it does |
+| --- | --- |
+| `add(_:following:)` | Makes a directory a folder that follows the settings item you name. The result's `storage` says when the directory is in cloud-synced or network storage: show its warning once. |
+| `list()`, `status(of:)` | The folders on this Mac, and each file's `FileState` in one, read without the server. |
+| `sync(_:)` | Syncs once. While the first sync waits, it only reads the folder and returns `.awaitingConfirmation` with the plan. |
+| `confirmFirstSync(in:)` | Lets the first sync go. |
+| `confirmRemoval(in:)`, `restoreRemoval(in:)` | Lets a paused large removal go, or cancels it. |
+| `remove(_:)` | Takes the folder off this Mac and leaves its files. It throws `invalid` while writes are unsent. |
+| `watch(_:)` | Keeps the folder in step while the app runs, and returns a `FolderWatch`. It throws `firstSyncWaiting` until the first sync is confirmed. |
+
+A `FileState` is `.inStep`, `.waiting` for a queued write, `.held` (the file's status gives the `reason`), `.unmatched`, `.unreached` (held rather than deleted) or `.outside`.
+
+### Watch a folder
+
+A `FolderWatch` is an `AsyncSequence` of `FolderEvent`. It throws a `MarfaError` when the key is refused, the instance's changes stop reaching the folder, or the directory can't be watched. **Leaving a loop early doesn't stop it**: call `await watch.stop()` when its owner finishes. Its threads run at utility quality of service, so they give way to the app's own work.
+
+| `FolderEvent` | Meaning |
+| --- | --- |
+| `.watching`, `.passed` | The watch started, or finished a pass with something to report. |
+| `.watcherFailed`, `.retrying`, `.unreachable`, `.reachable`, `.waiting` | States the watch rides out. `.waiting` means the directory is gone. |
+| `.handedOver`, `.takenBack` | Another call or command held the folder in between. |
+| `.heldElsewhere` | Another process kept the folder unasked. |
+| `.removed`, `.unlisted` | The folder left this Mac's list, and the watch ends without an error. |
+
+**One process works a folder at a time.** A call such as `sync(_:)`, or a command such as `marfa folders confirm`, asks the watch to let the folder go, and throws `readingHandle` when it isn't free within 10 seconds. A sandboxed app has its own home directory, and so its own list of folders.

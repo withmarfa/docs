@@ -1,0 +1,185 @@
+---
+title: Items and edges
+description: Read, search and write items, edges and tags in a Swift app's working copy, offline or online.
+---
+
+Reads come from the working copy, with no request. **Every write shows in the copy at once** and waits in the [queue](/swift-sdk/queue) as a `QueuedWrite` until the copy can send it.
+
+```swift
+let created = try await copy.items.create(
+    Draft(
+        type: "core.note",
+        properties: ["title": "Reading list", "body": "Essays first."]))
+
+guard let id = created.itemId,
+      let note = try await copy.items.get(id) else { return }
+_ = try await copy.items.update(
+    id, Edit(properties: ["title": "Books to read"], baseVersion: note.version))
+```
+
+The copy's parts are `items`, `edges`, `tags`, `metadata`, `extensions`, [`blobs`](/swift-sdk/files), [`queue`](/swift-sdk/queue), [`views`](/swift-sdk/views-and-folders) and `catalog`.
+
+## Read items
+
+| `items` call | Answers |
+| --- | --- |
+| `list(_:sort:)` | The items a `ListFilters` selects, as `Rows<Item>`. |
+| `get(_:)` | One item, or `nil` when it's in the bin or not held. |
+| `get(_:includingBin:)` | The items of many IDs, read at one moment, each once and in the order first named. An ID the copy doesn't hold is left out. |
+| `links(in:)` | The links and file embeds in an item's body, each with the item it names. Given many IDs, a dictionary by ID. |
+| `thumbnail(_:)` | The thumbnail the copy holds for an item, with no request. |
+| `conflictedCopies(of:)`, `original(ofConflictedCopy:)` | An item's conflicted copies, and the item a copy was made from. |
+| `displays(of:)`, `displays(for:)` | Each item's [name and preview](#names-and-previews). |
+| `linkCandidates(of:in:)` | The items a [link being typed](#links-in-a-body) could name. |
+
+`copy.search(_:filters:limit:)` searches indexed fields and tags, best match first, and returns `Rows<SearchHit>`. A hit holds its `item`, a `score` and a `snippet` as HTML; read its `excerpt` to draw the matched runs in your own style. **A search never matches the bin.**
+
+- **Read `title` and `body`** rather than `properties`: they read the properties the type's display hints name. Where `properties` is empty, `unreadableProperties` says why the copy couldn't read them.
+- **Read dates as `Date`** with `createdDate`, `updatedDate`, `occurredDate` and `trashedDate`. `date(forProperty:calendar:)` reads a `date` or `datetime` field as an `ItemDate`, whose `hasTime` tells a day from an instant. Write a value back with `ItemDate.day(_:calendar:)` or `ItemDate.instant(_:)`.
+- **An `EdgeType` has a `label`** for the source's end and a `reverseLabel` for the target's, such as `Children` and `Parent`. One registered with no reverse label has a `reverseLabel` equal to its `label`.
+
+### Rows and completeness
+
+A list, a search and `get(_:includingBin:)` return `Rows`, a random-access collection of `rows` with a `completeness`, so a `ForEach` takes it as it is:
+
+| `Completeness` | Meaning |
+| --- | --- |
+| `.complete` | The copy holds everything the read asked for. |
+| `.partial` | A fill is under way, so more rows may arrive. |
+| `.stale` | The instance's event log let the copy's cursor go. The rows are those the copy held then, and some may have changed on the instance. |
+
+### While the copy fills
+
+During a fill, a list or a search answers the rows that have arrived and says `.partial`. **Some reads and writes can't be answered until the copy is whole**, and throw `hydrationIncomplete`:
+
+- **`items.get(_:)` for an item that hasn't arrived**, since it may yet arrive. During a refill, the copy answers from the rows it holds.
+- **Reads of edges, conflicted copies and body links**, and `changes(since:most:)`, during a fill and while the copy is stale.
+- **A saved view's items, groups and search**, during a fill and while the copy is stale. [Views and folders](/swift-sdk/views-and-folders#read-a-view) explains.
+- **Every edge write**, and a write or an attached file that names an item the copy doesn't hold, during a fill and while the copy is stale.
+- **Every read and write of an `.expired` copy**, until a fill.
+
+A write to an item the copy holds, or a new item, is queued during a fill. The contract's [device rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) list each refusal.
+
+## Filter and sort
+
+`ListFilters` and `SearchFilters` narrow what a read answers:
+
+| Filter | Keeps |
+| --- | --- |
+| `types` | The items of up to ten types, each with its subtypes. An empty set is refused, and so is a type the copy doesn't hold. |
+| `states` | The items in these states. `nil` keeps active items only, unless `allStates` is `true`. An empty set is refused, and so is a set beside `allStates`. |
+| `tier`, `tags` | The items in one tier, and the items holding every tag named. |
+| `occurredAfter`, `occurredBefore` | A range of the items' own times, both ends exclusive. |
+| `source` | The items one writer created. List only. |
+| `updatedAfter`, `updatedBefore` | A range of change times, from inclusive to exclusive. List only. |
+| `filter` | An expression in the listing grammar, which the [filter model](#build-a-filter) writes. A `backref` condition is refused `invalid`. |
+| `beneath` | An item and every item below it along `parent-of` edges the copy holds. |
+| `limit`, `offset` | A page of the list. |
+
+Set a time bound as a `Date` through `occurredAfterDate` and its siblings. A bound given as a day reads as the start of that day in UTC.
+
+**`states: [.trashed]` lists the bin from the copy**, newest to the bin first unless a `Sort` names a field. `items.bin(type:after:limit:)` reads the instance's whole bin online instead, whatever the copy's slice.
+
+A `Sort` names a field, a direction, both or neither. The field is `.createdAt`, `.updatedAt`, `.occurredAt` or `.property(name:)`, and a list is newest created first by default.
+
+- **A list with `updatedAfter` comes oldest change first.** A `Sort` that names another field or direction is refused `validation`.
+- **An ascending property sort puts numbers and booleans first, then text.** A descending one reverses that. Items without the property come last either way, and ties go by ID, oldest first.
+- **A property name outside `a` to `z`, `0` to `9` and `_`** is refused `validation`.
+
+### Build a filter
+
+A `FilterExpression` is a filter as typed values: `conditions` joined by `.all` or `.any`. Each `FilterCondition` has a `field`, an `operator` and a `value`, and `field.operators` lists the operators the grammar takes for it. **Marfa's core writes and reads the grammar**, so the app quotes and parses nothing:
+
+- `try expression.encoded()` gives the text for `ListFilters.filter`, and throws `validation` for a filter the instance would refuse.
+- `try FilterExpression(decoding: text)` reads a saved view's or folder's filter back.
+
+### Status groups
+
+The `status_group` field selects items by the group of their status word, the same four for every type: `notStarted`, `inProgress`, `completed` and `canceled`. An item whose type has no status field, or that holds no declared word, is in no group. `catalog.statusGroup(of:)` and `catalog.statusGroups(of:)` read an item's group, and `catalog.eventStatus(of:)` reads an event's status.
+
+## Write items
+
+| `items` call | What it does |
+| --- | --- |
+| `create(_:)` | Queues a `Draft`. |
+| `update(_:_:)` | Queues an `Edit`, refused unless its `baseVersion` is the version the copy holds. |
+| `updateAsRead(_:_:)` | Queues an edit based on an older version, which the instance merges. An editor that held a row while the copy caught up saves this way. |
+| `delete(_:)`, `restore(_:)`, `transition(_:to:)` | Moves an item to the bin or out of it, or changes its `ItemState`. An item the copy doesn't hold, such as one read from `bin`, can still be restored. |
+| `bin(type:after:limit:)` | Reads one page of the instance's bin, newest change first. A page can be short or empty and still carry a `nextCursor`. |
+| `purge(_:version:)` | Destroys an item in the bin on the instance now. |
+
+The calls that queue a file are on the [Files](/swift-sdk/files) page.
+
+**`bin` and `purge` need the server** and are never queued. A purge is sent at the version the person was shown, or the one the copy holds, so an item changed elsewhere throws `versionConflict`. It needs `items.purge` and write on the item's type. Before sending, it throws `notFound` with the code `not_held` for an item the copy doesn't hold, `validation` with `invalid_transition` for one the copy shows outside the bin, and `invalid` for one with a write still waiting.
+
+### Drafts
+
+A `Draft` takes every field a create takes: `type`, `properties`, `tags`, `tier`, `state`, `id`, `source`, `sourceId`, `occurredAt`, `captureLatitude` with `captureLongitude`, `edges` and `baseVersion`.
+
+- **A create is one write.** Its state, location and edges go in the body of the write. If the instance refuses any edge, it makes neither the item nor its edges, and the write stays queued as refused.
+- **`edges` maps an edge type to the IDs of the items it points at.** An edge may point at an item still waiting to be created: the write waits for that create.
+- **Each tag is a write of its own**, waiting on the create.
+- **A create the instance would refuse as malformed is refused before it's queued**, with the code the instance would answer: a `.revoked` state, a coordinate that isn't a finite number, or an edge type or target that isn't valid.
+
+### Edits
+
+An `Edit` changes the properties it names, and leaves the rest. **A `null` clears nothing.** To remove a property, name it in `clearProperties`.
+
+- **`replaceProperties: true`** makes `properties` the item's whole set, so one left out is cleared.
+- **`type`, `tier` and `sourceId`** move the item to another type, tier or natural key. Once the instance accepts a change of type, the copy expires, so hydrate again.
+- **`occurredAt` sets the item's own time**, and `clearOccurredAt: true` gives it none, so it sits at its creation time. The two can't be combined.
+- **A whole number Marfa would serve back with other digits** is refused `validation` with the code `invalid_properties` before anything is queued. [Field kinds](/catalog/field-kinds) explains.
+
+## Edges, tags and extensions
+
+| Call | What it does |
+| --- | --- |
+| `edges.from(_:)`, `edges.to(_:)`, `edges.ofType(_:)` | The edges the copy holds from or to an item, or of one type, unsent ones included. |
+| `edges.get(_:)` | One edge by ID, or many. |
+| `edges.create(from:to:type:properties:id:)` | Queues an edge, refusing first one the instance would refuse for what the copy holds. |
+| `edges.check(from:to:type:properties:id:)` | Throws what `create` would throw now, and queues nothing. |
+| `edges.update(_:_:)`, `edges.delete(_:)` | Queue an `EdgeEdit`, or a delete. |
+| `tags.add(_:to:)`, `tags.remove(_:from:)` | Queue one tag change, leaving the item's other tags. |
+| `metadata.replaceTags(of:with:)` | Queues every tag of an item in one write. |
+| `extensions.write(_:_:on:)`, `extensions.delete(_:from:)` | Queue an extension write or delete by namespace. |
+
+- **The copy holds the edges going out from its items.** An edge from an item outside the slice is held only when its type was hydrated whole or its source is pinned.
+Ask `check` before the person confirms a move, so a refusal shows as they choose:
+
+```swift
+do {
+    try await copy.edges.check(from: project.id, to: task.id, type: "parent-of")
+} catch let error as MarfaError {
+    // `.validation` or `.notFound`, with the code the instance would answer.
+    showRefusal(error)
+}
+```
+
+- **`check` judges from what the copy holds**: an end of a type the edge type doesn't admit, nesting under a flat edge type, an end in the bin, or a cycle. Returning isn't the instance's verdict.
+- **An `EdgeEdit` changes an edge's properties, moves one end with `.source(id)` or `.target(id)`, or both.** A move is refused `validation` when the end that stays can hold more than one edge of the type, or when the edge would point to itself. An edit that changes nothing returns `nil`. Once the instance accepts a source move, the copy expires.
+- **Add several tags with one call each.** A call that would give an item more than 100 tags is refused `validation_error`, and the tags added before it stay queued.
+
+## Names and previews
+
+`items.displays(of:)` gives each item's `ItemDisplay`: its `name` and a `preview` of its body field with the Markdown removed, up to 240 characters. `displays(for:)` takes `ItemDisplayInput` values for an item not yet saved. **Marfa's core works both out from the copy's catalog**, so every app names an item alike. Where the instance would say `Untitled`, `name` is `nil`, and the app shows its own words.
+
+```swift
+let notes = try await copy.items.list(ListFilters(types: ["core.note"]))
+let displays = try await copy.items.displays(of: notes.rows)
+for display in displays {
+    print(display.name ?? "Untitled", display.preview ?? "")
+}
+```
+
+## Links in a body
+
+```swift
+for link in linkParts(in: "See [[Reading list#Essays|my essays]].") {
+    print(link.name.text, link.heading?.text ?? "-", link.alias?.text ?? "-")
+}
+// Reading list Essays my essays
+```
+
+- **`linkParts(in:)` splits every `[[link]]` in a text** into its name, heading and alias, each with its range in UTF-16 code units, so a text view takes them as they are. It needs no copy, so an editor can call it on every change.
+- **`items.linkCandidates(of:in:)` says what each target could name**, from the copy alone: `bound` to one item, `ambiguous` or `unresolved`, with the candidates. Given an item, it reads each target as a link in that item's body.
+- **`items.links(in:)` answers for a saved body.** Each link names its item, or says why it names none: `pending` until the instance's lookup answers, `missing`, `ambiguous` or `refused`.

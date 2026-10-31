@@ -1,0 +1,146 @@
+---
+title: Working copy
+description: Open, fill, refill and remove the working copy a Swift app reads from, and choose the server and the slice it holds.
+---
+
+A `WorkingCopy` keeps its data in a SQLite file that the app chooses, and holds the queue of writes in the same file. [Devices](/devices) explains the working copy, its slice and its fill.
+
+## Open a copy
+
+Opening makes the file if it is absent, and reads nothing from the instance. **The copy holds its key in memory and never writes it to its store**, so the app keeps the key in a `KeyStore` and reads it at each launch:
+
+```swift
+import Marfa
+
+let keys = KeychainKeyStore()
+// When the person gives the app its key:
+try keys.save(key, for: serverURL)
+
+// At each launch:
+// nil: ask the person to connect.
+guard let key = try keys.key(for: serverURL) else { return }
+let copy = try await WorkingCopy.open(
+    store: storeURL, server: Server(url: serverURL, key: key))
+```
+
+**`key(for:)` returns `nil` when it keeps no key, and throws when it keeps one it can't read**, such as in a locked keychain. Only `nil` means the person must connect again. `KeychainKeyStore` keeps one key for each server under the service `<bundle identifier>.marfa-key`, and `KeychainKeyStore(keychain: Keychain(accessGroup:))` shares the keys with the app's extensions. [Manage keys](/run/manage-keys) makes a key that reaches only your app's types, and [Sign in](/swift-sdk/server-calls#sign-in) replaces the key with the owner's approval.
+
+| Call | What it does |
+| --- | --- |
+| `WorkingCopy.open(store:server:fileBudget:ifRefused:)` | Opens the store, making it when absent. Without a `Server`, the copy works offline only. `fileBudget` sets the [file budget](/swift-sdk/files#files-on-the-device) as the copy opens. |
+| `WorkingCopy.openReader(store:)` | Opens a store another process writes, to read only. It refuses a path with no store. |
+| `WorkingCopy.remove(store:unsent:)` | Removes a store, once the person has agreed to lose its unsent writes. |
+| `handle` | `.writer` or `.reader`. A second opener of one store is a reader, which refuses writes, hydration and catch-up with `readingHandle`. |
+| `useKey(_:)` | Gives the open copy a new key. Held streams go on, and a call made while the key changes throws `keyChanging`. |
+| `close()` | Ends every stream and releases the store. Later calls throw `closed`. |
+
+### Open a store another build made
+
+A store that another build of the core made is refused with `wrongSchema`, and its `unsent` counts the writes the instance hasn't taken. Only the build that made the store can send them, as [Staying in step](/run/troubleshooting/staying-in-step#wrong_schema-made-by-another-build-of-the-core) describes.
+
+- **With `ifRefused: .keep`**, the default, `open` throws and leaves the store as it is.
+- **With `ifRefused: .replace`**, a refused store with no unsent writes is replaced by an empty one and opened. Hydrate it as you would a new copy. A store that holds unsent writes still throws `wrongSchema` with the count: show it to the person, call `remove(store:unsent:)` with it, and open again.
+
+**A replacement keeps the files the copy downloaded and its file budget.** The core keeps files by their content, beside the store. What only the old store held is gone: pins, the position in the instance's events and declared types.
+
+### Remove a copy
+
+`WorkingCopy.remove(store:unsent:)` removes the store, its logs, the files it downloaded and its lock, and nothing else. It removes a store of any build. **Pass the count of unsent writes the person agreed to lose**: the call checks it under the store's lock, so no write arrives between the check and the removal.
+
+- **A different count throws `unsentDiffers`**, with the store's own count, and removes nothing. A store whose count can't be read is never removed.
+- **A store that another copy writes throws `readingHandle`**, including another open copy in your own app, so close yours first.
+- **A folder's store throws `invalid`.** It goes only with the folder.
+
+A reader, such as one opened with `openReader(store:)`, doesn't stop the removal, and shows the old copy until it opens again.
+
+## The server
+
+A `Server` is the instance's address and a key, an app's access token, or a [sign-in](/swift-sdk/server-calls#sign-in).
+
+| Call | What it does |
+| --- | --- |
+| `Server(url:key:)`, `Server(url:credential:)` | A server reached with a key, or with a kept sign-in. |
+| `Server.fromEnvironment()` | For a command-line tool: reads `MARFA_API_URL` and `MARFA_API_KEY`. Returns `nil` when both are absent, and throws `EnvironmentError` when one is missing or the URL names no server. |
+| `instanceDescription()` | The instance's name, ID, version, contract and features, read without the key and without a working copy. The name is `Marfa` when the owner set none. |
+| `plainHTTPOrigin` | The origin of an `http` address on another machine, or `nil`. |
+
+**A store follows its instance to a new address.** The first call that asks the server, such as a hydration, first checks which instance answers. Where it is the instance the store was made against, the store takes the new address. Where it is another, the call throws `wrongServer` and sends nothing. To start again on that server, read the `queue` for what would be lost, close the copy and call `remove(store:unsent:)`.
+
+### Plain http
+
+An `http` address sends the key in the clear. **`plainHTTPOrigin` names the origin to warn about**: `nil` for `https`, `localhost`, `127.0.0.0/8` and `::1`, as the CLI decides. The SDK shows nothing itself, so the app chooses whether and when to warn.
+
+App Transport Security applies to requests made through `URLSession`: sign-in, the [server calls](/swift-sdk/server-calls) and the API `Client`. **The working copy's own requests don't use `URLSession`**, so hydration, catch-up and drains aren't affected. For the rest, add the server to `NSExceptionDomains` in the app's Info.plist, or set `NSAllowsLocalNetworking` for local names, as Apple's [NSAppTransportSecurity](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity) documents. Prefer `https`.
+
+## Fill the copy
+
+`hydrate(types:tier:edgeTypes:inPlaceOnly:)` fills the copy with every item of the types you name, at the tier you choose (`.library`, `.feed` or `.all`), with their tags and outgoing edges. `edgeTypes` also holds each named edge type whole. **The queue survives every hydration.**
+
+```swift
+let report = try await copy.hydrate(
+    types: ["core.note", "core.task"], tier: .library)
+```
+
+- **`["*"]` names every type except `system.*` ones.** Name `system.*` types beside it to add them. Any other type beside `"*"` throws `invalid`, because `"*"` already holds it.
+- **A fill that stops resumes** from the page it reached, unless the slice changed. The `HydrateReport` says `resumed`, or names why it `restarted`.
+- **Progress is in `status()`**: `itemsListed` against `itemsExpected`, the count the instance gave when the fill began, or `nil` where it gave none. `items` also counts pinned items and queued creates, so it isn't a measure of the fill.
+- **Reads answer during the fill** from what has arrived, marking a list or search `.partial`. [Items and edges](/swift-sdk/items#while-the-copy-fills) lists what is refused until the copy is whole.
+
+A hydration announces `.refreshed(.hydrated)` when it completes, and `.refreshed(.unfinished)` when it fails or is canceled, because the rows it wrote stay. **The copy runs one hydration at a time**: a second call waits for the first, and returns its report when it filled the same slice under the same key.
+
+`Status.hydration` says where the copy stands:
+
+| `Hydration` | Meaning |
+| --- | --- |
+| `.never` | No fill has begun. Reads work and writes queue. |
+| `.inProgress` | A fill is under way, or stopped part way. |
+| `.complete` | The copy holds its whole slice and follows the instance. |
+| `.stale` | The instance's event log let the copy's cursor go. Reads answer what the copy held, marked `.stale`, until a fill refills it in place. |
+| `.expired` | The copy has ended, such as when the key's reach changed. It refuses reads and writes until a fill, which empties it first. |
+
+### Refill a stale copy
+
+Hydrating a `.stale` copy with the slice it was built under **fills it again over the rows it holds**, and the report says `inPlace`. A held [`updates()`](/swift-sdk/updates#refills) sequence does this by itself.
+
+With `inPlaceOnly: true`, a hydration that couldn't refill in place throws before it changes anything, so the app can ask the person first:
+
+| Thrown | When | What the app does |
+| --- | --- | --- |
+| `instanceChanged` | Another instance answers at the address. | Ask the person, then hydrate. Writes queued for the old instance are [blocked](/swift-sdk/queue#blocked-writes) `instanceChanged`. |
+| `copyExpired`, reason `reach_changed` | The key reaches other items than the copy was built under. | Ask the person, then hydrate. The copy is emptied first. |
+| `copyExpired`, reason `slice_changed` | The types, tier or edge types differ from the copy's. | Hydrate with the copy's own slice to refill it. |
+| `copyExpired`, reason `head_past_log` | The instance was restored to a point before the copy's. | Ask the person, then hydrate. The copy is emptied first. |
+| `copyExpired`, reason `not_stale` | The copy isn't stale. | Nothing, or an ordinary hydration. |
+
+A server that refuses the key, or the reach of a stale copy, ends the copy all the same: `.stale` is a copy kept, and `.expired` a copy ended. The [refill rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#devicerefill-in-place-only) are in the contract.
+
+## Slice, pins and types
+
+| Call | What it does |
+| --- | --- |
+| `status()` | A `Status`: server origin, instance ID, slice, pinned IDs, event cursor, `hydration`, counts, fill progress, `catalogVersion`, `fileCache` and `lastSynced`. |
+| `catchUp()` | Reads the type catalog again and applies what changed since the copy's cursor. A held `updates()` sequence does this for you. |
+| `pin(_:)`, `unpin(_:)` | Hold an item whatever the slice says, or let it go unless queued writes still need it. An item in the bin throws `notFound` with the code `trashed`. |
+| `catalog.itemTypes()`, `catalog.edgeTypes()` | The types the copy holds. Before the first fill, the types Marfa ships and the app's declared ones. |
+| `catalog.fromServer()` | The instance's types now, so an app can offer a choice before it fills the copy. It changes nothing in the copy. |
+
+### Declare an app type
+
+An app brings its own types under its own namespace, such as `app.readinglist.entry`:
+
+```swift
+try await copy.declareTypes([
+    [
+        "id": "app.readinglist.entry",
+        "fields": ["title": ["type": "string", "required": true]],
+    ]
+])
+```
+
+`declareTypes(_:)` replaces the app's whole set, so pass every type on each call. **Until the first fill, a queued create is checked against these declarations** and the types Marfa ships, so the app works offline from its first launch. Each fill then brings the instance up to date:
+
+- **A declared type the instance lacks is registered**, if the key may register types. The report lists it in `registeredTypes`, or in `unregisteredTypes` with the instance's code and message.
+- **A declared `app.*` type the instance holds in another definition is replaced**, if the key may change it, and listed in `replacedTypes`. A type the instance refuses to replace stays as it is, listed in `unreplacedTypes`, and the fill goes on.
+- **A type outside `app.*` is registered when missing and never replaced.**
+
+[Define a type](/build/define-a-type) explains what a definition holds, and [Staying in step](/run/troubleshooting/staying-in-step#a-declared-type-is-in-unreplacedtypes) what to do when a type is refused.
