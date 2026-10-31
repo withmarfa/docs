@@ -1,0 +1,64 @@
+---
+title: Edges
+description: How one item links to another, and how the link's type decides what happens when either item goes to the bin.
+---
+
+An **edge** links one item, its source, to another, its target, such as a note `about` a book. It's a record of its own, with its own `id`, properties and [version](/versions), so writing an edge never moves either item's version.
+
+```http title="Request"
+POST /edges
+Content-Type: application/json
+
+{ "source_id": "<note id>", "target_id": "<book id>", "edge_type": "about" }
+```
+
+A new item can carry its edges in the same write: `POST /items` takes `edges`, an object from each edge type to the IDs of the targets. If the instance refuses any edge, it creates neither the item nor its edges.
+
+## Edge types
+
+Every edge has an **edge type**, which sets the rules its edges follow:
+
+- **Which types each end can be.** Most shipped edge types join any two items, but an `in-collection` edge must point at a container and an `in-folder` edge at a folder. A registered edge type can name its own.
+- **How many edges an end holds.** A child has one parent, a message is in one thread, and a new item supersedes one old one.
+- **Whether its edges can loop.** `parent-of` and `supersedes` refuse an edge that would close a cycle, and no edge links an item to itself.
+- **What the bin does across it**, as [Moving an item to the bin](#moving-an-item-to-the-bin) shows.
+- **Its labels**, the headings an app shows at each end, such as Children and Parent.
+
+A write that breaks the first two is refused with `400 edge_constraint_violation`, and one that closes a cycle with `400 edge_cycle`.
+
+Marfa ships nine edge types, and a key that may write edge types can [register more](/api-reference/edge-types/registerEdgeType). The Catalog's [Edges](/catalog/edges) page lists each one's labels and limits.
+
+### Where an item sits
+
+| Edge type | Use it when | Example |
+| --- | --- | --- |
+| `parent-of` | An item is part of another. The source is the parent, and an item has at most one parent. | A task `parent-of` its subtasks |
+| `in-collection` | You gather items into a container, in order. | A recipe in a collection of dinners |
+| `in-thread` | Messages make one conversation, in order. A message is in at most one thread. | An email in its thread |
+| `attached-to` | A file belongs with another item. The source is the file. | A receipt photo attached to an expense |
+| `in-folder` | A [synced folder](/run/sync-a-folder) writes it for you, with the file's `path`. | A note in your `Notes` folder |
+
+### How two items relate
+
+| Edge type | Use it when | Example |
+| --- | --- | --- |
+| `about` | One item is on the subject of another. | A note about a book |
+| `references` | One item points at another, such as a link. | A note that links to another note |
+| `derived-from` | An item was made from another, and both stay valid. | A summary written from an article |
+| `supersedes` | A new item replaces an old one. | This year's lease superseding last year's |
+
+## Read an item's edges
+
+An item read carries its outbound edges in `edges`, keyed by edge type, up to 50 of each type. Add `include=backrefs` for the edges that point at it, and `include=neighbors` for the items at the other ends. [List an item's edges](/api-reference/edges/listItemEdges) and [List an item's backrefs](/api-reference/edges/listItemBackrefs) page through the rest.
+
+A key reads an edge only when it may read the edge type, which its [edge map](/access#what-a-credential-reaches) grants, and the source item.
+
+## Moving an item to the bin
+
+Of the shipped edge types, **only `parent-of` cascades**: moving a parent to the bin takes its children with it, at every depth, and never the other way. The other eight orphan: the other item stays active, and so does the edge. In the figure, a note has a child note and is `about` a book.
+
+<BinCascade />
+
+A registered edge type chooses one of three: `cascade` takes the target into the bin, `orphan` leaves it, and `block` refuses to move either end into the bin while the edge holds it. A purge is never blocked: it deletes the item's edges at both ends.
+
+The rules behind this page are in the [edges](https://github.com/withmarfa/marfa/blob/main/conformance/spec/edges.md) chapter of the contract.

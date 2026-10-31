@@ -17,12 +17,12 @@
 
 ## Settings
 
-| Setting                                                | Value                              |
-| ------------------------------------------------------ | ---------------------------------- |
-| `plural`                                               | Files                              |
-| [`title_field`](/catalog/your-own-types#display-hints) | `title`                            |
-| [`icon`](/catalog/your-own-types#display-hints)        | `lucide:file`                      |
-| [`merge_policy`](/catalog/your-own-types#merge-policy) | `last_writer_wins` for every field |
+| Setting                                            | Value                              |
+| -------------------------------------------------- | ---------------------------------- |
+| `plural`                                           | Files                              |
+| [`title_field`](/catalog/type-rules#display-hints) | `title`                            |
+| [`icon`](/catalog/type-rules#display-hints)        | `lucide:file`                      |
+| [`merge_policy`](/catalog/type-rules#merge-policy) | `last_writer_wins` for every field |
 
 ## Subtypes
 
@@ -30,10 +30,10 @@
 
 Recordings, music files, voice memos. Inherits all core.file fields.
 
-| Setting                                         | Value               |
-| ----------------------------------------------- | ------------------- |
-| `plural`                                        | Audio               |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:file-music` |
+| Setting                                     | Value               |
+| ------------------------------------------- | ------------------- |
+| `plural`                                    | Audio               |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:file-music` |
 
 | Field      | Kind               | Required | Description                                                                                     |
 | ---------- | ------------------ | -------- | ----------------------------------------------------------------------------------------------- |
@@ -44,10 +44,10 @@ Recordings, music files, voice memos. Inherits all core.file fields.
 
 Photos, screenshots, diagrams. Inherits all core.file fields.
 
-| Setting                                         | Value               |
-| ----------------------------------------------- | ------------------- |
-| `plural`                                        | Images              |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:file-image` |
+| Setting                                     | Value               |
+| ------------------------------------------- | ------------------- |
+| `plural`                                    | Images              |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:file-image` |
 
 | Field       | Kind        | Required | Description                                                                                    |
 | ----------- | ----------- | -------- | ---------------------------------------------------------------------------------------------- |
@@ -62,10 +62,10 @@ Photos, screenshots, diagrams. Inherits all core.file fields.
 
 Video files. Inherits all core.file fields.
 
-| Setting                                         | Value                      |
-| ----------------------------------------------- | -------------------------- |
-| `plural`                                        | Videos                     |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:file-video-camera` |
+| Setting                                     | Value                      |
+| ------------------------------------------- | -------------------------- |
+| `plural`                                    | Videos                     |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:file-video-camera` |
 
 | Field       | Kind               | Required | Description                                                                                     |
 | ----------- | ------------------ | -------- | ----------------------------------------------------------------------------------------------- |
@@ -81,7 +81,7 @@ Video files. Inherits all core.file fields.
 
 An HTML page held as a file, such as a report an agent wrote. Inherits all core.file fields.
 
-| Setting                                         | Value          |
-| ----------------------------------------------- | -------------- |
-| `plural`                                        | Web Pages      |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:globe` |
+| Setting                                     | Value          |
+| ------------------------------------------- | -------------- |
+| `plural`                                    | Web Pages      |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:globe` |

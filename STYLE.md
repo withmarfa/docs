@@ -136,7 +136,7 @@ Use a component for what it's for, and only where it helps the reader.
 | `Terminal` | A command and what it prints, as one block under a "Terminal" header (see Examples) |
 | Code tabs | The same example in more than one client: the tabs are the block's header row, with Copy at the right (see Examples) |
 | `Tabs` | Alternatives that aren't code, such as two ways to claim an instance |
-| `Accordion` | Entries a reader opens one at a time, such as troubleshooting. Never a reference list: a list a reader looks up is a plain table on its Catalog or Reference page |
+| `Accordion` | Entries a reader opens one at a time. Never a reference list: a list a reader looks up is a plain table on its Catalog or Reference page |
 | `Files` | A directory a reader will see on disk |
 | `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data, or the Overview's one-line warning that Marfa is early. Every callout has a bold `title` that says what happens, and a short body under it. It draws no icon. `type="warn"` is for a loss or something that can't be undone; a neutral note takes the default, `info` |
 | `Cards` | Where to go next: the Overview, an index of the docs, the Build and Run landing pages, and the end of a tutorial or of the Introduction |

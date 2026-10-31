@@ -26,10 +26,10 @@
 
 ## Settings
 
-| Setting                                                | Value                                                                    |
-| ------------------------------------------------------ | ------------------------------------------------------------------------ |
-| `plural`                                               | Events                                                                   |
-| [`title_field`](/catalog/your-own-types#display-hints) | `title`                                                                  |
-| [`body_field`](/catalog/your-own-types#display-hints)  | `description`                                                            |
-| [`icon`](/catalog/your-own-types#display-hints)        | `lucide:calendar`                                                        |
-| [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for `notes`; `last_writer_wins` for every other field |
+| Setting                                            | Value                                                                    |
+| -------------------------------------------------- | ------------------------------------------------------------------------ |
+| `plural`                                           | Events                                                                   |
+| [`title_field`](/catalog/type-rules#display-hints) | `title`                                                                  |
+| [`body_field`](/catalog/type-rules#display-hints)  | `description`                                                            |
+| [`icon`](/catalog/type-rules#display-hints)        | `lucide:calendar`                                                        |
+| [`merge_policy`](/catalog/type-rules#merge-policy) | `keep_both_copies` for `notes`; `last_writer_wins` for every other field |

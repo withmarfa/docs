@@ -18,13 +18,13 @@
 
 ## Settings
 
-| Setting                                                | Value                                                                               |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `plural`                                               | Media                                                                               |
-| [`title_field`](/catalog/your-own-types#display-hints) | `title`                                                                             |
-| [`body_field`](/catalog/your-own-types#display-hints)  | `body`                                                                              |
-| [`icon`](/catalog/your-own-types#display-hints)        | `lucide:library-big`                                                                |
-| [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for `body` and `notes`; `last_writer_wins` for every other field |
+| Setting                                            | Value                                                                               |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `plural`                                           | Media                                                                               |
+| [`title_field`](/catalog/type-rules#display-hints) | `title`                                                                             |
+| [`body_field`](/catalog/type-rules#display-hints)  | `body`                                                                              |
+| [`icon`](/catalog/type-rules#display-hints)        | `lucide:library-big`                                                                |
+| [`merge_policy`](/catalog/type-rules#merge-policy) | `keep_both_copies` for `body` and `notes`; `last_writer_wins` for every other field |
 
 ## Subtypes
 
@@ -32,11 +32,11 @@
 
 An album. Inherits all core.media fields.
 
-| Setting                                         | Value           |
-| ----------------------------------------------- | --------------- |
-| `plural`                                        | Albums          |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:disc-3` |
-| [`roles`](/catalog/your-own-types#roles)        | `container`     |
+| Setting                                     | Value           |
+| ------------------------------------------- | --------------- |
+| `plural`                                    | Albums          |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:disc-3` |
+| [`roles`](/catalog/type-rules#roles)        | `container`     |
 
 | Field          | Label  | Kind      | Required | Description                           |
 | -------------- | ------ | --------- | -------- | ------------------------------------- |
@@ -47,10 +47,10 @@ An album. Inherits all core.media fields.
 
 An article. Inherits all core.media fields.
 
-| Setting                                         | Value              |
-| ----------------------------------------------- | ------------------ |
-| `plural`                                        | Articles           |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:newspaper` |
+| Setting                                     | Value              |
+| ------------------------------------------- | ------------------ |
+| `plural`                                    | Articles           |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:newspaper` |
 
 | Field        | Label | Kind      | Required | Description                           |
 | ------------ | ----- | --------- | -------- | ------------------------------------- |
@@ -63,10 +63,10 @@ An article. Inherits all core.media fields.
 
 A book. Inherits all core.media fields.
 
-| Setting                                         | Value              |
-| ----------------------------------------------- | ------------------ |
-| `plural`                                        | Books              |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:book-open` |
+| Setting                                     | Value              |
+| ------------------------------------------- | ------------------ |
+| `plural`                                    | Books              |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:book-open` |
 
 | Field        | Label | Kind      | Required | Description                                   |
 | ------------ | ----- | --------- | -------- | --------------------------------------------- |
@@ -78,10 +78,10 @@ A book. Inherits all core.media fields.
 
 Any member of an ongoing series: a TV episode, a podcast episode, one part of a serial. Inherits all core.media fields. Joins its series through the in-collection edge, so one episode can belong to several series and outlives any of them.
 
-| Setting                                         | Value                |
-| ----------------------------------------------- | -------------------- |
-| `plural`                                        | Episodes             |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:circle-play` |
+| Setting                                     | Value                |
+| ------------------------------------------- | -------------------- |
+| `plural`                                    | Episodes             |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:circle-play` |
 
 | Field            | Label     | Kind      | Required | Description                                                                                                                                                                     |
 | ---------------- | --------- | --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -96,10 +96,10 @@ Any member of an ongoing series: a TV episode, a podcast episode, one part of a 
 
 A film. Inherits all core.media fields.
 
-| Setting                                         | Value         |
-| ----------------------------------------------- | ------------- |
-| `plural`                                        | Films         |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:film` |
+| Setting                                     | Value         |
+| ------------------------------------------- | ------------- |
+| `plural`                                    | Films         |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:film` |
 
 | Field            | Label     | Kind     | Required | Description                                                                                                                                                                     |
 | ---------------- | --------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -113,10 +113,10 @@ A film. Inherits all core.media fields.
 
 A video, board or card game. Inherits all core.media fields.
 
-| Setting                                         | Value              |
-| ----------------------------------------------- | ------------------ |
-| `plural`                                        | Games              |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:gamepad-2` |
+| Setting                                     | Value              |
+| ------------------------------------------- | ------------------ |
+| `plural`                                    | Games              |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:gamepad-2` |
 
 | Field         | Label           | Kind                   | Required | Description                                                         |
 | ------------- | --------------- | ---------------------- | -------- | ------------------------------------------------------------------- |
@@ -128,11 +128,11 @@ A video, board or card game. Inherits all core.media fields.
 
 Any ongoing media container: a TV show, a podcast, a radio serial, a video series. Inherits all core.media fields. Episodes join it through the in-collection edge; containment is never part of a type name.
 
-| Setting                                         | Value       |
-| ----------------------------------------------- | ----------- |
-| `plural`                                        | Series      |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:tv` |
-| [`roles`](/catalog/your-own-types#roles)        | `container` |
+| Setting                                     | Value       |
+| ------------------------------------------- | ----------- |
+| `plural`                                    | Series      |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:tv` |
+| [`roles`](/catalog/type-rules#roles)        | `container` |
 
 | Field    | Kind   | Required | Description                                                                                |
 | -------- | ------ | -------- | ------------------------------------------------------------------------------------------ |
@@ -143,10 +143,10 @@ Any ongoing media container: a TV show, a podcast, a radio serial, a video serie
 
 A song. Inherits all core.media fields.
 
-| Setting                                         | Value                |
-| ----------------------------------------------- | -------------------- |
-| `plural`                                        | Songs                |
-| [`icon`](/catalog/your-own-types#display-hints) | `lucide:audio-lines` |
+| Setting                                     | Value                |
+| ------------------------------------------- | -------------------- |
+| `plural`                                    | Songs                |
+| [`icon`](/catalog/type-rules#display-hints) | `lucide:audio-lines` |
 
 | Field          | Label     | Kind      | Required | Description                                                                                                                                                                     |
 | -------------- | --------- | --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

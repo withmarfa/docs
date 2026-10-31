@@ -21,10 +21,10 @@
 
 ## Settings
 
-| Setting                                                | Value                                                                               |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `plural`                                               | Tasks                                                                               |
-| [`title_field`](/catalog/your-own-types#display-hints) | `title`                                                                             |
-| [`body_field`](/catalog/your-own-types#display-hints)  | `body`                                                                              |
-| [`icon`](/catalog/your-own-types#display-hints)        | `lucide:square-check-big`                                                           |
-| [`merge_policy`](/catalog/your-own-types#merge-policy) | `keep_both_copies` for `body` and `notes`; `last_writer_wins` for every other field |
+| Setting                                            | Value                                                                               |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `plural`                                           | Tasks                                                                               |
+| [`title_field`](/catalog/type-rules#display-hints) | `title`                                                                             |
+| [`body_field`](/catalog/type-rules#display-hints)  | `body`                                                                              |
+| [`icon`](/catalog/type-rules#display-hints)        | `lucide:square-check-big`                                                           |
+| [`merge_policy`](/catalog/type-rules#merge-policy) | `keep_both_copies` for `body` and `notes`; `last_writer_wins` for every other field |

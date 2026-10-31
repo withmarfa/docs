@@ -1,0 +1,71 @@
+---
+title: Starting and claiming
+description: Fix a server that won't start, and claim an instance when the setup code is lost.
+---
+
+The server checks its settings, its socket and its data before it opens a port. A refusal is a line in its log, and the server exits.
+
+## The server cannot start; fix these settings
+
+A setting has a value the server doesn't accept, such as a number out of range. The server checks every setting before it opens the database, and names each one it refused:
+
+```text
+The server cannot start; fix these settings:
+  RATE_LIMIT_REQUESTS must be a whole number, 1 or more (got "0")
+```
+
+Correct each value it names. [Settings](/run/settings) lists the values each setting takes.
+
+## MARFA_AUTH_SECRET must be set in production
+
+With `NODE_ENV=production`, the server needs `API_KEY_SALT`, `MARFA_AUTH_SECRET` and `MARFA_AUTH_BASE_URL`. It refuses a secret that is missing, short or a placeholder. Outside production it fills in what's missing, but still refuses a `MARFA_AUTH_SECRET` under 32 characters.
+
+Generate each secret with `openssl rand -hex 32`, and set `MARFA_AUTH_BASE_URL` to the address clients use. [Deploy](/run/deploy) shows a complete production setup.
+
+## MARFA_CONTROL_SOCKET must be a normalized absolute Unix socket path
+
+The full message ends `of at most 103 bytes`. The server opens a private socket at `control/marfa.sock` beside the database, and a database deep in the file system makes that path longer than a Unix socket allows.
+
+Keep the data in a shorter directory, or set `MARFA_CONTROL_SOCKET` to a shorter path. The socket's directory must belong to the account that runs the server, and no one else may read it.
+
+## Control path is a symbolic link or not a directory
+
+The path to the socket's directory passes through a symbolic link. On macOS, `/tmp` is one: it points to `/private/tmp`.
+
+Give the server a path with no links in it, such as `/private/tmp/marfa/marfa.db` in place of `/tmp/marfa/marfa.db`. In a shell, `pwd -P` prints the current directory with its links resolved.
+
+## listen EADDRINUSE: address already in use
+
+Another process listens on the server's port, often an earlier Marfa server that is still running.
+
+Stop the other process, or set `PORT` to a free port.
+
+## I lost the setup code
+
+An unclaimed instance prints its setup code when it starts, as `Claim this Marfa at /setup with setup code: …`. On the instance's own machine, you don't need the code: claim through the private socket, as the [Quickstart](/quickstart) does.
+
+```bash
+marfa --socket "$(pwd -P)/data/control/marfa.sock" setup claim --email you@example.com
+```
+
+For a new code, restart the server or run `marfa --socket <path> setup code`. Either way, the earlier code stops working.
+
+## 409 owner_exists
+
+The instance already has an owner, and an instance is claimed only once.
+
+If you are the owner and have lost the password, [recover the owner's password](/run/sign-in-as-the-owner#recover-the-owners-password) from the instance's own machine.
+
+## Covered in their guides
+
+These refusals belong to one task, and its guide explains them.
+
+| Message in the log | Guide |
+| --- | --- |
+| `The file folder … is missing its store marker` | [Restore the copy](/run/back-up-and-restore#restore-the-copy) |
+| `… older than the replica` | [With a bucket](/run/back-up-and-restore#with-a-bucket) |
+| `The schema in … is not this build's` | [When a build refuses the database](/run/upgrade#when-a-build-refuses-the-database) |
+| `… which a newer build wrote` | [When a build refuses the database](/run/upgrade#when-a-build-refuses-the-database) |
+| `… which needs … bytes free beside it` | [When a build refuses the database](/run/upgrade#when-a-build-refuses-the-database) |
+| `Updating the database in … did not give this build's database` | [When a build refuses the database](/run/upgrade#when-a-build-refuses-the-database) |
+| A restore refuses the archive | [Restore an archive](/run/export-and-restore#restore-an-archive) |

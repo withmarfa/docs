@@ -33,7 +33,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['retry a write safely', ['/build/write-safely']],
   [
     'rate limit 429',
-    ['/run/troubleshooting', '/run/folder-safeguards', '/build/connector-holds-and-retries', '/run/settings'],
+    ['/run/troubleshooting/credentials-and-access', '/run/folder-safeguards', '/build/connector-holds-and-retries', '/run/settings'],
   ],
   ['retry-after', ['/build/connector-webhooks', '/build/connector-holds-and-retries', '/build/keep-in-sync']],
   ['CORS', ['/run/settings']],
@@ -60,12 +60,17 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['print-token', ['/cli']],
   ['--print-token', ['/cli']],
 
+  ['edge type', ['/edges', '/catalog/edges']],
+  ['edge_cycle', ['/edges']],
+
   // Running an instance.
   ['environment variables', ['/run/settings']],
   ['docker compose', ['/run/install', '/run/deploy']],
   ['litestream', ['/run/deploy', '/run/back-up-and-restore']],
   ['s3 bucket', ['/run/settings', '/run/deploy', '/run/install', '/run/back-up-and-restore']],
   ['upgrade server', ['/run/upgrade']],
+  ['folders autostart', ['/run/sync-from-login']],
+  ['watch key file', ['/run/sync-from-login']],
   ['change instance name', ['/run/settings']],
   ['install marfa on linux', ['/cli', '/run/install', '/quickstart']],
   ['how do I back up my data', ['/run/back-up-and-restore', '/run/export-and-restore']],

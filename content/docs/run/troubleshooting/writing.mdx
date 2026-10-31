@@ -1,0 +1,51 @@
+---
+title: Writing
+description: Fix a create or an update that Marfa refuses.
+---
+
+Marfa refuses a write it can't apply safely, and changes nothing. The answer's `code` and `details` say why. [Write safely](/build/write-safely) explains the rules a write follows.
+
+## 409 version_conflict
+
+Your write changed a field that someone else also changed since the version you read. Marfa refuses your write rather than overwrite theirs. It sends the item as it is now in `current`, and the version you read in `ancestor`.
+
+Combine your change with `current`, and send it again naming `current.version`. Or send the write with `conflict=auto` and let the type's rules settle it.
+
+## 409 ancestor_unavailable
+
+Marfa no longer keeps a snapshot of the version your write names, so it can't tell what changed since. Housekeeping thins old snapshots, and a version that never existed has none.
+
+Read the item again and apply your change to it. [Versions](/versions) explains the history Marfa keeps.
+
+## 400 missing_required_field: version is required
+
+An update must name the version it read, so Marfa can tell whether the item changed in between.
+
+Read the item, and send its `version` with the update.
+
+## 400 validation_error: The request body must be JSON
+
+The request has a body but no `Content-Type: application/json` header.
+
+Add the header. With `curl`, that's `-H "Content-Type: application/json"`.
+
+## 400 validation_error: Unknown query parameter
+
+The request names a query parameter the operation doesn't take, often a misspelled filter. Marfa refuses it so that a typo can't return everything, and the message lists the parameters the operation takes.
+
+Correct the name. Marfa ignores a parameter whose name starts with `_`, so use that for one of your own, such as a cache buster.
+
+## 400 validation_error: Must not contain a lone surrogate
+
+A string or a property name in the body holds half of a character that takes two UTF-16 code units, such as an emoji cut in the middle. UTF-8 can't carry it. `details.errors[].path` names the text by its JSON pointer.
+
+Cut text between characters, not between code units. In JavaScript, `isWellFormed()` checks a string, and `toWellFormed()` replaces each stray half with U+FFFD.
+
+## 400 invalid_properties
+
+The item's properties don't fit its type: a required field is missing, or a value has the wrong shape. `details.errors` names each field and what is wrong with it. A `core.task`, for example, needs a `title`.
+
+Read the type's fields with `marfa types get <type>`, and send what it asks for. [Field kinds](/catalog/field-kinds) gives each kind's rules. Two of them refuse values that look valid:
+
+- A whole number that Marfa wouldn't serve back with the same digits, such as `1500000000000000001`. The message starts `Must be a whole number that Marfa serves back with the same digits`. Send it as a string.
+- A `url` value that the WHATWG URL Standard refuses, such as a host with a forbidden character.

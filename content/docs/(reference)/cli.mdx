@@ -5,7 +5,7 @@ description: Install the marfa program, see how it finds your instance and crede
 
 The CLI is the `marfa` program. **Every operation in the API has a command**, such as `marfa items list`, and most AI agents work with Marfa through it. It also does work the API doesn't:
 
-- `marfa device` keeps a [working copy](/devices) of part of an instance.
+- `marfa device` keeps a [working copy](/devices) of part of an instance, as [Write in a working copy](/build/write-in-a-working-copy) shows.
 - `marfa server` installs, upgrades and removes a server in Docker on this machine, as [Install with the CLI](/run/install) shows.
 - `marfa folders` keeps part of an instance as files in a directory, as [Sync a folder](/run/sync-a-folder) shows.
 - `marfa types scaffold` prints a starting definition for a type without a server, as [Define a type](/build/define-a-type) shows.
@@ -121,13 +121,23 @@ The keychain holds one credential for each server, and only what these commands 
 marfa login --url https://marfa.example.com
 ```
 
-[Manage keys](/run/manage-keys#give-a-key-to-a-script-or-agent) covers `marfa keys keep`, and how to give a script a key from a secrets manager.
+[Manage keys](/run/manage-keys) shows how to make a key to keep. A script takes its key from a secrets manager instead, as the next section shows.
 
 ### Run without the keychain
 
 For a script, a CI job or an agent, pass `--no-keychain` or set `MARFA_NO_KEYCHAIN` to `1`, `true`, `yes` or `on`. **The CLI then reads nothing from the keychain and writes nothing to it**, so it can't raise a system prompt, and a command that names no server is refused instead of reaching the current one. Every command needs a profile with a `key_command`, or `--url` or `MARFA_API_URL` and the credential from `--key` or `MARFA_API_KEY`. A profile without a `key_command` is refused with `no_credential`.
 
 A command that keeps or removes a credential refuses: `marfa keys keep`, `keys forget`, `logout`, and `login` without `--print-token`. `marfa login --print-token` prints the token set instead of keeping it.
+
+Run the CLI under a secrets manager to give it the key. With 1Password, `MARFA_API_KEY` holds a secret reference, which `op run` replaces with the key:
+
+```bash
+export MARFA_API_URL=https://marfa.example.com
+export MARFA_API_KEY="op://Private/Marfa/key"
+MARFA_NO_KEYCHAIN=1 op run -- marfa items list
+```
+
+`MARFA_NO_KEYCHAIN=1 infisical run -- marfa items list` does the same with Infisical, from a secret named `MARFA_API_KEY`.
 
 ### Check which server a write reaches
 
@@ -139,7 +149,11 @@ On macOS, `MARFA_KEYCHAIN` names a keychain file to use instead of your own, for
 
 `marfa folders watch` with no directory, and the login agent `marfa folders autostart` sets up, read each folder's credential from the keychain. The login agent starts outside your shell, so it never sees the variables or options above and reads your own keychain.
 
-For a machine where nobody signs in to unlock the keychain, give the watch a key file instead: `marfa folders watch --key-file <file>`, or `marfa folders autostart on --key-file <file>` for the login agent. [Keep folders running](/run/keep-folders-running#use-a-key-file-instead-of-the-keychain) covers both.
+For a machine where nobody signs in to unlock the keychain, give the watch a key file instead: `marfa folders watch --key-file <file>`, or `marfa folders autostart on --key-file <file>` for the login agent. [Use a key file instead of the keychain](/run/sync-from-login#use-a-key-file-instead-of-the-keychain) covers both.
+
+### Use the private socket
+
+On the instance's own machine, as the account that runs the server, `--socket <path>` acts with the machine's own authority instead of a credential. **It can't be combined with a profile, a server or a key**, from an option or the environment. `marfa login`, `logout`, `keys keep`, `keys forget`, `server`, `device`, `docs`, `types scaffold` and every `folders` command except `folders inventory` refuse it. [The private socket](/run/deploy#the-private-socket) lists the commands that need it.
 
 ## Color and piped output
 
@@ -202,79 +216,6 @@ marfa items delete <id> <id> --digest <digest>
 ```
 
 A changed plan is refused with `409 trash_plan_changed`. `marfa items restore <id>` brings an item back. [Preview trashing items](/api-reference/items/previewItemTrash) and [Trash items](/api-reference/items/trashItems) are the operations.
-
-## Use the private socket
-
-On the computer that runs the instance, logged in as the account that runs the server, the CLI can act with the machine's own authority instead of a credential. Pass `--socket` with the server's private socket, `control/marfa.sock` in its data directory:
-
-<Terminal>
-
-```bash
-marfa --socket /srv/marfa/data/control/marfa.sock setup status
-```
-
-```json
-{
-  "claimed": true,
-  "owner_id": "mPfnOasjLXnMRG6AG6qclGUhdhBetUn6",
-  "generation": null
-}
-```
-
-</Terminal>
-
-That's how the owner makes the first key in the [Quickstart](/quickstart). These commands work only through the socket:
-
-| Command | What it does | Guide |
-| --- | --- | --- |
-| `marfa setup status`, `setup code`, `setup open` | Check whether the instance is claimed, replace the setup code, and open the browser handoff. | [Quickstart](/quickstart) |
-| `marfa owner recover` | Set a new owner password. | [Sign in as the owner](/run/sign-in-as-the-owner#recover-the-owners-password) |
-| `marfa owner update` | Change the owner's email and name, upload the owner's picture from a file with `--avatar`, or remove it with `--clear-avatar`. | [Sign in as the owner](/run/sign-in-as-the-owner#change-the-owners-profile) |
-| `marfa owner passkeys` | Add, list, rename and remove passkeys. | [Sign in as the owner](/run/sign-in-as-the-owner#manage-passkeys-and-sign-ins) |
-| `marfa items summaries` | List item summaries without opening item content. | [Access](/access#who-can-act) |
-| `marfa items trash` | List, move, restore and purge items in the trash. | [Housekeeping](/run/housekeeping#empty-the-bin) |
-| `marfa sign-ins` | List, rename and end the sign-ins that can reach the server. | [Sign in as the owner](/run/sign-in-as-the-owner#manage-passkeys-and-sign-ins) |
-
-`marfa owner picture` writes the owner's picture to the file named by `--output`, or its bytes to standard output, and a key that may read the profile's `avatar` can run it too. A key or an app with profile write access changes the name and the picture with `marfa profile update`, which takes `--name`, `--avatar <file>` and `--clear-avatar`. [Sign in as the owner](/run/sign-in-as-the-owner#change-the-owners-profile) shows both.
-
-**The socket carries no key.** `--socket` can't be combined with `--url`, `--key`, `--profile`, `MARFA_API_URL`, `MARFA_API_KEY` or `MARFA_PROFILE`. An operation that needs a key, such as `marfa events` or `marfa export`, ends with exit code 5, so run it with a key instead. `marfa login`, `logout`, `device`, `docs`, `types scaffold` and local folder commands refuse `--socket`. `marfa folders inventory` is the exception: it reads the owner's reported folder copies through the socket.
-
-## Change a folder's settings
-
-`marfa folders change <id> --version <n> --file settings.json` changes the folder's settings on the instance without opening its local directory. Read the version with `marfa items get <id>`. Use `--body` for inline JSON, or name settings with flags such as `--query`.
-
-**Each named setting replaces its value whole.** Omitted declared settings stay, and every accepted change removes stored settings the folder type does not declare. [Change a folder's settings](/run/sync-a-folder#change-a-folders-settings) shows the file, version rules and read-back.
-
-## Read a view
-
-`marfa views items <id>` reads the items a saved view lists from the server, in its order, and `--limit` and `--cursor` select a page. The `marfa device views` commands read saved views from the working copy named by `--db`, and **need no server connection**. [Read a view](/build/read-a-view) shows both.
-
-| Command | Answer |
-| --- | --- |
-| `marfa device views list` | Views held in the copy. |
-| `marfa device views get <id>` | One view's settings and version. |
-| `marfa device views groups <id>` | The view's groups and counts; `--time-zone` selects the time zone for date buckets. |
-| `marfa device items list --view <id>` | The view's items in its sort order; `--limit` and `--offset` select a page. |
-| `marfa device search <text> --view <id>` | Search matches within the view's query. |
-
-Each command takes `--json`. A view whose whole query or grouping is not held is refused with a reason.
-
-## Write and read items in a working copy
-
-A working copy takes every item field the API does, and answers a list or search the way the server does. A create or an edit shows in the copy at once and waits in the queue until a drain sends it, as [Devices](/devices#a-write-made-offline) explains.
-
-| Command | Options |
-| --- | --- |
-| `marfa device items create` | `--state` (`active`, `archived` or `trashed`; `revoked` is refused), `--capture-latitude` with `--capture-longitude`, and `--edges <json>`, an object from an edge type to the IDs of the items it points at. |
-| `marfa device items update` | `--occurred-at <time>` sets the item's own time. `--clear-occurred-at` gives the item no time of its own, so it sits at its creation time. If the item's create hasn't been sent yet, the copy shows the time the create was queued until the instance answers. The two can't be combined. |
-| `marfa device items list` | `--source`, `--updated-after` (inclusive), `--updated-before` (exclusive) and `--sort properties.<field>` with `--direction`. |
-| `marfa device search <text>` | `--tier`, `--occurred-after` and `--occurred-before` (both exclusive). |
-
-**A create is one write.** The state, the capture location and the edges go in the body of the write that creates the item. If the instance refuses any edge, for example because a target doesn't exist, it creates neither the item nor its edges, and the write stays in the queue as `refused` with its body. While the write waits, the copy shows each edge. When the instance answers, the copy holds the edges the instance made in their place. An answer carries at most 50 edges of one type, so an edge it leaves out stays shown until the next catch-up brings the instance's own.
-
-A create the instance would refuse as malformed, such as a `revoked` state, a coordinate that isn't a finite number, or an edge type or target that isn't valid, is refused before it is queued, with the error code the instance would answer.
-
-`--updated-after` lists in change order, oldest first. `--sort updated-at` or `--direction asc` on its own keeps that order; any other sort or direction is refused with `validation_error`. A `properties.<field>` sort puts numbers and booleans first, then text, then items with the field missing, null, an object or an array, in either direction. Items that compare equal go by ID.
 
 ## Exit codes
 

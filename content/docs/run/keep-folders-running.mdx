@@ -1,11 +1,11 @@
 ---
 title: Keep folders running
-description: Keep every folder on your computer in step with one watch, start it at login, and work on a folder's files while it runs.
+description: Keep every folder on your computer in step with one watch, and work on a folder's files while it runs.
 ---
 
-A folder you [set up](/run/sync-a-folder) stays in step only while something watches it. **One `marfa folders watch` keeps every folder on the computer in step**, and `marfa folders autostart` starts it at login, so a folder needs no terminal left open.
+A folder you [set up](/run/sync-a-folder) stays in step only while something watches it. **One `marfa folders watch` keeps every folder on the computer in step**, and [Sync from login](/run/sync-from-login) starts it each time you sign in, so a folder needs no terminal left open.
 
-The watch needs no `--url` or `--key`: it reads each folder's credential from the keychain, so run `marfa keys keep` for a folder's key first, as [the CLI](/cli#connect-to-a-server) shows. On a computer where nobody signs in to unlock the keychain, [use a key file instead](#use-a-key-file-instead-of-the-keychain).
+The watch needs no `--url` or `--key`: it reads each folder's credential from the keychain, so run `marfa keys keep` for a folder's key first, as [the CLI](/cli#connect-to-a-server) shows. On a computer where nobody signs in to unlock the keychain, [use a key file instead](/run/sync-from-login#use-a-key-file-instead-of-the-keychain).
 
 ## Watch every folder
 
@@ -33,7 +33,7 @@ Press Ctrl-C to stop it. `SIGTERM` stops it the same way, with exit 0, so a serv
 | `--json` | Prints each line as one JSON object with a `dir` field. |
 | `--for <seconds>` | Stops the watch after that long. |
 | `--log <file>` | Writes its output to a file in place of the terminal. When Ctrl-C or `SIGTERM` stops the watch, the last line in the file names the signal and the time, and the process that sent it where your system reports one. |
-| `--key-file <file>` | Takes the server and key from a file in place of the keychain. See [Use a key file instead of the keychain](#use-a-key-file-instead-of-the-keychain). |
+| `--key-file <file>` | Takes the server and key from a file in place of the keychain. See [Use a key file instead of the keychain](/run/sync-from-login#use-a-key-file-instead-of-the-keychain). |
 
 To watch one folder, name its directory: `marfa folders watch Notes`.
 
@@ -41,7 +41,7 @@ To watch one folder, name its directory: `marfa folders watch Notes`.
 
 - **It follows the list.** A folder you add with `marfa folders add` joins the watch, and one you remove leaves it, with no restart.
 - **Each folder keeps its own server and credential.** Folders on different servers share one watch, and no key is sent to a server it wasn't made for.
-- **A profile works for a watch you run yourself.** `marfa folders watch --profile <name>` uses the profile's key for folders on the profile's server, and the keychain for the rest. A `key_command` runs once, when the watch starts, so restart the watch after you change the key. `marfa folders autostart on` refuses `--profile`, and the watch it starts doesn't read `MARFA_PROFILE`.
+- **A profile works for a watch you run yourself.** `marfa folders watch --profile <name>` uses the profile's key for folders on the profile's server, and the keychain for the rest. A `key_command` runs once, when the watch starts, so restart the watch after you change the key.
 - **One folder that can't be watched doesn't stop the others.** The watch reports it once and tries again. A folder fails to open while its first sync waits for `marfa folders confirm`, while another process works it, or when the keychain holds no credential for its server.
 - **A folder whose directory can't be found stays listed,** such as one on a disk that isn't connected. The watch reports these in one line, and `marfa folders remove` takes one off. [Folder safeguards](/run/folder-safeguards#a-missing-or-unreadable-directory) covers a path that now holds a different directory.
 
@@ -54,69 +54,6 @@ A watch avoids rendering files whose contents are already in step.
 - **Once an hour** it renders every file, to check that choice. If it rewrites a file that the choice would have skipped, it reports `warning: the hourly check rewrote` followed by the file's path. A watch of every folder prefixes the warning with the directory. A file changed since the last pull can be rewritten during this check without a warning.
 
 The contract states these as [`folders/watch-quiet-pass-unrendered`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#folderswatch-quiet-pass-unrendered), [`folders/watch-pull-renders-reached`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#folderswatch-pull-renders-reached) and [`folders/watch-hourly-full-render`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#folderswatch-hourly-full-render).
-
-## Sync from login
-
-`marfa folders autostart` starts the watch when you sign in to the computer, in your own account, on macOS and Linux. It needs no administrator:
-
-```bash
-marfa folders autostart on
-```
-
-It starts the watch at once and says which file it wrote. Running it again changes nothing unless the agent would differ, such as after the program moved or after an upgrade changed what the command writes.
-
-- **The agent:** on macOS a launchd agent, and on Linux a systemd user unit. It holds **no credential and no server**: each folder uses the keychain's credential for its server, so on Linux the keychain must be unlocked at login. With a [key file](#use-a-key-file-instead-of-the-keychain) it holds that file's path and nothing from it.
-- **The log:** `folder-watch.log` beside the folder registry, readable by you alone. At 1 MiB it moves to `folder-watch.log.1`.
-- **When the watch stopped:** a watch that `SIGTERM` or Ctrl-C stops exits 0, so the service manager doesn't start it again, and the last line of the log says so, such as `2026-10-29T12:00:00Z folders watch stopped by SIGTERM, sent by process 4821`. The time is UTC. The process is the one that sent the signal, and the line leaves it out where your system doesn't report one. If edits stop reaching the server, read the end of the log first.
-- **Output from before the log opens:** an error the watch makes before it opens its log, such as a log that can't be opened, goes to `folder-watch.launchd.log` beside the log on macOS, readable by you alone and moved to `folder-watch.launchd.log.1` at 1 MiB. On Linux the user journal keeps it: `journalctl --user -u marfa-folder-watch.service`.
-- **Restarts:** the service manager starts the watch again only after it fails, and no sooner than 30 seconds after it last started.
-- **The priority:** the watch gives way to what you are doing and keeps working when every core is busy. On macOS the agent sets `Nice` to 10 and `LowPriorityIO` to true, and sets no `ProcessType`, because launchd's `Background` class can starve the watch under full load. On Linux the unit sets `Nice=10`, `IOSchedulingClass=best-effort` and `IOSchedulingPriority=7`. On macOS the watch's threads also run at utility quality of service, however the watch starts.
-
-**After you upgrade the CLI, run `marfa folders autostart on` again with the same options,** such as `--key-file`. An agent keeps running as it was written until `on` replaces it, so the settings a later build adds reach it only then. `status` says when the agent differs from what `on` writes now.
-
-Ask whether it works, or turn it off:
-
-```bash
-marfa folders autostart status
-marfa folders autostart off
-```
-
-`status` needs no server or credential. It reports:
-
-- Whether the agent is installed and running.
-- Whether the agent differs from the one `on` writes now, as one from an earlier build does, and that running `on` again with the same options replaces it. `--json` reports this as `outdated`.
-- Which program the agent runs, and whether that program is gone or isn't the one you ran.
-- Where the agent logs, and on macOS where launchd keeps the watch's output from before its log opens.
-- The key file the agent names, or none where it uses the keychain.
-- Which folders the watch isn't holding, and why, including each folder with no credential the watch can use.
-
-`off` stops the watch and removes the agent. If the service manager can't be asked, it still removes the agent's file, exits 3 and says what it couldn't stop.
-
-Another program can show the same state from [the folder watch record](/folder-watch-record).
-
-## Use a key file instead of the keychain
-
-A login agent starts outside your shell and reads your own keychain. On a machine that no one signs in to, such as a server or an automated Mac, the keychain stays locked and would raise a prompt that nobody answers. **A key file replaces the keychain for the watch**, and the agent holds the file's path and never what is in it.
-
-Make a key with only the permissions the folders need, as [Manage keys](/run/manage-keys) shows, and write the file with two lines:
-
-```bash
-MARFA_API_URL=https://marfa.example.com
-MARFA_API_KEY=<the key>
-```
-
-```bash
-chmod 600 ~/.config/marfa/watch.env
-marfa folders autostart on --key-file ~/.config/marfa/watch.env
-```
-
-To run one watch by hand with the same file, use `marfa folders watch --key-file <file>`.
-
-- **The file can live anywhere outside your folders.** It has to be a regular file with one name, owned by you, closed to the group and to others (mode 600), and with both lines and a server address. Otherwise the command exits 1 with `invalid` and says which fault, and `autostart on` writes nothing. A file inside a folder is refused, because the watch would send it to the server as one of the folder's files.
-- **The key is used for the folders on that server,** and the keychain is read for none. A folder on another server is reported as having no credential, and the key is never sent to it.
-- **The file is read again each time a folder is opened,** so a key you rotate in the file is the one used the next time the watch opens a folder. A file that has become unsafe holds that folder back, with the reason `invalid` in [the folder watch record](/folder-watch-record), until it is fixed, and the other folders go on.
-- **`--key-file` replaces `--url`, `--key` and `--profile`:** giving any of them with it is a usage error, exit code 2.
-- **`autostart on` without the option** goes back to the keychain and replaces the agent.
 
 ## Work on a folder while the watch runs
 
@@ -133,7 +70,7 @@ If the watch hasn't let go within 10 seconds, such as when it is suspended or wa
 
 To send files you added or edited without writing the instance's changes into the directory yet, push with `--send-only`.
 
-**Stop any watch first, including login syncing** (`marfa folders autostart off`, then `on` afterwards). A running watch pulls the instance's changes by itself, and takes the folder back after the push to pull what the push left.
+**Stop any watch first, including [sync from login](/run/sync-from-login)** (`marfa folders autostart off`, then `on` afterwards). A running watch pulls the instance's changes by itself, and takes the folder back after the push to pull what the push left.
 
 <Terminal>
 

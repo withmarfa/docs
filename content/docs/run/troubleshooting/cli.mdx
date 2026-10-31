@@ -1,0 +1,118 @@
+---
+title: The CLI
+description: Fix a marfa command that can't reach its server, find its key or read its profile.
+---
+
+Each command needs a server and a credential, from its options, the environment, a profile or the keychain. [Connect to a server](/cli#connect-to-a-server) gives the order the CLI follows, and [Exit codes](/cli#exit-codes) lists what each code means.
+
+## network: io: Connection refused
+
+Nothing answers at the address the command used: the server isn't running, or listens on another port. The CLI exits with `3`.
+
+Start the server, and check `MARFA_API_URL` or `--url`. `marfa status` tells you when it can reach the instance.
+
+## no server named
+
+The full message is `no server named: pass --url or --profile, or set MARFA_API_URL or MARFA_PROFILE`. The command works with an instance, and nothing told it which one. With the keychain off, there's no current server to fall back to. The CLI exits with `2` and the code `no_server`.
+
+Set `MARFA_API_URL` to the instance's address, such as `http://localhost:8600`, or pass `--url`. Or pick a [profile](/cli#name-a-server-with-a-profile) with `--profile` or `MARFA_PROFILE`.
+
+## a key from --key or MARFA_API_KEY needs its server named
+
+The command was given a key but no server, and the CLI never sends that key to the current server. It exits with `2` and the code `no_server`. `marfa folders pull`, `marfa folders restore`, `marfa device blobs get` and `marfa folders watch` with no directory refuse such a key too, though they otherwise run without a server named.
+
+Name the server with `MARFA_API_URL` or `--url`.
+
+## no credential for …
+
+The command knows the instance but has no credential for it. The CLI exits with `5`.
+
+Set `MARFA_API_KEY`, keep a key with `marfa keys keep`, or sign in with `marfa login`. With the keychain off, only `--key`, `MARFA_API_KEY` or a profile with a `key_command` works. For a profile without a `key_command`, the message names `marfa login --profile <name>` and `marfa keys keep --profile <name>` as well.
+
+## no profile file at … or no profile named …
+
+`--profile` or `MARFA_PROFILE` names a profile the CLI can't find. The CLI exits with `2`.
+
+- **`no profile file at <path>`:** there's no `profiles.toml` where the CLI looks, which the message names.
+- **`no profile named "<name>" in <path>`:** the file has no section of that name. The message lists the names it has, and a name is exact: `Example` is not `example`.
+
+Write a section such as `[example]` with a `url` line, as [Name a server with a profile](/cli#name-a-server-with-a-profile) shows.
+
+## the argument --profile cannot be used with --url
+
+The full message is `the argument '--profile <NAME>' cannot be used with '--url <URL>'`. `--profile` names the server and the key itself, so the CLI refuses `--url` and `--key` beside it, exits with `2` and sends nothing.
+
+Drop the option and keep the profile, or drop the profile and keep the option.
+
+## MARFA_PROFILE cannot be combined with MARFA_API_URL or MARFA_API_KEY
+
+A profile and a variable each name a server. The CLI never guesses which you meant, because it would send one server the other's key. It exits with `2` and sends nothing.
+
+Unset the variables, or unset `MARFA_PROFILE`. `--profile`, `--url` and `--key` take precedence over all three, and need nothing unset.
+
+## the profile file … can be changed by other users
+
+The CLI runs a profile's `key_command` as you, so **it refuses a profile file that anyone else could change**, and exits with `2`. It follows a symbolic link and checks the file and its folder. The message names the fault:
+
+- **`can be changed by other users (mode 666)`:** run `chmod go-w` on the file.
+- **`belongs to another user`:** run `chown "$USER"` on the file, if it is yours.
+- **`the folder … that holds the profile file`:** run `chmod go-w` on the folder.
+- **`has an access control entry that lets other users change it`:** on macOS, run `chmod -N` on the file or the folder.
+
+## the profile file … is not valid
+
+The file isn't TOML the CLI accepts, and one mistake blocks every profile in it. The message gives the line.
+
+Check the line. A profile takes only `url` and `key_command`, so a misspelled field is refused. A `key_command` is a list, such as `["op", "read", "op://Private/Marfa/key"]`, not a string.
+
+## the key command of profile …
+
+The profile's `key_command` gave the CLI no key. The CLI exits with `5` and the code `key_command`, and sends no request with a key. The message names the program, never its arguments or output, and ends with the reason:
+
+- **`was not found` or `cannot be run`:** the CLI runs the list without a shell, so it doesn't expand `~`, a variable or a pipe. Give the program's full path, or put its folder on `PATH`.
+- **`exited with status N`:** the program refused, and the message adds the last line it wrote to standard error. A secrets manager that is signed out says so here. Run the program yourself and fix that.
+- **`printed nothing` or `printed more than one line`:** the program must print the key alone, as one line under 16 KiB.
+- **`tried to read from or write to the terminal`:** the CLI runs the program with no standard input, so **a key command must print the key without asking**. Sign in to the secrets manager first, or use one that asks in its own window.
+- **`did not finish within 60 seconds`:** the CLI ended the program and everything it started.
+
+## the profile … takes its key from its key_command, not the keychain
+
+`marfa login` without `--print-token`, `marfa logout`, `marfa keys keep` and `marfa keys forget` work on the keychain, which a profile with a `key_command` never reads. The CLI refuses them for that profile and exits with `2`.
+
+Change the key in the secrets manager, or remove `key_command` from the profile to use the keychain.
+
+## no keychain file is there
+
+`MARFA_KEYCHAIN` names a file that doesn't exist. The CLI exits with `4`.
+
+Create the file, as [Use another keychain file](/cli#use-another-keychain-file) shows.
+
+## marfa keys keep refuses the key
+
+`marfa keys keep` checks the key with the server, and keeps nothing if the server refuses it:
+
+- **`401 unauthorized`, exit `5`:** the key is mistyped, revoked or expired, or came from another server.
+- **`the server says this is not a key`, exit `1`:** it's an app's access token, which ends within the hour. `marfa login` keeps a sign-in that renews it.
+- **`no key to keep`:** set `MARFA_API_KEY`, write the key on standard input, or pass `--key`.
+
+## --socket cannot be combined with MARFA_API_URL, MARFA_API_KEY or MARFA_PROFILE
+
+`--socket` acts with the machine's own authority, so it refuses to run while the environment names a server, a key or a profile. It refuses `--profile`, `--url` and `--key` too.
+
+Unset all three for the command:
+
+```bash
+unset MARFA_API_URL MARFA_API_KEY MARFA_PROFILE
+```
+
+## --socket must not traverse symbolic links
+
+The socket's path passes through a symbolic link, such as `/tmp` on macOS. A relative path is refused too, with `--socket requires an absolute path`.
+
+Give the full path with its links resolved, such as `"$(pwd -P)/data/control/marfa.sock"` from the server's directory.
+
+## --socket fails with No such file or directory
+
+There's no socket at that path: the server isn't running, or its data is somewhere else. The server makes the socket when it starts, at `control/marfa.sock` beside its database unless `MARFA_CONTROL_SOCKET` names another path.
+
+Start the server, and check the path. [The private socket](/run/deploy#the-private-socket) says where it is.
