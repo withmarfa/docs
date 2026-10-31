@@ -76,7 +76,9 @@ On a pull request, the `Docs reports` job writes the same report to the job summ
 
 ## CI and publishing
 
-- `CI` runs on every pull request and every push to `main`. `Build and type-check` is a required check, so never add `paths` filters to `ci.yml`: a filtered-out run leaves the check pending. `.github/scripts/ci-changes.sh` skips the build only for root `AGENTS.md`, `CLAUDE.md`, `README.md` and `LICENSE`, the agent directories, `.githooks/` and the GitHub templates.
+- `CI` runs on every pull request and every push to `main`. `Full CI` (named `Draft CI` while the pull request is a draft) is a roll-up of `Build and type-check`, and with `Pull request description` it is a required check, so never add `paths` filters to `ci.yml`: a filtered-out run leaves the check pending. `.github/scripts/ci-changes.sh` skips the build only for root `AGENTS.md`, `CLAUDE.md`, `README.md` and `LICENSE`, the agent directories, `.githooks/` and the GitHub templates, and runs the sync script's test only when `scripts/sync-from-marfa.sh`, its test or `ci.yml` changed.
+- A pull request description follows the organization's template: `Pull request description` fails it otherwise (`scripts/check-pr-description.ts`).
+- A newer push cancels a pull request's earlier run; a push to `main` is never cancelled.
 - Every workflow runs on GitHub-hosted `ubuntu-latest`. The `CodeQL` workflow owns code scanning, so GitHub's default CodeQL setup stays off.
 - **Merging to `main` publishes.** `Publish` runs when `CI` succeeds on `main`. Each Worker has its own job, which deploys only when something that target builds from changed since the commit the site serves, then fails unless the site's `/version.json` reports the deployed commit.
 - **Never build both targets and then deploy in one tree.** The Cloudflare plugin writes one deploy pointer per project root and every build rewrites it, so a bare `wrangler deploy` deploys whichever target built last. `deploy:status` passes the config its own build emitted.

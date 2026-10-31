@@ -4,7 +4,7 @@
 # Two functions, sourced by the Publish workflow. They are separate from it and
 # take their inputs as arguments so `read-live-commit.test.sh` can drive both
 # against a real HTTP server and a real git history, rather than the logic only
-# ever running unattended at 07:23.
+# ever running unattended.
 #
 # `read_live_commit` never returns an empty string and never exits non-zero.
 # Under `bash -e`, `LIVE="$(curl ... | jq ...)"` takes jq's status, so a parse
@@ -176,7 +176,7 @@ describe_live_state() {
 # whose tree is identical to main's after the squash merge. The diff is then
 # empty, the job skips, and it keeps skipping: the site never receives a commit
 # the freshness check recognizes, so it reports published-from-somewhere-else
-# every day with nothing able to correct it.
+# on every check with nothing able to correct it.
 target_needs_publish() {
   local target="$1" live="$2" deploy="$3"
 
@@ -202,7 +202,7 @@ target_needs_publish() {
 #
 # Two Workers publish from this repository and each publishes only when
 # something it builds from has changed, so a run that touches one leaves the
-# other legitimately behind main and correctly so. Without this, the daily
+# other legitimately behind main and correctly so. Without this, the
 # check reports that site as behind for as long as it takes somebody to change
 # a file it cares about — a failure that is permanent and about nothing.
 #
@@ -233,7 +233,7 @@ effective_verdict() {
 
 # report_live_state <expected> <live> [target]
 #
-# The daily check's whole decision: verdict to wording to exit code. It lives
+# The check's whole decision: verdict to wording to exit code. It lives
 # here rather than in the workflow because a `run:` block cannot be executed by
 # a test, and the previous version of this guard proved that matters — eight
 # separate mutations of the YAML, including inverting the tip check and making

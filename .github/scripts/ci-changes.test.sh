@@ -56,6 +56,28 @@ runs "a look-alike of an agent directory" true agents/notes.md
 runs "an agent file beside a docs page" true AGENTS.md content/docs/index.mdx
 runs "an empty change" true
 
+# syncs <description> <expected> <path>...
+syncs() {
+  local what="$1" want="$2"
+  shift 2
+  if (($# == 0)); then
+    check "${what}" "$(: | bash "${classifier}" sync -)" "${want}"
+  else
+    check "${what}" "$(printf '%s\0' "$@" | bash "${classifier}" sync -)" "${want}"
+  fi
+}
+
+# What the sync script's test needs to run for.
+syncs "the sync script" true scripts/sync-from-marfa.sh
+syncs "the sync script's test" true .github/scripts/sync-from-marfa.test.sh
+syncs "the workflow that runs it" true .github/workflows/ci.yml
+syncs "a docs page" false content/docs/build/items.mdx
+syncs "the API spec, which the test does not read" false openapi.json
+syncs "a generated file" false src/generated/GLOSSARY.md
+syncs "another script" false scripts/staleness-report.ts
+syncs "a page beside the sync script" true content/docs/index.mdx scripts/sync-from-marfa.sh
+syncs "an empty change" true
+
 # The gate on the job, read from the workflow.
 workflow="${root}/.github/workflows/ci.yml"
 gate="if: \${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code != 'false') }}"
@@ -63,8 +85,12 @@ check "Build and type-check reads the answer" "$(grep -cF "${gate}" "${workflow}
 check "Build and type-check keeps its name" "$(grep -cF "name: Build and type-check" "${workflow}")" 1
 check "the classifier runs in CI" "$(grep -cF "run: bash .github/scripts/ci-changes.sh" "${workflow}")" 1
 check "the classifier's own test runs in CI" "$(grep -cF "run: bash .github/scripts/ci-changes.test.sh" "${workflow}")" 1
+check "the sync test runs only when its inputs changed" "$(grep -cF "if: \${{ needs.changes.outputs.sync != 'false' }}" "${workflow}")" 1
 check "no trigger filters paths" "$(grep -cE '^\s+paths(-ignore)?:' "${workflow}")" 0
 check "a push to main gets a group of its own" "$(grep -cF "|| github.run_id }}" "${workflow}")" 1
+check "a draft and a ready pull request have groups of their own" "$(grep -cF "github.event.pull_request.draft && 'draft' || 'ready'" "${workflow}")" 1
+check "marking a draft ready runs the workflow" "$(grep -cF "types: [opened, synchronize, reopened, ready_for_review]" "${workflow}")" 1
+check "the roll-up is named for a draft and for a ready pull request" "$(grep -cF "name: \${{ github.event.pull_request.draft && 'Draft CI' || 'Full CI' }}" "${workflow}")" 1
 check "only a pull request's run is cancelled" "$(grep -cF "cancel-in-progress: \${{ github.event_name == 'pull_request' }}" "${workflow}")" 1
 
 # As CI runs it, against a repository with real commits.
@@ -100,6 +126,10 @@ moved_out="$(commit_change "move a page into an agent directory")"
 git_in mv .agents/skills/skill.md src-skill.md
 moved_in="$(commit_change "move a skill out of an agent directory")"
 
+mkdir -p "${repo}/scripts"
+echo sync >"${repo}/scripts/sync-from-marfa.sh"
+sync_change="$(commit_change "sync script")"
+
 # A stand-in for `gh` that answers how many green runs the parent has.
 cat >"${bin}/gh" <<'GH'
 #!/usr/bin/env bash
@@ -117,7 +147,15 @@ ci() { # ci <event> <base> <head> [gh behavior]
   : >"${output}"
   (cd "${repo}" && PATH="${bin}:${PATH}" GITHUB_REPOSITORY=withmarfa/docs GITHUB_EVENT_NAME="$1" BASE="$2" HEAD="$3" \
     FAKE_GH="${4:-fail}" GITHUB_OUTPUT="${output}" bash "${classifier}" >/dev/null)
-  cat "${output}"
+  grep '^code=' "${output}"
+}
+
+sync_answer() { # sync_answer <event> <base> <head> [gh behavior]
+  local output="${repo}/output"
+  : >"${output}"
+  (cd "${repo}" && PATH="${bin}:${PATH}" GITHUB_REPOSITORY=withmarfa/docs GITHUB_EVENT_NAME="$1" BASE="$2" HEAD="$3" \
+    FAKE_GH="${4:-fail}" GITHUB_OUTPUT="${output}" bash "${classifier}" >/dev/null)
+  grep '^sync=' "${output}"
 }
 
 check "an instruction-only pull request skips the job" "$(ci pull_request "${base}" "${docs_only}")" code=false
@@ -139,5 +177,12 @@ check "an instruction-only push runs it when the lookup is unreadable" "$(ci pus
 check "a content push runs it even after a green run" "$(ci push "${docs_only}" "${content}" green)" code=true
 check "a first push runs it" "$(ci push 0000000000000000000000000000000000000000 "${docs_only}" green)" code=true
 check "a push with an unknown parent runs it" "$(ci push 1111111111111111111111111111111111111111 "${docs_only}" green)" code=true
+
+check "a docs page change skips the sync test" "$(sync_answer pull_request "${docs_only}" "${content}")" sync=false
+check "a sync script change runs the sync test" "$(sync_answer pull_request "${moved_in}" "${sync_change}")" sync=true
+check "an unreadable diff runs the sync test" "$(sync_answer pull_request invalid "${docs_only}")" sync=true
+check "a manual run runs the sync test" "$(sync_answer workflow_dispatch "${base}" "${docs_only}")" sync=true
+check "a push after no green run runs the sync test" "$(sync_answer push "${base}" "${docs_only}" none)" sync=true
+check "a content push after a green run skips the sync test" "$(sync_answer push "${docs_only}" "${content}" green)" sync=false
 
 exit "${failed}"
