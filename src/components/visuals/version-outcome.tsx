@@ -38,7 +38,7 @@ export function outcome(current: Case): Outcome {
   return current === 'title' ? 'merged' : current === 'body' ? 'conflict' : 'copy';
 }
 
-const theirs = "The other app's";
+const theirs = 'Theirs';
 
 /**
  * What Marfa answers and what the note and a conflicted copy hold after. A

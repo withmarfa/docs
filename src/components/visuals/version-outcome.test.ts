@@ -22,9 +22,9 @@ describe('version outcome figure', () => {
   // `versions/collision-omitted`: a field the write does not carry never collides.
   // `versions/auto-keep-both`: the note keeps the body it holds, and yours goes into the copy.
   it('says which writer holds each field after', () => {
-    expect(answer('title')).toMatchObject({ title: "The other app's", body: 'Yours', copy: 'None' });
-    expect(answer('body')).toMatchObject({ title: 'Unchanged', body: "The other app's", copy: 'None' });
-    expect(answer('auto')).toMatchObject({ title: 'Unchanged', body: "The other app's", copy: 'Yours' });
+    expect(answer('title')).toMatchObject({ title: 'Theirs', body: 'Yours', copy: 'None' });
+    expect(answer('body')).toMatchObject({ title: 'Unchanged', body: 'Theirs', copy: 'None' });
+    expect(answer('auto')).toMatchObject({ title: 'Unchanged', body: 'Theirs', copy: 'Yours' });
   });
 
   it('draws one case for each outcome', () => {
