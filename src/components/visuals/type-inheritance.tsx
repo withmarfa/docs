@@ -38,14 +38,15 @@ export const compatible: { target: TypeEntry; claimant: TypeEntry } = {
 };
 
 /**
- * What a listing that names a type returns, drawn as a frame around it: the
- * types under a type through `parent` are inside its listing, and a type that
- * is only compatible with it stays outside.
+ * What a listing that names a type returns, drawn as a tinted frame around
+ * it: the accent means "returned". The types under a type through `parent`
+ * are inside its frame, and a type that is only compatible with it stays
+ * outside, dashed. The page's caption says what to look at.
  */
 export function TypeInheritance({ caption }: { caption?: ReactNode }) {
   return (
     <Figure label="Which types a listing of a type returns" caption={caption} className="marfa-ti">
-      <Group label={<code>GET /items?type=core.file</code>} subtitle="Returns all three" className="marfa-ti-listing">
+      <Group tone="accent" label={<code>GET /items?type=core.file</code>} className="marfa-ti-listing">
         {chain.map((type, index) => (
           <Fragment key={type.id}>
             {index > 0 ? <Arrow axis="down" direction="back" label={<code>parent</code>} /> : null}
@@ -54,7 +55,7 @@ export function TypeInheritance({ caption }: { caption?: ReactNode }) {
         ))}
       </Group>
       <div className="marfa-ti-side">
-        <Group label={<code>GET /items?type=core.note</code>} subtitle={<>Leaves <code>user.recipe</code> out</>} className="marfa-ti-listing">
+        <Group tone="accent" label={<code>GET /items?type=core.note</code>} className="marfa-ti-listing">
           <Box title={<code>{compatible.target.id}</code>} subtitle={compatible.target.subtitle} />
         </Group>
         <Arrow axis="down" direction="back" dashed label={<code>compatible_with</code>} />
