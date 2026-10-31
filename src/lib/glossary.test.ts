@@ -84,7 +84,7 @@ describe('the Glossary page', () => {
           `The page's definition of ${word}, or GLOSSARY.md's of ${source.glossary}, changed since they were last compared.`,
           `GLOSSARY.md: ${settled}`,
           `The page: ${meaning}`,
-          `Make the page agree, then set its "reviewed" to "${now}" in src/lib/glossary-sources.json.`,
+          `If the page already agrees, set its "reviewed" to "${now}" in src/lib/glossary-sources.json. If you change the page, run this test again and set the fingerprint it then gives.`,
         ].join('\n'),
       ).toBe(source.reviewed);
     });

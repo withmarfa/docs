@@ -51,7 +51,7 @@ The code of the docs site and the status page. The root `AGENTS.md` still applie
 - Tests sit beside the code as `*.test.ts` or `*.test.tsx`. Each content lint rule has a test that proves it fires on a bad sample; give a new rule one.
 - `src/lib/page-limits.test.ts` counts each page's words against `src/lib/page-limits.json` (`STYLE.md`, "Less is clearer"). A page over its limit fails with what to do. A `pending` entry is a ceiling for a page awaiting rewrite, and the test fails on one that no longer excuses anything, so delete it when the rewrite lands.
 - `src/lib/command-check.ts` holds the command check and `command-check.test.ts` runs it over every page. Its exceptions are in `src/lib/command-check-allowlist.json`, each with a reason; add one only for what is not a `marfa` command or option, and fix a page that names one that does not exist.
-- `src/lib/glossary.test.ts` compares each word on the Glossary page with the `GLOSSARY.md` row `src/lib/glossary-sources.json` names for it. When it fails, read both definitions, make the page agree, and paste the fingerprint the failure gives. A word with no row has a reason instead.
+- `src/lib/glossary.test.ts` compares each word on the Glossary page with the `GLOSSARY.md` row `src/lib/glossary-sources.json` names for it. When it fails, read both definitions and make the page agree. Then run the test again and paste the fingerprint it gives, since a change to the page changes the fingerprint. A word with no row has a reason instead.
 
 ## Code Review Rules
 
