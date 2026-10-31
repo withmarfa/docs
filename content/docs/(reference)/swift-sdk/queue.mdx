@@ -1,0 +1,89 @@
+---
+title: Queue and verdicts
+description: Send a Swift app's queued writes, read the instance's verdict on each, and clear a write that can't go.
+---
+
+Every write waits in the copy's queue until a drain sends it, and the instance answers each with a **verdict**. [Devices](/devices#verdicts) explains each verdict. Answered writes stay in the queue, with their verdicts, until the app clears them.
+
+## Send the queue
+
+`queue.drain()` sends the queue once and returns a `DrainReport`. **A held [`updates()`](/swift-sdk/updates) sequence drains for you** when the server comes back, and again after a drain left a write undelivered. Otherwise nothing drains by itself, so drain after the app's own writes.
+
+| `DrainReport` field | Holds |
+| --- | --- |
+| `answered`, `held`, `undelivered`, `unsent`, `unmade` | The writes the instance answered, held back, couldn't reach, settled without a request, and couldn't make a request for. |
+| `verdicts` | A `DrainVerdict` for each write attempted or settled, with its `verdict`, its `refusals` count and whether the instance `replayed` an earlier answer. |
+| `unavailable`, `stopped` | Why the drain ended before the queue was through, and the key refusal that stopped the queue. |
+| `retryAfterSeconds` | How long a rate limit asked the app to wait. |
+
+**A drain throws `hydrationIncomplete` while a fill is under way or was interrupted**, sending nothing. A stale copy drains.
+
+## Read the queue
+
+| `queue` call | What it does |
+| --- | --- |
+| `all()` | Every write the queue holds, answered ones included. |
+| `takeAnswered()` | Clears the answered writes and returns them, in one step. |
+| `forgetAnswered()`, `forgetAnswered(ids:)` | Clear answered writes, all or only those named, and return how many went. |
+| `discard(_:)` | Takes a refused write, and the content it carried, out of the queue. |
+| `release(_:)`, `release(reason:)` | Send a blocked or dead write again on the next drain, under a fresh key, or every write blocked for one `BlockedReason`. |
+| `withdraw(_:)` | Takes a write that can never be sent out of the queue. |
+
+**Act on answers with `takeAnswered()`**, not by reading the queue and then forgetting: two callers never both get one answer, and no answer is cleared unread. Each call that clears a write tells the copy's streams `.refreshed(.forgotten)`, so a `.queue` live query reads again.
+
+- **Blocked and dead writes stay until released or withdrawn.** So does an answered write that a waiting write depends on.
+- **A refused write that carried content stays**, its `body` readable, until `discard(_:)`.
+- **`discard(_:)` returns `false`** for a write that isn't refused, or that a waiting write depends on, and throws `notFound` for an ID the queue doesn't hold.
+
+## Verdicts
+
+A `QueuedWrite` holds its `kind`, the rows it names, its `body`, its `dependsOn` and `follows` writes, and the instance's whole `answer`. Its `verdict` is `nil` until the instance answers:
+
+| `Verdict` | Meaning |
+| --- | --- |
+| `.accepted` | The instance took the write. |
+| `.merged(fields:)` | The instance applied the write over changes made since, field by field. |
+| `.conflicted(siblingId:fields:)` | The instance kept its own value and wrote the losing one to a sibling item. |
+| `.refused(Refusal)` | The instance refused the write. |
+| `.blocked(reason:refusal:)` | The write is stopped until something outside the queue changes. |
+| `.dead` | The write was refused five times. It's never sent again unless released. |
+
+A `Refusal` carries the instance's `reason` and `code`, its `message`, the `fields` it wouldn't take, whether the item is `trashed` and can be restored, and the `grant` the key lacks.
+
+### Waiting writes
+
+**A write held behind another that has no answer yet has `waiting` set to `true`** and no verdict. It goes once that write is answered, with nothing for the app to do, and no call releases it. The contract names this seventh reason `awaiting_dependency`, and the SDK shows it as waiting rather than as a `BlockedReason`.
+
+## Blocked writes
+
+The contract gives a blocked write [one of seven reasons](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsblocked-reasons-five). The SDK names six as a `BlockedReason`:
+
+| `BlockedReason` | Meaning | What clears it |
+| --- | --- | --- |
+| `.credentialRefused` | The instance refused the key. | A working key through `useKey(_:)`, or the grant restored. The next drain sends it again. |
+| `.keySpent` | The instance answered that the write's idempotency key was used for another request. | `release(_:)`, which sends it under a fresh key. |
+| `.ancestorUnavailable` | The key can't read the version the write was based on. | `withdraw(_:)`, or `release(_:)` once the key can read it. |
+| `.conflictUnresolved` | The instance refused the write's version as overtaken, `version_conflict`. | `withdraw(_:)`. Sent again, it's blocked the same way. |
+| `.failingAlone` | The write keeps failing while the instance answers other writes. | `release(_:)` to try again, or `withdraw(_:)`. |
+| `.instanceChanged` | The write was queued against another instance than the one the copy was filled from since. | `release(_:)` to send it to the instance there now, or `withdraw(_:)`. |
+
+**A write blocked for any reason but `.credentialRefused` is never sent until the app acts**, so show it to the person. The writes that depend on a write blocked `.failingAlone` wait behind it, and a release takes them with it.
+
+### Show a failing write
+
+A write blocked `.failingAlone` keeps what it met, for the app to show:
+
+- **`lastFailure`** is a `LastFailure` with the HTTP `status`, a gateway's or a `429` included, and `text`, the start of a text body cut to 200 Unicode scalars. Either is `nil` when none was kept.
+- **`environmentalStreak`** counts the drains in a row in which the write met such a failure. A `429` adds nothing.
+
+An answer to the write, a refusal and a release clear both.
+
+### Withdraw a write
+
+`withdraw(_:)` takes a write blocked `.ancestorUnavailable`, `.conflictUnresolved`, `.failingAlone` or `.instanceChanged` out of the queue, and puts its row back as the instance holds it. It returns `false` for any other write.
+
+- **It reads the row from the server first**, so it needs the server, and changes nothing when the read fails. It returns `false` when the copy moved during the read: ask again.
+- **The writes waiting on a withdrawn write are refused unsent.** A withdrawn create's writes are refused with the reason `the <kind> it waits for was withdrawn`, such as an edit or an edge for the item it would have made.
+- **A write refused this way is never released**, since the write it waited for is gone.
+
+The [withdraw rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictswithdraw-refuses-held) are in the contract.

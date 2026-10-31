@@ -1,0 +1,192 @@
+---
+title: Sign-in and server calls
+description: Sign a Swift app in with the owner's approval, and make the calls that only the instance can answer, such as reading an item's history or registering a type.
+---
+
+The working copy answers from the device. **Some calls need the instance itself**: signing in, reading an item's history, changing the instance's settings and registering types. Each needs a connection and is never queued. With the device offline, a call throws `noConnection` and sends nothing.
+
+## Sign in
+
+An app can use a key the person pastes in, or ask the owner to approve it. **`Authorization` signs the app in with the owner's approval** and keeps the sign-in in the keychain. The app never sees the owner's password, and the approval stands until the owner revokes it.
+
+```swift
+let auth = try Authorization(
+    server: serverURL,
+    client: .init(
+        name: "Reading List",
+        redirect: URL(string: "com.example.readinglist:/signed-in"),
+        scopes: ["core.note:read", "core.note:write"]),
+    service: "com.example.readinglist")
+
+let credential: Credential
+if let kept = try auth.credential() {
+    credential = kept
+} else {
+    credential = try await auth.signIn(presentingFrom: window)
+}
+let server = try Server(url: serverURL, credential: credential)
+let copy = try await WorkingCopy.open(store: storeURL, server: server)
+```
+
+- **`redirect` is a private-use address** whose scheme is a reverse domain name you control, with a path and no host. Claim the scheme in the app's `CFBundleURLTypes`.
+- **`scopes` are what the app asks for.** The owner may approve fewer, and `Credential.scopes` says which. `offline_access` is added for you, so the sign-in lasts.
+- **The copy renews the sign-in** whenever the server refuses its access token. Renewals run one at a time across every copy in the process, and across an app and its extensions that share a `Keychain(accessGroup:)`.
+
+| `Authorization` call | What it does |
+| --- | --- |
+| `credential()` | The kept sign-in, or `nil` when the app hasn't signed in, signed out, or the sign-in ended. |
+| `signIn(presentingFrom:prefersEphemeralWebBrowserSession:)` | Shows the server's sign-in and approval pages in the system's web authentication session. |
+| `signIn(using:)` | The same through SwiftUI's `webAuthenticationSession` environment value. |
+| `startDeviceSignIn()` | For a device with no browser: returns a `DeviceSignIn` with a `userCode` and a `verificationURL` to show. Its `credential()` waits until the person approves on another device, or the code reaches `expiresAt`. |
+| `signOut()` | Deletes the sign-in from the keychain, then revokes it at the server. Returns `false` when the server didn't confirm, and the grant then stands until the owner revokes it. |
+
+A sign-in that doesn't finish throws a `SignInError`:
+
+| `SignInError` | Meaning |
+| --- | --- |
+| `.canceled`, `.denied` | The person closed the browser, or declined. |
+| `.expired` | The device code expired before the person decided. |
+| `.stateMismatch` | The browser returned an approval this sign-in didn't ask for, so it's refused. |
+| `.notSignedIn`, `.otherServer` | The keychain holds no sign-in for the server, or the address is on another server than the sign-in's. |
+| `.notAServer`, `.noRedirect` | The address isn't an `http` or `https` server, or a browser sign-in has no `redirect`. |
+| `.refused(code:message:)` | The server refused, with an OAuth error code. |
+| `.unavailable(message:)`, `.unreadable(message:)` | The server couldn't be reached, or answered something the SDK can't use. |
+
+Once the server ends a sign-in, the copy's calls throw `signedOut`: sign in again. [Authenticate](/build/authenticate#connect-an-app-with-oauth) explains the flow, and [Access](/access#what-the-owner-approves) what the owner approves.
+
+## Calls on the server
+
+A `Server` makes these calls with the key or sign-in it holds. **Each waits 20 seconds in all**, renewing a sign-in included, then throws `network`. Pass `timeout:` to change it.
+
+| `Server` call | What it does |
+| --- | --- |
+| `instanceDescription()` | The instance's name, ID, version and contract, read without the key. |
+| `snapshots(ofItem:after:limit:)` | One page of an item's earlier versions, oldest first, as an `ItemSnapshotPage`. |
+| `config()` | The instance's settings, as an `InstanceConfig`. It needs `config.manage`. |
+| `updateConfig(_:expecting:)` | Changes the settings an `InstanceConfigPatch` sets, and returns the settings as stored. |
+| `setTypeIcon(_:ofType:expecting:)` | Sets the owner's icon for a type, or with `nil` removes it. [Draw a type's icon](#draw-a-types-icon) explains. |
+
+**Pass `expecting:` the `instanceID` from `config()`** when a change must reach the instance the person saw. Where another instance now answers at the address, the change throws `instanceChanged` and changes nothing.
+
+### Read an item's history
+
+The working copy keeps no history, so a snapshot is read from the server. Each `ItemSnapshot` holds the item's `version`, `type`, `tier`, `properties`, `occurredAt` and `sourceID` before a write replaced them, the `writer` that made that write, and `createdAt`, when it did.
+
+```swift
+var page = try await server.snapshots(ofItem: id)
+var history = page.snapshots
+while let next = page.next {
+    page = try await server.snapshots(ofItem: id, after: next)
+    history += page.snapshots
+}
+```
+
+- **Stop only when `next` is `nil`.** A page can be short, or empty, with more to follow.
+- **`limit` is 1 to 200.** Without one, the server's default applies.
+- **A `Writer` has a `kind`**: `.browser`, `.app`, `.key`, `.local` for the command on the server's machine, or `.other` for a kind the SDK doesn't know. `writer` is `nil` for a change the server made itself.
+- **An item in the bin, or of a type the key doesn't reach,** throws `notFound`.
+
+### Change the settings
+
+Each field of an `InstanceConfigPatch` is a `SettingChange`: `.set(value)`, or `.clear` to return to the server's default. **A field left `nil` isn't sent**, so the instance keeps it. In an `InstanceConfig`, `nil` means the default applies. [Change settings while it runs](/run/settings#change-settings-while-it-runs) explains each setting.
+
+```swift
+let settings = try await server.config()
+var patch = InstanceConfigPatch()
+patch.trashRetentionDays = .set(60)
+_ = try await server.updateConfig(patch, expecting: settings.instanceID)
+```
+
+## The API client
+
+**`Client` from the `MarfaAPI` product makes the operations the working copy doesn't**: registering, changing and deleting types, managing keys and webhooks, and reading statistics, occurrences and the audit log. It uses the same `Server` as the copy:
+
+```swift
+import MarfaAPI
+
+let api = Client(server)
+let title = Components.Schemas.FieldDefinition(_type: .string, required: true)
+let entry = Components.Schemas.TypeDefinitionInput(
+    fields: .init(additionalProperties: ["title": title]),
+    id: "app.readinglist.entry")
+
+_ = try await api.check(itemType: entry)
+_ = try await api.register(itemType: entry)
+```
+
+| `Client` call | Operation |
+| --- | --- |
+| `check(itemType:)` | [Check a type definition](/api-reference/types/normalizeType) without registering it. |
+| `register(itemType:)`, `replace(itemType:with:)`, `delete(itemType:force:)` | [Register](/api-reference/types/registerType), [replace](/api-reference/types/replaceType) or [delete](/api-reference/types/deleteType) an item type. |
+| `register(edgeType:)`, `edgeTypes()`, `delete(edgeType:force:)` | [Register](/api-reference/edge-types/registerEdgeType), [list](/api-reference/edge-types/listEdgeTypes) or [delete](/api-reference/edge-types/deleteEdgeType) an edge type. |
+
+Every other operation is a method named after its operation ID, such as `listAuditLog()`. **A refusal throws a `MarfaError`**, so read a success from the answer's `ok` case: `try await api.listAuditLog().ok.body.json`.
+
+- **The client has no call for one item or edge, for search or for events.** Those go through the working copy, so each item has one path.
+- **A call waits 30 seconds** for the answer to start, and again between the parts of a streamed body, then throws `network`. Pass `Client(server, timeout:)` a longer time for a call that answers only when its work is done, such as `runHousekeeping`.
+- **A refused access token is renewed once** and the call sent again. Once the server ends the sign-in, calls throw `signedOut`.
+- **It never follows a redirect**, so the credential reaches no other host.
+- **A delete of a type that an item, folder, view or webhook still names** throws `server` with status 409 and the code `type_in_use`. Its `message` ends with the settings that name the type.
+
+`declareTypes(_:)` registers an app's types when the copy fills, which suits an app that must start offline. Use `register(itemType:)` when the app needs the type on the instance now.
+
+### Move the items of a type
+
+A type's ID never changes, so renaming a type means registering the new one, moving the items and deleting the old one. **The move is a job on the instance.** It gives every item of the type that the credential can see, in any state, the new type. Once none remains, it rewrites the folders, views and webhooks that name the old type.
+
+```swift
+let preview = try await api.previewMove(ofType: "app.deal", to: "app.contract")
+let started = try await api.startMove(
+    ofType: "app.deal", to: "app.contract", properties: ["stage": "signed"])
+let job = try await api.follow(moveJob: started.id)
+if job.status == .completed, job.result?.settingsRewritten == true {
+    try await api.delete(itemType: "app.deal")
+}
+```
+
+| `Client` call | What it does |
+| --- | --- |
+| `previewMove(ofType:to:properties:)` | The items the move would change and the settings that name the type. It writes nothing. |
+| `startMove(ofType:to:properties:)` | Starts the job and returns it at once. `properties` merge into each item as it moves, and a `null` value removes one. |
+| `follow(moveJob:every:)` | Polls the job until it's `completed`, `failed` or `canceled`. Canceling the task stops the wait, not the job. |
+| `cancel(moveJob:)` | Asks the instance to stop the job. Items already moved stay moved. |
+
+**Check the job's `status` and `result` before you delete the old type.** `remaining` counts the items left, and `remainingHidden` says whether the credential can't see some of them. `settingsRewritten` is `true` only when no item remains and no setting is blocked. To finish a move that left items behind, run it again.
+
+A move throws `server` with the code `type_move_blocked` when a setting names the type in a way it can't rewrite, and moves nothing.
+
+## Draw a type's icon
+
+A type's icon is an Iconify ID: `lucide:book-open` from the [Lucide](https://lucide.dev/icons/) release Marfa pins, or `simple-icons:github` for a brand mark from [Simple Icons](https://simpleicons.org). **`ItemType.icon` holds the icon the type resolves to**: the owner's choice for the type or its nearest parent, else the nearest author's. It's `nil` when no type in the chain sets one. [Display hints](/catalog/your-own-types#display-hints) explains.
+
+The `MarfaIcons` product draws the ID:
+
+```swift
+import MarfaIcons
+
+TypeIcon(type)                   // from an ItemType
+TypeIcon(id: "lucide:book-open") // from an ID
+Image(typeIcon: type.icon)       // where a view needs an Image
+```
+
+- **A `lucide:` ID draws the SF Symbol that stands for it**, or Lucide's own artwork, shipped in the package, where no symbol suits.
+- **Brand marks need the `MarfaBrandIcons` product.** Call `MarfaBrandIcons.register()` once at launch, before any icon draws. Without it, an app ships none of the artwork.
+- **Every icon tints with `foregroundStyle`**, follows light and dark appearance, and sizes with the surrounding font.
+- **A `nil` ID, or one the SDK can't draw, draws a fallback symbol** and never fails, since a newer instance can send an ID this SDK doesn't know.
+
+`LucideIconSet.ids` and `MarfaBrandIcons.ids` list every ID the instance accepts, for an app that lets the person choose.
+
+### Change a type's icon
+
+The owner can choose the icon of any type, including one Marfa ships. `setTypeIcon(_:ofType:)` returns the icon the type has now:
+
+```swift
+let entry = "app.readinglist.entry"
+let icon = try await server.setTypeIcon("lucide:scale", ofType: entry)
+// Show the author's icon again:
+try await server.setTypeIcon(nil, ofType: entry)
+```
+
+- **It needs `schema.write` and write on the type.** Without them, it throws `forbidden`.
+- **An ID outside the pinned sets** throws `validation` with the code `invalid_schema`.
+- **Other devices show the change within about two minutes**, when their copy's `catalog` next reads the instance's types.

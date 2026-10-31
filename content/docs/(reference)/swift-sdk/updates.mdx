@@ -1,0 +1,132 @@
+---
+title: Updates and live queries
+description: Keep a Swift app's working copy in step with the instance, and its screens in step with the copy.
+---
+
+A working copy follows the instance's [events](/events) while the app holds a sequence of its **updates**. Each update says what to read again and how the copy is connected, so the app never catches up or retries by hand.
+
+## Updates
+
+`updates()` returns a `CopyUpdates` sequence of `CopyUpdate` values. **While any sequence is held, a copy with a server catches up, follows the instance's events and sends its queue** when the server comes back. Releasing every sequence stops the follow.
+
+```swift
+for await update in copy.updates() {
+    if !update.reread.isEmpty { await reload(update.reread) }
+    connection = update.connection
+}
+```
+
+| `CopyUpdate` field | Holds |
+| --- | --- |
+| `reread` | `.everything`, or `.parts` naming the rows, the queue, the views and the type catalog to read again. |
+| `connection` | What the copy is doing with its server, a `CopyConnection`. |
+| `fill` | While a hydration runs, a `FillProgress` with `listed`, `expected` and `fraction`. Otherwise `nil`. |
+| `lastSynced` | When the copy last finished a pull from its server, by the device's clock. |
+
+- **The first update asks to read everything.** Each later one names what changed since the one before.
+- **Updates wait for the app.** However many changes arrive while the app reads, at most one update waits, holding them all. More than 1,000 changed items or edges arrive as `.everything`.
+- **An update can name nothing to read**, when only its `connection`, `fill` or `lastSynced` changed.
+- **Iterate a sequence once.** Ask for another sequence for each consumer.
+
+`Reread.Parts.rows` is a `ChangedRows` with four lists of IDs: `items` and `edges` the copy holds, and `removedItems` and `removedEdges` it no longer holds. `views` is set when this copy writes a view; a view another device writes arrives in `rows`, as any item does.
+
+### Connection
+
+| `CopyConnection` | Meaning | What the copy does |
+| --- | --- | --- |
+| `.local` | The copy has no server, or is a reader that hears the writer's saves. | Nothing. |
+| `.needsHydration(MarfaError?)` | The copy needs a fill: `nil` before its first, or the error that ended it, such as `copyExpired`. | Nothing until a hydration completes. |
+| `.connecting` | The copy is asking its server: as updates begin, after `useKey(_:)`, and while it refills a stale copy. | Waits for the answer. |
+| `.following` | The server answered, and the copy follows its events. | Applies each event. |
+| `.offline(MarfaError)` | The server can't be reached for now. | Tries again after 5 seconds, doubling up to 5 minutes, never sooner than a rate limit asks. |
+| `.stopped(MarfaError)` | The follow stopped with an error that asking again may not clear. | Tries again every 5 minutes, in case the server changed. |
+| `.keyRefused(MarfaError)` | The server refused the key. | Nothing until `useKey(_:)`. |
+| `.closed` | The copy was closed. It is the last update. | Nothing. |
+
+**Only `.needsHydration` and `.keyRefused` need the app.** Hydrate the first, and give the copy a new key for the second. A follow that has run for 5 minutes since it last failed starts its waits again from 5 seconds.
+
+### Refills
+
+When the follow finds that the instance's event log no longer holds the copy's cursor, as it can after a Mac sleeps for a long time, **the copy refills itself in place** over the slice it holds, as [`hydrate`](/swift-sdk/working-copy#refill-a-stale-copy) does. The connection is `.connecting` during the refill, and `.offline` while the network or the server holds it up; it is tried again after 1 second, then further apart, up to 5 minutes apart.
+
+The copy refills itself only when it can keep every row, queued write and file it holds. Otherwise it changes nothing and the connection becomes `.needsHydration` with the reason, so the app can ask the person and then hydrate:
+
+- **`instanceChanged`**: another instance answers at the copy's address.
+- **`copyExpired` with `reach_changed`, `slice_changed`, `head_past_log` or `not_stale`**: the reasons [Refill a stale copy](/swift-sdk/working-copy#refill-a-stale-copy) explains.
+- **`copyExpired` with `catchup_too_old`**: the copy was already stale when the follow began, such as after `useKey(_:)` or on a store opened stale. The SDK can't confirm the key still reads what the copy was built under, so the refill is left to the app.
+
+A `reason` is an open string, so keep a `default` when you switch over it.
+
+## Live queries
+
+A `LiveQuery` reads from the copy and reads again after each update that names something to read, so a SwiftUI view that reads its `value` stays current. It holds one `updates()` sequence of its own. Create it on the main actor:
+
+```swift
+@MainActor @Observable
+final class Library {
+    let notes: LiveQuery<Rows<Item>>
+
+    init(copy: WorkingCopy) {
+        notes = LiveQuery(copy, reading: .list(ListFilters(types: ["core.note"])))
+    }
+}
+```
+
+| `Reading` | Value |
+| --- | --- |
+| `.list(_:sort:)`, `.search(_:filters:limit:)` | `Rows<Item>` or `Rows<SearchHit>`, empty and `.partial` until the first read ends. |
+| `.item(_:)` | `Item?`. While the copy fills, an item that hasn't arrived fails the read with `hydrationIncomplete`. |
+| `.queue` | `[QueuedWrite]` |
+| `.views`, `.view(_:)`, `.list(inView:)`, `.groups(inView:)` | The [view reads](/swift-sdk/views-and-folders#read-a-view). |
+| `Reading(placeholder:_:)` | Any other value, from a closure that only reads. |
+
+| `LiveQuery` property | Meaning |
+| --- | --- |
+| `reading` | What the query reads. Assigning it reads again at once. |
+| `value` | What the last successful read answered, and the placeholder before one. |
+| `isLoading` | True during the first read and every later one. |
+| `error` | Why the last read failed, and `nil` after a read succeeds. `value` keeps the last answer. |
+| `connection` | The latest update's `CopyConnection`, and `.connecting` until the first. |
+
+`refresh()` reads now and returns after a read that began after the call, so it fits `.refreshable`. **A query doesn't page**: bound a large list with `ListFilters.limit`, and assign `reading` again to grow it.
+
+## Changes one by one
+
+`changes()` returns an `AsyncStream<Change>` that tells each change as it happens, without coalescing. A held stream follows the instance, but **a stream that stops stays stopped** until the app's next hydration or catch-up, and nothing retries it. An app that shows the copy uses `updates()` instead.
+
+Each `Change` names the `itemId` or `edgeId` it concerns, and its `origin` says where it came from:
+
+| `Change.Origin` | Meaning |
+| --- | --- |
+| `.local`, `.server` | A write in this copy, or an event from the instance. |
+| `.refreshed`, `.saved` | Many rows may have changed at once, or the writer saved. |
+| `.answered` | A drain answered a write. |
+| `.serverUnreachable`, `.serverReachable` | The server went away or came back. |
+| `.queueDrained`, `.queueNotDrained` | The drain the stream ran when the server came back ended, or stopped with an error. |
+| `.stopped(MarfaError)` | What fed the stream stopped. Local writes are still told. |
+
+### Reread only what changed
+
+An app that keeps a large library in memory reads it whole once, then rereads only the rows that changed. `changes(since:most:)` names the items and edges that changed since a `ChangeCursor`, and gives the cursor to pass next. **Take the cursor before you read what it covers**, so a change made between the two is named again rather than missed.
+
+```swift
+var cursor = try await copy.changes(since: nil).next
+var notes = try await copy.items.list(ListFilters(types: ["core.note"]))
+
+// After an update that names rows:
+switch try await copy.changes(since: cursor) {
+case .everything(let next):
+    notes = try await copy.items.list(ListFilters(types: ["core.note"]))
+    cursor = next
+case .named(let changed, let next):
+    let reread = try await copy.items.get(changed.items)
+    // Replace those rows, and drop changed.removedItems.
+    cursor = next
+}
+```
+
+- **`.everything` asks for a full read**: with no cursor, a cursor from another store or from before a change to the types, and when more than `most` items or edges changed (1,000 unless you pass another limit).
+- **`items` names changed items in the bin too.** One that `items.get(_:includingBin:)` leaves out has gone to the bin, unless the answer is `.partial` and a fill may yet bring it back. `removedItems` names the items the copy no longer holds.
+- **A name can change nothing on screen.** An item is named when its row, its tags, an edge at either end, its pin or a write queued for it changed. A body link that reads differently only because another item changed isn't named, so read `items.links(in:)` again for the rows you show when an answer names any item.
+- **While the copy fills or is stale**, the call throws `hydrationIncomplete`. Keep the cursor, and ask again after the fill, which `changes()` tells as `.refreshed(.hydrated)`.
+- **A cursor keeps across launches.** Store its `rawValue`, or encode it, since it's `Codable`. Text that isn't a cursor throws `invalid`.

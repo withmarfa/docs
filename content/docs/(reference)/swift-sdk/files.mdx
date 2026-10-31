@@ -1,0 +1,90 @@
+---
+title: Files
+description: Attach files to items from a Swift app, read their bytes, and choose which files the working copy keeps on the device.
+---
+
+A file in Marfa is a blob of bytes, named by its hash, and a file item that names it. [Files](/files) explains both. The working copy copies a file's bytes beside its store and queues the upload, so a file attached offline is sent with the rest of the [queue](/swift-sdk/queue).
+
+## Attach a file
+
+| `items` call | What it queues |
+| --- | --- |
+| `attach(to:file:_:)` | Three writes, each with its own verdict: the upload, a file item naming the bytes, and an `attached-to` edge from the file to the item. It returns an `Attached` with the three. |
+| `embed(file:in:_:)` | The writes of `attach`, and an edit that adds the file's embed to the end of the item's body. It returns an `Embedded`. |
+| `addFile(_:_:tags:)` | The upload and a file item attached to nothing, then a write for each tag. It returns an `Added` with the first two. |
+
+An `Attachment` sets the file item's `mimeType`, `title`, `type` and `tier`. **A field left unset takes the file's own**, such as its name for the title.
+
+- **`Attached.embed` is the text that embeds the file in a body**, `![[title]]`. The body reads it back as the attachment's own edge and makes no second one. It's `nil` when the title can't name the file alone, such as a title another attachment has.
+- **`embed` bases its body edit on the version the copy holds**, as `update(_:_:)` does. A body another device changed first is answered as the type's merge policy says: `conflicted` for a note. Make an item's body edits one after another, since an edit queued while `embed` runs is replaced, not merged.
+- **When the body step fails, `embed` throws `EmbedFailure`** with the attachment, whose writes stay queued. Any other error means nothing was written.
+- **`items.embedText(of:in:)` gives the embed text** for a file already attached, to place elsewhere in the body.
+
+## Read a file's bytes
+
+| `blobs` call | What it does |
+| --- | --- |
+| `put(file:mimeType:)` | Copies a file's bytes beside the store and queues their upload, with no file item. |
+| `withFile(_:_:)` | Calls your closure with where a blob's bytes are held, fetching them first when they aren't. |
+| `isHeld(_:)` | Whether the copy holds a blob's bytes. |
+
+**The file stays where it is only while the closure runs**, whatever the budget or other fetches. Read it inside the closure, and copy it out if it must outlast the call.
+
+- **A blob the volume has no room for throws `noRoom`**, with its size and the room left on the volume.
+- **A reader, or a copy without a server, throws `bytesAbsent`** rather than fetching.
+
+## Files on the device
+
+The copy keeps the files it fetched within a **file budget**, and keeps the files attached to items it holds outside the budget. [Devices](/devices#files-on-the-device) explains both.
+
+| `blobs` call | What it does |
+| --- | --- |
+| `cache()` | The `FileCache`, read with no request, as `status().fileCache` is. |
+| `setBudget(_:)` | Chooses the budget, trims to it at once and returns the bytes removed. The store keeps the choice. |
+| `trim()` | Trims to the budget now and returns the bytes removed. |
+| `fetchKept()` | Fetches the attachments the copy doesn't hold whole, smallest first, so they're there offline. |
+
+A `FileBudget` is one of these:
+
+- **`.default`**: the larger of 2 GiB and a tenth of the volume, held to what leaves a twentieth of the volume free.
+- **`.bytes(bytes:)`**: that many bytes.
+- **`.keepAll`**: no budget, so every file fetched stays.
+
+A trim never takes a file attached to an item the copy holds, or one being read inside `withFile`.
+
+### What the cache holds
+
+| `FileCache` field | Holds |
+| --- | --- |
+| `setting`, `budget` | The budget chosen, and the bytes it allows now. `budget` is `nil` for `.keepAll`. |
+| `held` | The bytes of the files kept, or `nil` with the reason in `heldUnreadable`. |
+| `volumeUnreadable` | True when the disk couldn't be read, so the default budget is 2 GiB. |
+| `backupMarkFailure` | Why the files fetched last couldn't be kept out of backups. |
+| `attachments` | The attachments the copy keeps, a `KeptAttachments`. |
+
+**`attachments` is `nil` from the start of a hydration until one completes**, for a folder's copy, and when the cache can't be read. A `KeptAttachments` counts the attachments `held` whole, with their `heldBytes` and the `partialBytes` of partial files, and those `notHeld`, with their `notHeldBytes`.
+
+### Attachments not held
+
+`notHeldByReason` splits the attachments not held by why. Each entry holds a `reason`, the count of `attachments`, the `bytes` they state, and how many are `unstated`, stating no size.
+
+| `NotHeldReason` | Meaning |
+| --- | --- |
+| `.notFetched` | No fetch was asked for since the file became an attachment. |
+| `.noRoom` | The volume had no room for it, or for an attachment before it in the same fetch. |
+| `.unreachable` | The server, or the link it gave, couldn't be reached, or stopped sending part way. |
+| `.rateLimited` | The server asked for a longer wait than a fetch makes. |
+| `.absent` | The server holds no bytes by that hash. |
+| `.failed` | The fetch failed otherwise. |
+| `.notInCopy` | The copy holds the edge but not its file item. |
+
+### Fetch the attachments
+
+Call `fetchKept()` after a hydration and after a catch-up. It returns a `KeptFetch` with the count and bytes `fetched`, and the `attachments` after.
+
+- **It resumes the part of a file an earlier fetch left**, and waits out a server that asks for a wait of a minute or less.
+- **It stops at the first file the disk has no room for**, once the server can't be reached, or once the server asks for a longer wait. A file that fails otherwise is passed over.
+- **Cancel its task to stop it.** It throws `canceled`, and the files already fetched stay.
+- **A reader and a folder's copy throw `readingHandle`**, and a copy without a server throws `noServer`.
+
+A reader also refuses `setBudget(_:)` and `trim()` with `readingHandle`, and can still call `cache()`.

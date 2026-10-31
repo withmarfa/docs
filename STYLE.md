@@ -30,7 +30,7 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 | Run | Run Marfa, an index of the tab; Set up; Keys and access; Folders; Connectors; Look after it (ending with Troubleshooting) | Navigation, then how-to |
 | Catalog | The Catalog, Items, Types (its own page, with the Core types and System types folders of one page per type under it, then Type rules and Field kinds), Edges, Events, Permissions, Connectors (its own page, with one page for each connector Marfa ships under it) | Reference |
 | Reference | The Reference landing page (`/reference`): a card for each of the SDKs, the CLI, the Marfa MCP server, the HTTP API, the Changelog, Read these docs from an agent and the contract | Reference |
-| Reference | SDKs, CLI and MCP: one page each for the SDKs and the CLI, the file the CLI keeps for other programs, then the Marfa MCP server | How-to and reference for each client, then reference |
+| Reference | SDKs, CLI and MCP: a page for the TypeScript SDK, a folder of pages for the Swift SDK (an overview and install page, then one page for each part of the SDK), a page for the CLI, the file the CLI keeps for other programs, then the Marfa MCP server | How-to and reference for each client, then reference |
 | Reference | HTTP API: the overview, Errors, and the operations generated from the API description | Reference |
 | Reference | Resources: the Changelog, Read these docs from an agent, and the contract | Reference, then how-to |
 

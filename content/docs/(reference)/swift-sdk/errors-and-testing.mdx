@@ -1,0 +1,133 @@
+---
+title: Errors and testing
+description: Handle the errors a Swift app meets, test it against a fake working copy, and report its errors to a PostHog project.
+---
+
+Every call on a working copy, `Folders`, a `Server` or `Client` throws a `MarfaError`. **Its `message` is fit to show a person**, and `code()` gives a stable word for the case, such as `not_found`. A sign-in throws a [`SignInError`](/swift-sdk/server-calls#sign-in) instead.
+
+## Handle errors
+
+Three properties sort an error into what the app does next, so it needs no list of cases of its own:
+
+| Property | True when | What the app does |
+| --- | --- | --- |
+| `isOffline` | The server couldn't be reached, or its answer didn't arrive: `network` or `noConnection`. A write may still have reached the server. | Show that the app is offline. Queued writes wait. |
+| `isKeyRefusal` | The key or sign-in no longer works: `unauthorized`, `signedOut`, or `copyExpired` or `streamIncomplete` with the reason `credential_ended`. | Ask the person to sign in again, or for a new key. Asking again can't clear it. |
+| `isTransient` | Asking again later can clear it: every offline error, `io`, `storageFull`, `rateLimited`, `unnamed`, `keyChanging`, and `server` with status 408 or 500 and above. | Try again later. |
+
+**No error is both a key refusal and transient.** `forbidden` is neither: the key works but lacks a permission.
+
+### Refusals
+
+| Case | Meaning |
+| --- | --- |
+| `notFound`, `unauthorized`, `forbidden`, `validation`, `server` | A refusal, from the server or from the copy before anything was sent. Each carries a `code`: [Errors](/api-reference/errors) lists the server's. |
+| `rateLimited` | The server asked for a wait. `retryAfterSeconds` says how long, when it said. |
+| `versionConflict` | The write was based on a version that is no longer current. Read the row again and decide. |
+| `unknownType` | The copy's catalog holds no type of that name. |
+| `invalid` | A value given to the call can't be used. |
+
+### The connection and the server
+
+| Case | Meaning |
+| --- | --- |
+| `network`, `noConnection` | The server couldn't be reached, or the device is offline. A queued write stays queued. |
+| `unnamed` | Something in front of the server answered without its contract, such as a proxy. |
+| `redirected` | The server answered with a redirect. It isn't followed, so the key goes nowhere else. |
+| `contractMismatch` | The server speaks a contract this build wasn't made for. A write it answered stays queued, and goes again once the app speaks the server's contract. |
+| `wrongServer` | Another instance answers at the copy's address. The copy sends it no credential or data. |
+| `instanceChanged` | Another instance answers at the server's address, so the copy needs a [fill](/swift-sdk/working-copy#refill-a-stale-copy) from it. The queue is kept. |
+| `signedOut`, `noKeychain` | The sign-in ended, or the keychain can't be used. |
+| `noServer` | The call needs a server, and the copy was opened without one. |
+
+### The copy's state
+
+| Case | Meaning |
+| --- | --- |
+| `hydrationIncomplete` | The read or write needs a whole copy. [While the copy fills](/swift-sdk/items#while-the-copy-fills) lists each. |
+| `copyExpired` | The copy needs a fill, for the `reason` it names. The queue is kept. |
+| `streamIncomplete` | The server ended the event stream early, for the `reason` it names. |
+| `noCursor`, `noCatalog` | The copy holds no position in the instance's events, or no type catalog. Hydrate first. |
+| `wrongSchema`, `unsentDiffers` | The store was made by another build, or holds another count of unsent writes than the app passed. [Working copy](/swift-sdk/working-copy#open-a-store-another-build-made) explains both. |
+| `readingHandle` | Another process, or another open copy, writes the store, so this copy only reads. |
+| `keyChanging` | The call came while `useKey(_:)` replaced the key. Ask again once it's done. |
+| `closed` | The copy was closed. Open the store again. |
+| `firstSyncWaiting` | A folder's first sync waits for the person to confirm it. |
+
+### Files and the device
+
+| Case | Meaning |
+| --- | --- |
+| `bytesAbsent` | A file's bytes aren't on the device, and can't be fetched. |
+| `noRoom` | The volume has less room than a fetch still has to receive. |
+| `io`, `store`, `storageFull`, `decoding` | A local file, the store or an answer couldn't be read or written, or the device is full. |
+| `canceled` | The caller canceled the call. |
+
+`Keychain` throws `Keychain.Failure`, and `Server.fromEnvironment()` throws `Server.EnvironmentError`.
+
+## Test against a fake copy
+
+`WorkingCopy.fake(items:edges:itemTypes:edgeTypes:views:)` from the `MarfaTesting` product returns a `FakeCopy`. **Its `copy` is a real `WorkingCopy`** over an engine that keeps items, edges and types in memory, so its argument checks, change feed and value conversion are the ones your app ships. Hand it to the code under test or to a preview:
+
+```swift
+#if DEBUG
+import MarfaTesting
+
+let fake = WorkingCopy.fake(items: [note], itemTypes: [noteType])
+let model = NotesModel(copy: fake.copy)
+#endif
+```
+
+The product compiles empty in a release build. `MemoryKeyStore` is a `KeyStore` in memory, and `makeUnreadable(_:)` makes a key the store holds but can't read.
+
+The fake answers these calls:
+
+- **Reads:** `items.list(_:sort:)` without a `filter`, `items.get`, the edge reads, the `catalog` reads, `declaredTypes()` and `status()`.
+- **Search:** `search(_:filters:limit:)` and `search(_:inView:limit:)`, through the same full-text index the core uses, so the hits, their order and their excerpts are the core's.
+- **Writes:** item writes, without a `sourceId` on a create, and edge, tag, metadata and extension writes, and `declareTypes(_:)`.
+- **Views:** creating, changing, deleting, listing and grouping views, over the `views:` you pass and those it makes. A view with a `filter` is stored, and listing it throws.
+- **The queue and changes:** `queue.all()`, `drain()`, `withdraw(_:)`, `discard(_:)`, `forgetAnswered()`, `takeAnswered()` and `changes()`.
+
+**A call or input the fake can't match exactly throws `FakeCopyError.unsupported(call:)`** rather than answer differently. That covers a `filter`, body links, `changes(since:most:)`, hydration, files and folders. The fake knows only the types you give it and the ones your app declares, not Marfa's built-in catalog.
+
+To drive the rest of the app:
+
+- **`verdict`** chooses the verdict a drain gives each write. The default accepts every write, and `nil` leaves a write unanswered, as when the server is lost.
+- **`writes`** lists every write the copy received, in order, with its verdict now, including those cleared from the queue.
+- **`send(_:)`** tells every `changes()` stream a change, as if the copy had made it.
+
+## Report errors and events
+
+The `MarfaTelemetry` product sends an app's errors, and a short list of events it chooses, to a PostHog project. **It does nothing until the app gives it a destination and turns it on.** It carries no destination or token of its own. [What apps send](/run/telemetry#what-apps-send) says what Marfa's own apps send and how a person turns it off.
+
+```swift
+import MarfaTelemetry
+
+Telemetry.shared.configure(
+    Telemetry.Configuration(
+        destination: try Telemetry.Destination(
+            host: URL(string: "https://eu.i.posthog.com")!,
+            projectToken: projectToken),
+        serviceName: "notes",
+        serviceVersion: appVersion))
+Telemetry.shared.isEnabled = reportingIsOn
+
+Telemetry.shared.report(error, during: "drain")
+Telemetry.shared.report(
+    type: "editor_ended",
+    sentence: "The editor's web process ended.",
+    during: "editing")
+Telemetry.shared.log("drain_finished", attributes: ["pending": 3, "complete": true])
+await Telemetry.shared.flush()  // when the app quits
+```
+
+- **`Destination` throws `ConfigurationError`** for a host that isn't `https`, or `http` on the same machine for a test, or that carries a user name or password, and for an empty project token, or one with a blank character in it.
+- **Read the project token from a build setting**, and leave it out of public source, so a copy built from the source reports nowhere. No report carries the instance's ID, name or address.
+- **`isEnabled` starts off.** Set it whenever the person changes the choice. Turning it off drops every report waiting, stops a send under way and sends nothing more.
+- **Each call returns at once.** A report that can't be sent is lost, with no retry. `flush(deadline:)` waits up to 2 seconds by default.
+
+An error becomes one PostHog exception. **A `MarfaError` is described only by text fixed in the SDK**: its kind, one sentence and its `code` when that is a short lowercase word. No `message`, and no other value the error carries, reaches a report. A failure that repeats is reported at most once a minute for each kind and operation, and 30 times an hour in all, and each exception counts those held back since the one before.
+
+An event becomes an OTLP log record at a `LogLevel`, `.info` by default. Records go out in batches of 50, after 30 seconds, or on `flush`. At most 500 wait; beyond that, the oldest is dropped and the next batch says how many were.
+
+**Pass only what is safe to send.** An operation, an event's name and its attribute names are `StaticString`s, and an attribute's value is a number, a boolean or a `StaticString`, so a `String` read at run time doesn't compile. Never get around this with a note's text, a title, a tag, an item ID, a key, the instance's address, a file path, a search or an error's `message`.
