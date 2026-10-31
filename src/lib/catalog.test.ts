@@ -24,6 +24,8 @@ interface Field {
   format?: string;
   enum_values?: string[];
   items_type?: string;
+  items_fields?: Record<string, Field>;
+  status_values?: { value: string; group: string }[];
 }
 
 interface CatalogType {
@@ -85,7 +87,7 @@ function isUrl(value: string): boolean {
 }
 
 /** Why a value does not fit a field's kind, or undefined if it does. */
-export function valueError(field: Pick<Field, 'type' | 'enum_values' | 'items_type'>, value: unknown): string | undefined {
+export function valueError(field: Pick<Field, 'type' | 'enum_values' | 'items_type' | 'status_values'>, value: unknown): string | undefined {
   switch (field.type) {
     case 'string':
       if (typeof value !== 'string') return 'is not a string';
@@ -111,6 +113,10 @@ export function valueError(field: Pick<Field, 'type' | 'enum_values' | 'items_ty
       return typeof value === 'string' && field.enum_values?.includes(value)
         ? undefined
         : `is not one of ${(field.enum_values ?? []).join(', ')}`;
+    case 'status':
+      return typeof value === 'string' && field.status_values?.some((entry) => entry.value === value)
+        ? undefined
+        : `is not one of ${(field.status_values ?? []).map((entry) => entry.value).join(', ')}`;
     case 'array': {
       if (!Array.isArray(value)) return 'is not a list';
       for (const [index, item] of value.entries()) {
@@ -399,7 +405,7 @@ describe('a system type page', () => {
 describe('the generated type tables', () => {
   const files = readdirSync(GENERATED).filter((file) => /^(core|system)\.[a-z]+\.md$/.test(file));
 
-  /** The rows of each table that has a Required column, as cell lists. */
+  /** The rows of each table that has a Required column, as cell lists with the Required cell last. */
   function requiredRows(text: string): string[][] {
     const rows: string[][] = [];
     let required = -1;
@@ -410,7 +416,7 @@ describe('the generated type tables', () => {
       }
       const cells = line.split(/(?<!\\)\|/).slice(1, -1).map((cell) => cell.trim());
       if (cells[0] === 'Field') required = cells.indexOf('Required');
-      else if (required >= 0 && !/^-+$/.test(cells[0])) rows.push(cells);
+      else if (required >= 0 && !/^-+$/.test(cells[0])) rows.push([cells[0], cells[required]]);
     }
     return rows;
   }
@@ -421,7 +427,7 @@ describe('the generated type tables', () => {
     for (const file of files) {
       for (const cells of requiredRows(readFileSync(path.join(GENERATED, file), 'utf8'))) {
         seen += 1;
-        expect(['Yes', 'No'], `${file}: ${cells[0]}`).toContain(cells[2]);
+        expect(['Yes', 'No'], `${file}: ${cells[0]}`).toContain(cells[1]);
       }
     }
     expect(seen).toBeGreaterThan(30);
@@ -431,9 +437,14 @@ describe('the generated type tables', () => {
     for (const type of TOP_LEVEL) {
       const text = readFileSync(path.join(GENERATED, `${type.id}.md`), 'utf8');
       const own = text.slice(0, text.includes('## Subtypes') ? text.indexOf('## Subtypes') : undefined);
-      const shown = Object.fromEntries(requiredRows(own).map((cells) => [cells[0].replace(/`/g, ''), cells[2]]));
+      const shown = Object.fromEntries(requiredRows(own).map((cells) => [cells[0].replace(/`/g, ''), cells[1]]));
       expect(shown, type.id).toEqual(
-        Object.fromEntries(Object.entries(type.fields).map(([name, field]) => [name, field.required ? 'Yes' : 'No'])),
+        Object.fromEntries(
+          Object.entries(type.fields).flatMap(([name, field]) => [
+            [name, field.required ? 'Yes' : 'No'],
+            ...Object.entries(field.items_fields ?? {}).map(([member, entry]) => [`${name}[].${member}`, entry.required ? 'Yes' : 'No']),
+          ]),
+        ),
       );
     }
   });
@@ -506,7 +517,7 @@ describe('the example check', () => {
     const cases: [string, unknown, string][] = [
       ['a type nothing ships', { ...sample, type: 'core.recipe' }, 'is not a shipped type'],
       ['a missing required field', { type: sample.type, properties: { body: 'Some text' } }, 'title is required by core.media.article'],
-      ['a field the type lacks', { ...sample, properties: { ...sample.properties, rating: 5 } }, 'rating is not a field of core.media.article'],
+      ['a field the type lacks', { ...sample, properties: { ...sample.properties, colour: 'red' } }, 'colour is not a field of core.media.article'],
       ['a string where a whole number goes', { ...sample, properties: { ...sample.properties, word_count: '120' } }, 'word_count is not a whole number'],
       ['a fraction where a whole number goes', { ...sample, properties: { ...sample.properties, word_count: 1.5 } }, 'word_count is not a whole number'],
       ['a date and time with no zone', { ...sample, properties: { ...sample.properties, published_at: '2026-05-12T08:00:00' } }, 'published_at is not a date'],
