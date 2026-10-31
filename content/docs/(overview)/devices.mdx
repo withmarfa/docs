@@ -37,6 +37,22 @@ The hydration **empties the copy first** if the instance's event log now ends be
 
 **For any other reason, the copy refuses reads and writes until a hydration, which empties it first.** Examples are another instance answering at the same address, or a credential whose reach changed. A device's own change of an item's type or move of an edge's source, once the server takes it, also changes the reach: the device sends the writes queued behind it, then expires the copy once.
 
+**An app that refills a stale copy by itself can ask for a fill only in place.** Such a hydration never empties the copy. Where the fill can't be in place, it's refused `copy_expired` before it changes anything, and the copy, its queued writes and its files stay as they were. The reason says why:
+
+| Reason | Why the fill can't be in place |
+| --- | --- |
+| `instance_changed` | Another instance now answers at the copy's address. |
+| `reach_changed` | What the credential may read has changed. |
+| `slice_changed` | The types, tier or edge types asked for aren't the ones the copy holds. |
+| `head_past_log` | The instance's event log ends before the point the copy had reached, as after a restore from a backup. |
+| `not_stale` | The copy isn't waiting to be filled again, for example because it's whole. |
+
+The app can then ask the person whether to build the copy again, which empties it, or keep it as it is. The CLI's `marfa device hydrate --in-place-only` does the same.
+
+A fill only in place guards against the device emptying the copy, not against the instance refusing the credential. **If the instance refuses the hydration because the credential has ended or its reach changed, the stale copy still ends**, as it does for any hydration, and the queued writes are kept. That refusal can also carry `reach_changed`, so before the app offers to keep the copy, it checks the copy's hydration state: a refused fill leaves a stale copy `stale`, and an ended copy is `expired`, which only a hydration that doesn't ask for a fill in place can build again.
+
+**Writes queued against one instance aren't sent to another.** When a hydration builds the copy from an instance other than the one it was built from, each write still waiting is `blocked` with the reason `instance_changed`, because the instance now at the address may never have held the items the write was made against. A release sends it to that instance; a withdrawal takes it out of the queue.
+
 A copy made by an earlier build of the core can have a different shape. The device **refuses to open it** with `wrong_schema`, deletes nothing, and says how many writes the file holds that the server hasn't taken, because only the build that made it can send them. If some are of a kind the current build no longer sends, it names the kind. [Troubleshooting](/run/troubleshooting#staying-in-step) says what to do. An app built on the core's Node or Swift binding can replace a refused copy that holds nothing unsent with an empty one; the files the copy downloaded and the file budget's setting stay. A [folder](/run/sync-a-folder#move-to-a-newer-cli) can replace its own copy itself.
 
 **An app can remove its working copy, with the unsent writes the person agreed to lose.** An app passes the number of writes the server hasn't taken that it showed the person, through `WorkingCopy.remove(store:unsent:)` in the Swift SDK or the core's Node binding (`MarfaCore.removeStore`). The device removes the copy only when the copy holds exactly that number, whatever build made it: the file, its logs, the files it downloaded and its lock, and nothing else beside them. A symbolic link at one of those names is removed, never what it leads to. If the copy holds another number, or one the device can't read, the device refuses with `unsent_differs`, says the copy's own number, or that it can't read one, and leaves the copy, its logs, its downloaded files and its lock as they were. It refuses with `reading_handle` while anything else writes the copy, the app's own open copy included, so the app closes its copy first. A helper process that only reads the copy doesn't stop the removal, and keeps showing the old copy until it reopens. A folder's copy goes only with the folder, so the device refuses it with `invalid`. A path with no copy holds no unsent write, so removing it again finishes a removal that stopped part way.
@@ -72,7 +88,7 @@ Each write the device settles gets one verdict:
 
 Only `refused`, `blocked` and `dead` need an **app's attention**. A write with no answer yet has no verdict.
 
-A `blocked` write carries one of six reasons. Five hold it until something changes:
+A `blocked` write carries one of seven reasons. Six hold it until something changes:
 
 | Reason | What holds the write | What clears it |
 | --- | --- | --- |
@@ -81,10 +97,11 @@ A `blocked` write carries one of six reasons. Five hold it until something chang
 | `ancestor_unavailable` | The instance no longer holds the version the write was based on. | A withdrawal, or a release once the credential has come to read that version. Sent again before then, the write is refused the same way. |
 | `conflict_unresolved` | A newer change collided with the write, and the instance didn't settle the two. | A withdrawal. Sent again, the write is refused the same way. |
 | `failing_alone` | The write keeps failing as if the server were down, while the writes behind it go through. | A release or a withdrawal. |
+| `instance_changed` | The write was made against an instance other than the one the copy is now built from. | A release, which sends it to the instance now at the address, or a withdrawal. |
 
 A **release** sends the write again in the next drain, under a fresh idempotency key. A **withdrawal** takes the write out of the queue and puts the copy back to what the instance holds. Withdrawing a create, or a write blocked `failing_alone`, also refuses the writes that wait on it. The Swift SDK's [queue](/swift-sdk#send-writes-and-read-verdicts) and the CLI's `marfa device release` and `marfa device withdraw` do both.
 
-The sixth reason, `awaiting_dependency`, marks a write waiting behind another that has no answer yet, such as an edit of a note whose create hasn't been answered. Nothing needs to be done: the Swift SDK shows it as waiting, and the answer to the write it waits for releases it.
+The seventh reason, `awaiting_dependency`, marks a write waiting behind another that has no answer yet, such as an edit of a note whose create hasn't been answered. Nothing needs to be done: the Swift SDK shows it as waiting, and the answer to the write it waits for releases it.
 
 ## Folders
 
