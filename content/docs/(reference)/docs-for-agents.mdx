@@ -1,0 +1,107 @@
+---
+title: Read these docs from an agent
+description: Give an AI agent the current Marfa docs, over MCP, from the CLI or as Markdown, so it works from the pages instead of from memory.
+---
+
+An agent that builds on Marfa does better with the current pages than with what it remembers. Every way below reads only this site: **none needs a Marfa instance or a credential, and none can reach anyone's data.** To work with your data, an agent connects to your own instance, as [Use Marfa with AI agents](/build/ai-agents) shows.
+
+## Connect the docs MCP server
+
+The docs MCP server runs at `https://docs.marfa.so/mcp`, over the Streamable HTTP transport. Add it to your agent as a remote HTTP server:
+
+<Tabs items={["Claude Code", "Codex"]}>
+<Tab value="Claude Code">
+
+```bash
+claude mcp add --transport http marfa-docs --scope project https://docs.marfa.so/mcp
+```
+
+`--scope project` writes the server to the project's `.mcp.json`, so everyone who works in the project has it. Leave it out to add it for yourself only.
+
+</Tab>
+<Tab value="Codex">
+
+```bash
+codex mcp add marfa-docs --url https://docs.marfa.so/mcp
+```
+
+The server is written to `~/.codex/config.toml`, under `[mcp_servers.marfa-docs]`.
+
+</Tab>
+</Tabs>
+
+The server gives the agent three read-only tools, and tells it to search first, then read the page it needs:
+
+| Tool | Input | Answer |
+| --- | --- | --- |
+| `docs_search` | `query`, and an optional `limit` from 1 to 50 | The pages that match, best first, each with its title, path and snippets. Passages and links, never a written answer |
+| `docs_fetch` | `path`, such as `/files`, and an optional `section` | The page as Markdown, or only the part under the heading `section` names |
+| `docs_list_topics` | None | Every page, with its title, path and description |
+
+`section` names a heading by its text, in any case, or by its id, such as `who-may-read-a-blob`. A path with no page answers the error `not_found`, and a heading the page lacks answers `section_not_found` with the page's `headings`, so the agent can choose one.
+
+**Each IP address may make 120 requests a minute** to the server. A client over the limit gets `429` with a `Retry-After` header that holds the seconds to wait.
+
+## Search from a terminal
+
+`marfa docs` reads this site from the [CLI](/cli), for an agent that runs shell commands. It refuses `--url`, `--key` and `--socket`, so it can't send a credential anywhere.
+
+<Terminal>
+
+```bash
+marfa docs search "trash an item" --limit 1
+```
+
+```text
+Trash an item  /api-reference/items/deleteItem
+  Moves the item, and every item a cascading edge such as `parent-of` reaches, to the trash. You can restore them until the retention window ends. Marfa then purges them.
+```
+
+</Terminal>
+
+`marfa docs topics` lists every page, and `marfa docs <page>` prints one as Markdown. Name a page by its path, such as `files`, and add `--section` with a heading to print only that part:
+
+```bash
+marfa docs cli --section "Exit codes"
+```
+
+With `--json`, each command prints JSON. `marfa docs` exits `1` when there's no such page or section, and `3` when the site can't be read or limits the request; [Exit codes](/cli#exit-codes) lists them all. To read another copy of the site, such as one you run locally, set `MARFA_DOCS_URL`.
+
+## Read a page as Markdown
+
+Add `.md` to a page's path for its Markdown copy, such as `/files.md`, or ask for the page's own address with `Accept: text/markdown`. A request that ranks HTML higher, as a browser's does, still gets the HTML page.
+
+<Terminal>
+
+```bash
+curl -H "Accept: text/markdown" https://docs.marfa.so/overview
+```
+
+```text
+# Overview (/overview)
+
+Marfa is a shared data layer for your apps, and you run it yourself.
+```
+
+</Terminal>
+
+Three files cover the whole site:
+
+| File | What it holds |
+| --- | --- |
+| [`/llms.txt`](/llms.txt) | A summary of Marfa, then every page as the sidebar groups them, each linked to its Markdown copy |
+| [`/docs-map.md`](/docs-map.md) | The same index, with links to the HTML pages |
+| [`/llms-full.txt`](/llms-full.txt) | Every written page in one file, without the API operations and the changelog |
+
+An operation's Markdown copy holds only its title and description, so `llms.txt` links each operation to its HTML page, which holds its request and answers. The changelog has its own copy at [`/changelog.md`](/changelog.md).
+
+## Search over HTTP
+
+For a program with neither MCP nor the CLI, two addresses answer JSON:
+
+- **`GET /api/docs/search?q=<query>&limit=<n>`** answers `{ "hits": [...] }`, each hit with its `title`, its path in `url`, and `snippets`. A blank `q` or a `limit` outside 1 to 50 answers `400`, with `invalid_query` or `invalid_limit` in `error`. Each IP address may search 60 times a minute.
+- **`GET /api/docs/topics`** answers `{ "pages": [...] }`, each with its `title`, `url`, `description` and `breadcrumbs`.
+
+## What the site counts
+
+The site counts each request to the docs MCP server, the JSON addresses, the Markdown copies, `llms.txt`, `llms-full.txt` and `docs-map.md`, to see which pages agents read. A count holds the kind of read, the method, the status, the page path, the MCP method and tool, the number of search results and a coarse class of client, such as `claude-code`. **It never holds an IP address, a cookie, a search query, a page's text or the `User-Agent`**, and it builds no profile of a reader. A request refused with `429` isn't counted.

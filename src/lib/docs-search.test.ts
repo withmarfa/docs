@@ -82,12 +82,12 @@ const EXPECTED: [query: string, pages: string[]][] = [
 
   // A flag that is also an ordinary word, and a word that starts a permission scope (`webhooks.manage`).
   ['--force', ['/build/change-a-type']],
-  ['--scope', ['/docs-mcp-server']],
+  ['--scope', ['/docs-for-agents']],
   ['webhooks', ['/events', '/build/receive-webhooks']],
   ['audit', ['/run/audit-log']],
 
   // An apostrophe is part of a word, not a break in it.
-  ["can't overwrite", ['/build/ai-agents', '/run/export-and-restore']],
+  ["can't overwrite", ['/agents-cli-and-mcp', '/run/export-and-restore']],
 ];
 
 /**

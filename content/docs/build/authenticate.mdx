@@ -39,7 +39,7 @@ The CLI reads the key from a profile, `--key`, `MARFA_API_KEY` or the keychain, 
 
 The app registers, sends the owner to approve it, and receives an access token for the scopes the owner approved. The instance's discovery document, at `/.well-known/oauth-authorization-server/auth`, lists every endpoint and the `scopes_supported`.
 
-These steps use the authorization code grant. A web page follows them with a few more constraints, which [Connect a web page](/build/connect-a-web-page) covers. An app with no browser uses [the device grant](#connect-a-command-line-app).
+These steps use the authorization code grant. A web page follows them with a few more constraints, which [Connect a web page](/build/connect-a-web-page) covers. An app with no browser uses [the device grant](#connect-a-command-line-app). An MCP client, such as Claude Code, follows them by itself, starting from the challenge the [MCP server](/marfa-mcp-server#sign-in) answers.
 
 <Steps>
 <Step>
@@ -63,6 +63,8 @@ Content-Type: application/json
 
 Marfa answers `201` with the `client_id`. With `"token_endpoint_auth_method": "none"` the app proves itself with PKCE alone. Leave it out, and the answer also holds a `client_secret` to send with each token request.
 
+Instead of registering, an app can name itself by a **client ID metadata document**: its `client_id` is the `https` address of a JSON document that describes it, which the instance fetches when the app first sends the owner to approve it. The discovery document says so with `client_id_metadata_document_supported`. A document on a private or loopback address is refused `400 invalid_client`, and the approval page shows the document's host beside the app's name.
+
 Redirect addresses must use `https`. Set `"application_type": "native"` to also allow an `http` loopback address or a reverse-domain private-use scheme with a path and no authority, such as `com.example.app:/callback`. [Register an OAuth client](/api-reference/apps/registerOAuthClient) lists every field.
 
 </Step>
@@ -83,7 +85,7 @@ Open the authorization endpoint in the owner's browser, with the challenge and a
 GET /auth/oauth2/authorize?response_type=code&client_id=<client_id>&redirect_uri=https%3A%2F%2Freader.example.com%2Fcallback&scope=core.note%3Aread%20core.note%3Awrite%20offline_access&code_challenge=<challenge>&code_challenge_method=S256&state=<state>
 ```
 
-The owner signs in if needed and [chooses what to allow](/access#what-the-owner-approves). If the owner already approved these scopes for the app, Marfa skips the choice. Marfa then redirects the browser to your address with `code`, `state` and `iss`.
+The owner signs in if needed and [approves the request](/access#what-the-owner-approves). The page opens on **Full access**, which grants every scope you asked for, so **ask only for the scopes the app needs**. If the owner already approved these scopes for the app, Marfa skips the choice. Marfa then redirects the browser to your address with `code`, `state` and `iss`.
 
 Check that **`state` is the one you sent**. If the owner declines, the redirect carries `error=access_denied` and no code.
 
@@ -183,7 +185,7 @@ client_id=<client_id>&scope=core.note%3Aread%20offline_access
 }
 ```
 
-Show the owner the `user_code` and `verification_uri`, or open `verification_uri_complete` for them. They sign in and [choose what to allow](/access#what-the-owner-approves), as in the browser flow.
+Show the owner the `user_code` and `verification_uri`, or open `verification_uri_complete` for them. They sign in and [approve the request](/access#what-the-owner-approves), as in the browser flow.
 
 </Step>
 <Step>
@@ -233,6 +235,7 @@ Branch on **`error.code`, never on the message**:
 - `401 unauthorized`: no credential, or one that is unknown, expired or revoked. An app whose access token expired exchanges its refresh token.
 - `403 forbidden`: the credential lacks a permission, and `details.required_scope` names it.
 - `403 type_not_permitted`: the credential can't read or write the type at the level needed, and `details.grant` names the type and level.
+- `403` with `WWW-Authenticate: Bearer error="insufficient_scope"`, from an MCP endpoint: the app's token lacks the scope a tool call needs, which `scope` names. Send the owner to approve it.
 - `404 item_not_found`: the item doesn't exist, or it's of a type the credential can't read.
 
 A refusal never tells a credential what it can't see.

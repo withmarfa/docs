@@ -26,14 +26,13 @@ A page that a newcomer can follow serves an agent too. Never write that Marfa is
 | --- | --- | --- |
 | Overview | Get started: the Overview, an index of the docs; the Introduction; the Quickstart | Navigation, explanation, then a tutorial |
 | Overview | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation, then reference |
-| Overview | AI tools: the Docs MCP server and Docs as Markdown | How-to |
 | Build | Build on Marfa, an index of the tab; Tutorials; Build apps and agents; Build connectors | Navigation, tutorial, then how-to |
 | Run | Run Marfa, an index of the tab; Set up; Keys and access; Folders; Connectors; Look after it (ending with Troubleshooting) | Navigation, then how-to |
 | Catalog | The Catalog, Items, Types (its own page, with the Core types and System types folders of one page per type under it, then Type rules and Field kinds), Edges, Events, Permissions, Connectors (its own page, with one page for each connector Marfa ships under it) | Reference |
-| Reference | The Reference landing page (`/reference`): a card for each of the SDKs, the CLI, the HTTP API, the Changelog and the contract | Reference |
-| Reference | SDKs and CLI: one page each, and the file the CLI keeps for other programs | How-to and reference for each client, then reference |
+| Reference | The Reference landing page (`/reference`): a card for each of the SDKs, the CLI, the Marfa MCP server, the HTTP API, the Changelog, Read these docs from an agent and the contract | Reference |
+| Reference | SDKs, CLI and MCP: one page each for the SDKs and the CLI, the file the CLI keeps for other programs, then the Marfa MCP server | How-to and reference for each client, then reference |
 | Reference | HTTP API: the overview, Errors, and the operations generated from the API description | Reference |
-| Reference | Resources: the Changelog and the contract | Reference |
+| Reference | Resources: the Changelog, Read these docs from an agent, and the contract | Reference, then how-to |
 
 The tabs divide the work, and each thing is said once, with links between:
 
@@ -41,7 +40,7 @@ The tabs divide the work, and each thing is said once, with links between:
 - **Build** shows how to write an app, an agent or a connector on Marfa.
 - **Run** shows how to run an instance and look after it, and how to use Marfa without writing code.
 - **Catalog** lists exactly what Marfa ships and explains nothing.
-- **Reference** covers the HTTP API's operations and errors, the SDKs, the CLI, the changelog and the contract.
+- **Reference** covers the HTTP API's operations and errors, the SDKs, the CLI, the MCP server, the changelog and the contract.
 
 A page that needs a list the Catalog holds, such as the types, edge types, permissions, events, field kinds or reserved names, links to the Catalog page instead of restating it.
 

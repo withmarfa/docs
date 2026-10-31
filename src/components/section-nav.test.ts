@@ -12,9 +12,11 @@ describe('sectionFor', () => {
     expect(sectionFor('/run/deploy')).toBe('Run');
     expect(sectionFor('/catalog')).toBe('Catalog');
     expect(sectionFor('/catalog/media')).toBe('Catalog');
-    expect(sectionFor('/docs-mcp-server')).toBe('Overview');
+    expect(sectionFor('/agents-cli-and-mcp')).toBe('Overview');
     expect(sectionFor('/reference')).toBe('Reference');
     expect(sectionFor('/cli')).toBe('Reference');
+    expect(sectionFor('/marfa-mcp-server')).toBe('Reference');
+    expect(sectionFor('/docs-for-agents')).toBe('Reference');
     expect(sectionFor('/typescript-sdk')).toBe('Reference');
     expect(sectionFor('/changelog')).toBe('Reference');
     expect(sectionFor('/api-reference')).toBe('Reference');

@@ -112,7 +112,6 @@ describe('fetchDocsPage', () => {
     expect(quickstart).toContain('Output:');
     expect(await fetchDocsPage('/build/write-safely')).toContain('**TypeScript**');
     expect(await fetchDocsPage('/cli-reference')).toBeNull();
-    expect(await fetchDocsPage('/docs-for-agents')).toBeNull();
     expect(await fetchDocsPage('/cli/items')).toBeNull();
     expect(await fetchDocsPage('/typescript-client')).toBeNull();
     expect(await fetchDocsPage('/build/docs-mcp-server')).toBeNull();
@@ -122,8 +121,8 @@ describe('fetchDocsPage', () => {
 
   it('returns every page the topics list, including ones whose names start with docs', async () => {
     const { pages } = listTopics();
-    expect(pages.map((p) => p.url)).toContain('/docs-mcp-server');
-    expect(pages.map((p) => p.url)).toContain('/docs-as-markdown');
+    expect(pages.map((p) => p.url)).toContain('/docs-for-agents');
+    expect(pages.map((p) => p.url)).toContain('/marfa-mcp-server');
     for (const { url } of pages) {
       expect(await fetchDocsPage(url), url).not.toBeNull();
     }
