@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { asksAboutARelease, searchDocs, tokenizeSearchText, trimPassage } from './docs-tools';
+import { asksAboutARelease, MAX_SEARCH_LIMIT, searchDocs, tokenizeSearchText, trimPassage } from './docs-tools';
+import changelog from '@/generated/changelog.json';
 import { source } from '@/lib/source';
 
 /**
@@ -96,13 +97,13 @@ const EXPECTED: [query: string, pages: string[]][] = [
 const RELEASE_QUERIES = [
   'what is new in marfa',
   'latest release',
-  '0.0.24',
-  'v0.0.24',
-  'version 0.0.24',
   'release notes',
-  'what changed in 0.0.25',
   'breaking changes',
 ];
+
+/** A query by version number, which only the page's releases can answer, so it exists once a release has been synced. */
+const releaseTag = (changelog as { tag: string }[])[0]?.tag;
+const VERSION_QUERIES = releaseTag ? [releaseTag, releaseTag.slice(1), `version ${releaseTag.slice(1)}`, `what changed in ${releaseTag.slice(1)}`] : [];
 
 describe('search finds the page that answers a query', () => {
   it.each(EXPECTED)('%s', async (query, pages) => {
@@ -122,8 +123,9 @@ describe('search finds the page that answers a query', () => {
 });
 
 describe('a query about a release finds the changelog', () => {
-  it.each(RELEASE_QUERIES)('%s', async (query) => {
-    const top = (await searchDocs(query)).hits.slice(0, 3).map((h) => h.url);
+  it.each([...RELEASE_QUERIES, ...VERSION_QUERIES])('%s', async (query) => {
+    // The widest search: the page has only its introduction until a release is synced, and the search must still reach it.
+    const top = (await searchDocs(query, MAX_SEARCH_LIMIT)).hits.slice(0, 3).map((h) => h.url);
     expect(top[0], `${query}: the changelog is not first; got ${top.join(', ') || 'nothing'}`).toBe('/changelog');
   });
 });
@@ -261,7 +263,7 @@ describe('ranking', () => {
   });
 
   it('still returns the changelog, last, when it is one of the pages that match', async () => {
-    const { hits } = await searchDocs('tombstone', 50);
+    const { hits } = await searchDocs('upgrade', 50);
     expect(hits.length).toBeGreaterThan(1);
     expect(hits[hits.length - 1].url).toBe('/changelog');
   });

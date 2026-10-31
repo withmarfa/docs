@@ -112,3 +112,12 @@ change lands in the monorepo; nothing runs it for you.
 
 Close a gap in the spec in the monorepo's generator, never by editing
 `openapi.json` here.
+
+The Changelog page comes from the GitHub release notes of the monorepo:
+
+```bash
+node --experimental-strip-types scripts/sync-changelog.ts
+```
+
+It writes `src/generated/changelog.json`, and needs no checkout. Run it after
+each release's notes are written.

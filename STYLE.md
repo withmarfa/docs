@@ -64,7 +64,7 @@ A page that needs a list the Catalog holds, such as the types, edge types, permi
 - **A list carries items that are parallel**: steps, options, things to check. A page never opens with a list, except the three opening lines of a tutorial, and a list never stands in for an explanation of why.
 - **A table compares things or holds what a reader looks up**: fields, settings, commands, options, a choice between two ways. Keep cells short.
 - **Explain, then point.** A concept page explains the idea and the rules a reader meets in normal use, with one small example. Rare cases, limits, exact numbers and error codes go in a guide, the API reference or the contract, with a link.
-- **Less is clearer.** If a page is hard going, cut before you add. A concept page is usually 400 to 900 words and a guide under 1,500, counting code. A page past that is usually two pages, or holds detail that belongs in the reference: a guide that covers two jobs done at different times is two guides. A lookup page, such as Settings, the CLI and SDK pages, the Glossary and the changelog, and a tutorial whose code makes it long, may run longer.
+- **Less is clearer.** If a page is hard going, cut before you add. A page past its limit is usually two pages, or holds detail that belongs in the reference: a guide that covers two jobs done at different times is two guides. `pnpm test` enforces the limits, counting the words after the frontmatter, code included: **900 for a concept page, 1,500 for a guide, a tutorial or a Catalog connector page.** The folder decides the kind. A lookup page (Settings, the CLI and SDK pages, the Glossary, the API reference, the Catalog type pages and the Changelog) has a limit of its own, and so does a tutorial or guide whose kind differs from its folder's. Those exceptions, each with its reason, are in `src/lib/page-limits.json`, and no page is exempt. When a page is over, the failure names it and the way out: split it, move detail to the reference, or cut. A page that is over today is listed there as rewrite pending, with its current count as a ceiling that it must not pass.
 - **Describe the present.** No history, no "now", no "new", nothing about what changed.
 - **Replace, don't append.** When something changes, rewrite the sentence or section it changes. Never add a paragraph that qualifies an older one.
 
@@ -122,7 +122,7 @@ Don't restate what the API reference says. A page explains what the reference ca
 - **Show the code a step adds, not the whole file again.** A block, or a terminal, over 24 lines shows its first lines with a "Show all" button under them, which keeps a page readable, but a long block is still a long block. Cut it to what the reader needs, and link the complete source when there is one.
 - **Give a block a `title`** when the reader needs to know where the code goes, such as a file name. The title is the header's label; a block without one has a header row with Copy only. An HTTP request and its response are two blocks, titled `Request` and `Response`; a request that sits in code tabs is labeled by its tab, and its response follows the tabs as a block titled `Response`. Show a response when it teaches something. A response adds `note="Server-sent events"`, a lighter note at the right of the header, or `status="200"`, a chip that reads "200 OK" (green for 2xx, red for 4xx and 5xx). Write a response's body in the language it is: `json` for a JSON body, `sse` for an event stream, whose field names and `data:` JSON are colored. Only a terminal's output is muted.
 - **Every example runs.** Check each against a real instance before it's published.
-- **Every command and option exists.** `pnpm test` reads each `marfa` command in a shell block or in inline code, and each option in a bare code span, against the CLI's command reference (`src/generated/cli-commands.json`), and names the page, the line and the text that the reference lacks. A block that holds a command of another tool, or a deliberate wrong example, takes `command-check="other-tool"` or `command-check="counterexample"` after its language, as in the opening line `bash command-check="counterexample"`, which follows the three backticks. An option of another tool in inline code, or a command that a page names because a release removed it, goes in `src/lib/command-check-allowlist.json` with its reason. The test fails on a marker or an entry that excuses nothing, so none outlasts its use.
+- **Every command and option exists.** `pnpm test` reads each `marfa` command in a shell block or in inline code, and each option in a bare code span, against the CLI's command reference (`src/generated/cli-commands.json`), and names the page, the line and the text that the reference lacks. A block that holds a command of another tool, or a deliberate wrong example, takes `command-check="other-tool"` or `command-check="counterexample"` after its language, as in the opening line `bash command-check="counterexample"`, which follows the three backticks. An option of another tool in inline code goes in `src/lib/command-check-allowlist.json` with its reason. The test fails on a marker or an entry that excuses nothing, so none outlasts its use.
 
 Examples are not runnable on the page: the API reference has a request builder for that, and a reader needs their own instance anyway.
 
@@ -144,7 +144,7 @@ Use a component for what it's for, and only where it helps the reader.
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
 
-The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence`, `Files` and `Terminal` (the command, then "Output:" and its output) as plain Markdown, and a block's `note` or `status` as a line above it, such as "Response (Server-sent events):", and leaves the visuals out (`source.config.ts`). A component outside those lists is left out of the copy too, so add it there before a page relies on it.
+The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence`, `Files` and `Terminal` (the command, then "Output:" and its output) as plain Markdown, and a block's `note` or `status` as a line above it, such as "Response (Server-sent events):", and leaves the visuals out (`source.config.ts`). `Changelog` writes every release and every line of its notes. A component outside those lists is left out of the copy too, so add it there before a page relies on it.
 
 ## Visuals
 
@@ -161,7 +161,7 @@ Every visual follows these rules:
 
 - **The prose carries every fact.** A visual shows the shape of what the text says; nothing is only in the visual, and no list after it repeats it.
 - **Use HTML and CSS on the site's theme tokens** (`--color-fd-*`, and `--marfa-diagram-accent` for the one accent color), so light and dark both work. No images and no hard-coded colors.
-- **The server render shows the whole visual,** and nothing moves when it's used: a control changes what's highlighted, never the layout.
+- **The server render shows the whole visual,** and nothing moves when it's used: a control changes what's highlighted, never the layout. A filter on a lookup page, such as the Changelog's part filters, may show and hide entries.
 - **Fit at phone width** (375 px) with no horizontal scroll, and keep labels to a few words on one line.
 - **Make controls usable by keyboard,** with visible focus. Selections are buttons with `aria-pressed`.
 
@@ -169,12 +169,11 @@ Every visual follows these rules:
 
 The docs stay right by being rewritten whole, not by being added to.
 
-- **Generated reference is synced, never written by hand.** The API reference, the CLI's global options and exit codes, the error codes, the settings, the shipped types and edge types, the permissions, the event types and the glossary come from withmarfa/marfa through `scripts/sync-from-marfa.sh`.
-- **A code change doesn't need a docs change.** Code repositories don't open a pull request here for each public change.
-- **A docs pass runs at each release.** It reads every page whose contract rules or operations changed since the last release and rewrites each one whole, to this file. "No change needed" is a normal answer.
-- **A page that grows is a warning.** When a change makes a page much longer, check whether the new text belongs in the reference instead, or replaces something.
+- **A code change opens a docs issue, not a docs pull request.** The issue says what a reader would now get wrong. Nobody edits a page inside the work that changed the code.
+- **Pages are rewritten from those issues after each release.** One docs agent works the open issues and rewrites each page whole, to this file. A page is never added to, and "no change needed" is a normal answer.
+- **Generated reference and the changelog are synced, never written by hand.** The API reference, the CLI's global options and exit codes, the error codes, the settings, the shipped types and edge types, the permissions, the event types and the glossary come from withmarfa/marfa through `scripts/sync-from-marfa.sh`. The Changelog comes from the GitHub release notes through `scripts/sync-changelog.ts`.
 
-`scripts/staleness-report.ts` lists the pages to read for a docs pass; `AGENTS.md`, "Docs pass at each release", says how to run it.
+`scripts/staleness-report.ts` is the backstop that lists pages no issue named; `AGENTS.md`, "Docs pass at each release", says how to run it.
 
 ## Frontmatter
 

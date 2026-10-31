@@ -9,7 +9,7 @@ The code of the docs site and the status page. The root `AGENTS.md` still applie
 - The MCP tools in `src/lib/mcp/tools.ts` are registered in a fixed order, which is the order `tools/list` returns them in. `docs_search` and `docs_list_topics` declare an `outputSchema` and return `structuredContent` that conforms to it, with the same JSON in the text block; `docs_fetch` returns Markdown. The server's `instructions` live there too. A change to a tool's name, input or result updates the instructions, the tool descriptions and `content/docs/(overview)/docs-mcp-server.mdx` together.
 - The `marfa docs` command in withmarfa/marfa reads `/api/docs/search`, `/api/docs/topics` and the `.md` copies. A change to their shapes or status codes needs a matching change there.
 - `/` is not prerendered: the Worker redirects it to `/overview`. Prerender starts at `/overview`, and its filter in `vite.config.ts` drops `/`, `/version.json`, `/mcp` and `/api/`. A prerendered `/` breaks hydration, and a prerendered Worker route answers from a frozen file.
-- `source.config.ts` decides what each component becomes in the Markdown copy that `.md`, `llms-full.txt`, a page address that asks for Markdown and the docs tools serve (`STYLE.md`, "Components").
+- `source.config.ts` decides what each component becomes in the Markdown copy that `.md`, `llms-full.txt`, a page address that asks for Markdown and the docs tools serve (`STYLE.md`, "Components"). The `Changelog` component draws `src/generated/changelog.json`, and `source.config.ts` writes the same releases into the copy through `changelogMarkdown` in `src/lib/changelog.ts`, and into the search index through `remarkChangelogIndex` (the page's MDX holds no release text to index). The route in `src/routes/$.tsx` adds each release to "On this page", because a component draws those headings.
 - `llms-full.txt` holds the written pages: `inLlmsFull` in `src/lib/source.ts` leaves out the generated operation pages and the changelog, and the opening of `llms.txt` (`src/lib/docs-map.ts`) says so and says where they are. Change the three together.
 
 ## Worker entry
@@ -49,6 +49,7 @@ The code of the docs site and the status page. The root `AGENTS.md` still applie
 ## Tests
 
 - Tests sit beside the code as `*.test.ts` or `*.test.tsx`. Each content lint rule has a test that proves it fires on a bad sample; give a new rule one.
+- `src/lib/page-limits.test.ts` counts each page's words against `src/lib/page-limits.json` (`STYLE.md`, "Less is clearer"). A page over its limit fails with what to do. A `pending` entry is a ceiling for a page awaiting rewrite, and the test fails on one that no longer excuses anything, so delete it when the rewrite lands.
 - `src/lib/command-check.ts` holds the command check and `command-check.test.ts` runs it over every page. Its exceptions are in `src/lib/command-check-allowlist.json`, each with a reason; add one only for what is not a `marfa` command or option, and fix a page that names one that does not exist.
 
 ## Code Review Rules

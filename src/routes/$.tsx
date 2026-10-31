@@ -13,6 +13,8 @@ import {
 import { baseOptions } from '@/lib/layout.shared';
 import { gitConfig } from '@/lib/shared';
 import { pageHead } from '@/lib/page-head';
+import changelog from '@/generated/changelog.json';
+import { releaseToc, type Release } from '@/lib/changelog';
 import { DocsHeader } from '@/components/docs-header';
 import { PageActions } from '@/components/page-actions';
 import { PageFooter } from '@/components/page-footer';
@@ -102,6 +104,9 @@ const clientLoader = browserCollections.docs.createClientLoader({
       path: string;
     },
   ) {
+    // The Changelog draws its releases with a component, so its headings are
+    // not in the compiled page's table of contents.
+    const entries = path === '(reference)/changelog.mdx' ? [...toc, ...releaseToc(changelog as Release[])] : toc;
     return (
       // Keep the TOC column reserved on every narrative page (so the centred
       // body sits in the same place whether or not a page has a TOC), but only
@@ -110,13 +115,13 @@ const clientLoader = browserCollections.docs.createClientLoader({
       // popover that reveals nothing. Passing an empty toc renders fumadocs'
       // hidden placeholder, which reserves the column without showing anything.
       <DocsPage
-        toc={toc.length > 1 ? toc : []}
+        toc={entries.length > 1 ? entries : []}
         tableOfContent={{
           enabled: true,
           component: <PageTableOfContents />,
         }}
         tableOfContentPopover={{
-          enabled: toc.length > 1,
+          enabled: entries.length > 1,
           component: <PageTableOfContentsPopover />,
         }}
         footer={{ component: <PageFooter className="mt-12" /> }}
