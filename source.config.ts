@@ -1,8 +1,10 @@
 import { defineConfig, defineDocs } from 'fumadocs-mdx/config';
 import { parseCodeBlockAttributes, rehypeCodeDefaultOptions } from 'fumadocs-core/mdx-plugins';
 import { pageSchema } from 'fumadocs-core/source/schema';
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { LLMsOptions } from 'fumadocs-core/mdx-plugins/remark-llms';
+import { changelogMarkdown, type Release } from './src/lib/changelog';
 import { statusLabel } from './src/lib/http-status';
 import { sseLanguage } from './src/lib/sse-language';
 
@@ -29,6 +31,7 @@ const REWRITTEN = new Set([
   'Folder',
   'File',
   'Terminal',
+  'Changelog',
 ]);
 
 /** Node types that start a block, as opposed to text within one. */
@@ -140,6 +143,11 @@ const llms: LLMsOptions = {
         const flow = (children: { type: string }[]) =>
           state.containerFlow({ type: 'root', children } as never, info).trim();
         return output.length ? `${flow([command])}\n\nOutput:\n\n${flow(output)}` : flow([command]);
+      }
+      case 'Changelog': {
+        // The component draws releases from a data file, so the copy writes the same releases as Markdown.
+        const releases: Release[] = JSON.parse(readFileSync('src/generated/changelog.json', 'utf8'));
+        return changelogMarkdown(releases);
       }
       case 'Files':
         return ['```text', ...fileTree(node), '```'].join('\n');

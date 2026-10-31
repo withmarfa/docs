@@ -7,6 +7,7 @@ import type { MDXComponents } from 'mdx/types';
 import type { ComponentProps } from 'react';
 import { cn } from '../lib/cn';
 import { Callout } from './callout';
+import { Changelog } from './changelog';
 import { Card, Cards } from './cards';
 import { FoldingCodeBlock, Terminal } from './code';
 import { CodeBlockTabs } from './code-tabs';
@@ -25,6 +26,7 @@ export function getMDXComponents(components?: MDXComponents) {
     ...defaultMdxComponents,
     Callout,
     Card,
+    Changelog,
     CodeBlockTabs,
     Cards,
     Accordion,
