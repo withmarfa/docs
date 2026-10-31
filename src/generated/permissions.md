@@ -5,7 +5,7 @@
 | `config.manage`     | Reading and replacing the instance configuration at `/config`: the enforcement levers and the cleanup-job retention overrides.                          |
 | `connectors.manage` | Reading and administering connector registrations, their runs and their endpoints, deleting registrations and clearing a registration's retained state. |
 | `grants.manage`     | Listing and revoking other apps' access.                                                                                                                |
-| `instance.maintain` | Running housekeeping, resetting platform type definitions and cancelling bulk jobs.                                                                     |
+| `instance.maintain` | Running housekeeping, removing retired platform types and cancelling bulk jobs.                                                                         |
 | `instance.read`     | Reading detailed health, metrics, housekeeping status, retired platform types, blob storage diagnostics and bulk job status.                            |
 | `items.purge`       | Destroying a trashed row irrecoverably, through the single-row operation and the bulk one alike.                                                        |
 | `keys.manage`       | Listing and revoking keys across the instance, and changing their metadata or narrowing access.                                                         |

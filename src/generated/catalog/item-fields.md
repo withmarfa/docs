@@ -25,11 +25,12 @@
 
 ### State
 
-| Field                | Kind      | Description                                                                                                                                                                                         |
-| -------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `state`              | `enum`    | The item's lifecycle state. Values: `active`, `archived`, `trashed`, `revoked`.                                                                                                                     |
-| `trashed_by_cascade` | `boolean` | Always `true` where present: the item went to the trash with another item, through a cascading edge such as `parent-of`. Present while it stays in the trash. Absent on an item trashed on its own. |
-| `trashed_with`       | `string`  | The ID of the item whose trash took this one into the trash, beside `trashed_by_cascade`, whatever became of that item since. Present only if you can read that item's type.                        |
+| Field                | Kind               | Description                                                                                                                                                                                                                                               |
+| -------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `state`              | `enum`             | The item's lifecycle state. Values: `active`, `archived`, `trashed`, `revoked`.                                                                                                                                                                           |
+| `trashed_at`         | `string` or `null` | When the item went to the trash, in UTC, or when a `system.*` item was revoked. A later write to the item leaves it as it is, and a restore clears it. `null` for an item outside the trash, and for one an archive restored to the trash without a time. |
+| `trashed_by_cascade` | `boolean`          | Always `true` where present: the item went to the trash with another item, through a cascading edge such as `parent-of`. Present while it stays in the trash. Absent on an item trashed on its own.                                                       |
+| `trashed_with`       | `string`           | The ID of the item whose trash took this one into the trash, beside `trashed_by_cascade`, whatever became of that item since. Present only if you can read that item's type.                                                                              |
 
 ### Version
 

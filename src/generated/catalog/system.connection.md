@@ -10,3 +10,9 @@
 | `granted_at`   | `datetime`          | Yes      | When the grant was approved                                                                                                                                                                                                                                                                                 |
 | `last_used_at` | `datetime`          | No       | Most recent successful use of any token issued under this grant                                                                                                                                                                                                                                             |
 | `revoked_at`   | `datetime`          | No       | When the grant was revoked, if any                                                                                                                                                                                                                                                                          |
+
+## Settings
+
+| Setting  | Value       |
+| -------- | ----------- |
+| `plural` | Connections |
