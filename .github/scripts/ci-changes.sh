@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
 # Whether a change can affect `Build and type-check`.
 #
-#   .github/scripts/ci-changes.sh     # in CI: writes code=true|false to GITHUB_OUTPUT
-#   .github/scripts/ci-changes.sh -   # prints the answer for NUL-separated paths on stdin
+#   .github/scripts/ci-changes.sh        # in CI: writes code=true|false and sync=true|false to GITHUB_OUTPUT
+#   .github/scripts/ci-changes.sh -      # prints the `code` answer for NUL-separated paths on stdin
+#   .github/scripts/ci-changes.sh sync - # prints the `sync` answer for them
 #
 # The job is a required check, so the workflow carries no `paths` filter: a
 # filtered-out workflow leaves the check pending and blocks the merge, while a
 # job skipped by `if:` reports as skipped and satisfies it.
 #
-# Every uncertain case answers true. That covers a manual or scheduled run, an
+# Every uncertain case answers true. That covers a manual run, an
 # empty diff, a diff that cannot be read, a path no rule names, and a push whose
 # parent commit has no green run of this workflow. The last one matters because
 # a push run that skips the build reports success: classifying a push against
 # a red parent would let a documentation commit make `main` look green.
+#
+# `sync` answers whether the sync script's own test, the longest step of the
+# job, can be affected: only a change to the script, to the test or to the
+# workflow that runs it. That test builds its own fixtures and reads nothing
+# else in the tree. It is a step condition inside the same job, so the required
+# check stays one job.
 #
 # `content/` is built into the site, so Markdown and MDX there are never
 # skipped. Only the named root files and the agent directories are.
@@ -34,12 +41,21 @@ affects() {
   esac
 }
 
-# Reads NUL-separated paths and prints true when any can affect the job.
+# Whether one changed path can affect the sync script's test.
+affects_sync() {
+  case "$1" in
+    scripts/sync-from-marfa.sh | .github/scripts/sync-from-marfa.test.sh | .github/workflows/ci.yml) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Reads NUL-separated paths and prints true when any satisfies the rule named
+# by the first argument (`affects` by default).
 answer() {
-  local path seen=false
+  local rule="${1:-affects}" path seen=false
   while IFS= read -r -d '' path; do
     seen=true
-    if affects "${path}"; then
+    if "${rule}" "${path}"; then
       echo true
       return
     fi
@@ -60,8 +76,13 @@ if [[ "${1:-}" == - ]]; then
   answer
   exit
 fi
+if [[ "${1:-}" == sync && "${2:-}" == - ]]; then
+  answer affects_sync
+  exit
+fi
 
 code=true
+sync=true
 event="${GITHUB_EVENT_NAME:-}"
 if [[ "${event}" == pull_request || "${event}" == push ]]; then
   list="$(mktemp)"
@@ -72,9 +93,11 @@ if [[ "${event}" == pull_request || "${event}" == push ]]; then
   if [[ "${BASE:-}" =~ ^[0-9a-f]{40}$ && "${HEAD:-}" =~ ^[0-9a-f]{40}$ && ! "${BASE}" =~ ^0+$ ]] &&
     git diff --name-only --no-renames -z "${range[@]}" -- >"${list}"; then
     code="$(answer <"${list}")"
+    sync="$(answer affects_sync <"${list}")"
     if [[ "${event}" == push && "${code}" == false ]] && ! previous_green; then
       echo "The previous commit on main has no green run of ${CI_WORKFLOW}; running the job."
       code=true
+      sync=true
     fi
   else
     echo "Could not classify the change; running the job."
@@ -82,5 +105,8 @@ if [[ "${event}" == pull_request || "${event}" == push ]]; then
 else
   echo "Event '${event}' is not classified; running the job."
 fi
-echo "code=${code}"
-echo "code=${code}" >>"${GITHUB_OUTPUT:-/dev/null}"
+echo "code=${code}" "sync=${sync}"
+{
+  echo "code=${code}"
+  echo "sync=${sync}"
+} >>"${GITHUB_OUTPUT:-/dev/null}"

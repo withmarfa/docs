@@ -3,7 +3,7 @@
 #
 # This guard exists because nothing else notices a checker that stops, so a
 # guard that silently stops working reproduces exactly the failure it was
-# written to close. It runs unattended once a day and its own classification is
+# written to close. It runs from a manual dispatch and its own classification is
 # never otherwise executed, which is the same gap `read-live-commit.test.sh`
 # was written to fill.
 set -euo pipefail

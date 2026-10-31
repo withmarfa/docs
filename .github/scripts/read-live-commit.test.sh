@@ -142,7 +142,7 @@ check "a padded commit is refused"       unreadable  "$(live padded)"
 check "a dead port is unreachable" unreachable "$(DOCS_SITE_URL='http://127.0.0.1:9' read_live_commit 2>/dev/null)"
 # A transport failure must say why in the job log. Folding stderr into the
 # status capture classifies identically and silently loses the reason, which is
-# the one thing the daily check exists to hand a reader.
+# the one thing the check exists to hand a reader.
 transport_err="$(DOCS_SITE_URL='http://127.0.0.1:9' read_live_commit 2>&1 >/dev/null)"
 check "the failure reason reaches the log" "yes" "$([ -n "$transport_err" ] && echo yes || echo no)"
 check "a trailing slash is handled" "1111111111111111111111111111111111111111" \
@@ -390,7 +390,7 @@ fi
 #
 # Two Workers publish from this repository and each publishes only when
 # something it builds from changed, so a merge touching one leaves the other
-# legitimately behind main. Without this refinement the daily check reports
+# legitimately behind main. Without this refinement the check reports
 # that site as behind until somebody happens to change a file it cares about:
 # a failure that is permanent and about nothing.
 echo

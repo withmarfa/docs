@@ -5,22 +5,28 @@
 # from reaching main and the deploy. Agent instructions and the root readme are
 # the exception: nothing builds from them.
 #
-# The job keeps its name after gaining a test step: the branch ruleset requires
-# this exact context string, and renaming the job silently drops the gate.
+# `Full CI` is the one required check, a roll-up of the jobs below. Renaming
+# `Build and type-check` therefore no longer drops the gate, but renaming the
+# roll-up job would.
 name: CI
 
 on:
   push:
     branches: [main]
+  # Marking a draft ready runs the workflow again, so `Full CI` is reported.
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 concurrency:
   # A push to `main` or a manual run gets a group of its own, so a later push
   # never cancels the verdict on a commit; only a pull request's run is
-  # superseded.
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  # superseded. A draft and a ready pull request have groups of their own: a
+  # draft pushed and marked ready a moment later starts two runs, and in one
+  # group the later queued run cancels the other, which can leave `Full CI`
+  # unreported.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.ref, github.event.pull_request.draft && 'draft' || 'ready') || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -36,12 +42,13 @@ jobs:
   changes:
     name: Classify changes
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     permissions:
       contents: read
       actions: read
     outputs:
       code: ${{ steps.classify.outputs.code }}
+      sync: ${{ steps.classify.outputs.sync }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -57,7 +64,7 @@ jobs:
     name: Build and type-check
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code != 'false') }}
-    timeout-minutes: 15
+    timeout-minutes: 6
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -81,21 +88,24 @@ jobs:
       # before the type check, and each is checked against only its own.
       - run: pnpm build:status
       - run: pnpm types:check
-      # The publish guard's classification. It otherwise only runs unattended
-      # once a day, which is how its first version shipped with a retry loop
+      # The publish guard's classification. It otherwise only runs by hand,
+      # which is how its first version shipped with a retry loop
       # that could not retry.
       - run: bash .github/scripts/read-live-commit.test.sh
       # And whether the checker is still writing at all — the one failure the
       # status page cannot show, because a frozen store renders as a healthy
       # site. A guard that silently stopped working would reproduce exactly the
       # failure it was written to close, so its classification is exercised
-      # here rather than only unattended once a day.
+      # here rather than only by hand.
       - run: bash .github/scripts/check-store-freshness.test.sh
       # Which changes skip this job, so a wrong skip cannot ship quietly.
       - run: bash .github/scripts/ci-changes.test.sh
       # What the sync script writes from the spec, and that every spec it
-      # refuses leaves the committed files as they were.
-      - run: bash .github/scripts/sync-from-marfa.test.sh
+      # refuses leaves the committed files as they were. Its fixtures read
+      # nothing else in the tree, so it runs only when the script, the test or
+      # this workflow changed.
+      - if: ${{ needs.changes.outputs.sync != 'false' }}
+        run: bash .github/scripts/sync-from-marfa.test.sh
 
       # Protocol conformance for the MCP endpoint. These assert against the
       # specification rather than against whatever the current clients tolerate,
@@ -110,7 +120,7 @@ jobs:
   reports:
     name: Docs reports
     if: ${{ github.event_name == 'pull_request' }}
-    timeout-minutes: 10
+    timeout-minutes: 3
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -146,3 +156,28 @@ jobs:
         run: |
           base="$(git merge-base "$BASE" "$HEAD")"
           node --experimental-strip-types scripts/page-growth.ts "$base" "$HEAD"
+
+  # The one required check, in the same shape as the other WithMarfa
+  # repositories. A skipped job satisfies a required check, and `Build and
+  # type-check` is skipped for a change nothing builds from, so this job turns
+  # the result of the others into one verdict. On a draft it is named `Draft
+  # CI`, so the required `Full CI` stays expected, which blocks a merge, until
+  # the run that marking the pull request ready starts has finished. It runs
+  # after a failed job and fails then; a cancelled run skips it, and a skipped
+  # job never reports as `Full CI`, so a cancel cannot leave it green.
+  gate:
+    name: ${{ github.event.pull_request.draft && 'Draft CI' || 'Full CI' }}
+    needs: [changes, build]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          case " ${RESULTS} " in
+            *" failure "* | *" cancelled "*)
+              echo "::error::A job failed or was cancelled: ${RESULTS}"
+              exit 1
+              ;;
+          esac
