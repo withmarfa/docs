@@ -4,62 +4,64 @@ import { useState } from 'react';
 import { Box, Figure } from './figure';
 import { Choices, Controls, Result } from './interactive';
 
-/** What the other app changed since the version your write names. */
-export type Change = 'title' | 'body' | 'both';
-
-/** How your write is sent: plain, or asking Marfa to settle a collision (`conflict=auto`). */
-export type Mode = 'plain' | 'auto';
-
 /** What Marfa does with the write. */
 export type Outcome = 'merged' | 'conflict' | 'copy';
 
-export const changes: readonly { id: Change; label: string }[] = [
-  { id: 'title', label: 'The title' },
-  { id: 'body', label: 'The body' },
-  { id: 'both', label: 'Title and body' },
+/**
+ * The three cases, one for each outcome. Your write changes only the body.
+ * In the first, the other app changed only the title; in the other two it
+ * changed the body as well, and the last sends your write with `conflict=auto`.
+ */
+export type Case = 'different' | 'same' | 'auto';
+
+export const cases: readonly { id: Case; label: ReactNode }[] = [
+  { id: 'different', label: 'Different fields' },
+  { id: 'same', label: 'Same field' },
+  {
+    id: 'auto',
+    label: (
+      <>
+        Same field, <code>conflict=auto</code>
+      </>
+    ),
+  },
 ];
 
-export const modes: readonly { id: Mode; label: ReactNode }[] = [
-  { id: 'plain', label: 'Plain' },
-  { id: 'auto', label: <code>conflict=auto</code> },
-];
+/** The sequence above the figure has the other app change the title. */
+export const initial: Case = 'different';
 
-export type State = { change: Change; mode: Mode };
-
-/** The note's body is what your write changes, and the other app has changed the title first. */
-export const initial: State = { change: 'title', mode: 'plain' };
+/** The field the other app changed in each case. */
+export function otherChanged(current: Case): 'title' | 'body' {
+  return current === 'different' ? 'title' : 'body';
+}
 
 /**
- * Your write changes only the body, and names the version you read. If the
- * other app left the body alone, nothing collides and both changes stand
- * (`versions/merge-stale`). If it changed the body too, a plain write is
- * refused `409 version_conflict` (`versions/stale-collision`), and a write
- * sent with `conflict=auto` is settled by the type's merge policy: `core.note`
- * keeps both copies of its `body`, so yours goes into a conflicted copy
- * (`versions/auto-keep-both`, `versions/copy-written`). A title the other app
- * changed is not carried by your write, so it never collides
- * (`versions/collision-omitted`).
+ * If the other app left the body alone, nothing collides and both changes
+ * stand (`versions/merge-stale`); a title your write doesn't carry never
+ * collides (`versions/collision-omitted`). If it changed the body too, a
+ * plain write is refused `409 version_conflict` (`versions/stale-collision`),
+ * and a write sent with `conflict=auto` is settled by the type's merge
+ * policy: `core.note` keeps both copies of its `body`, so yours goes into a
+ * conflicted copy (`versions/auto-keep-both`, `versions/copy-written`).
  */
-export function outcome({ change, mode }: State): Outcome {
-  if (change === 'title') return 'merged';
-  return mode === 'auto' ? 'copy' : 'conflict';
+export function outcome(current: Case): Outcome {
+  return current === 'different' ? 'merged' : current === 'same' ? 'conflict' : 'copy';
 }
 
 /** What the answer's note holds in each field, and its version (`versions/merge-version`). */
-export function answer(state: State) {
-  const result = outcome(state);
-  const titleChanged = state.change !== 'body';
+export function answer(current: Case) {
+  const result = outcome(current);
   return {
     status: result === 'conflict' ? '409 version_conflict' : '200',
     version: result === 'conflict' ? 4 : 5,
-    title: result === 'conflict' ? 'As it is now' : titleChanged ? "The other app's" : 'Unchanged',
+    title: result === 'conflict' ? 'As it is now' : result === 'merged' ? "The other app's" : 'Unchanged',
     body: result === 'merged' ? 'Yours' : result === 'conflict' ? 'As it is now' : "The other app's",
   };
 }
 
 export const messages: Record<Outcome, string> = {
   merged:
-    'Both changes stand. The other app changed only the title and you changed only the body, so nothing collides, with or without `conflict=auto`.',
+    'Both changes stand. The other app changed the title and you changed the body, so nothing collides, with or without `conflict=auto`.',
   conflict:
     'Both apps changed the body, so Marfa refuses your write with `409 version_conflict` and sends back the note as it is now, for you to combine and send again.',
   copy: "Marfa keeps both bodies. The note keeps the other app's body, and yours goes into a conflicted copy, a new note linked to the original.",
@@ -67,16 +69,15 @@ export const messages: Record<Outcome, string> = {
 
 /**
  * A note you read at version 3, which another app has since changed, and the
- * write you send that names version 3. Choose what the other app changed and
- * how you send your write, and the figure shows what Marfa answers and what
- * the note holds after. Only highlights and text change, so the layout never
- * moves.
+ * write you send that names version 3. One control picks the case, and the
+ * figure shows what Marfa answers and what the note holds after. Only
+ * highlights and text change, so the layout never moves.
  */
 export function VersionOutcome({ caption }: { caption?: ReactNode }) {
-  const [state, setState] = useState<State>(initial);
-  const result = outcome(state);
-  const after = answer(state);
-  const changed = (field: 'title' | 'body') => state.change === 'both' || state.change === field;
+  const [current, setCurrent] = useState<Case>(initial);
+  const result = outcome(current);
+  const after = answer(current);
+  const changed = (field: 'title' | 'body') => otherChanged(current) === field;
 
   return (
     <Figure
@@ -84,19 +85,8 @@ export function VersionOutcome({ caption }: { caption?: ReactNode }) {
       caption={caption}
       className="marfa-ix marfa-vo"
     >
-      <Controls onReset={() => setState(initial)}>
-        <Choices
-          label="The other app changed"
-          options={changes}
-          value={state.change}
-          onChange={(change) => setState((current) => ({ ...current, change }))}
-        />
-        <Choices
-          label="You send"
-          options={modes}
-          value={state.mode}
-          onChange={(mode) => setState((current) => ({ ...current, mode }))}
-        />
+      <Controls onReset={() => setCurrent(initial)}>
+        <Choices label="The two writes change" options={cases} value={current} onChange={setCurrent} />
       </Controls>
 
       <Result messages={messages} current={result} />
