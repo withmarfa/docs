@@ -195,4 +195,6 @@ description: How Marfa keeps a file's bytes once, however many items name them, 
 ---
 ```
 
+A page whose title another page shares, such as each tab's Overview, also holds a `headTitle`: its name in browser tabs, search results and link previews, which the site name follows unless it starts with it. The landing page's is "Marfa Docs" and what Marfa is, after a colon. `pnpm test` fails when two pages would show the same name.
+
 Quote a `description` that starts with `@`, `:`, `>`, `|`, `*`, `&`, `?` or `%`, or YAML misreads it.

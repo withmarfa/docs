@@ -88,6 +88,7 @@ const serverLoader = createServerFn({
     return {
       kind: 'docs' as const,
       title: page.data.title ?? '',
+      headTitle: page.data.headTitle,
       description: page.data.description ?? '',
       url: page.url,
       path: page.path,

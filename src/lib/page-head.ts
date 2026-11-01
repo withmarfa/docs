@@ -1,7 +1,18 @@
 import { canonicalUrl } from '@/lib/canonical';
 import { appName } from '@/lib/shared';
 
-type PageHeadData = { title: string; description: string; url: string; markdownUrl: string };
+type PageHeadData = { title: string; headTitle?: string; description: string; url: string; markdownUrl: string };
+
+/**
+ * A page's name in browser tabs, search results and link previews: its
+ * `headTitle` when it has one, else its title. Every tab opens on a page titled
+ * Overview, so those pages set `headTitle` to tell them apart. The site name
+ * follows, unless the name already starts with it, as the landing page's does.
+ */
+export function headTitle(data: Pick<PageHeadData, 'title' | 'headTitle'>): { title: string; ogTitle: string } {
+  const ogTitle = data.headTitle ?? data.title;
+  return { ogTitle, title: ogTitle.startsWith(appName) ? ogTitle : `${ogTitle} | ${appName}` };
+}
 
 /**
  * The head of a page. Without a title of its own every page reads as the site
@@ -18,16 +29,17 @@ export function pageHead(data: PageHeadData | undefined) {
   if (!data) return { meta: [], links: [] };
   const description = data.description.replace(/`/g, '');
   const url = canonicalUrl(data.url);
+  const { title, ogTitle } = headTitle(data);
   return {
     meta: [
-      { title: `${data.title} | ${appName}` },
+      { title },
       ...(description
         ? [
             { name: 'description', content: description },
             { property: 'og:description', content: description },
           ]
         : []),
-      { property: 'og:title', content: data.title },
+      { property: 'og:title', content: ogTitle },
       { property: 'og:url', content: url },
     ],
     links: [

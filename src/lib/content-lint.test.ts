@@ -238,6 +238,12 @@ export function checkFrontmatter(file: string, text: string): Violation[] {
       out.push(...fail(`${key} has an em or en dash, which search results and link previews show; use a comma or a colon`));
     }
   }
+  const head = fields.headTitle;
+  if (head !== undefined && (typeof head !== 'string' || head.trim() === '')) {
+    out.push(...fail('headTitle is empty; leave it out to use the title'));
+  } else if (typeof head === 'string' && TITLE_DASH.test(head)) {
+    out.push(...fail('headTitle has an em or en dash, which search results and link previews show; use a comma or a colon'));
+  }
   return out;
 }
 
@@ -688,6 +694,9 @@ describe('content lint: each rule fires on a bad sample', () => {
     expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A &ndash; B\ndescription: C\n---\n'))).toEqual(['frontmatter']);
     expect(checkFrontmatter('x.mdx', '---\ntitle: A-B\ndescription: C, D\n---\n')).toEqual([]);
     expect(checkFrontmatter('x.mdx', '---\ntitle: A\ndescription: B\n---\nBody\n')).toEqual([]);
+    expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\nheadTitle: A \u2014 B\ndescription: C\n---\n'))).toEqual(['frontmatter']);
+    expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\nheadTitle: ""\ndescription: C\n---\n'))).toEqual(['frontmatter']);
+    expect(checkFrontmatter('x.mdx', '---\ntitle: A\nheadTitle: "Marfa Docs: B"\ndescription: C\n---\n')).toEqual([]);
   });
 
   it('coming-soon', () => {
