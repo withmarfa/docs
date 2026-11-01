@@ -1,9 +1,9 @@
 ---
 title: Type rules
-description: "The rules a type you register must meet: its identifier, fields, parent, display hints, roles, merge policy and retention policy."
+description: "The rules a type you register must meet: its identifier, label and plural, parent, compatible types, display hints, roles, merge policy and retention policy."
 ---
 
-**Marfa refuses a definition that breaks a rule with `400 invalid_schema`** unless the rule names another answer. [Define a type](/build/define-a-type) shows how to register one.
+**Marfa refuses a definition that breaks a rule with `400 invalid_schema`** unless the rule names another answer. [Define a type](/build/define-a-type) shows how to register one, and [Field kinds](/catalog/field-kinds) has the rules for its fields.
 
 ## Identifier
 
@@ -17,20 +17,16 @@ description: "The rules a type you register must meet: its identifier, fields, p
 
 <include cwd>src/generated/catalog/reserved-type-roots.md</include>
 
+## Label and plural
+
+A type's `label` names one item, such as `Recipe`, and its `plural` names a list of them, such as `Recipes`. Each is optional text of at most 100 characters.
+
+- **A missing label is made** from the identifier's last segment, split into words at each hyphen and underscore, each word capitalized: `user.reading-list` is `Reading List`.
+- **A missing plural is made** from the label when the type is read, by the regular English rule, so `Story` makes `Stories`. Name the plural where the rule is wrong, as in `People`. `GET /types` answers only a declared plural.
+
 ## Fields
 
-| Rule | Marfa allows or refuses |
-| --- | --- |
-| Keys | A field definition takes `type`, `label`, `description`, `required`, `enum_values`, `status_values`, `items_type`, `items_fields`, `format`, `searchable`, `maxLength`, `maxItems`, `minimum` and `maximum`, and nothing else. |
-| `type` | One of the [field kinds](/catalog/field-kinds). |
-| `enum` | Needs `enum_values`, a list of at least one string. |
-| `array` | Needs `items_type`. An `items_type` that isn't a field kind leaves the elements unchecked. |
-| `maxLength`, `maxItems` | A whole number of at least 1. `maxLength` applies to `string` and `enum`, `maxItems` to `array`. |
-| Name | Not one of the reserved field names below. Refused `400 property_shadows_field`. |
-| `thumbnail` | At most one, counting inherited ones. Not named `title`, `body`, `description` or `name`, and not an array's `items_type`. |
-| `title_field`, `body_field` | Name a field the type declares or inherits, and not a `thumbnail` field. See [Display hints](#display-hints). |
-
-**A write that leaves a wrong element in an `array` field** is refused `400 invalid_properties`, and `details.errors` names the field and position, as `names.1`.
+A type's `fields` follow [Field kinds](/catalog/field-kinds). A field can't take a name that every item already has: Marfa refuses it with `400 property_shadows_field`.
 
 ### Reserved field names
 
@@ -41,18 +37,25 @@ description: "The rules a type you register must meet: its identifier, fields, p
 | Rule | Marfa allows or refuses |
 | --- | --- |
 | `parent` | Names a registered type, with no loop and at most ten ancestors. Refused `400 validation_error`. |
-| A subtype may | Add fields, redeclare an inherited field unchanged or with a new `description`, and make an inherited field required. |
-| A subtype may not | Change an inherited field's `type`, `format`, `items_type`, `searchable`, `maxLength`, `maxItems` or `enum_values`, or make a required field optional. Refused `400 inheritance_violation`. |
+| A subtype may | Add fields. Redeclare an inherited field unchanged, or with a new `description` or `label`. Make an inherited field required. Add a range to an inherited `number` or `integer` field, or narrow its range. Add status words. |
+| A subtype may not | Change an inherited field's `type`, `format`, `items_type`, `items_fields`, `searchable`, `maxLength`, `maxItems` or `enum_values`. Widen or drop its range. Make a required field optional. Refused `400 inheritance_violation`, naming the field. |
 | Write access | A new `parent` that isn't a platform type needs write on that type; keeping one doesn't. Refused `403 type_not_permitted`. |
+
+**A change to a parent that a subtype would break is refused the same way**, such as a new parent field in another shape than a subtype's.
+
+### Status words
+
+A subtype inherits its parent's [status field](/catalog/field-kinds#status-words) and its words. To add words, it declares the same field with only the new ones, such as `blocked` in the `in_progress` group, and `GET /types/{id}` answers them after its parent's. A word a type above already declares, the field under another name, and a parent change that leaves a subtype's field with no words are refused `400 inheritance_violation`.
 
 ### Compatible with
 
 `compatible_with` names a type that yours is readable as, without inheriting from it. A claim that doesn't hold, or that names an unregistered type, is refused `422 compatible_with_violation`. The claim holds when:
 
 - Yours requires every field the target requires.
-- Each target field that yours declares or inherits has the same kind. A `string` target field also accepts `url`, `email`, `datetime`, `date`, `thumbnail` or `enum`, and a `number` accepts `integer`.
-- An `array` has the same `items_type`, and an `enum` takes values from the target's.
-- Where both name a `format`, it's the same one.
+- Each target field that yours declares or inherits has the same kind. A `string` target field also accepts `url`, `email`, `datetime`, `date`, `thumbnail`, `enum` or `status`, and a `number` accepts `integer`.
+- An `array` has the same `items_type`, and the same `items_fields` where either names them. An `enum` takes values from the target's, and a `status` field takes words from the target's, each in the same group.
+- A range is no wider than the target's.
+- Where both name a `format`, it's the same one. A target's `currency` field needs `currency` on yours, and a `currency` field reads as a plain `string`.
 
 A replacement or deletion that breaks another type's claim is refused the same way, and `details.dependent_type_ids` names the claimants. A new target that isn't a platform type needs write on it, as a `parent` does.
 
@@ -62,35 +65,43 @@ A replacement or deletion that breaks another type's claim is refused the same w
 
 | Hint | What it holds | Marfa refuses |
 | --- | --- | --- |
-| `title_field` | The name of the field that gives an item its name. | A field the type and its ancestors don't declare, or a `thumbnail` field. |
-| `body_field` | The name of the field that holds the item's text. **The value is Markdown.** Apps render it, and a device reads it to make [edges](/catalog/edges) from the links it contains. Marfa stores the value as sent and doesn't check it. | The same as `title_field`. |
+| `title_field` | The name of the field that names an item. | A field the type and its ancestors don't declare, or a `thumbnail` field. |
+| `body_field` | The name of the field that holds the item's text, **in Markdown**. Apps render it, and a device makes [edges](/catalog/edges) from its links. Marfa doesn't check it. | The same as `title_field`. |
 | `icon` | An [Iconify](https://iconify.design/) icon ID, `<set>:<name>`, from the `lucide` set (`@iconify-json/lucide` 1.2.149) or, for brand marks, the `simple-icons` set (`@iconify-json/simple-icons` 1.2.101), such as `lucide:star` or `simple-icons:github`. | A bare name such as `star`, another set, a name the set's version lacks, an alias such as `lucide:alert-circle`, an icon the set marks hidden, or a wrong-case or padded ID. Refused `400 invalid_schema`, naming `display_hints.icon`. |
 
-Every operation that takes a type definition applies the same rule, including [normalize a type definition](/api-reference/types/normalizeType). The IDs Marfa accepts are in the generated lists [`icon-set-lucide.json`](https://github.com/withmarfa/marfa/blob/main/packages/types/generated/icon-set-lucide.json) and [`icon-set-simple-icons.json`](https://github.com/withmarfa/marfa/blob/main/packages/types/generated/icon-set-simple-icons.json).
+**The icon sets are fixed because apps carry their own copy**, so an icon draws offline and looks the same in every app. The accepted IDs are in [`icon-set-lucide.json`](https://github.com/withmarfa/marfa/blob/main/packages/types/generated/icon-set-lucide.json) and [`icon-set-simple-icons.json`](https://github.com/withmarfa/marfa/blob/main/packages/types/generated/icon-set-simple-icons.json).
 
-**Each hint comes from the nearest type that sets it:** the type itself, then its parent, then that type's parent. A type that sets only an `icon` still shows the title and body its parent names. `GET /types/{id}` answers each hint after that choice, and `GET /types` lists the hints each type declares itself, with the owner's icon in place of the author's.
+**Each hint comes from the nearest type that sets it**, so a type that sets only an `icon` keeps the title and body its parent names. `GET /types` lists only the hints each type declares.
+
+### Names and previews
+
+The server and a device name an item by one rule, so they show the same name, offline included.
+
+- **The name** comes from the first of these fields that holds text: `title_field`, `title`, `name`, `body_field`, `body`, `text`, `filename`, `url` and `address`. Marfa takes the first line, collapses each run of whitespace and keeps at most 120 characters, ending in `…` where it cuts.
+- **A name taken from `body_field`, `body` or `text` loses its Markdown**, so a note whose body starts `# Plan` is named `Plan`. A name from any other field keeps every character.
+- **An item with no name** is `Untitled` to the server. A device answers that it has none, so each app chooses its own word.
+- **A preview** is the body field's text without its Markdown, at most 240 characters, leaving out the line the name came from and every line before it. Only a device makes one.
 
 ### The owner's icon
 
-**The owner can choose the icon of any type**, including the types Marfa ships and a connector's types, without replacing the definition:
+**The owner can choose the icon of any type**, a shipped or connector type included, without replacing it:
 
 ```bash
-marfa types set-icon user.recipe chef-hat
+marfa types set-icon user.recipe lucide:chef-hat
 marfa types clear-icon user.recipe
 ```
 
 The same two operations are [set a type's icon](/api-reference/types/setTypeIcon) and [clear a type's icon](/api-reference/types/clearTypeIcon).
 
-- **The choice sits beside the definition.** Replacing the type, as a connector does each time it starts, keeps it, and deleting the type discards it.
-- **Reads answer the owner's icon** in place of the author's. A subtype with no icon of its own shows its parent's, and one with its own keeps it unless the owner chose another for that subtype.
-- **Devices take it the next time they read the catalog:** at a catch-up, or when a follow next opens its stream. Marfa sends no event for a change to a type, so a device shows the old icon until then.
-- **Who can change it:** the owner, a local process, or a key with `schema.write` and write on the type in its type map. A key without `schema.write` is refused `403 forbidden`, and one without write on the type `403 type_not_permitted`. A connector's key can change the icon only if it holds both.
+- **Reads answer it in place of the author's icon**, and a subtype with no icon of its own shows it. Replacing the type keeps it, and deleting the type discards it.
+- **Devices take it at their next catch-up**, or when a follow next opens its stream. No event announces it.
+- **Who can change it:** the owner, a local process, or a key with `schema.write` and write on the type. Otherwise it's refused `403 forbidden` or `403 type_not_permitted`.
 
 ## Roles
 
 `roles` takes `container` alone. A `container` type can be the target of an [`in-collection`](/catalog/edges#in-collection) edge.
 
-A type plays the roles it declares and those its ancestors play. [List types](/api-reference/types/listTypes) answers both: `roles`, every role the type plays, and `own_roles`, only those it declares. **When you [replace a type](/api-reference/types/replaceType), send its `own_roles` as `roles`**, so it keeps a role it declares even if its parent stops playing it.
+A type also plays its ancestors' roles. [List types](/api-reference/types/listTypes) answers `roles`, every role it plays, and `own_roles`, those it declares. **When you [replace a type](/api-reference/types/replaceType), send its `own_roles` as `roles`.**
 
 ## Merge policy
 
@@ -113,4 +124,4 @@ A type plays the roles it declares and those its ancestors play. [List types](/a
 
 `GET /types/{id}` shows the window after inheritance, and `GET /types` shows only the window the type declares.
 
-The rules behind this page are in the [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md), [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md), [edges](https://github.com/withmarfa/marfa/blob/main/conformance/spec/edges.md) and [housekeeping](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md) chapters of the contract.
+The rules behind this page are in the [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md), [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md), [edges](https://github.com/withmarfa/marfa/blob/main/conformance/spec/edges.md) and [housekeeping](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md) chapters of the contract.

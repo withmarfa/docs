@@ -563,8 +563,9 @@ describe('the example check', () => {
 
 describe('the Field kinds page', () => {
   const page = PAGES.find((candidate) => candidate.slug === 'field-kinds')!.text;
-  // A kind is a table row's first cell.
-  const kinds = [...page.matchAll(/^\|\s*`([a-z]+)`\s*\|/gm)].map((match) => match[1]);
+  // A kind is a table row's first cell in the Kinds section; the other tables name keys and formats.
+  const section = page.split(/^## Kinds$/m)[1]?.split(/^## /m)[0] ?? '';
+  const kinds = [...section.matchAll(/^\|\s*`([a-z]+)`\s*\|/gm)].map((match) => match[1]);
 
   it('lists every field kind the catalog names, once', () => {
     expect(kinds.length).toBeGreaterThan(0);
