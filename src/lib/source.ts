@@ -102,7 +102,7 @@ function sidebarOrder(): Map<string, number> {
   return order;
 }
 
-/** The written pages in sidebar order, which `llms.txt` promises; a page outside the tree goes last. */
+/** The written pages in the sidebar's order, as `llms.txt` lists them; a page outside the tree goes last. */
 export async function getLlmsFullText() {
   const order = sidebarOrder();
   const rank = (page: (typeof source)['$inferPage']) => order.get(page.url) ?? Number.MAX_SAFE_INTEGER;
