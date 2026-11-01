@@ -15,6 +15,7 @@ This file sits above `content/docs/` on purpose: the docs collection publishes e
 - The Reference tab's `meta.json` lifts the API pages into its own sidebar with `...api-reference`, and `src/lib/api-reference-tree.ts` finds the tab by that `meta.json` title. Renaming the title needs `REFERENCE_TITLE` changed there.
 - `(reference)/api-reference/` holds only the hand-written overview and Errors pages. Every operation page is generated from `openapi.json`, into the folder `src/lib/source.ts` names.
 - An operation page sits at `/api-reference/<group>/<operationId>`, where the group is its tag in lowercase with hyphens for spaces (`/api-reference/api-keys/createKey`). The sidebar and `docs-map.md` list the groups in the order of `tags` in `openapi.json` and each group's operations in that tag's `x-operation-order`; an operation missing from the list sorts last and fails `src/lib/api-reference-tree.test.ts`. A link to an operation page uses that address, and `src/lib/content-lint.test.ts` finds one that does not resolve.
+- The API reference's overview draws every operation with `ApiMap`, by area. `src/lib/api-map-areas.json` places each tag of `openapi.json` in one area, and `src/lib/api-map.test.ts` fails when a sync brings a tag that no area holds: add it to the area a reader would look in.
 - When a page's path or title changes, check what the agent surfaces say about it, including the example path in the `docs_fetch` description in `src/lib/mcp/tools.ts`.
 
 ## Wiring a page
