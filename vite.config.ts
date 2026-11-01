@@ -26,7 +26,8 @@ export default defineConfig({
       // `/index.html`. Served from there, the client router runs `/`'s
       // redirect on a page already rendered as the Overview, and hydration
       // fails. Left out, `/` reaches the Worker, which answers the redirect.
-      pages: [{ path: '/overview' }],
+      // No page links to the sitemap, so it is listed for prerender to write.
+      pages: [{ path: '/overview' }, { path: '/sitemap.xml' }],
       prerender: {
         enabled: true,
         // /version.json, /mcp and everything under /api/ must stay Worker

@@ -1,6 +1,7 @@
 import type * as PageTree from 'fumadocs-core/page-tree';
 import { isTagFolder, regroupApiReference } from '@/lib/api-reference-tree';
 import { source } from '@/lib/source';
+import { siteUrl } from '@/lib/shared';
 
 /**
  * A hierarchical index of the docs (Anthropic claude_code_docs_map.md pattern),
@@ -21,8 +22,6 @@ export function buildDocsMap(): string {
   );
 }
 
-const SITE = 'https://docs.marfa.so';
-
 /**
  * `/llms.txt` in the llmstxt.org shape: the project's name, a one-line summary,
  * how to read the docs, then every page by tab and sidebar group. A written
@@ -36,14 +35,14 @@ export function buildLlmsTxt(): string {
       '',
       "> Marfa is a server you run yourself that holds one person's data in one place, in types every app understands, so the apps, scripts and AI agents they allow can read and write it through one HTTP API.",
       '',
-      `These docs cover what Marfa is, running an instance, building apps, connectors and agents on it, and the API. Each written page below links to its Markdown copy, and the same address without \`.md\` is the HTML. A request for a page's address with \`Accept: text/markdown\` gets the Markdown copy too. \`${SITE}/docs-map.md\` is this index with HTML links.`,
+      `These docs cover what Marfa is, running an instance, building apps, connectors and agents on it, and the API. Each written page below links to its Markdown copy, and the same address without \`.md\` is the HTML. A request for a page's address with \`Accept: text/markdown\` gets the Markdown copy too. \`${siteUrl}/docs-map.md\` is this index with HTML links.`,
       '',
-      `\`${SITE}/llms-full.txt\` holds the written pages in one file. It leaves out the API operations and the changelog. The changelog is long, and an operation's Markdown copy holds only its title and description, so each API operation links to its HTML page, which holds its full request and response. The API description with every operation is \`openapi.json\` in https://github.com/withmarfa/marfa. The changelog's Markdown copy is \`${SITE}/changelog.md\`. The docs MCP server at \`${SITE}/mcp\` searches every page, including the operations and the changelog, and its \`docs_fetch\` tool reads one page. It reaches no one's data: each Marfa instance serves its own MCP server at \`/mcp\`, which \`${SITE}/marfa-mcp-server.md\` describes.`,
+      `\`${siteUrl}/llms-full.txt\` holds the written pages in one file. It leaves out the API operations and the changelog. The changelog is long, and an operation's Markdown copy holds only its title and description, so each API operation links to its HTML page, which holds its full request and response. The API description with every operation is \`openapi.json\` in https://github.com/withmarfa/marfa. The changelog's Markdown copy is \`${siteUrl}/changelog.md\`. The docs MCP server at \`${siteUrl}/mcp\` searches every page, including the operations and the changelog, and its \`docs_fetch\` tool reads one page. It reaches no one's data: each Marfa instance serves its own MCP server at \`/mcp\`, which \`${siteUrl}/marfa-mcp-server.md\` describes.`,
       '',
     ],
     (url, page) => {
       if (!url.startsWith('/')) return url;
-      return page && 'getText' in page.data ? `${SITE}${url}.md` : `${SITE}${url}`;
+      return page && 'getText' in page.data ? `${siteUrl}${url}.md` : `${siteUrl}${url}`;
     },
   );
 }

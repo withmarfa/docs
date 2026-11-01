@@ -6,14 +6,15 @@ const HOST = 'https://docs.example';
 const page = source.getPage(['overview'])!;
 
 // What the platform and the router answer for the pages, as far as this layer
-// can tell: the files hold each page at its slash form and redirect the other.
+// can tell: the files hold each page at its address without a slash
+// (`html_handling` in `wrangler.jsonc`) and redirect the slash form.
 const files = (request: Request) => {
   const { pathname } = new URL(request.url);
-  if (pathname === '/overview/') {
+  if (pathname === '/overview') {
     return Promise.resolve(new Response('<html>overview</html>', { headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
   }
-  if (pathname === '/overview') {
-    return Promise.resolve(new Response(null, { status: 307, headers: { Location: '/overview/' } }));
+  if (pathname === '/overview/') {
+    return Promise.resolve(new Response(null, { status: 307, headers: { Location: '/overview' } }));
   }
   if (pathname === '/favicon.svg') {
     return Promise.resolve(new Response('<svg/>', { headers: { 'Content-Type': 'image/svg+xml' } }));
@@ -47,9 +48,51 @@ function get(path: string, accept?: string, method = 'GET') {
   return handle(new Request(`${HOST}${path}`, { method, headers: accept ? { Accept: accept } : {} }));
 }
 
+describe('an address with a trailing slash', () => {
+  it.each([
+    ['/overview/', '/overview'],
+    ['/run/deploy/', '/run/deploy'],
+    ['/overview//', '/overview'],
+    ['/overview/?q=1', '/overview?q=1'],
+    ['/no-such-page/', '/no-such-page'],
+  ])('sends %s to %s with a permanent redirect', async (from, to) => {
+    for (const accept of ['text/html', 'text/markdown']) {
+      seen.length = 0;
+      const res = await get(from, accept);
+      expect(res.status).toBe(301);
+      expect(res.headers.get('Location')).toBe(`${HOST}${to}`);
+      expect(seen).toHaveLength(0);
+    }
+  });
+
+  it('answers HEAD with the same redirect', async () => {
+    const res = await get('/overview/', undefined, 'HEAD');
+    expect(res.status).toBe(301);
+    expect(res.headers.get('Location')).toBe(`${HOST}/overview`);
+  });
+
+  it('keeps a path that starts with slashes on this host', async () => {
+    const res = await get('//evil.example/', 'text/html');
+    expect(res.status).toBe(301);
+    expect(new URL(res.headers.get('Location')!).host).toBe(new URL(HOST).host);
+  });
+
+  it('leaves the root alone', async () => {
+    seen.length = 0;
+    await get('/', 'text/html');
+    expect(seen.map((request) => new URL(request.url).pathname)).toEqual(['/']);
+  });
+
+  it('passes a write through, so a client posting to /mcp/ is not redirected', async () => {
+    seen.length = 0;
+    await handle(new Request(`${HOST}/mcp/`, { method: 'POST' }));
+    expect(seen.map((request) => new URL(request.url).pathname)).toEqual(['/mcp/']);
+  });
+});
+
 describe('a page address that prefers Markdown', () => {
-  it.each(['/overview/', '/overview'])('answers the page\'s .md copy at %s', async (path) => {
-    const res = await get(path, 'text/markdown');
+  it('answers the page\'s .md copy', async () => {
+    const res = await get('/overview', 'text/markdown');
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('text/markdown');
     expect(res.headers.get('Vary')).toBe('Accept');
@@ -59,7 +102,7 @@ describe('a page address that prefers Markdown', () => {
   it('answers what the .md address answers', async () => {
     // The `.md` route answers through `markdownResponse` too.
     const copy = await markdownResponse(page);
-    const res = await get('/overview/', 'text/markdown');
+    const res = await get('/overview', 'text/markdown');
     expect(res.headers.get('Content-Type')).toBe(copy.headers.get('Content-Type'));
     expect(await res.text()).toBe(await copy.text());
   });
@@ -71,7 +114,7 @@ describe('a page address that prefers Markdown', () => {
   });
 
   it('answers HEAD with the headers and no body', async () => {
-    const res = await get('/overview/', 'text/markdown', 'HEAD');
+    const res = await get('/overview', 'text/markdown', 'HEAD');
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('text/markdown');
     expect(res.headers.get('Vary')).toBe('Accept');
@@ -86,18 +129,11 @@ describe('a page address that prefers HTML', () => {
     ['*/*'],
     [undefined],
   ])('answers the file with Vary: Accept for Accept %s', async (accept) => {
-    const res = await get('/overview/', accept);
+    const res = await get('/overview', accept);
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     expect(res.headers.get('Vary')).toBe('Accept');
     expect(await res.text()).toBe('<html>overview</html>');
-  });
-
-  it('keeps the redirect to the slash form, with Vary: Accept', async () => {
-    const res = await get('/overview', 'text/html');
-    expect(res.status).toBe(307);
-    expect(res.headers.get('Location')).toBe('/overview/');
-    expect(res.headers.get('Vary')).toBe('Accept');
   });
 
   it('does not add Accept to a Vary that already names it', async () => {
@@ -105,7 +141,7 @@ describe('a page address that prefers HTML', () => {
       assets: { fetch: async () => new Response('x', { headers: { Vary: 'accept-encoding, Accept' } }) },
       app,
     });
-    const res = await varied(new Request(`${HOST}/overview/`));
+    const res = await varied(new Request(`${HOST}/overview`));
     expect(res.headers.get('Vary')).toBe('accept-encoding, Accept');
   });
 });
@@ -166,7 +202,7 @@ describe('an address that is not a page', () => {
 describe('a request that is not a read', () => {
   it('goes to the router without a file lookup', async () => {
     seen.length = 0;
-    const res = await handle(new Request(`${HOST}/overview/`, { method: 'POST', headers: { Accept: 'text/markdown' } }));
+    const res = await handle(new Request(`${HOST}/overview`, { method: 'POST', headers: { Accept: 'text/markdown' } }));
     expect(res.status).toBe(406);
     expect(seen).toHaveLength(1);
   });
@@ -175,9 +211,9 @@ describe('a request that is not a read', () => {
 describe('without an assets binding', () => {
   it('passes every request to the router and still negotiates', async () => {
     const bare = createWorkerHandler({ app });
-    const md = await bare(new Request(`${HOST}/overview/`, { headers: { Accept: 'text/markdown' } }));
+    const md = await bare(new Request(`${HOST}/overview`, { headers: { Accept: 'text/markdown' } }));
     expect(md.headers.get('Content-Type')).toBe('text/markdown');
-    const html = await bare(new Request(`${HOST}/overview/`, { headers: { Accept: 'text/html' } }));
+    const html = await bare(new Request(`${HOST}/overview`, { headers: { Accept: 'text/html' } }));
     expect(html.status).toBe(404);
   });
 });

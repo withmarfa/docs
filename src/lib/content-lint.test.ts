@@ -213,6 +213,10 @@ export function checkStatementNumbers(file: string, text: string): Violation[] {
   return out;
 }
 
+// An em or en dash, as the character or an HTML entity. The title and the
+// description reach search results and link previews, so neither may hold one.
+const TITLE_DASH = /[\u2013\u2014]|&[mn]dash;|&#0*82(?:11|12);|&#x0*201[34];/i;
+
 export function checkFrontmatter(file: string, text: string): Violation[] {
   const block = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
   const fail = (detail: string): Violation[] => [{ file, line: 1, rule: 'frontmatter', detail }];
@@ -230,6 +234,8 @@ export function checkFrontmatter(file: string, text: string): Violation[] {
     const value = fields[key];
     if (typeof value !== 'string' || value.trim() === '') {
       out.push(...fail(`${key} is missing or empty`));
+    } else if (TITLE_DASH.test(value)) {
+      out.push(...fail(`${key} has an em or en dash, which search results and link previews show; use a comma or a colon`));
     }
   }
   return out;
@@ -553,8 +559,21 @@ describe('content lint: the corpus', () => {
     expect(lintAll(checkStatementNumbers)).toEqual([]);
   });
 
-  it('gives every page a title and a description', () => {
+  it('gives every page a title and a description, with no em or en dash', () => {
     expect(lintAll(checkFrontmatter)).toEqual([]);
+  });
+
+  // The API reference pages take their title and description from
+  // `openapi.json`, not frontmatter, so the loaded pages are checked too.
+  it('gives no page, API reference included, a dash in its title or description', () => {
+    const found = source
+      .getPages()
+      .flatMap((page) =>
+        [page.data.title, page.data.description]
+          .filter((value): value is string => typeof value === 'string' && TITLE_DASH.test(value))
+          .map((value) => `${page.url}: ${value}`),
+      );
+    expect(found).toEqual([]);
   });
 
   it('says "coming soon" only where it is allowed', () => {
@@ -663,6 +682,10 @@ describe('content lint: each rule fires on a bad sample', () => {
     expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\n---\nBody\n'))).toEqual(['frontmatter']);
     expect(rules(checkFrontmatter('x.mdx', '---\ntitle: ""\ndescription: B\n---\n'))).toEqual(['frontmatter']);
     expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\ndescription: @bad\n---\n'))).toEqual(['frontmatter']);
+    expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A \u2013 B\ndescription: C\n---\n'))).toEqual(['frontmatter']);
+    expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\ndescription: B \u2014 C\n---\n'))).toEqual(['frontmatter']);
+    expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A &ndash; B\ndescription: C\n---\n'))).toEqual(['frontmatter']);
+    expect(checkFrontmatter('x.mdx', '---\ntitle: A-B\ndescription: C, D\n---\n')).toEqual([]);
     expect(checkFrontmatter('x.mdx', '---\ntitle: A\ndescription: B\n---\nBody\n')).toEqual([]);
   });
 

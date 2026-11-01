@@ -1,4 +1,5 @@
 import { prefersMarkdown } from '@/lib/accept';
+import { withoutTrailingSlash } from '@/lib/canonical';
 import { agentReads, type AgentReadOptions } from '@/lib/agent-reads';
 import { rateLimit, type Limiters } from '@/lib/rate-limit';
 import { markdownResponse, pageForPath } from '@/lib/source';
@@ -49,11 +50,28 @@ function isHtml(response: Response): boolean {
 }
 
 /**
+ * One address for each page: its path without a trailing slash, which the
+ * files answer directly (`html_handling` in `wrangler.jsonc`). A read of any
+ * other path that ends in a slash is sent there with a permanent redirect that
+ * keeps the query, so search engines index one address and an old link still
+ * lands. The root keeps its slash. A write passes through, because a client
+ * posting to `/mcp/` would not resend its body to a new address. The redirect
+ * is absolute and built on the request's own URL, so a path such as
+ * `//example.com/` cannot send a reader to another host.
+ */
+export const trailingSlash: Stage = async (request, next) => {
+  if (!isRead(request)) return next(request);
+  const url = new URL(request.url);
+  const path = withoutTrailingSlash(url.pathname);
+  if (path === url.pathname) return next(request);
+  url.pathname = path;
+  return new Response(null, { status: 301, headers: { Location: url.toString() } });
+};
+
+/**
  * A page address answers with the page's Markdown copy when `Accept` ranks
- * `text/markdown` above `text/html`, and with HTML otherwise. A page address is
- * the page's path with or without a trailing slash. Either answer, and the
- * redirect from the address without a slash, carries `Vary: Accept`, so a cache
- * keeps the two forms apart.
+ * `text/markdown` above `text/html`, and with HTML otherwise. Either answer
+ * carries `Vary: Accept`, so a cache keeps the two forms apart.
  *
  * Any other address passes through, except that the router's HTML not-found
  * page, which differs by `Accept`, carries `Vary: Accept`, and a client asking
@@ -107,12 +125,13 @@ export type WorkerOptions = {
 
 /**
  * Counting runs outermost, so it sees the final response, and sends nothing for
- * a `429`. The limit runs before negotiation and the files, so a refused client
- * costs the Worker nothing else.
+ * a `429`. The limit runs before everything else, so a refused client costs the
+ * Worker nothing more. The slash redirect runs before negotiation, so neither
+ * form of answer is served at a second address.
  */
 export function createWorkerHandler({ assets, app, analytics, limiters = {} }: WorkerOptions): Next {
   const stages: Stage[] = [];
   if (analytics?.key) stages.push(agentReads(analytics));
-  stages.push(rateLimit(limiters), markdownNegotiation, staticAssets(assets));
+  stages.push(rateLimit(limiters), trailingSlash, markdownNegotiation, staticAssets(assets));
   return compose(stages, app);
 }
