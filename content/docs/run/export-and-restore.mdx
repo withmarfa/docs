@@ -3,7 +3,7 @@ title: Export and restore an archive
 description: Export your items, edges, types and files to an archive, and restore it into the same instance or another, such as a new build.
 ---
 
-An archive carries your content to another instance: items with their tags, extensions and earlier versions, edges, the types and edge types you registered, the icons you chose for types, and file bytes. It leaves the instance's own setup behind, so it holds no keys, webhooks, configuration, audit log or owner's picture. An [upgrade](/run/upgrade) doesn't need one, because a new build updates the database in place. A different build may refuse an archive, so **test a restore on fresh storage first** when you move data to another build.
+An archive carries your content to another instance: items with their tags, extensions and earlier versions, edges, the types and edge types you registered, the icons you chose for types, the names and marks given to sources, and file bytes. It leaves the instance's own setup behind, so it holds no keys, webhooks, configuration, audit log or owner's picture. An [upgrade](/run/upgrade) doesn't need one, because a new build updates the database in place. A different build may refuse an archive, so **test a restore on fresh storage first** when you move data to another build.
 
 An archive isn't a long-term backup, because only the build that wrote it is sure to read it. To recover an instance from a failed disk, [back up the data directory](/run/back-up-and-restore) instead.
 
@@ -42,7 +42,7 @@ GET /export?format=archive&state=any
 Authorization: Bearer <key>
 ```
 
-The CLI writes to a hidden file and moves it to the path only when the export finished whole, so the path always holds the last complete archive. Any other ending leaves the path as it was and exits with a nonzero [exit code](/cli#exit-codes).
+The CLI moves the file to the path only once the export finished whole, so the path always holds the last complete archive. Any other ending leaves the path as it was and exits with a nonzero [exit code](/cli#exit-codes).
 
 </Step>
 <Step>
@@ -87,7 +87,7 @@ The manifest then names every file under `missing_blobs`, and a restore reports 
 
 An export leaves out a blob its items name in two cases: no store holds a whole copy of it, as after a disk lost the file, or the key that exports may not read it. A key without `blobs.manage` may not read the bytes of a file that only an earlier version of an item names.
 
-Either way, the export names the blob under `missing_blobs` in the manifest. One missing file costs the archive that file, not everything else. Over HTTP the answer is still `200`. The CLI keeps the archive as `<path>.incomplete`, leaves the file at the path as it was, and exits with code 1 and `blobs_missing`.
+Either way, the export names the blob under `missing_blobs` in the manifest and carries everything else. Over HTTP the answer is still `200`. The CLI keeps the archive as `<path>.incomplete`, leaves the file at the path as it was, and exits with code 1 and `blobs_missing`.
 
 The manifest's blob fields show what the archive lacks:
 
@@ -112,7 +112,7 @@ tar -xzOf marfa-archive.tar.gz.incomplete manifest.json | jq '{blob_count, blobs
 
 </Terminal>
 
-`mime_type` and `size_bytes` are `null` when the instance has no record of the bytes, as after a restore that lacked them, and for every blob the key may not read. An empty `missing_blobs` means the archive holds every blob its items name.
+`mime_type` and `size_bytes` are `null` when the instance has no record of the bytes, as after a restore that lacked them, and for every blob the key may not read.
 
 **A blob the key may not read needs no upload.** Export again with a key that holds `blobs.manage`, or as the owner in a browser, and the archive carries the bytes. **A blob that no store holds stays named in every later export** until you upload its bytes again:
 
@@ -120,7 +120,7 @@ tar -xzOf marfa-archive.tar.gz.incomplete manifest.json | jq '{blob_count, blobs
 marfa blobs upload <file>
 ```
 
-A store that fails is not a lost file. Unless another store holds the blob whole, the export is refused with `503 blob_store_unavailable` before it begins, so try again once the store answers.
+If a store fails and no other holds the blob whole, the export is refused with `503 blob_store_unavailable` before it begins: try again once the store answers.
 
 ## What an export checks
 
@@ -134,7 +134,7 @@ A store that fails is not a lost file. Unless another store holds the blob whole
 
 ## Restore an archive
 
-A restore adds what the instance lacks and replaces nothing. An item the instance already holds is counted in `duplicates` and left as it is, so replaying an archive never overwrites work done since. The target can be a new instance or the one the archive came from.
+A restore adds what the instance lacks and replaces nothing. An item the instance already holds is counted in `duplicates` and left as it is, so replaying an archive never overwrites work done since.
 
 Only the owner can restore: through the [private socket](/cli#use-the-private-socket), or signed in to the instance within the five minutes before the restore starts. A key is refused `403 forbidden`, whatever it holds. In a browser, on the **Export and restore** page, select **Choose file...**, choose the archive, then select **Restore**. An older sign-in is asked to confirm in a **Confirm it's you** dialog first.
 
@@ -161,7 +161,10 @@ marfa --socket /srv/marfa/data/control/marfa.sock restore marfa-archive.tar.gz
   "edge_types_skipped": 0,
   "type_icons_added": 0,
   "type_icons_skipped": 0,
-  "type_icons_skipped_reasons": {}
+  "type_icons_skipped_reasons": {},
+  "sources_added": 0,
+  "sources_skipped": 0,
+  "sources_skipped_reasons": {}
 }
 ```
 
@@ -171,7 +174,8 @@ The same archive restored again answers `"imported": 0`, `"duplicates": 6` and `
 
 - **`blobs_missing`** lists the blobs the archive carries no bytes for and no store of the instance holds. Their items are restored, without bytes until you [upload them again](#when-an-archive-lacks-a-files-bytes), and the CLI exits with code 1 and `blobs_missing`.
 - **`edges_skipped_reasons`** counts why edges were skipped, such as `already_present` or `endpoint_missing`. An edge to an item in the bin is restored.
-- **`type_icons_added`, `type_icons_skipped` and `type_icons_skipped_reasons`** count [the icons you chose](/catalog/display-hints#the-owners-icon). A restore never replaces an icon you chose since the export, and counts that skip as `already_set`. An icon the [icon rule](/catalog/display-hints#the-hints) refuses is skipped as `unknown_icon`. A damaged icon line, or one naming a type neither the archive nor the instance registers, refuses the whole archive.
+- **`type_icons_added`, `type_icons_skipped` and `type_icons_skipped_reasons`** count [the icons you chose](/catalog/display-hints#the-owners-icon). It never replaces an icon you chose since the export, and counts that skip as `already_set`. An icon the [icon rule](/catalog/display-hints#the-hints) refuses is skipped as `unknown_icon`. A damaged icon line, or one naming a type neither the archive nor the instance registers, refuses the whole archive.
+- **`sources_added`, `sources_skipped` and `sources_skipped_reasons`** count the names and marks of [sources](/items-and-types#where-an-item-came-from). A restore sets them only where the instance has neither, and counts each source it skips by reason.
 
 A restore writes in one transaction: refused, failed or interrupted, it leaves nothing behind, so you can run it again. Other writes wait while it runs, so let it answer before you start your apps.
 
@@ -180,7 +184,7 @@ A restore refuses the whole archive when the file isn't a valid archive, lacks o
 ## What a restore leaves for you
 
 - **Keys, webhooks and configuration.** Make keys, register webhooks and set the configuration again.
-- **Connected apps.** A restored `system.connection` item has `status: revoked`: it records past access rather than reconnecting the app, so sign the app in again. An item an app wrote gets `restored:` in front of its source, so a later sign-in can't overwrite it.
+- **Connected apps.** A restored `system.connection` item has `status: revoked`: it records past access rather than reconnecting the app, so sign the app in again. An item an app wrote gets `restored:` in front of its source, which keeps the source's name, so a later sign-in can't overwrite it.
 - **Items as archived.** A restore takes an item exactly as archived, even when its type is no longer registered or has changed its fields. An item of a `core` or `system` type that the build ships is still held to its shape.
 
 The rules behind this page are in the [export](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#export) and [restore](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#restore) sections of the search and filters chapter of the contract, with [`search-and-filters/archive-missing-unreadable`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#search-and-filtersarchive-missing-unreadable) for a blob the key may not read.
