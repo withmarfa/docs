@@ -79,9 +79,9 @@ describe('the changelog on the server', () => {
     expect(renderToStaticMarkup(<ChangelogView releases={[]} />)).toBe('');
   });
 
-  it('labels the filter group and marks All parts as the default selection', () => {
-    expect(html).toContain('id="marfa-cl-filter-label" class="marfa-cl-filter-label">Filter by part');
-    expect(html).toContain('role="group" aria-labelledby="marfa-cl-filter-label"');
+  it('labels the filter group accessibly and marks All parts as the default selection', () => {
+    expect(html).not.toContain('Filter by part</span>');
+    expect(html).toContain('role="group" aria-label="Filter by part"');
     expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>All parts<\/button>/);
     expect(html.match(/<button[^>]*aria-pressed="false"[^>]*>(Server|CLI)<\/button>/g)).toHaveLength(2);
   });

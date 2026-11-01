@@ -113,8 +113,7 @@ export function ChangelogView({ releases }: { releases: Release[] }) {
     <div className="marfa-cl">
       {parts.length > 1 ? (
         <div className="marfa-cl-filters">
-          <span id="marfa-cl-filter-label" className="marfa-cl-filter-label">Filter by part</span>
-          <div className="marfa-cl-filter-options" role="group" aria-labelledby="marfa-cl-filter-label">
+          <div className="marfa-cl-filter-options" role="group" aria-label="Filter by part">
             <button
               type="button"
               className="marfa-cl-filter-button"
