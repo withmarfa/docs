@@ -943,7 +943,7 @@ ITEM_GROUPS = (
     ("Identity", ("id", "type", "tier")),
     ("Content", ("properties", "edges", "extensions")),
     ("Origin", ("source", "source_id", "capture_latitude", "capture_longitude")),
-    ("State", ("state", "trashed_at", "trashed_by_cascade", "trashed_with")),
+    ("State", ("state", "read_only", "trashed_at", "trashed_by_cascade", "trashed_with")),
     ("Version", ("version", "schema_version")),
     ("Time", ("occurred_at", "created_at", "updated_at")),
 )
