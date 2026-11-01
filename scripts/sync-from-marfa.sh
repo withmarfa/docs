@@ -529,7 +529,7 @@ EDGE_KEYS = {
 }
 STRATEGIES = {"last_writer_wins", "keep_both_copies"}
 CARDINALITIES = {"one-to-one", "one-to-many", "many-to-one", "many-to-many"}
-CASCADES = {"orphan", "cascade"}
+CASCADES = {"orphan", "cascade", "block", "with-hosts"}
 ROLES = {"container"}
 HINT_KEYS = ("title_field", "body_field", "icon")
 RULES = "/catalog/type-rules"

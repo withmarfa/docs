@@ -1,14 +1,26 @@
 ## about
 
-Source item is about the target item. Topical connection between items across types.
+Source item is about the target item. Topical connection between items across types. For a passage taken from the target use `excerpt-of`; for a mention in the source's text use `references`.
 
 ## attached-to
 
-Source is a file attached to the target. Many-to-many: a file may be attached to multiple hosts; a host may have multiple attachments. Deleting the host orphans the attachment (it may still be attached to other items). The attachment's own file writes the edge, saying what it was made for; where the attachment cannot carry frontmatter, such as an image, the host's file writes it under the reverse name, `has-attachment`.
+Source exists only for the item or items it is attached to, whoever or whatever made it: a file, a scan, a page of a scan, a clip. Many-to-many: a part may be attached to several hosts; a host may have several attachments. The source goes to the trash with its hosts once all of them are in the trash, and comes back when any of them is restored; removing the edge never trashes it. Carries an optional position for ordered parts, such as the pages of a scan. The attachment's own file writes the edge, saying what it was made for; where the attachment cannot carry frontmatter, such as an image, the host's file writes it under the reverse name, `has-attachment`.
+
+| Property   | Kind     | Description                                                                  |
+| ---------- | -------- | ---------------------------------------------------------------------------- |
+| `position` | `number` | Ordering among the host's attachments, such as the page of a scan (1-based). |
+
+## comments-on
+
+Source is a comment on the target: a comment, a reply to another comment, a review comment, a suggestion or a review verdict. Many-to-one: a comment is on one item; an item may have many comments. A reply is a comment on the comment it answers. The source goes to the trash with its target and comes back when the target is restored; removing the edge never trashes it.
 
 ## derived-from
 
 Source was produced from the target (imports, AI generation, transformations). Both items remain valid in parallel.
+
+## excerpt-of
+
+Source is a highlight, quote or clip taken from the target. Each excerpt is taken from one item; an item can have many excerpts. The excerpt carries its own text, stays in lists and stays when its source is binned or purged (orphan). Use it for a passage taken from an item, `about` for a topical link and `references` for a mention in text.
 
 ## in-collection
 
@@ -48,7 +60,7 @@ Source is the parent of the target. Target has at most one parent. Deleting the 
 
 ## references
 
-Source explicitly references the target. Distinct from `about` (topical) and `derived-from` (provenance). Covers wikilink-style mentions and the highlight-on-a-book case.
+Source mentions the target: a link or embed in the source's text, or a system's own link from one item to another. Nothing else. Distinct from `about` (topical), `derived-from` (provenance) and `excerpt-of` (a passage taken from the target).
 
 ## supersedes
 
