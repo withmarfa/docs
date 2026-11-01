@@ -22,30 +22,32 @@ describe('buildDocsMap', () => {
   const lines = map.split('\n');
 
   it('lists the five tabs in order, as H2 headings', () => {
-    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Overview', '## Build', '## Run', '## Catalog', '## Reference']);
+    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Start', '## Run', '## Catalog', '## Build', '## Reference']);
   });
 
   it('groups each tab as the sidebar does', () => {
-    const overview = lines.slice(lines.indexOf('## Overview'), lines.indexOf('## Build'));
-    expect(overview.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Concepts']);
-    expect(overview.some((line) => line.startsWith('- [Agents, the CLI and MCP](/agents-cli-and-mcp)'))).toBe(true);
-    expect(overview.some((line) => line.startsWith('- [Overview](/overview)'))).toBe(true);
-    expect(overview.some((line) => line.startsWith('- [Glossary](/glossary)'))).toBe(true);
+    const start = lines.slice(lines.indexOf('## Start'), lines.indexOf('## Run'));
+    expect(start.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Concepts']);
+    expect(start.findIndex((line) => line.startsWith('- [Overview](/)'))).toBeLessThan(start.indexOf('### Get started'));
+    expect(start.some((line) => line.startsWith('- [Connect your agent](/connect-your-agent)'))).toBe(true);
+    expect(start.some((line) => line.startsWith('- [Agents, the CLI and MCP](/agents-cli-and-mcp)'))).toBe(true);
+    expect(start.some((line) => line.startsWith('- [Glossary](/glossary)'))).toBe(true);
 
-    const build = lines.slice(lines.indexOf('## Build'), lines.indexOf('## Run'));
+    const build = lines.slice(lines.indexOf('## Build'), lines.indexOf('## Reference'));
     expect(build.filter((line) => line.startsWith('### '))).toEqual(['### Tutorials', '### Build apps and agents', '### Build connectors']);
     expect(build.some((line) => line.startsWith('- [Use Marfa with AI agents](/build/ai-agents)'))).toBe(true);
     expect(build.some((line) => line.startsWith('- [Connect Claude and ChatGPT](/build/connect-claude-and-chatgpt)'))).toBe(true);
+    expect(build.some((line) => line.startsWith('- [Overview](/build)'))).toBe(true);
 
     const run = lines.slice(lines.indexOf('## Run'), lines.indexOf('## Catalog'));
     expect(run.filter((line) => line.startsWith('### '))).toEqual(['### Set up', '### Keys and access', '### Folders', '### Connectors', '### Look after it']);
     expect(run.some((line) => line.startsWith('- [Troubleshooting](/run/troubleshooting)'))).toBe(true);
 
     // The Catalog has three sections; the Types and Connectors pages are folders, so their pages nest under them.
-    const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Reference'));
+    const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Build'));
     expect(catalog.filter((line) => line.startsWith('### '))).toEqual(['### Data', '### Events and access', '### Integrations']);
     expect(catalog.filter((line) => /^(- |  - |    - )/.test(line)).map((line) => line.replace(/\]\(.*$/, ']').replace(/^( *- )\[/, '$1'))).toEqual([
-      '- Catalog]',
+      '- Overview]',
       '- Items]',
       '- Types]',
       '  - Core types',
@@ -64,16 +66,16 @@ describe('buildDocsMap', () => {
     expect(catalog.some((line) => line.startsWith('  - [GitHub](/catalog/connectors/github)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('    - [Media](/catalog/media)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('- [Types](/catalog/types)'))).toBe(true);
-    expect(catalog.some((line) => line.startsWith('- [Catalog](/catalog)'))).toBe(true);
+    expect(catalog.some((line) => line.startsWith('- [Overview](/catalog)'))).toBe(true);
 
     const reference = lines.slice(lines.indexOf('## Reference'));
     const groups = reference.filter((line) => line.startsWith('### '));
-    expect(reference[2]).toMatch(/^- \[Reference\]\(\/reference\)/);
+    expect(reference[2]).toMatch(/^- \[Overview\]\(\/reference\)/);
     expect(groups.slice(0, 2)).toEqual(['### SDKs, CLI and MCP', '### HTTP API']);
     expect(groups.at(-1)).toBe('### Resources');
     expect(reference.some((line) => line.startsWith('- [TypeScript SDK](/typescript-sdk)'))).toBe(true);
     expect(reference.some((line) => line.startsWith('- [Marfa MCP server](/marfa-mcp-server)'))).toBe(true);
-    expect(reference.some((line) => line.startsWith('- [Read these docs from an agent](/docs-for-agents)'))).toBe(true);
+    expect(reference.some((line) => line.startsWith('- [Docs for agents](/docs-for-agents)'))).toBe(true);
     expect(reference.some((line) => line.startsWith('- [The contract](https://github.com/'))).toBe(true);
   });
 
@@ -110,7 +112,7 @@ describe('buildLlmsTxt', () => {
   });
 
   it('links each written page to its Markdown copy at a full address', () => {
-    expect(text).toContain('- [Overview](https://docs.marfa.so/overview.md)');
+    expect(text).toContain('- [Overview](https://docs.marfa.so/index.md)');
     expect(text).toContain('(https://docs.marfa.so/cli.md)');
     expect(text).not.toMatch(/\]\(\/[a-z]/);
   });
@@ -125,7 +127,7 @@ describe('buildLlmsTxt', () => {
   });
 
   it('says what llms-full.txt holds and where the operations and the changelog are', () => {
-    const intro = text.slice(0, text.indexOf('## Overview'));
+    const intro = text.slice(0, text.indexOf('## Start'));
     expect(intro).toContain('`https://docs.marfa.so/llms-full.txt` holds the written pages');
     expect(intro).toContain('leaves out the API operations and the changelog');
     expect(intro).toContain('`openapi.json`');
@@ -154,7 +156,7 @@ describe('getLlmsFullText', () => {
       const heading = `# ${page.data.title} (${page.url})\n`;
       expect(full.includes(heading), page.url).toBe(inLlmsFull(page));
     }
-    expect(full).toContain(await getLLMText(source.getPage(['overview'])!));
+    expect(full).toContain(await getLLMText(source.getPage([])!));
     expect(full).toContain('# Errors (/api-reference/errors)');
     expect(full).not.toContain('# Create an item (/api-reference/items/createItem)');
   });
@@ -162,7 +164,7 @@ describe('getLlmsFullText', () => {
   it('holds the pages in sidebar order', async () => {
     const full = await getLlmsFullText();
     const at = (url: string) => full.indexOf(`(${url})\n`);
-    const urls = ['/overview', '/introduction', '/quickstart', '/how-marfa-works', '/access', '/build', '/run', '/catalog'];
+    const urls = ['/', '/quickstart', '/connect-your-agent', '/how-marfa-works', '/access', '/run', '/catalog', '/build'];
     for (const url of urls) expect(at(url), url).toBeGreaterThanOrEqual(0);
     for (let i = 1; i < urls.length; i += 1) expect(at(urls[i - 1]), urls[i]).toBeLessThan(at(urls[i]));
   });

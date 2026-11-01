@@ -30,7 +30,7 @@ script passes the config its own build emitted, which is why it is the safe one.
 ## Structure
 
 - **`content/docs/`**: the MDX content tree, mapping one to one onto URLs,
-  except that a folder in parentheses, such as `(overview)/`, adds nothing to
+  except that a folder in parentheses, such as `(start)/`, adds nothing to
   the URL. Each folder's `meta.json` sets its navigation order and titles.
 - **`source.config.ts`**: Fumadocs MDX collections.
 - **`src/routes/`**: documentation routes: `$.tsx` renders a page, `{$}[.]md.ts`

@@ -18,8 +18,6 @@ export function DocsError({ error }: ErrorComponentProps) {
         message="This page could not be loaded. It is usually temporary, so trying again in a moment is worth doing before anything else."
         primaryHref="/"
         primaryLabel="Try again"
-        secondaryHref="/overview"
-        secondaryLabel="Overview"
       />
     </HomeLayout>
   );

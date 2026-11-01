@@ -100,10 +100,13 @@ describe('fetchDocsPage', () => {
     expect(await fetchDocsPage('/definitely/not/a/page')).toBeNull();
   });
 
-  it('serves the Overview and Reference pages at the site root, and nothing at the old paths', async () => {
+  it('serves the Start and Reference pages at the site root, and nothing at the old paths', async () => {
     const page = await fetchDocsPage('/files');
     expect(page).toMatch(/^# Files \(\/files\)\n/);
-    expect(await fetchDocsPage('/overview.md')).toMatch(/^# Overview \(\/overview\)\n/);
+    expect(await fetchDocsPage('/')).toMatch(/^# Overview \(\/\)\n/);
+    expect(await fetchDocsPage('/index.md')).toMatch(/^# Overview \(\/\)\n/);
+    expect(await fetchDocsPage('/overview')).toBeNull();
+    expect(await fetchDocsPage('/introduction')).toBeNull();
     expect(await fetchDocsPage('/cli')).toContain('marfa items list');
     expect(await fetchDocsPage('/typescript-sdk')).toMatch(/^# TypeScript SDK \(\/typescript-sdk\)\n/);
     // A command keeps its output, and code tabs keep their examples under each tab's label.

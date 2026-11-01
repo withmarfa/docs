@@ -52,7 +52,7 @@ describe('the CLI download', () => {
     const including = ALL_PAGES.filter(({ text }) =>
       text.includes('<include cwd>src/generated/cli-download.md</include>'),
     ).map(({ file }) => file);
-    expect(including.sort()).toEqual([path.join('(overview)', 'quickstart.mdx'), path.join('(reference)', 'cli.mdx')]);
+    expect(including.sort()).toEqual([path.join('(reference)', 'cli.mdx'), path.join('(start)', 'quickstart.mdx')]);
   });
 
   it('names the latest release', () => {
@@ -89,7 +89,7 @@ describe('the Glossary page', () => {
       .flatMap((rules) => Object.keys(rules))
       .join(' ')
       .replace(/[-/]/g, ' ');
-    const page = ALL_PAGES.find(({ file }) => file === path.join('(overview)', 'glossary.mdx'))!;
+    const page = ALL_PAGES.find(({ file }) => file === path.join('(start)', 'glossary.mdx'))!;
     // A row whose word lost its link is still checked.
     const words = [...page.text.matchAll(/^\| \[?\*\*([^*]+)\*\*/gm)].map((match) => match[1].replace(/`/g, ''));
     expect(words.length).toBeGreaterThan(20);

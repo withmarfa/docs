@@ -21,13 +21,9 @@ export default defineConfig({
     tailwindcss(),
     cloudflare({ viteEnvironment: { name: 'ssr' } }),
     tanstackStart({
-      // Prerender starts here, not at `/`. `/` redirects to the first page,
-      // and prerender follows a redirect and saves the page it lands on as
-      // `/index.html`. Served from there, the client router runs `/`'s
-      // redirect on a page already rendered as the Overview, and hydration
-      // fails. Left out, `/` reaches the Worker, which answers the redirect.
-      // No page links to the sitemap, so it is listed for prerender to write.
-      pages: [{ path: '/overview' }, { path: '/sitemap.xml' }],
+      // Prerender starts at the landing page, `/`, and crawls its links. No
+      // page links to the sitemap, so it is listed for prerender to write.
+      pages: [{ path: '/' }, { path: '/sitemap.xml' }],
       prerender: {
         enabled: true,
         // /version.json, /mcp and everything under /api/ must stay Worker
@@ -49,7 +45,6 @@ export default defineConfig({
           } catch {
             return true;
           }
-          if (path === '/') return false;
           if (path.replace(/^.*\//, '') === 'version.json') return false;
           if (path === '/api' || path.startsWith('/api/')) return false;
           return path.replace(/\/+$/, '') !== '/mcp';

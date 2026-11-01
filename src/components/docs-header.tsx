@@ -32,7 +32,7 @@ export function DocsHeader(props: ComponentProps<'header'>) {
     >
       <HeaderBar
         title={appName}
-        href="/overview"
+        href="/"
         center={<SectionNav />}
         actions={
           <DocsActions>
@@ -82,7 +82,7 @@ export function DocsHomeHeader(props: ComponentProps<'header'>) {
       {...props}
       className={cn('sticky top-0 z-40 bg-fd-background/80 backdrop-blur-sm', props.className)}
     >
-      <HeaderBar title={appName} href="/overview" center={<SectionNav />} actions={<DocsActions />} />
+      <HeaderBar title={appName} href="/" center={<SectionNav />} actions={<DocsActions />} />
     </header>
   );
 }

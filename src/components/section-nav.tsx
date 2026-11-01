@@ -2,11 +2,11 @@ import Link from 'fumadocs-core/link';
 import { useRouterState } from '@tanstack/react-router';
 import referenceMeta from '../../content/docs/(reference)/meta.json';
 
-// The Overview and Reference folders are groups, so their pages share the site
+// The Start and Reference folders are groups, so their pages share the site
 // root (`/files`, `/cli`). A Reference page is told apart by its first path
 // segment, read from the folder's own list so a new page can't be missed; the
-// API's pages sit under `/api-reference`. The Overview is every path that
-// belongs to no other section.
+// API's pages sit under `/api-reference`. Start is every path that belongs to
+// no other section, `/` included.
 const REFERENCE_SEGMENTS = new Set([
   ...referenceMeta.pages.filter((entry) => /^[a-z0-9-]+$/.test(entry)),
   'api-reference',
@@ -24,11 +24,11 @@ function isUnder(pathname: string, prefix: string) {
 // (DocsHeader). `href` is the section's landing page. The notebook layout's own
 // tabs aren't drawn, since the header slot replaces them, but they still scope
 // the sidebar by URL; these pills are the visible switcher.
-const SECTIONS: { label: string; href: string; matches: ((pathname: string) => boolean) | null }[] = [
-  { label: 'Overview', href: '/overview', matches: null },
-  { label: 'Build', href: '/build', matches: (pathname) => isUnder(pathname, '/build') },
+export const SECTIONS: { label: string; href: string; matches: ((pathname: string) => boolean) | null }[] = [
+  { label: 'Start', href: '/', matches: null },
   { label: 'Run', href: '/run', matches: (pathname) => isUnder(pathname, '/run') },
   { label: 'Catalog', href: '/catalog', matches: (pathname) => isUnder(pathname, '/catalog') },
+  { label: 'Build', href: '/build', matches: (pathname) => isUnder(pathname, '/build') },
   {
     label: 'Reference',
     href: '/reference',

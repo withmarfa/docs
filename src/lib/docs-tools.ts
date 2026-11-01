@@ -145,7 +145,8 @@ export function pathToSlugs(input: string): string[] {
   p = p.replace(/^\/+/, '');
   p = p.replace(/\.md$/i, '');
   p = p.replace(/\/+$/, '');
-  if (p === '') return [];
+  // The landing page's Markdown copy is `/index.md`, as `slugsToMarkdownPath` writes it.
+  if (p === '' || p === 'index') return [];
   return p.split('/');
 }
 

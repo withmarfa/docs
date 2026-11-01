@@ -242,7 +242,7 @@ export function checkFrontmatter(file: string, text: string): Violation[] {
 }
 
 /** Pages that may still say "coming soon", relative to content/docs. */
-const COMING_SOON_ALLOWED = new Set(['(overview)/introduction.mdx']);
+const COMING_SOON_ALLOWED = new Set(['(start)/index.mdx']);
 
 export function checkComingSoon(file: string, text: string): Violation[] {
   if (COMING_SOON_ALLOWED.has(file)) return [];
@@ -252,7 +252,7 @@ export function checkComingSoon(file: string, text: string): Violation[] {
       file,
       line: lineOf(text, match.index),
       rule: 'coming-soon',
-      detail: '"coming soon" is allowed only on the Introduction page',
+      detail: '"coming soon" is allowed only on the landing page, `/`',
     });
   }
   return out;
@@ -517,7 +517,8 @@ describe('content lint: the corpus', () => {
   it('finds the pages and the glossary it lints against', () => {
     expect(FILES.length).toBeGreaterThan(10);
     expect(BANNED.length).toBeGreaterThan(0);
-    expect(PAGE_URLS.has('/overview')).toBe(true);
+    expect(PAGE_URLS.has('/')).toBe(true);
+    expect(PAGE_URLS.has('/connect-your-agent')).toBe(true);
     // Generated pages are in the set, so links into the API reference resolve.
     expect([...PAGE_URLS].some((url) => url.startsWith('/api-reference/') && url.split('/').length > 3)).toBe(true);
   });
@@ -691,8 +692,8 @@ describe('content lint: each rule fires on a bad sample', () => {
 
   it('coming-soon', () => {
     expect(rules(checkComingSoon('build/x.mdx', 'This is Coming Soon.'))).toEqual(['coming-soon']);
-    expect(checkComingSoon('(overview)/introduction.mdx', 'Coming soon.')).toEqual([]);
-    expect(rules(checkComingSoon('(overview)/run-an-instance.mdx', 'Coming soon.'))).toEqual(['coming-soon']);
+    expect(checkComingSoon('(start)/index.mdx', 'Coming soon.')).toEqual([]);
+    expect(rules(checkComingSoon('(start)/run-an-instance.mdx', 'Coming soon.'))).toEqual(['coming-soon']);
   });
 
   it('callout-title', () => {

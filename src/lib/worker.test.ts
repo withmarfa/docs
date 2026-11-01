@@ -3,18 +3,22 @@ import { getLLMText, markdownResponse, source } from './source';
 import { createWorkerHandler, type Next } from './worker';
 
 const HOST = 'https://docs.example';
-const page = source.getPage(['overview'])!;
+const page = source.getPage(['quickstart'])!;
+const landing = source.getPage([])!;
 
 // What the platform and the router answer for the pages, as far as this layer
 // can tell: the files hold each page at its address without a slash
 // (`html_handling` in `wrangler.jsonc`) and redirect the slash form.
 const files = (request: Request) => {
   const { pathname } = new URL(request.url);
-  if (pathname === '/overview') {
-    return Promise.resolve(new Response('<html>overview</html>', { headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
+  if (pathname === '/') {
+    return Promise.resolve(new Response('<html>landing</html>', { headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
   }
-  if (pathname === '/overview/') {
-    return Promise.resolve(new Response(null, { status: 307, headers: { Location: '/overview' } }));
+  if (pathname === '/quickstart') {
+    return Promise.resolve(new Response('<html>quickstart</html>', { headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
+  }
+  if (pathname === '/quickstart/') {
+    return Promise.resolve(new Response(null, { status: 307, headers: { Location: '/quickstart' } }));
   }
   if (pathname === '/favicon.svg') {
     return Promise.resolve(new Response('<svg/>', { headers: { 'Content-Type': 'image/svg+xml' } }));
@@ -23,7 +27,7 @@ const files = (request: Request) => {
 };
 
 // The router's own behavior that matters here: no HTML or wildcard in `Accept`
-// is a 406, the root redirects, an unknown address renders the HTML not-found
+// is a 406, an unknown address renders the HTML not-found
 // page, and a Worker route answers JSON whatever the header.
 const seen: Request[] = [];
 const app: Next = (request) => {
@@ -38,7 +42,6 @@ const app: Next = (request) => {
   if (!/(^|,)\s*(\*\/\*|text\/html)/.test(request.headers.get('Accept') ?? '*/*')) {
     return Promise.resolve(Response.json({ error: 'Only HTML requests are supported here' }, { status: 406 }));
   }
-  if (pathname === '/') return Promise.resolve(new Response(null, { status: 307, headers: { Location: '/overview' } }));
   return Promise.resolve(new Response('<html>not found</html>', { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
 };
 
@@ -50,10 +53,10 @@ function get(path: string, accept?: string, method = 'GET') {
 
 describe('an address with a trailing slash', () => {
   it.each([
-    ['/overview/', '/overview'],
+    ['/quickstart/', '/quickstart'],
     ['/run/deploy/', '/run/deploy'],
-    ['/overview//', '/overview'],
-    ['/overview/?q=1', '/overview?q=1'],
+    ['/quickstart//', '/quickstart'],
+    ['/quickstart/?q=1', '/quickstart?q=1'],
     ['/no-such-page/', '/no-such-page'],
   ])('sends %s to %s with a permanent redirect', async (from, to) => {
     for (const accept of ['text/html', 'text/markdown']) {
@@ -66,9 +69,9 @@ describe('an address with a trailing slash', () => {
   });
 
   it('answers HEAD with the same redirect', async () => {
-    const res = await get('/overview/', undefined, 'HEAD');
+    const res = await get('/quickstart/', undefined, 'HEAD');
     expect(res.status).toBe(301);
-    expect(res.headers.get('Location')).toBe(`${HOST}/overview`);
+    expect(res.headers.get('Location')).toBe(`${HOST}/quickstart`);
   });
 
   it('keeps a path that starts with slashes on this host', async () => {
@@ -92,7 +95,7 @@ describe('an address with a trailing slash', () => {
 
 describe('a page address that prefers Markdown', () => {
   it('answers the page\'s .md copy', async () => {
-    const res = await get('/overview', 'text/markdown');
+    const res = await get('/quickstart', 'text/markdown');
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('text/markdown');
     expect(res.headers.get('Vary')).toBe('Accept');
@@ -102,7 +105,7 @@ describe('a page address that prefers Markdown', () => {
   it('answers what the .md address answers', async () => {
     // The `.md` route answers through `markdownResponse` too.
     const copy = await markdownResponse(page);
-    const res = await get('/overview', 'text/markdown');
+    const res = await get('/quickstart', 'text/markdown');
     expect(res.headers.get('Content-Type')).toBe(copy.headers.get('Content-Type'));
     expect(await res.text()).toBe(await copy.text());
   });
@@ -114,7 +117,7 @@ describe('a page address that prefers Markdown', () => {
   });
 
   it('answers HEAD with the headers and no body', async () => {
-    const res = await get('/overview', 'text/markdown', 'HEAD');
+    const res = await get('/quickstart', 'text/markdown', 'HEAD');
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('text/markdown');
     expect(res.headers.get('Vary')).toBe('Accept');
@@ -129,11 +132,11 @@ describe('a page address that prefers HTML', () => {
     ['*/*'],
     [undefined],
   ])('answers the file with Vary: Accept for Accept %s', async (accept) => {
-    const res = await get('/overview', accept);
+    const res = await get('/quickstart', accept);
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     expect(res.headers.get('Vary')).toBe('Accept');
-    expect(await res.text()).toBe('<html>overview</html>');
+    expect(await res.text()).toBe('<html>quickstart</html>');
   });
 
   it('does not add Accept to a Vary that already names it', async () => {
@@ -141,7 +144,7 @@ describe('a page address that prefers HTML', () => {
       assets: { fetch: async () => new Response('x', { headers: { Vary: 'accept-encoding, Accept' } }) },
       app,
     });
-    const res = await varied(new Request(`${HOST}/overview`));
+    const res = await varied(new Request(`${HOST}/quickstart`));
     expect(res.headers.get('Vary')).toBe('accept-encoding, Accept');
   });
 });
@@ -170,10 +173,18 @@ describe('an address that is not a page', () => {
     expect(res.headers.get('Vary')).toBe('Accept');
   });
 
-  it('lets the root redirect for a client that prefers Markdown, not answer 406', async () => {
+  it('answers the landing page\'s .md copy at the root', async () => {
     const res = await get('/', 'text/markdown');
-    expect(res.status).toBe(307);
-    expect(res.headers.get('Location')).toBe('/overview');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Vary')).toBe('Accept');
+    expect(await res.text()).toBe(await getLLMText(landing));
+  });
+
+  it('serves the landing page\'s HTML at the root to a browser', async () => {
+    const res = await get('/', 'text/html');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Vary')).toBe('Accept');
+    expect(await res.text()).toBe('<html>landing</html>');
   });
 
   it('leaves a Worker route alone, including its own 404', async () => {
@@ -183,7 +194,7 @@ describe('an address that is not a page', () => {
     expect(missing.headers.get('Content-Type')).toBe('application/json');
   });
 
-  it.each(['/overview.md', '/llms.txt', '/docs-map.md', '/mcp', '/api/docs/topics', '/index.md'])(
+  it.each(['/quickstart.md', '/llms.txt', '/docs-map.md', '/mcp', '/api/docs/topics', '/index.md'])(
     'passes %s to the router',
     async (path) => {
       seen.length = 0;
@@ -202,7 +213,7 @@ describe('an address that is not a page', () => {
 describe('a request that is not a read', () => {
   it('goes to the router without a file lookup', async () => {
     seen.length = 0;
-    const res = await handle(new Request(`${HOST}/overview`, { method: 'POST', headers: { Accept: 'text/markdown' } }));
+    const res = await handle(new Request(`${HOST}/quickstart`, { method: 'POST', headers: { Accept: 'text/markdown' } }));
     expect(res.status).toBe(406);
     expect(seen).toHaveLength(1);
   });
@@ -211,9 +222,9 @@ describe('a request that is not a read', () => {
 describe('without an assets binding', () => {
   it('passes every request to the router and still negotiates', async () => {
     const bare = createWorkerHandler({ app });
-    const md = await bare(new Request(`${HOST}/overview`, { headers: { Accept: 'text/markdown' } }));
+    const md = await bare(new Request(`${HOST}/quickstart`, { headers: { Accept: 'text/markdown' } }));
     expect(md.headers.get('Content-Type')).toBe('text/markdown');
-    const html = await bare(new Request(`${HOST}/overview`, { headers: { Accept: 'text/html' } }));
+    const html = await bare(new Request(`${HOST}/quickstart`, { headers: { Accept: 'text/html' } }));
     expect(html.status).toBe(404);
   });
 });
