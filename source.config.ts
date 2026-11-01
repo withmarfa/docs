@@ -4,6 +4,7 @@ import { pageSchema } from 'fumadocs-core/source/schema';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { LLMsOptions } from 'fumadocs-core/mdx-plugins/remark-llms';
+import { gfmTableToMarkdown } from 'mdast-util-gfm-table';
 import { changelogMarkdown, remarkChangelogIndex, type Release } from './src/lib/changelog';
 import { statusLabel } from './src/lib/http-status';
 import { sseLanguage } from './src/lib/sse-language';
@@ -92,6 +93,10 @@ function fileTree(node: JsxElement, depth = 0): string[] {
  * prose carries every fact a visual shows.
  */
 const llms: LLMsOptions = {
+  // Tables without column alignment: padding each cell to its column's width
+  // would make the copies, and so llms-full.txt, about a fifth spaces and
+  // dashes. A later extension's handlers replace remark-gfm's.
+  extensions: [gfmTableToMarkdown({ tablePipeAlign: false })],
   filterElement(node) {
     if (!isJsx(node) || !node.name) return true;
     if (WRAPPERS.has(node.name)) return 'children-only';

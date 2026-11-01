@@ -4,7 +4,7 @@
  * Three read-only tools, each an adapter over `src/lib/docs-tools.ts`:
  *
  *   - docs_search(query, limit?)  full-text BM25 against the docs corpus
- *   - docs_fetch(path, section?)  the markdown body for a docs URL, or one section of it
+ *   - docs_fetch(path, section?)  the Markdown body of a docs page, or one section of it
  *   - docs_list_topics()          every page as a flat list
  *
  * They are registered in that order, which is the order `tools/list` returns
@@ -119,12 +119,12 @@ export function createDocsServer(): McpServer {
     DOCS_TOOL_NAMES[1],
     {
       description:
-        'Fetch the markdown body of a single docs page by its URL path (e.g. "/build/write-safely"). Returns the same markdown the `<path>.md` copy returns: a heading with the page title and path, then the full prose with code blocks preserved. Pass `section`, a heading from the page, to get only that heading and what is under it; an unknown heading is an error that lists the page\'s headings.',
+        'Fetch the Markdown body of one docs page by its path, such as "/build/write-safely". Returns the same Markdown as the `<path>.md` copy: a heading with the page title and path, then the full prose with code blocks preserved. Pass `section`, a heading from the page, to get only that heading and what is under it; an unknown heading is an error that lists the page\'s headings.',
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.object({
         path: z
           .string()
-          .describe('Docs URL path. Accepts "/x/y", "x/y", or a legacy "/docs/x/y".'),
+          .describe('Docs page path. Accepts "/x/y", "x/y", a full docs.marfa.so address, or any of them ending in ".md".'),
         section: z
           .string()
           .optional()

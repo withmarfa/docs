@@ -157,4 +157,12 @@ describe('getLlmsFullText', () => {
     expect(full).toContain('# Errors (/api-reference/errors)');
     expect(full).not.toContain('# Create an item (/api-reference/items/createItem)');
   });
+
+  it('holds the pages in sidebar order', async () => {
+    const full = await getLlmsFullText();
+    const at = (url: string) => full.indexOf(`(${url})\n`);
+    const urls = ['/overview', '/introduction', '/quickstart', '/how-marfa-works', '/access', '/build', '/run', '/catalog'];
+    for (const url of urls) expect(at(url), url).toBeGreaterThanOrEqual(0);
+    for (let i = 1; i < urls.length; i += 1) expect(at(urls[i - 1]), urls[i]).toBeLessThan(at(urls[i]));
+  });
 });

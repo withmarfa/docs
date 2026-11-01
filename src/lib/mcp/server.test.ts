@@ -425,6 +425,33 @@ describe('structured results', () => {
   });
 });
 
+describe('docs_fetch takes the path forms its description lists', () => {
+  const PAGE = '/files';
+
+  it('describes the forms it accepts', async () => {
+    const tools = await listTools(legacyPost({ jsonrpc: '2.0', id: 2, method: 'tools/list' }));
+    const description = tools.find((t) => t.name === 'docs_fetch')!.inputSchema.properties?.['path']?.description ?? '';
+    expect(description).toContain('docs.marfa.so');
+    expect(description).toContain('.md');
+    expect(description).not.toContain('/docs/');
+  });
+
+  it('answers one page for each form', async () => {
+    const whole = (await callTool('docs_fetch', { path: PAGE })).content![0]!.text;
+    for (const path of ['files', '/files.md', 'files.md', '/files/', 'https://docs.marfa.so/files', 'https://docs.marfa.so/files.md']) {
+      expect((await callTool('docs_fetch', { path })).content![0]!.text, path).toBe(whole);
+    }
+  });
+
+  it('treats a /docs/ prefix as part of the path, so it is a miss', async () => {
+    const result = await callTool('docs_fetch', { path: '/docs/files' });
+    expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content![0]!.text) as { error: string; slugs: string[] };
+    expect(payload.error).toBe('not_found');
+    expect(payload.slugs).toEqual(['docs', 'files']);
+  });
+});
+
 describe('docs_fetch takes an optional section', () => {
   const PAGE = '/files';
   const HEADING = 'Who may read a blob';

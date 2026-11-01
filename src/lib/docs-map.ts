@@ -14,7 +14,7 @@ export function buildDocsMap(): string {
     [
       '# Marfa documentation map',
       '',
-      'Hierarchical index of every page on docs.marfa.so. Each link resolves to the human-readable HTML page; append `.md` for the markdown twin (e.g. `/items-and-types.md`).',
+      'Every page on docs.marfa.so, as the sidebar groups them. Each link goes to the HTML page; add `.md` to a path for its Markdown copy, such as `/items-and-types.md`.',
       '',
     ],
     (url) => url,

@@ -143,7 +143,6 @@ export function pathToSlugs(input: string): string[] {
     }
   }
   p = p.replace(/^\/+/, '');
-  p = p.replace(/^docs(?:\/|$)/, '');
   p = p.replace(/\.md$/i, '');
   p = p.replace(/\/+$/, '');
   if (p === '') return [];
