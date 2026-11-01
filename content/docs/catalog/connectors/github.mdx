@@ -15,7 +15,7 @@ You choose how it signs in, and the choice decides whether anything can go back:
 It reads:
 
 - **Repositories.** Every repository the token or App can reach, or only those named in `GITHUB_REPOSITORIES`. A repository left out of that setting is paused, not archived: its rows stay as they are. With a personal token, or a notifications token and no personal one, it also reads the repositories you have starred.
-- **Issues and pull requests.** Everything open, and what closed or changed in the last 90 days. An older issue comes in once anything happens to it. A pull request carries its state, draft flag, branches and check results. A fine-grained personal token has no Checks permission, so with one a pull request keeps the check summary it had, a new one has none, and the run names `checks-unreadable`. With the App, only the installations GitHub refuses the checks are affected.
+- **Issues and pull requests.** Everything open, and what closed or changed in the last 90 days. An older issue comes in once anything happens to it. An issue's assignees are core `assignees` entries, each with the login as `name`. A pull request carries its branches and check results. A fine-grained personal token has no Checks permission, so with one a pull request keeps the check summary it had, a new one has none, and the run names `checks-unreadable`.
 - **Discussions and comments.** The discussions of each repository that has Discussions turned on, with their comments and replies, and the comments on issues.
 - **Relations.** Sub-issues, blockers, related issues, duplicates, and which pull request closed which issue.
 - **Notifications.** With `GITHUB_NOTIFICATIONS_TOKEN` set, every thread in its owner's notifications, read and unread.
@@ -27,8 +27,8 @@ It reads:
 | Type | Parent type | Holds |
 | --- | --- | --- |
 | `github.repository` | [Entity](/catalog/entity) | A repository, with whether you starred it |
-| `github.issue` | [Task](/catalog/task) | An issue. Its status is `pending` while open, `completed` when closed as completed and `canceled` when closed as not planned or as a duplicate |
-| `github.pull_request` | [Task](/catalog/task) | A pull request, read only |
+| `github.issue` | [Task](/catalog/task) | An issue. Its `status` is `open` while open, then `completed`, `canceled` (not planned) or `duplicate`, in the `canceled` group, as GitHub closes it |
+| `github.pull_request` | [Task](/catalog/task) | A pull request, read only. Its `status` is `draft` or `open` while open, then `merged` or `closed` |
 | `github.discussion` | [Note](/catalog/note) | A discussion, with its category and whether it is answered |
 | `github.comment` | [Message](/catalog/message) | A comment on an issue or a discussion |
 | `github.notification` | [Message](/catalog/message) | A notification thread, read only |
@@ -44,7 +44,7 @@ It also writes the connections `github.in-repository`, `github.sub-issue-of`, `g
 
 Only with a GitHub App, and only for issues, discussions, comments and the relations between issues:
 
-- **Edits.** An issue's title, body, labels, assignees and status; a discussion's title, body and whether it is closed; a comment's text.
+- **Edits.** An issue's title, body, labels, assignees and status; a discussion's title, body and whether it is closed; a comment's text. A status other than `completed`, `canceled` or `duplicate` reopens a closed issue, and one GitHub has no word for, such as `in_progress`, stays in Marfa. An assignee with no `name` isn't sent.
 - **New rows.** An issue or discussion made in Marfa is created in the repository its `github.in-repository` connection names, and a comment in its thread is posted. A discussion also needs a `category` that the repository has.
 - **Relations.** A `github.sub-issue-of`, `github.blocked-by` or `github.relates-to` connection drawn or removed in Marfa is made or removed on GitHub.
 - **Removal.** Trashing an open issue closes it as not planned, and a discussion is left as it is. Trashing a comment the App wrote deletes it.
@@ -76,7 +76,7 @@ Repositories, pull requests, notifications, files, repository files, directories
 - **`private` is a marker, not a lock.** Each row says whether its repository is private. Marfa gives a key access by type, not by that field, so read it before you copy a row somewhere public.
 - **GitHub can refuse a change,** such as one in an archived repository. The run names it and does not send it again until the row changes.
 - **Stars are read on scheduled runs only.** A repository loses its star mark only after two scheduled runs in a row list your stars and lack it. A repository that a process syncs, or once synced, only loses its mark. A repository kept for its star alone is archived, unless an earlier version of the connector wrote its row: that row only loses its mark, so archive it in Marfa yourself if you no longer want it.
-- **Two processes on one instance need one star reader.** To read repositories under two owners, such as an organization and your own account, run the connector twice with a token and a set of `GITHUB_REPOSITORIES` each, and no repository in both. Give each process its own key with its own source; every key after the first passes `--claim github`. Set `GITHUB_STARS=false` on every process but one. Otherwise each process reads the stars from its own view and unmarks the rows the other one marked. The star reader only marks and unmarks the repositories the other process syncs, and never archives them for a lost star. Give each repository to one process for good: if a process's token loses a repository that the other process then syncs, the first process archives its issues, discussions, comments, pull requests, repository files, and directories, and the other process doesn't bring them back. Restore them in Marfa if that happens. Run the same connector version in both processes.
+- **Two processes on one instance need one star reader.** To read repositories under two owners, run the connector twice, each with its own token, key and `GITHUB_REPOSITORIES`, and no repository in both. Every key after the first passes `--claim github`. Set `GITHUB_STARS=false` on every process but one, or each unmarks the stars the other marked. Give each repository to one process for good: one that moves is archived by the first process, and you restore it in Marfa. Run the same version in both.
 - **It never marks a notification read.**
 - **Repository files need Contents read access.** A personal token needs it on the repositories `GITHUB_FILES` names, and the App asks for it. A repository the run doesn't sync, a path that isn't on the default branch, a tree GitHub cuts short or refuses, and a file over 512 KiB or not in UTF-8 are named in the run, and nothing is archived for them.
 - **Trashing a directory in Marfa trashes the directories below it,** since `parent-of` cascades, but not the files in them. The directories stay in the bin until you restore them; a later run doesn't bring them back. A trashed file stays in the bin the same way.
