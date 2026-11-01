@@ -1,0 +1,89 @@
+---
+title: Keep files on a device
+description: Read a file's bytes from a working copy, choose how much disk the copy's files take, keep attachments there offline, and find out why one is missing.
+---
+
+A [working copy](/devices) holds items, not their bytes. It fetches a file's bytes when something reads them, keeps them in a file cache beside the store, and keeps the files attached to items it holds so they're there offline.
+
+The CLI examples use `marfa device`, with the copy named by `--db` or `MARFA_DB`, as [Write in a working copy](/build/write-in-a-working-copy) shows. In the Swift examples, `copy` is an [open working copy](/swift-sdk/working-copy#open-a-copy). [Handle files](/build/handle-files) covers uploading bytes and pointing an item at them.
+
+## Read a file's bytes
+
+Ask for the bytes by the hash in the file item's `blob_ref`. The copy fetches them first if it doesn't hold them:
+
+```bash tab="CLI" tab-group="client"
+marfa device blobs get sha256:abf95d4140df7b413a5ceb13f473a7b9e2ffbedac7854c4b412258be66c0da34
+```
+
+```swift tab="Swift"
+let bytes = try await copy.blobs.withFile(hash) { url in try Data(contentsOf: url) }
+```
+
+The CLI prints where the file is held. `withFile` calls your closure with it, and the file stays put only while the closure runs: **read it inside the closure**, and copy it out if it must outlast the call.
+
+A reader, or a copy without a server, can't fetch, so it refuses a file it doesn't hold with `bytes_absent`.
+
+## Choose how much disk files take
+
+The copy keeps the files it fetched within a **file budget**. Past it, a trim removes the files read longest ago, and a later read fetches them again. The default is the larger of 2 GiB and a tenth of the volume, held to what leaves a twentieth of the volume free.
+
+```bash tab="CLI" tab-group="client"
+marfa device blobs budget 5000000000
+```
+
+```swift tab="Swift"
+let removed = try await copy.blobs.setBudget(.bytes(bytes: 5_000_000_000))
+```
+
+Setting a budget trims to it at once and reports the bytes removed, and the store keeps the choice. The CLI also takes `default` and `keep-all`, and the Swift SDK `.default` and `.keepAll`. A file larger than the budget is still fetched when asked for.
+
+## Keep attachments offline
+
+**A file attached to an item the copy holds stays on the device**, outside the budget, and a trim never takes it. Fetch every one the copy lacks after a hydration and after each catch-up:
+
+```bash tab="CLI" tab-group="client"
+marfa device blobs fetch-kept
+```
+
+```swift tab="Swift"
+let report = try await copy.blobs.fetchKept()
+```
+
+It fetches the smallest files first and waits out a server that asks for a wait of a minute or less. It stops at the first file the disk has no room for, once the server can't be reached, or once the server asks for a longer wait, and passes over a file that fails otherwise. Ctrl-C, or canceling the task, stops it, and the files already fetched stay.
+
+## When a fetch stops part way
+
+When the link breaks or goes quiet, **the copy keeps the bytes it received** as a partial file, though it never answers them as the file. The next fetch of those bytes asks the server for a new link and requests the rest with a `Range` header. When the link sends the whole file instead, the copy starts again from zero.
+
+A partial file that isn't an attachment's counts toward the budget, and a trim can take it. Each time the copy is opened, other than as a reader, it also removes partial files left untouched for seven days, the longest a link lasts, again unless they're an attachment's.
+
+## When a fetch is refused
+
+A fetch that can't keep the file whole refuses with one of these codes:
+
+| Code | When |
+| --- | --- |
+| `no_room` | The volume can't hold the rest of the file, even after the copy removes partial files of other bytes that aren't an attachment's. It refuses before receiving any byte, naming the file's size and the bytes free. |
+| `storage_full` | The volume filled while the bytes were written. The copy keeps none of them, so a retry starts again. |
+| `bytes_absent` | The server holds no bytes by that hash or can't be reached, or the link sends more bytes than the file item's `size_bytes`, or states no length for a file without one. |
+| `decoding` | The bytes don't hash to the file's name. The copy keeps none of them. |
+
+The Swift SDK throws these as `noRoom`, `storageFull`, `bytesAbsent` and `decoding`.
+
+## Find out why an attachment is missing
+
+`marfa device status` counts the attachments the copy holds whole, with the bytes they and their partial files take, and the attachments it lacks, grouped by why. Under `--json` the groups are `file_cache.attachments.not_held_by_reason`, each with a `reason`, the count of `attachments`, the `bytes` they state and how many are `unstated`:
+
+| `reason` | The CLI says | Meaning |
+| --- | --- | --- |
+| `not_fetched` | not fetched yet | Nothing has fetched it since it became an attachment. Run `fetch-kept`. |
+| `no_room` | no room on the disk | The volume had no room for it, or for an attachment before it in the same fetch. |
+| `unreachable` | the server could not be reached | The server, or its link, couldn't be reached or stopped sending part way. |
+| `rate_limited` | the server asked for a longer wait | The server asked for a longer wait than a fetch makes. |
+| `absent` | the server holds none | The server holds no bytes by that hash. |
+| `failed` | the fetch failed | The fetch failed otherwise. |
+| `not_in_copy` | the file is outside the slice | The copy holds the edge but not the file item. |
+
+The Swift SDK reads the same counts from [`blobs.cache()`](/swift-sdk/files#attachments-not-held). On Apple platforms, the copy also keeps fetched files out of backups.
+
+The rules behind this guide are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) chapter of the contract.

@@ -3,11 +3,9 @@ title: Handle files
 description: Upload a file's bytes, make the item that names them, download them, hand out a link that expires, and replace them.
 ---
 
-A file comes in two parts: a blob, which is the bytes, and a file item that names the blob by its hash and carries the title and everything else. You upload the bytes first, then create the item, and from then on anyone who can read the item can read the bytes. [Files](/files) explains why the two are apart and who may read a blob.
+A file comes in two parts: a blob, which is the bytes, and a file item that names the blob by its hash and carries the title and everything else. Upload the bytes first, then create the item, and from then on anyone who can read the item can read the bytes. [Files](/files) explains why the two are apart.
 
-To upload, your credential needs write on at least one type outside `system.*`, or the `blobs.manage` permission. To create the file item, it needs write on the item's type, such as `core.file`. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows. In the Swift examples, `copy` is an open working copy, as [Working copy](/swift-sdk/working-copy#open-a-copy) shows.
-
-A working copy queues an upload like any other write, but the hash is known at once. If the key changes after the bytes were uploaded and before the write is sent, the copy uploads them again under the current key, ahead of the write.
+To upload, your credential needs write on at least one type outside `system.*`, or the `blobs.manage` permission. To create the file item, it needs write on the item's type, such as `core.file`. In the TypeScript examples, `marfa` is a [TypeScript SDK](/typescript-sdk#create-a-client) client. In the Swift examples, `copy` is an [open working copy](/swift-sdk/working-copy#open-a-copy).
 
 ## Upload the bytes
 
@@ -50,13 +48,13 @@ Marfa answers with the blob's `hash`, the media type it will serve the bytes und
 }
 ```
 
-The same bytes always give the same hash, so uploading them again **stores nothing new** and answers the same hash.
+The same bytes always give the same hash, so uploading them again **stores nothing new**. A working copy queues an upload like any other write. If the key changes before the write is sent, the copy uploads the bytes again under the new key.
 
-An upload has **no size cap and no total time limit**. Marfa ends one with `408 request_timeout`, storing no blob, only when no bytes arrive for `MARFA_UPLOAD_IDLE_TIMEOUT_MS`, 60 seconds unless the instance sets it. While a store hasn't finished an earlier write or delete of the same bytes, an upload answers `503 blob_store_unavailable` and stores nothing: try again later.
+An upload has **no size cap and no total time limit**. Marfa ends one with `408 request_timeout` only when no bytes arrive for `MARFA_UPLOAD_IDLE_TIMEOUT_MS`, 60 seconds by default. While a store is still writing or deleting the same bytes, an upload answers `503 blob_store_unavailable`: try again later.
 
 ## Point an item at the bytes
 
-Create a file item whose **`blob_ref`** is the hash. `core.file` takes any file; use `core.file.image`, `core.file.audio`, `core.file.video` or `core.file.webpage` (a Web Page, an HTML page held as a file) where they fit, or a type of your own that inherits from `core.file`. `marfa items add` and a [folder](/run/folder-files) choose the subtype from the file's media type: `text/html` and `application/xhtml+xml` give a Web Page, and a type you name yourself always wins.
+Create a file item whose **`blob_ref`** is the hash. `core.file` takes any file. Use `core.file.image`, `core.file.audio`, `core.file.video` or `core.file.webpage` (an HTML page held as a file) where they fit, or a type of your own beneath `core.file`.
 
 ```bash tab="CLI" tab-group="client"
 marfa items create --type core.file --prop title=reading-list.txt \
@@ -94,15 +92,13 @@ _ = try await copy.items.create(Draft(
     properties: ["title": "reading-list.txt", "blob_ref": .string(hash), "mime_type": "text/plain"]))
 ```
 
-Marfa sets the item's `size_bytes` from the stored bytes. Soon after, a housekeeping job reads the bytes and adds what it finds, such as a document's or a Web Page's `extracted_text` or an image's `width` and `height`, which moves the item's version.
+Marfa sets the item's `size_bytes` from the stored bytes. Soon after, a housekeeping job reads the bytes and adds what it finds, such as `extracted_text` or an image's `width` and `height`, which moves the item's version.
 
-`marfa items add reading-list.txt` uploads the bytes and creates the item in one command. To make a file belong to another item, such as a photo attached to a note, link the two with an `attached-to` edge from the file item: `marfa items attach <id> photo.jpg` does all three steps. The file is then an **attachment**. An attachment the item's body shows, with `![](path)` or `![[file]]`, is also an **embed**.
+`marfa items add reading-list.txt` uploads the bytes and creates the item in one command, choosing the subtype from the media type unless you name one. To attach a file to a note or any other item, link the two with an `attached-to` edge from the file item, as `marfa items attach <id> photo.jpg` does in one command. The file is then an **attachment**. An attachment the item's body shows, with `![](path)` or `![[file]]`, is also an **embed**.
 
-Until an item names the hash, the bytes **can't be read**, even by the credential that uploaded them; only the owner and a credential with `blobs.manage` can. A file item may name **only bytes** its writer uploaded or can already read.
+**Until an item names the hash, the bytes can't be read**, even by the credential that uploaded them; only the owner and a credential with `blobs.manage` can. A file item may name only bytes its writer uploaded or can already read. Any other hash in `blob_ref` is refused `404 blob_not_found`, the same answer as a hash nothing holds, so the refusal never tells you whether the instance has the bytes. Upload them with the **same credential** that writes the item.
 
-A write that names another hash in `blob_ref`, such as one copied from elsewhere or uploaded with another key, is refused `404 blob_not_found` and writes nothing. A hash that nothing holds gets the same answer, so the refusal never tells you whether the instance has the bytes. Upload the bytes with the **same credential** that writes the item, then write again.
-
-A hash in any other property, such as an image link in a note's body, is text: the write is taken and the hash lends nothing.
+A hash in any other property, such as an image link in a note's body, is text and lends nothing.
 
 ## Find a file by its text
 
@@ -117,11 +113,9 @@ GET /search?q=quokka&type=core.file
 Authorization: Bearer <key>
 ```
 
-The job runs every 30 seconds by default, so a new file is found by its `title`, `description` and tags first and by its text a little later. Search matches only the text the job kept, which [`MARFA_ENRICHMENT_MAX_TEXT_CHARS`](/run/settings) limits. A file in the bin is never found. A device that holds the file finds it by its text once it has fetched the item with its `extracted_text`, which it does when it next catches up.
+The job runs every 30 seconds by default, so a new file is found by its `title`, `description` and tags first, and by its text a little later. A device finds it by its text after its next catch-up.
 
-The job reads the text of a plain text or Markdown file, a Web Page, a PDF, a Word, Excel or PowerPoint file and their OpenDocument equivalents, and, while OCR is on, an image. For a Web Page (`text/html` or `application/xhtml+xml`, with or without a charset) the text is what a reader sees: markup, scripts, styles and comments are left out, character references such as `&amp;` are decoded, and each paragraph, heading, list item and table row starts a new line. A page that is mostly script, or malformed, yields the text Marfa could recover. Marfa reads at most the first 8 MiB of a page and the first 512 levels of nested elements, and keeps `MARFA_ENRICHMENT_MAX_TEXT_CHARS` of text. A page that passes one of these keeps the text found before it, and the file is stored as usual. A page that is not read within the time allowed per file (`MARFA_ENRICHMENT_ITEM_TIMEOUT_MS`) gets no text, and the job tries it up to `MARFA_ENRICHMENT_MAX_ATTEMPTS` times in all.
-
-Enrichment is on unless the [settings](/run/settings) switch it off.
+The job reads plain text and Markdown, Web Pages, PDFs, Word, Excel and PowerPoint files and their OpenDocument equivalents, and, while OCR is on, images. From a Web Page it keeps the text a reader sees, a line for each paragraph, heading, list item and table row, reading at most the first 8 MiB. The [settings](/run/settings) switch enrichment off, limit the text kept (`MARFA_ENRICHMENT_MAX_TEXT_CHARS`) and set the time and attempts each file gets.
 
 ## Download the bytes
 
@@ -150,13 +144,11 @@ await writeFile("reading-list.txt", Buffer.from(bytes!));
 let bytes = try await copy.blobs.withFile(hash) { url in try Data(contentsOf: url) }
 ```
 
-In the Swift SDK, `withFile` calls your closure with a file on the device, fetching the bytes first if the copy doesn't hold them. **Read the file inside the closure**: a trim after it returns can remove the file.
-
-The copy keeps fetched files within a [file budget](/devices#files-on-the-device) and removes the ones read longest ago when it passes, so a later `withFile` may fetch a file again. A file larger than the budget is still fetched and kept while you read it, unless the volume has no room for it, which `withFile` refuses with `no_room`. **A file attached to an item the copy holds stays on the device** outside the budget. `blobs.fetchKept()` fetches every such file the copy doesn't hold; an app calls it after the copy fills and after each catch-up.
-
 Marfa sends the bytes as an attachment named after the hash, never as a page a browser would show, so take the file's name from the item's **`title`**. A `Range` header such as `bytes=0-1023` gets part of a blob.
 
-A blob you may not read answers `404 blob_not_found`, exactly as a hash that doesn't exist does. When a store that holds the blob can't answer and no other store returns the bytes, Marfa answers `503 blob_store_unavailable` instead, because it can't tell whether the bytes are gone: try again later.
+A blob you may not read answers `404 blob_not_found`, as a hash that doesn't exist does. When a store that holds the blob can't answer and no other store returns the bytes, Marfa answers `503 blob_store_unavailable`, because it can't tell whether the bytes are gone: try again later.
+
+A working copy fetches the bytes for you and keeps them, and keeps every attachment of the items it holds, as [Keep files on a device](/build/keep-files-on-a-device) shows. In the Swift SDK, read the file inside the `withFile` closure: a trim afterward can remove it.
 
 ## Hand out a time-limited link
 
@@ -226,6 +218,6 @@ guard let newHash = replacement.blob, let item = try await copy.items.get(id) el
 _ = try await copy.items.update(id, Edit(properties: ["blob_ref": .string(newHash)], baseVersion: item.version))
 ```
 
-Marfa sets the new `size_bytes`, and the housekeeping job reads the new bytes and replaces what it added from the old ones. The old blob stays **as long as an earlier version** of the item names it. Once nothing names it, a housekeeping job removes it after a day's grace.
+Marfa sets the new `size_bytes`, and the housekeeping job replaces what it added from the old bytes. The old blob stays **as long as an earlier version** of the item names it. Once nothing names it, a housekeeping job removes it after a day's grace.
 
 The rules behind this guide are in the [blobs](https://github.com/withmarfa/marfa/blob/main/conformance/spec/blobs.md) chapter of the contract.
