@@ -1,6 +1,6 @@
 import Link from 'fumadocs-core/link';
 import { ChevronRight } from 'lucide-react';
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import spec from '../../openapi.json';
 import areas from '@/lib/api-map-areas.json';
 import { buildApiMap, type MapArea, type Spec } from '@/lib/api-map';
@@ -38,12 +38,51 @@ function Path({ path }: { path: string }) {
  * Every operation of the HTTP API on one figure: an area for each part of
  * Marfa, a group for each tag, and a row for each operation that opens its
  * page. A group opens on a press to show its rows, and the server render holds
- * every row, so the links are there without script.
+ * every row, so the links are there without script. With script, one button
+ * above the map opens every group or closes them all; the groups stay closed
+ * until it or a press opens them.
  */
 export function ApiMapView({ map }: { map: MapArea[] }) {
   const total = map.reduce((sum, area) => sum + area.count, 0);
+  const figure = useRef<HTMLElement>(null);
+  const [ready, setReady] = useState(false);
+  const [allOpen, setAllOpen] = useState(false);
+
+  // The groups are native disclosures that the reader also opens one by one,
+  // so the button follows what the DOM holds rather than owning the state.
+  useEffect(() => {
+    const element = figure.current;
+    if (!element) return;
+    const sync = () => {
+      const groups = element.querySelectorAll('details');
+      setAllOpen(groups.length > 0 && element.querySelectorAll('details:not([open])').length === 0);
+    };
+    element.addEventListener('toggle', sync, true);
+    sync();
+    setReady(true);
+    return () => element.removeEventListener('toggle', sync, true);
+  }, []);
+
+  function toggleAll() {
+    figure.current?.querySelectorAll('details').forEach((group) => {
+      group.open = !allOpen;
+    });
+  }
+
   return (
-    <figure className="marfa-apimap not-prose" aria-label={`The HTTP API: ${total} operations in ${map.length} areas`}>
+    <figure ref={figure} className="marfa-apimap not-prose" aria-label={`The HTTP API: ${total} operations in ${map.length} areas`}>
+      <div className="marfa-apimap-toolbar" data-ready={ready || undefined}>
+        <button type="button" className="marfa-ix-button marfa-apimap-toggle" onClick={toggleAll}>
+          <span className="marfa-ix-swap">
+            <span data-current={!allOpen || undefined}>
+              Show all operations
+            </span>
+            <span data-current={allOpen || undefined}>
+              Hide operations
+            </span>
+          </span>
+        </button>
+      </div>
       {map.map((area) => (
         <section key={area.name} className="marfa-apimap-area" aria-label={area.name}>
           <div className="marfa-apimap-area-head">

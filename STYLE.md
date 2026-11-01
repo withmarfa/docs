@@ -141,7 +141,7 @@ Use a component for what it's for, and only where it helps the reader.
 | `Files` | A directory a reader will see on disk |
 | `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data, or the Overview's one-line warning that Marfa is early. Every callout has a bold `title` that says what happens, and a short body under it. It draws no icon. `type="warn"` is for a loss or something that can't be undone; a neutral note takes the default, `info` |
 | `Cards` | Where to go next: the Overview, an index of the docs, the Build and Run landing pages, and the end of a tutorial or of the Introduction |
-| `ApiMap` | The API reference's overview only: every operation, drawn from `openapi.json`, in its group and area (`src/lib/api-map-areas.json`), each linking to its page |
+| `ApiMap` | The API reference's overview only: every operation, drawn from `openapi.json`, in its group and area (`src/lib/api-map-areas.json`), each linking to its page. Groups start closed; one button above the map opens or closes them all |
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
 
