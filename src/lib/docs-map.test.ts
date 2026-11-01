@@ -53,6 +53,7 @@ describe('buildDocsMap', () => {
       '  - System types',
       ...['Connection', 'Folder', 'View'].map((title) => `    - ${title}]`),
       '  - Type rules]',
+      '  - Display hints]',
       '  - Field kinds]',
       '- Edges]',
       '- Events]',
