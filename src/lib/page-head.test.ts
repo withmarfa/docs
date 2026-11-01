@@ -4,17 +4,17 @@ import { pageHead } from './page-head';
 
 describe('pageHead', () => {
   it('gives the title, description, canonical address and Markdown copy', () => {
-    const head = pageHead({ title: 'Overview', description: 'Start here.', url: '/overview', markdownUrl: '/overview.md' });
+    const head = pageHead({ title: 'Overview', description: 'Start here.', url: '/quickstart', markdownUrl: '/quickstart.md' });
     expect(head.links).toEqual([
-      { rel: 'canonical', href: 'https://docs.marfa.so/overview' },
-      { rel: 'alternate', type: 'text/markdown', href: '/overview.md' },
+      { rel: 'canonical', href: 'https://docs.marfa.so/quickstart' },
+      { rel: 'alternate', type: 'text/markdown', href: '/quickstart.md' },
     ]);
     expect(head.meta).toEqual([
       { title: 'Overview | Marfa Docs' },
       { name: 'description', content: 'Start here.' },
       { property: 'og:description', content: 'Start here.' },
       { property: 'og:title', content: 'Overview' },
-      { property: 'og:url', content: 'https://docs.marfa.so/overview' },
+      { property: 'og:url', content: 'https://docs.marfa.so/quickstart' },
     ]);
   });
 

@@ -81,9 +81,9 @@ describe('an address with a trailing slash', () => {
   });
 
   it('leaves the root alone', async () => {
-    seen.length = 0;
-    await get('/', 'text/html');
-    expect(seen.map((request) => new URL(request.url).pathname)).toEqual(['/']);
+    const res = await get('/', 'text/html');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Location')).toBeNull();
   });
 
   it('passes a write through, so a client posting to /mcp/ is not redirected', async () => {

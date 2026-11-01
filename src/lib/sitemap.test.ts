@@ -6,9 +6,9 @@ const locs = (xml: string) => [...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map((mat
 
 describe('sitemapXml', () => {
   it('lists canonical addresses, sorted, once each', () => {
-    const xml = sitemapXml(['/run/deploy', '/overview/', '/overview']);
+    const xml = sitemapXml(['/run/deploy', '/quickstart/', '/quickstart']);
     expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')).toBe(true);
-    expect(locs(xml)).toEqual(['https://docs.marfa.so/overview', 'https://docs.marfa.so/run/deploy']);
+    expect(locs(xml)).toEqual(['https://docs.marfa.so/quickstart', 'https://docs.marfa.so/run/deploy']);
   });
 
   it('escapes what XML reserves', () => {
@@ -21,13 +21,14 @@ describe('buildSitemap', () => {
 
   it('lists every page, written and API reference', () => {
     expect(urls).toHaveLength(source.getPages().length);
-    expect(urls).toContain('https://docs.marfa.so/overview');
+    expect(urls).toContain('https://docs.marfa.so/');
+    expect(urls).toContain('https://docs.marfa.so/quickstart');
     expect(urls).toContain('https://docs.marfa.so/run/deploy');
     expect(urls.some((url) => url.startsWith('https://docs.marfa.so/api-reference/'))).toBe(true);
   });
 
   it('lists only page addresses', () => {
-    for (const url of urls) {
+    for (const url of urls.filter((url) => url !== 'https://docs.marfa.so/')) {
       expect(url).not.toMatch(/\/$|\.md$|\.txt$|\/mcp$|\/api\/|version\.json/);
     }
   });
