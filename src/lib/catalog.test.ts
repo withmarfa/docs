@@ -242,13 +242,13 @@ const SYSTEM_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('system.'));
 const CORE_SLUGS = CORE_TYPES.map(slugOf);
 const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
 /** The pages that are not the page of one type. */
-const OTHER_PAGES = ['index', 'items', 'types', 'field-kinds', 'type-rules', 'edges', 'events', 'permissions', 'connectors'];
+const OTHER_PAGES = ['index', 'items', 'types', 'field-kinds', 'type-rules', 'display-hints', 'edges', 'events', 'permissions', 'connectors'];
 /** The connectors Marfa ships, one page each beneath the Connectors page. */
 const CONNECTORS_DIR = 'connectors';
 const CONNECTOR_SLUGS = ['github', 'google-calendar', 'todoist', 'readwise', 'readwise-reader', 'rss'];
 /** Where the pages about types sit: in the Types folder, with the two families of types inside it. */
 const TYPES_DIR = '(types)';
-const TYPES_PAGES = ['types', 'type-rules', 'field-kinds'];
+const TYPES_PAGES = ['types', 'type-rules', 'display-hints', 'field-kinds'];
 
 describe('the catalog the pages follow', () => {
   it('is the synced copy, with the types the pages cover', () => {
@@ -588,7 +588,7 @@ const RULE_LINK = /github\.com\/withmarfa\/marfa\/blob\/main\/conformance\/spec\
 
 // The pages that set out rules name the chapters behind them in a footer, in place of a link on each rule.
 describe('the rule pages', () => {
-  it.each(['type-rules', 'field-kinds'])('%s ends with a footer naming the contract chapters behind its rules', (name) => {
+  it.each(['type-rules', 'display-hints', 'field-kinds'])('%s ends with a footer naming the contract chapters behind its rules', (name) => {
     const text = PAGES.find((candidate) => candidate.slug === name)!.text;
     const footer = text.trimEnd().split('\n').at(-1)!;
     expect(footer).toMatch(/^The rules behind this page are in /);
@@ -664,7 +664,9 @@ describe('the links', () => {
         if (!file.includes('/catalog/') && !target.startsWith('/catalog')) continue;
         const page = target.startsWith('/catalog')
           ? PAGES.find((candidate) => candidate.slug === (target.split('/').at(-1) === 'catalog' ? 'index' : target.split('/').at(-1)))?.file ?? target
-          : `content/docs${/^\/(build|run)\//.test(target) ? target : `/(overview)${target}`}.mdx`;
+          : /^\/(build|run)\//.test(target)
+            ? `content/docs${target}.mdx`
+            : ['(overview)', '(reference)'].map((group) => `content/docs/${group}${target}.mdx`).find((file) => existsSync(path.join(ROOT, file))) ?? target;
         const ids = headingIds(page);
         checked += 1;
         if (!ids?.has(id)) broken.push(`${file}: ${target}#${id}`);
