@@ -125,11 +125,11 @@ describe('the event for each agent address', () => {
         headers: { 'Content-Type': request.headers.get('Accept') === 'text/markdown' ? 'text/markdown' : 'text/html' },
       });
     const handle = createWorkerHandler({ app: negotiated, analytics: { key: KEY, fetch: capture.send, waitUntil: capture.waitUntil } });
-    await handle(get('/overview', { Accept: 'text/markdown' }));
-    await handle(get('/overview', { Accept: 'text/html' }));
+    await handle(get('/quickstart', { Accept: 'text/markdown' }));
+    await handle(get('/quickstart', { Accept: 'text/html' }));
     await capture.settled();
     expect(capture.sent).toHaveLength(1);
-    expect(capture.sent[0].event.properties).toMatchObject({ surface: 'markdown', via: 'accept', path: '/overview' });
+    expect(capture.sent[0].event.properties).toMatchObject({ surface: 'markdown', via: 'accept', path: '/quickstart' });
   });
 
   it('leaves out the path of a Markdown copy that is no page, so a typed address is not kept', async () => {
@@ -147,7 +147,7 @@ describe('the event for each agent address', () => {
   it('sends nothing for a page that a browser reads, an OPTIONS preflight or an unrelated address', async () => {
     const capture = fakeCapture();
     const handle = handlerWith(capture);
-    await handle(get('/overview', { Accept: 'text/html' }));
+    await handle(get('/quickstart', { Accept: 'text/html' }));
     await handle(get('/version.json'));
     await handle(get('/mcp', {}, 'OPTIONS'));
     await capture.settled();

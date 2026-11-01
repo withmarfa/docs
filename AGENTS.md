@@ -106,6 +106,6 @@ Report only a problem you can show: name the page, input or step, and what goes 
 - **Untrue against marfa.** Flag a Marfa name, field, error code, rule or example that marfa's contract, `openapi.json` or code contradicts. Safe path: check it there and link the rule's heading.
 - **Generated file edited.** Flag a hand edit under `src/generated/` or to `openapi.json`. Safe path: fix the source in marfa and run the sync.
 - **Publishing weakened.** Flag a `paths` filter on `ci.yml`, a deploy that can run where both targets were built, a self-hosted runner, or a publish job that no longer checks `/version.json`.
-- **Worker route frozen.** Flag a change to the prerender filter in `vite.config.ts` that saves `/` or freezes `/version.json`, `/mcp` or anything under `/api/` as a static file.
+- **Worker route frozen.** Flag a change to the prerender filter in `vite.config.ts` that freezes `/version.json`, `/mcp` or anything under `/api/` as a static file.
 - **Private detail committed.** Flag a token, key, account ID, internal hostname or personal path in a tracked file.
 - **Stale instructions.** Flag a change that leaves an `AGENTS.md`, `STYLE.md`, the README or a comment untrue, and fix it in the same pull request.

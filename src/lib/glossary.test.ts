@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
 import sources from './glossary-sources.json';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const PAGE = path.join(ROOT, 'content/docs/(overview)/glossary.mdx');
+const PAGE = path.join(ROOT, 'content/docs/(start)/glossary.mdx');
 const GLOSSARY = path.join(ROOT, 'src/generated/GLOSSARY.md');
 
 type Source = { glossary: string; reviewed: string } | { glossary: null; reason: string };

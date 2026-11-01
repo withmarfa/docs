@@ -11,7 +11,7 @@ export function NotFound() {
       <ErrorPage
         title="Page not found"
         message="There's no page at this address. It may have moved, so start from the Overview or the Quickstart."
-        primaryHref="/overview"
+        primaryHref="/"
         primaryLabel="Go to the Overview"
         secondaryHref="/quickstart"
         secondaryLabel="Quickstart"

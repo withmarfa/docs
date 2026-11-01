@@ -49,8 +49,9 @@ const sidebarOptions = {
 export const Route = createFileRoute('/$')({
   component: Page,
   loader: async ({ params }) => {
+    // `/` reaches this route with an empty splat: the landing page has no slugs.
     const splat = params._splat ?? '';
-    const slugs = splat.split('/');
+    const slugs = splat === '' ? [] : splat.split('/');
     const data = await serverLoader({ data: slugs });
     if (data.kind === 'docs') {
       await clientLoader.preload(data.path);
@@ -87,6 +88,7 @@ const serverLoader = createServerFn({
     return {
       kind: 'docs' as const,
       title: page.data.title ?? '',
+      headTitle: page.data.headTitle,
       description: page.data.description ?? '',
       url: page.url,
       path: page.path,

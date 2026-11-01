@@ -62,9 +62,11 @@ export async function markdownResponse(page: (typeof source)['$inferPage'], head
 
 /**
  * The page a request path addresses, with or without one trailing slash, or
- * `undefined` for the root, a `.md` copy and anything that is not a page.
+ * `undefined` for a `.md` copy and anything that is not a page. `/` is the
+ * landing page.
  */
 export function pageForPath(pathname: string) {
+  if (pathname === '/') return source.getPage([]);
   const segments = pathname.replace(/^\//, '').replace(/\/$/, '').split('/');
   if (segments.some((segment) => segment === '')) return undefined;
   try {

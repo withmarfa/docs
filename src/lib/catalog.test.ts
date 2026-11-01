@@ -666,7 +666,7 @@ describe('the links', () => {
           ? PAGES.find((candidate) => candidate.slug === (target.split('/').at(-1) === 'catalog' ? 'index' : target.split('/').at(-1)))?.file ?? target
           : /^\/(build|run)\//.test(target)
             ? `content/docs${target}.mdx`
-            : ['(overview)', '(reference)'].map((group) => `content/docs/${group}${target}.mdx`).find((file) => existsSync(path.join(ROOT, file))) ?? target;
+            : ['(start)', '(reference)'].map((group) => `content/docs/${group}${target}.mdx`).find((file) => existsSync(path.join(ROOT, file))) ?? target;
         const ids = headingIds(page);
         checked += 1;
         if (!ids?.has(id)) broken.push(`${file}: ${target}#${id}`);

@@ -183,8 +183,9 @@ export const docs = defineDocs({
   dir: 'content/docs',
   docs: {
     // A Catalog type page names its type's identifier, which the header shows
-    // under the description and the Markdown copy under the title.
-    schema: pageSchema.extend({ identifier: z.string().optional() }),
+    // under the description and the Markdown copy under the title. `headTitle`
+    // names a page in browser tabs and search results (`src/lib/page-head.ts`).
+    schema: pageSchema.extend({ identifier: z.string().optional(), headTitle: z.string().optional() }),
     postprocess: {
       includeProcessedMarkdown: llms,
     },

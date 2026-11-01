@@ -124,7 +124,8 @@ describe('who is limited', () => {
     '/llms.txt',
     '/llms-full.txt',
     '/docs-map.md',
-    '/overview',
+    '/quickstart',
+    '/',
     '/version.json',
   ])('does not limit %s', async (path) => {
     const { limiter, keys } = fakeLimiter(0);

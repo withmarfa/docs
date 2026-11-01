@@ -1,6 +1,6 @@
 import type * as PageTree from 'fumadocs-core/page-tree';
 import { isTagFolder, regroupApiReference } from '@/lib/api-reference-tree';
-import { source } from '@/lib/source';
+import { slugsToMarkdownPath, source } from '@/lib/source';
 import { siteUrl } from '@/lib/shared';
 
 /**
@@ -42,7 +42,7 @@ export function buildLlmsTxt(): string {
     ],
     (url, page) => {
       if (!url.startsWith('/')) return url;
-      return page && 'getText' in page.data ? `${siteUrl}${url}.md` : `${siteUrl}${url}`;
+      return page && 'getText' in page.data ? `${siteUrl}${slugsToMarkdownPath(page.slugs).url}` : `${siteUrl}${url}`;
     },
   );
 }
