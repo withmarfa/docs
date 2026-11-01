@@ -1,0 +1,204 @@
+---
+title: Edit and find notes in a Swift app
+description: Rename notes offline and see how Marfa merges two changes, check a note's links as you type, and find notes by title with a filter the core writes.
+---
+
+- **You'll build** three features of Reading List: renaming a note, writing a note's text with links to other notes, and finding notes by their title.
+- **You need** Reading List as [Build an app with Swift](/build/swift-app) leaves it, with its notes Bleak House and Middlemarch, and the Quickstart terminal.
+- **You'll have** an app that edits notes offline, shows how Marfa settled two changes to one note, says what each link names, and keeps a search between launches.
+
+Marfa's core does the work an app would otherwise write itself: it reads the links in a text and writes and reads filters, offline, by the same rules as the server.
+
+<Steps paged>
+<Step>
+
+### Rename a note
+
+Add this function inside `Library`:
+
+```swift title="Library.swift"
+    func rename(_ note: Item, to title: String) async {
+        await write { copy in
+            try await copy.items.update(
+                note.id, Edit(properties: ["title": .string(title)], baseVersion: note.version))
+        }
+    }
+```
+
+The `Edit` carries the version of the note the app read, so the instance can tell whether someone else changed it since. [Write safely](/build/write-safely) explains versions from the API's side.
+
+Add an editable row at the end of `ContentView.swift`, and replace `Text(note.title ?? "Untitled")` in `ContentView` with `NoteRow(library: library, note: note)`:
+
+```swift title="ContentView.swift"
+struct NoteRow: View {
+    let library: Library
+    let note: Item
+    @State private var title = ""
+
+    var body: some View {
+        TextField("Title", text: $title)
+            .onSubmit { Task { await library.rename(note, to: title) } }
+            .onAppear { title = note.title ?? "" }
+            .onChange(of: note.version) { title = note.title ?? "" }
+    }
+}
+```
+
+The row takes the title again whenever the note's version moves, so a change from elsewhere shows. Run the app, change Middlemarch to `Middlemarch, by George Eliot`, and press Return. **Changes** shows Sent.
+
+</Step>
+<Step>
+
+### See a verdict
+
+Now two devices change one note. Stop the server, rename Bleak House to `Bleak House, by Dickens`, and quit the app. The rename waits in the queue, which **survives the app quitting**.
+
+Start the server. In the Quickstart terminal, change the same note's title as another device would, with its ID from `marfa items list --type core.note --source reading-list`. The note is still at version 1 on the instance:
+
+<Terminal>
+
+```bash
+marfa items update <id> --version 1 --prop title="Changed elsewhere"
+```
+
+```text
+01a15f23-f2a4-7440-aeaa-46498e1819ac  core.note  2026-10-21T15:45:53.842Z  Changed elsewhere
+{
+  "body": "",
+  "title": "Changed elsewhere"
+}
+```
+
+</Terminal>
+
+Press Command-R. The app catches up and sends the rename, and **Changes** shows **Merged title with a newer change**. The note keeps your title, because a note **keeps the last writer's title**. Had both changed the text, the instance would have kept both, yours in a conflicted copy, as [Versions](/versions) explains.
+
+</Step>
+<Step>
+
+### Check links as you type
+
+A note's text is Markdown, and `[[Persuasion]]` in it links to the note titled Persuasion. **When you save the text, the working copy makes a `references` edge** from the note to each note a link names. Add two functions inside `Library`, one to save a note's text and one to say what each link in a text names:
+
+```swift title="Library.swift"
+    func setText(of note: Item, to text: String) async {
+        await write { copy in
+            try await copy.items.update(
+                note.id, Edit(properties: ["body": .string(text)], baseVersion: note.version))
+        }
+    }
+
+    func links(in text: String, of note: Item) async -> [LinkCandidates] {
+        let targets = linkParts(in: text).map(\.target)
+        guard let copy, !targets.isEmpty else { return [] }
+        return (try? await copy.items.linkCandidates(of: targets, in: note.id)) ?? []
+    }
+```
+
+`linkParts(in:)` finds each link and splits it into its name, heading and alias, needing no copy, so an editor can call it on every change. `linkCandidates(of:in:)` reads the copy, with no request. A link is `bound` only where saving it would make its edge without asking the instance: by an ID the copy holds, or by a name the note already has an edge for. A copy holds a slice of your library, so it can't tell alone that one title names one note; a new link by title stays `unresolved`, with the note it found among its `candidates`, until the instance's lookup answers on save. [Links in a body](/swift-sdk/items#links-in-a-body) has the rest.
+
+Add a sheet at the end of `ContentView.swift` that edits the text and lists its links:
+
+```swift title="ContentView.swift"
+struct TextEditorSheet: View {
+    let library: Library
+    let note: Item
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var links: [LinkCandidates] = []
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextEditor(text: $text).frame(minHeight: 160)
+                Section("Links") {
+                    ForEach(links.indices, id: \.self) { index in
+                        LabeledContent(links[index].target, value: describe(links[index]))
+                    }
+                }
+            }
+            .navigationTitle(note.title ?? "Untitled")
+            .toolbar {
+                Button("Save") { Task { await library.setText(of: note, to: text); dismiss() } }
+            }
+            .onAppear { text = note.body ?? "" }
+            .task(id: text) { links = await library.links(in: text, of: note) }
+        }
+    }
+
+    private func describe(_ link: LinkCandidates) -> String {
+        switch link.state {
+        case .bound: "Links to a note"
+        case .ambiguous: "Names \(link.candidates.count) notes"
+        case .unresolved: link.candidates.isEmpty ? "Names no note" : "The instance checks it on Save"
+        }
+    }
+}
+```
+
+In `NoteRow`, add `@State private var editing = false`, and wrap the `TextField` in an `HStack` with a button that opens the sheet:
+
+```swift title="ContentView.swift"
+        HStack {
+            TextField("Title", text: $title)
+                .onSubmit { Task { await library.rename(note, to: title) } }
+            Button("Edit Text", systemImage: "text.alignleft") { editing = true }
+                .buttonStyle(.borderless)
+        }
+        .onAppear { title = note.title ?? "" }
+        .onChange(of: note.version) { title = note.title ?? "" }
+        .sheet(isPresented: $editing) { TextEditorSheet(library: library, note: note) }
+```
+
+Run the app, choose **Edit Text** on Bleak House, and type `Compare [[Middlemarch, by George Eliot]] and [[Persuasion]].` The first link says **The instance checks it on Save**, and the second **Names no note**. Choose **Save**. Once the instance answers that one note has that title, the copy makes the edge from Bleak House to Middlemarch. Choose **Edit Text** again: the first link now says **Links to a note**.
+
+</Step>
+<Step>
+
+### Find notes by title
+
+A listing's `filter` is text in [Marfa's filter grammar](/build/list-filter-search#filter-by-properties). Rather than write that text, build the filter from typed values and let the core write it. Add these inside `Library`:
+
+```swift title="Library.swift"
+    func find(_ text: String) {
+        var filters = ListFilters(types: ["core.note"])
+        if !text.isEmpty {
+            let title = FilterCondition(field: .property("title"), operator: .contains, value: .text(text))
+            filters.filter = try? FilterExpression(conditions: [title]).encoded()
+        }
+        notes?.reading = .list(filters)
+        UserDefaults.standard.set(filters.filter, forKey: "filter")
+    }
+
+    var savedSearch: String {
+        guard let saved = UserDefaults.standard.string(forKey: "filter"),
+              let expression = try? FilterExpression(decoding: saved),
+              case .text(let text)? = expression.conditions.first?.value
+        else { return "" }
+        return text
+    }
+```
+
+`encoded()` writes the filter text, quoting the title, so a title with a quote in it can't break the filter. `FilterExpression(decoding:)` reads saved text back into conditions, the way an app edits a saved view's filter. Assigning `reading` makes the `LiveQuery` read again.
+
+In `open()`, add `find(savedSearch)` after the line that makes `notes`, so the app opens on the last search. In `ContentView`, add `@State private var search = ""`, and these after `.navigationTitle("Reading List")`:
+
+```swift title="ContentView.swift"
+            .searchable(text: $search)
+            .onAppear { search = library.savedSearch }
+            .onChange(of: search) { library.find(search) }
+```
+
+Run the app and type `Bleak` in the search field. The list holds Bleak House alone. Quit the app and run it again: the search and its result are still there.
+
+</Step>
+</Steps>
+
+## Next steps
+
+<Cards>
+  <Card title="List, filter and search" href="/build/list-filter-search">Every filter term, and full-text search.</Card>
+  <Card title="Swift SDK: Items" href="/swift-sdk/items">Build a filter, read links, and name and preview items.</Card>
+  <Card title="Save a view" href="/build/save-a-view">Keep a listing on the instance, so every app shows the same one.</Card>
+  <Card title="Versions" href="/versions">How Marfa settles two changes to one item.</Card>
+</Cards>
