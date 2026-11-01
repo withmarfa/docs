@@ -79,7 +79,10 @@ describe('the changelog on the server', () => {
     expect(renderToStaticMarkup(<ChangelogView releases={[]} />)).toBe('');
   });
 
-  it('offers a filter for each part, as toggle buttons that are all off', () => {
+  it('labels the filter group and marks All parts as the default selection', () => {
+    expect(html).toContain('id="marfa-cl-filter-label" class="marfa-cl-filter-label">Filter by part');
+    expect(html).toContain('role="group" aria-labelledby="marfa-cl-filter-label"');
+    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>All parts<\/button>/);
     expect(html.match(/<button[^>]*aria-pressed="false"[^>]*>(Server|CLI)<\/button>/g)).toHaveLength(2);
   });
 });
@@ -103,18 +106,26 @@ describe('the part filters', () => {
   const button = (name: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === name)!;
   const hiddenParts = () => [...container.querySelectorAll<HTMLElement>('.marfa-cl-part')].filter((p) => p.hidden).map((p) => p.getAttribute('aria-label'));
 
-  it('shows only the selected parts, and every part again when none is selected', () => {
+  it('shows only selected parts, and restores All parts when the filter is cleared', () => {
+    expect(button('All parts').getAttribute('aria-pressed')).toBe('true');
     act(() => button('Server').click());
     expect(button('Server').getAttribute('aria-pressed')).toBe('true');
+    expect(button('All parts').getAttribute('aria-pressed')).toBe('false');
     expect(hiddenParts()).toEqual(['CLI', 'CLI']);
 
-    act(() => button('CLI').click());
+    act(() => button('All parts').click());
+    expect(button('All parts').getAttribute('aria-pressed')).toBe('true');
+    expect(button('Server').getAttribute('aria-pressed')).toBe('false');
     expect(hiddenParts()).toEqual([]);
+  });
 
+  it('returns to All parts when every part is selected', () => {
     act(() => button('Server').click());
     act(() => button('CLI').click());
+    expect(button('All parts').getAttribute('aria-pressed')).toBe('true');
+    expect(button('Server').getAttribute('aria-pressed')).toBe('false');
+    expect(button('CLI').getAttribute('aria-pressed')).toBe('false');
     expect(hiddenParts()).toEqual([]);
-    expect(container.querySelectorAll('[aria-pressed="true"]')).toHaveLength(0);
   });
 
   it('keeps every release heading while a filter hides its parts, and says when nothing is left', () => {

@@ -106,18 +106,35 @@ export function ChangelogView({ releases }: { releases: Release[] }) {
     setSelected((current) => {
       const next = new Set(current);
       if (!next.delete(name)) next.add(name);
-      return next;
+      return next.size === parts.length ? new Set() : next;
     });
 
   return (
     <div className="marfa-cl">
       {parts.length > 1 ? (
-        <div className="marfa-cl-filters" role="group" aria-label="Show changes to">
-          {parts.map((name) => (
-            <button key={name} type="button" className="marfa-ix-button" aria-pressed={selected.has(name)} onClick={() => toggle(name)}>
-              {name}
+        <div className="marfa-cl-filters">
+          <span id="marfa-cl-filter-label" className="marfa-cl-filter-label">Filter by part</span>
+          <div className="marfa-cl-filter-options" role="group" aria-labelledby="marfa-cl-filter-label">
+            <button
+              type="button"
+              className="marfa-cl-filter-button"
+              aria-pressed={selected.size === 0}
+              onClick={() => setSelected(new Set())}
+            >
+              All parts
             </button>
-          ))}
+            {parts.map((name) => (
+              <button
+                key={name}
+                type="button"
+                className="marfa-cl-filter-button"
+                aria-pressed={selected.has(name)}
+                onClick={() => toggle(name)}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
       {releases.map((release, index) => (
