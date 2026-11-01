@@ -162,7 +162,7 @@ Every visual follows these rules:
 
 - **The prose carries every fact.** A visual shows the shape of what the text says; nothing is only in the visual, and no list after it repeats it.
 - **Use HTML and CSS on the site's theme tokens** (`--color-fd-*`, and `--marfa-diagram-accent` for the one accent color), so light and dark both work. No images and no hard-coded colors.
-- **Caption short, or none.** The lead-in sentence before a figure says what it shows. A caption, if any, is one short line.
+- **Caption short, or none.** The lead-in sentence before a figure states the fact it shows, never "the figure shows" or "pick a key": the Markdown copy leaves the figure out. A caption, if any, is one short line.
 - **Color marks one thing**: the part the page is about, such as the items a cascade takes. Everything else stays neutral.
 - **One style of control.** One row of the site's buttons, each named for its choice ("Bin the note", "Notes app"), with no label, prompt, tabs or reset. The figure opens with a choice made. A second choice is one compact menu at the right of the same row; in a narrow figure it always sits on its own line under the buttons, so nothing moves when the reader chooses.
 - **Nothing moves.** A choice changes what's highlighted and what the text says, never a size or the layout: the figure keeps one height, and every changing word sits in a place as large as its longest version. The server render shows the whole visual. A filter on a lookup page, such as the Changelog's part filters, may show and hide entries.
