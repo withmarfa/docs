@@ -96,6 +96,41 @@ describe('ReferenceList', () => {
     expect(required).toContain('<span class="marfa-ref-label">Default</span> false');
   });
 
+  it('leaves out a detail that says only None or Any text, and keeps one that says more', () => {
+    const html = renderToStaticMarkup(
+      <ReferenceList description={3}>
+        <table>
+          <thead>
+            <tr>
+              <th>Setting</th>
+              <th>Default</th>
+              <th>Allowed values</th>
+              <th>What it sets</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>S3_BUCKET</td>
+              <td>None</td>
+              <td>Any text</td>
+              <td>The bucket.</td>
+            </tr>
+            <tr>
+              <td>S3_ENDPOINT</td>
+              <td>None</td>
+              <td>Any text or an address</td>
+              <td>The endpoint.</td>
+            </tr>
+          </tbody>
+        </table>
+      </ReferenceList>,
+    );
+    const [bucket, endpoint] = html.split('class="marfa-ref-entry"').slice(1);
+    expect(bucket).not.toContain('marfa-ref-detail');
+    expect(endpoint).not.toContain('Default');
+    expect(endpoint).toContain('<span class="marfa-ref-label">Allowed values</span> Any text or an address');
+  });
+
   it('leaves its children alone when they hold no table with rows', () => {
     const html = renderToStaticMarkup(
       <ReferenceList>

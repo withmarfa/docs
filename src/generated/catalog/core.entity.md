@@ -1,27 +1,27 @@
 ## Fields
 
-| Field                        | Label         | Kind                | Required | Description                                                                                                 |
-| ---------------------------- | ------------- | ------------------- | -------- | ----------------------------------------------------------------------------------------------------------- |
-| `name`                       |               | `string`            | Yes      | Display name                                                                                                |
-| `url`                        | URL           | `url`               | No       | Web address                                                                                                 |
-| `description`                |               | `string`            | No       | What the entity is                                                                                          |
-| `emails`                     |               | `array` of `object` | No       | Email addresses. The first entry is the main one, and an entry's label is free text, such as work or home.  |
-| `emails[].value`             | Email         | `email`             | Yes      | The email address                                                                                           |
-| `emails[].label`             |               | `string`            | No       | What the entry is for, such as work or home                                                                 |
-| `phones`                     | Phone Numbers | `array` of `object` | No       | Phone numbers. The first entry is the main one, and an entry's label is free text, such as work or home.    |
-| `phones[].value`             | Number        | `string` (`phone`)  | Yes      | The phone number, in E.164 form where known                                                                 |
-| `phones[].label`             |               | `string`            | No       | What the entry is for, such as work or home                                                                 |
-| `addresses`                  |               | `array` of `object` | No       | Postal addresses. The first entry is the main one, and an entry's label is free text, such as work or home. |
-| `addresses[].label`          |               | `string`            | No       | What the entry is for, such as work or home                                                                 |
-| `addresses[].street_address` |               | `string`            | No       | Street line                                                                                                 |
-| `addresses[].locality`       |               | `string`            | No       | City or town                                                                                                |
-| `addresses[].region`         |               | `string`            | No       | State, province, or county                                                                                  |
-| `addresses[].postal_code`    |               | `string`            | No       | Postcode or ZIP code                                                                                        |
-| `addresses[].country`        |               | `string`            | No       | Country name or code                                                                                        |
-| `image_url`                  | Image URL     | `url`               | No       | Logo or brand image                                                                                         |
-| `legal_name`                 |               | `string`            | No       | Official registered name                                                                                    |
-| `founded`                    |               | `date`              | No       | Founding date (ISO 8601)                                                                                    |
-| `notes`                      |               | `string`            | No       | Personal annotations                                                                                        |
+| Field                        | Kind                         | Description                                                                                                                    |
+| ---------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `name`                       | `string`, required           | Display name.                                                                                                                  |
+| `url`                        | `url`                        | Web address. Label: URL.                                                                                                       |
+| `description`                | `string`                     | What the entity is.                                                                                                            |
+| `emails`                     | `array` of `object`          | Email addresses. The first entry is the main one, and an entry's label is free text, such as work or home.                     |
+| `emails[].value`             | `email`, required            | The email address. Label: Email.                                                                                               |
+| `emails[].label`             | `string`                     | What the entry is for, such as work or home.                                                                                   |
+| `phones`                     | `array` of `object`          | Phone numbers. The first entry is the main one, and an entry's label is free text, such as work or home. Label: Phone Numbers. |
+| `phones[].value`             | `string` (`phone`), required | The phone number, in E.164 form where known. Label: Number.                                                                    |
+| `phones[].label`             | `string`                     | What the entry is for, such as work or home.                                                                                   |
+| `addresses`                  | `array` of `object`          | Postal addresses. The first entry is the main one, and an entry's label is free text, such as work or home.                    |
+| `addresses[].label`          | `string`                     | What the entry is for, such as work or home.                                                                                   |
+| `addresses[].street_address` | `string`                     | Street line.                                                                                                                   |
+| `addresses[].locality`       | `string`                     | City or town.                                                                                                                  |
+| `addresses[].region`         | `string`                     | State, province, or county.                                                                                                    |
+| `addresses[].postal_code`    | `string`                     | Postcode or ZIP code.                                                                                                          |
+| `addresses[].country`        | `string`                     | Country name or code.                                                                                                          |
+| `image_url`                  | `url`                        | Logo or brand image. Label: Image URL.                                                                                         |
+| `legal_name`                 | `string`                     | Official registered name.                                                                                                      |
+| `founded`                    | `date`                       | Founding date (ISO 8601).                                                                                                      |
+| `notes`                      | `string`                     | Personal annotations.                                                                                                          |
 
 ## Settings
 
@@ -43,19 +43,19 @@ Contact information for an individual. Inherits all core.entity fields.
 | `plural`                                    | People        |
 | [`icon`](/catalog/type-rules#display-hints) | `lucide:user` |
 
-| Field          | Kind     | Required | Description                        |
-| -------------- | -------- | -------- | ---------------------------------- |
-| `given_name`   | `string` | No       | Given (first) name                 |
-| `family_name`  | `string` | No       | Family (last) name                 |
-| `middle_name`  | `string` | No       | Middle or additional name          |
-| `prefix`       | `string` | No       | Honorific prefix (Dr, Mr, Prof)    |
-| `suffix`       | `string` | No       | Honorific suffix (PhD, Jr, OBE)    |
-| `nickname`     | `string` | No       | Familiar name or alias             |
-| `organization` | `string` | No       | Associated organization            |
-| `job_title`    | `string` | No       | Position or job title              |
-| `department`   | `string` | No       | Department within the organization |
-| `birthday`     | `date`   | No       | Date of birth (ISO 8601)           |
-| `pronouns`     | `string` | No       | Pronouns                           |
+| Field          | Kind     | Description                         |
+| -------------- | -------- | ----------------------------------- |
+| `given_name`   | `string` | Given (first) name.                 |
+| `family_name`  | `string` | Family (last) name.                 |
+| `middle_name`  | `string` | Middle or additional name.          |
+| `prefix`       | `string` | Honorific prefix (Dr, Mr, Prof).    |
+| `suffix`       | `string` | Honorific suffix (PhD, Jr, OBE).    |
+| `nickname`     | `string` | Familiar name or alias.             |
+| `organization` | `string` | Associated organization.            |
+| `job_title`    | `string` | Position or job title.              |
+| `department`   | `string` | Department within the organization. |
+| `birthday`     | `date`   | Date of birth (ISO 8601).           |
+| `pronouns`     | `string` | Pronouns.                           |
 
 ### core.entity.place [#core-entity-place]
 
@@ -66,14 +66,14 @@ A location or venue. Inherits all core.entity fields.
 | `plural`                                    | Places           |
 | [`icon`](/catalog/type-rules#display-hints) | `lucide:map-pin` |
 
-| Field            | Label     | Kind                 | Required | Description                        |
-| ---------------- | --------- | -------------------- | -------- | ---------------------------------- |
-| `street_address` |           | `string`             | No       | Street line                        |
-| `locality`       |           | `string`             | No       | City or town                       |
-| `region`         |           | `string`             | No       | State, province, or county         |
-| `postal_code`    |           | `string`             | No       | Postcode or ZIP code               |
-| `country`        |           | `string` (`iso3166`) | No       | ISO 3166-1 alpha-2 country code    |
-| `timezone`       | Time Zone | `string`             | No       | IANA timezone                      |
-| `latitude`       |           | `number`             | No       | Subject latitude                   |
-| `longitude`      |           | `number`             | No       | Subject longitude                  |
-| `altitude`       |           | `number`             | No       | Altitude in meters above sea level |
+| Field            | Kind                 | Description                         |
+| ---------------- | -------------------- | ----------------------------------- |
+| `street_address` | `string`             | Street line.                        |
+| `locality`       | `string`             | City or town.                       |
+| `region`         | `string`             | State, province, or county.         |
+| `postal_code`    | `string`             | Postcode or ZIP code.               |
+| `country`        | `string` (`iso3166`) | ISO 3166-1 alpha-2 country code.    |
+| `timezone`       | `string`             | IANA timezone. Label: Time Zone.    |
+| `latitude`       | `number`             | Subject latitude.                   |
+| `longitude`      | `number`             | Subject longitude.                  |
+| `altitude`       | `number`             | Altitude in meters above sea level. |

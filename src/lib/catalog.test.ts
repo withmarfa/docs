@@ -405,44 +405,48 @@ describe('a system type page', () => {
 describe('the generated type tables', () => {
   const files = readdirSync(GENERATED).filter((file) => /^(core|system)\.[a-z]+\.md$/.test(file));
 
-  /** The rows of each table that has a Required column, as cell lists with the Required cell last. */
-  function requiredRows(text: string): string[][] {
-    const rows: string[][] = [];
-    let required = -1;
+  /** Each field row of each table, as its name and whether its Kind cell marks it required. */
+  function fieldRows(text: string): [string, string][] {
+    const rows: [string, string][] = [];
+    let kind = -1;
     for (const line of text.split('\n')) {
       if (!line.startsWith('|')) {
-        required = -1;
+        kind = -1;
         continue;
       }
       const cells = line.split(/(?<!\\)\|/).slice(1, -1).map((cell) => cell.trim());
-      if (cells[0] === 'Field') required = cells.indexOf('Required');
-      else if (required >= 0 && !/^-+$/.test(cells[0])) rows.push([cells[0], cells[required]]);
+      if (cells[0] === 'Field') kind = cells.indexOf('Kind');
+      else if (kind >= 0 && !/^-+$/.test(cells[0])) rows.push([cells[0], cells[kind]]);
     }
     return rows;
   }
 
-  it('say Yes or No in the Required column, never leave it empty', () => {
+  it('give each field a kind, in three columns', () => {
     expect(files.length).toBe(TOP_LEVEL.length);
     let seen = 0;
     for (const file of files) {
-      for (const cells of requiredRows(readFileSync(path.join(GENERATED, file), 'utf8'))) {
+      const text = readFileSync(path.join(GENERATED, file), 'utf8');
+      for (const header of text.split('\n').filter((line) => line.startsWith('| Field '))) {
+        expect(header.split('|').slice(1, -1).map((cell) => cell.trim()), file).toEqual(['Field', 'Kind', 'Description']);
+      }
+      for (const [name, kind] of fieldRows(text)) {
         seen += 1;
-        expect(['Yes', 'No'], `${file}: ${cells[0]}`).toContain(cells[1]);
+        expect(kind, `${file}: ${name}`).toMatch(/^`[a-z]+`/);
       }
     }
     expect(seen).toBeGreaterThan(30);
   });
 
-  it('say Yes for the fields a type requires and No for the others', () => {
+  it('mark as required exactly the fields a type requires', () => {
     for (const type of TOP_LEVEL) {
       const text = readFileSync(path.join(GENERATED, `${type.id}.md`), 'utf8');
       const own = text.slice(0, text.includes('## Subtypes') ? text.indexOf('## Subtypes') : undefined);
-      const shown = Object.fromEntries(requiredRows(own).map((cells) => [cells[0].replace(/`/g, ''), cells[1]]));
+      const shown = Object.fromEntries(fieldRows(own).map(([name, kind]) => [name.replace(/`/g, ''), kind.endsWith(', required')]));
       expect(shown, type.id).toEqual(
         Object.fromEntries(
           Object.entries(type.fields).flatMap(([name, field]) => [
-            [name, field.required ? 'Yes' : 'No'],
-            ...Object.entries(field.items_fields ?? {}).map(([member, entry]) => [`${name}[].${member}`, entry.required ? 'Yes' : 'No']),
+            [name, field.required === true],
+            ...Object.entries(field.items_fields ?? {}).map(([member, entry]) => [`${name}[].${member}`, entry.required === true]),
           ]),
         ),
       );

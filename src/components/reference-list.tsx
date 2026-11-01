@@ -6,9 +6,13 @@ function elements(node: ReactNode): WithChildren[] {
   return Children.toArray(node).filter((child): child is WithChildren => isValidElement(child));
 }
 
-// A blank Markdown cell, such as a field with no default, gets no label.
+// Cells that tell a reader nothing to act on: a setting with no default, or one that takes any text.
+const SILENT = new Set(['', 'None', 'Any text']);
+
+// A blank Markdown cell, or one that says only None or Any text, gets no label.
 function isEmpty(cell: ReactNode): boolean {
-  return Children.toArray(cell).every((child) => typeof child === 'string' && child.trim() === '');
+  const children = Children.toArray(cell);
+  return children.every((child) => typeof child === 'string') && SILENT.has(children.join('').trim());
 }
 
 /** Every table row under `node`, in order, as the contents of its cells. A second table's rows, its header included, follow the first's. */
