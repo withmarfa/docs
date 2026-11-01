@@ -1,9 +1,12 @@
 export const appName = 'Marfa Docs';
-// Docs live at the site root — no `/docs` URL prefix. Kept as a named constant
-// (empty string) so URL-builders (source baseUrl, markdown-twin paths, the docs
-// map) share one source of truth.
+// The address search engines and link previews are given for every page. The
+// Worker also answers on other hosts, such as a preview, which must not become
+// the canonical address.
+export const siteUrl = 'https://docs.marfa.so';
+// Docs live at the site root, with no `/docs` URL prefix. Kept as a named
+// constant (empty string) so URL-builders (source baseUrl, markdown-twin paths,
+// the docs map) share one source of truth.
 export const docsRoute = '';
-export const docsImageRoute = '/og/docs';
 
 // GitHub config for "edit this page" links and similar.
 export const gitConfig = {

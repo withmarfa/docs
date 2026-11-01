@@ -11,7 +11,7 @@ const config = JSON.parse(
     .join('\n'),
 ) as {
   main: string;
-  assets: { binding: string; run_worker_first: string[] };
+  assets: { binding: string; html_handling: string; run_worker_first: string[] };
   ratelimits: { name: string; namespace_id: string; simple: { limit: number; period: number } }[];
 };
 
@@ -23,6 +23,12 @@ describe('wrangler.jsonc', () => {
   it('runs the Worker ahead of the static files for page addresses', () => {
     expect(config.assets.binding).toBe('ASSETS');
     expect(config.assets.run_worker_first[0]).toBe('/*');
+  });
+
+  // Prerender writes `<path>/index.html`. Any other setting answers a page at
+  // `<path>/` and redirects every internal link, which has no slash.
+  it('answers each page at its address without a trailing slash', () => {
+    expect(config.assets.html_handling).toBe('drop-trailing-slash');
   });
 
   // `src/server.ts` reads these names from `env`. A renamed binding would
