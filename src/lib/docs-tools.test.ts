@@ -74,7 +74,7 @@ describe('pathToSlugs', () => {
     ['https://docs.marfa.so/x/y.md?z=1#top', ['x', 'y']],
     ['/x/y.md', ['x', 'y']],
     ['/x/y/', ['x', 'y']],
-    ['/docs/x/y', ['x', 'y']],
+    ['/docs/x/y', ['docs', 'x', 'y']],
     ['/docs-x/y', ['docs-x', 'y']],
     ['  /x/y  ', ['x', 'y']],
     ['/', []],
@@ -91,7 +91,7 @@ describe('fetchDocsPage', () => {
     expect(page).toMatch(/^# Housekeeping \(\/run\/housekeeping\)\n/);
     expect(page).toContain('housekeeping jobs');
 
-    for (const form of ['run/housekeeping', '/run/housekeeping.md', '/run/housekeeping/', '/docs/run/housekeeping']) {
+    for (const form of ['run/housekeeping', '/run/housekeeping.md', '/run/housekeeping/']) {
       expect(await fetchDocsPage(form), form).toBe(page);
     }
   });

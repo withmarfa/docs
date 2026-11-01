@@ -1,4 +1,5 @@
 import { loader } from 'fumadocs-core/source';
+import type * as PageTree from 'fumadocs-core/page-tree';
 import { docs } from 'collections/server';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { docsRoute } from './shared';
@@ -82,6 +83,32 @@ export function inLlmsFull(page: (typeof source)['$inferPage']) {
   return page.type !== 'openapi' && page.url !== '/changelog';
 }
 
+/** Page addresses in sidebar order: each tab, then its folders' landing pages and pages as they appear. */
+function sidebarOrder(): Map<string, number> {
+  const order = new Map<string, number>();
+  const add = (url: string) => {
+    if (!order.has(url)) order.set(url, order.size);
+  };
+  const walk = (nodes: PageTree.Node[]) => {
+    for (const node of nodes) {
+      if (node.type === 'page') add(node.url);
+      else if (node.type === 'folder') {
+        if (node.index) add(node.index.url);
+        walk(node.children);
+      }
+    }
+  };
+  walk(source.getPageTree().children);
+  return order;
+}
+
+/** The written pages in sidebar order, which `llms.txt` promises; a page outside the tree goes last. */
 export async function getLlmsFullText() {
-  return (await Promise.all(source.getPages().filter(inLlmsFull).map(getLLMText))).join('\n\n');
+  const order = sidebarOrder();
+  const rank = (page: (typeof source)['$inferPage']) => order.get(page.url) ?? Number.MAX_SAFE_INTEGER;
+  const pages = source
+    .getPages()
+    .filter(inLlmsFull)
+    .sort((a, b) => rank(a) - rank(b));
+  return (await Promise.all(pages.map(getLLMText))).join('\n\n');
 }
