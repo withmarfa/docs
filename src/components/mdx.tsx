@@ -6,6 +6,7 @@ import { TypeTable } from 'fumadocs-ui/components/type-table';
 import type { MDXComponents } from 'mdx/types';
 import type { ComponentProps } from 'react';
 import { cn } from '../lib/cn';
+import { ApiMap } from './api-map';
 import { Callout } from './callout';
 import { Changelog } from './changelog';
 import { Card, Cards } from './cards';
@@ -24,6 +25,7 @@ function Files({ className, ...props }: ComponentProps<typeof BaseFiles>) {
 export function getMDXComponents(components?: MDXComponents) {
   return {
     ...defaultMdxComponents,
+    ApiMap,
     Callout,
     Card,
     Changelog,

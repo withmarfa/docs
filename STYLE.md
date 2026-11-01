@@ -141,12 +141,13 @@ Use a component for what it's for, and only where it helps the reader.
 | `Files` | A directory a reader will see on disk |
 | `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data, or the Overview's one-line warning that Marfa is early. Every callout has a bold `title` that says what happens, and a short body under it. It draws no icon. `type="warn"` is for a loss or something that can't be undone; a neutral note takes the default, `info` |
 | `Cards` | Where to go next: the Overview, an index of the docs, the Build and Run landing pages, and the end of a tutorial or of the Introduction |
+| `ApiMap` | The API reference's overview only: every operation, drawn from `openapi.json`, in its group and area (`src/lib/api-map-areas.json`), each linking to its page |
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
 
 An interactive figure builds its controls from `Controls`, `Choices` and `Menu` in `src/components/visuals/interactive.tsx`, and nothing else: one style of control on every page (see Visuals).
 
-The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence`, `Files` and `Terminal` (the command, then "Output:" and its output) as plain Markdown, and a block's `note` or `status` as a line above it, such as "Response (Server-sent events):", and leaves the visuals out (`source.config.ts`). `Changelog` writes every release and every line of its notes. A component outside those lists is left out of the copy too, so add it there before a page relies on it.
+The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence`, `Files` and `Terminal` (the command, then "Output:" and its output) as plain Markdown, and a block's `note` or `status` as a line above it, such as "Response (Server-sent events):", and leaves the visuals out (`source.config.ts`). `Changelog` writes every release and every line of its notes. `ApiMap` writes every operation as its method and path with a link to its page, under its area and group. A component outside those lists is left out of the copy too, so add it there before a page relies on it.
 
 ## Visuals
 

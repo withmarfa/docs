@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { LLMsOptions } from 'fumadocs-core/mdx-plugins/remark-llms';
 import { gfmTableToMarkdown } from 'mdast-util-gfm-table';
+import { apiMapMarkdown, buildApiMap, type Areas, type Spec } from './src/lib/api-map';
 import { changelogMarkdown, remarkChangelogIndex, type Release } from './src/lib/changelog';
 import { statusLabel } from './src/lib/http-status';
 import { sseLanguage } from './src/lib/sse-language';
@@ -13,6 +14,13 @@ import { rehypeTableLabels } from './src/lib/table-labels';
 /** The releases the Changelog page draws, from the file `scripts/sync-changelog.ts` writes. */
 function readReleases(): Release[] {
   return JSON.parse(readFileSync('src/generated/changelog.json', 'utf8'));
+}
+
+/** The API map that the API reference's overview draws, from the API description and its areas. */
+function readApiMap() {
+  const spec: Spec = JSON.parse(readFileSync('openapi.json', 'utf8'));
+  const areas: Areas = JSON.parse(readFileSync('src/lib/api-map-areas.json', 'utf8'));
+  return buildApiMap(spec, areas);
 }
 
 /** The part of an MDX JSX node this file reads (mdast-util-mdx's shape). */
@@ -39,6 +47,7 @@ const REWRITTEN = new Set([
   'File',
   'Terminal',
   'Changelog',
+  'ApiMap',
 ]);
 
 /** Node types that start a block, as opposed to text within one. */
@@ -159,6 +168,9 @@ const llms: LLMsOptions = {
         // The component draws releases from a data file, so the copy writes the same releases as Markdown.
         return changelogMarkdown(readReleases());
       }
+      case 'ApiMap':
+        // Drawn from the API description, so the copy writes every operation and its link.
+        return apiMapMarkdown(readApiMap());
       case 'Files':
         return ['```text', ...fileTree(node), '```'].join('\n');
       default:

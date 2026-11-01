@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { ApiMethod, parseApiMethod } from '@/components/api-method';
+import { tagSlug } from './api-map';
 import spec from '../../openapi.json';
 
 // The title of the Reference tab's folder, from its meta.json, lowercased. The
@@ -20,8 +21,6 @@ const REFERENCE_TITLE = 'reference';
 // not by the folder's display name, which the loader derives from the slug
 // ("Api keys" for the tag "API keys").
 type Tag = { name: string; 'x-operation-order'?: string[] };
-
-const tagSlug = (name: string) => name.replace(/\s+/g, '-').toLowerCase();
 
 const TAGS = new Map(
   (spec.tags as Tag[]).map((tag, index) => [
