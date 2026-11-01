@@ -69,7 +69,7 @@ A page that needs a list the Catalog holds, such as the types, edge types, permi
 
 ## Vocabulary
 
-Marfa's [`GLOSSARY.md`](https://github.com/withmarfa/marfa/blob/main/GLOSSARY.md), synced here as `src/generated/GLOSSARY.md`, decides every term. Use its word for each thing, in the sense it defines, and never use a word from its Banned list. Don't define a Marfa term differently on a page; link to the Glossary page, `/glossary`, instead.
+Marfa's [`GLOSSARY.md`](https://github.com/withmarfa/marfa/blob/main/GLOSSARY.md), synced here as `src/generated/GLOSSARY.md`, decides every term. Use its word for each thing, in the sense it defines, and never use a word from its Banned list. Don't define a Marfa term differently on a page; link to the Glossary page, `/glossary`, instead. The Glossary page defines each word more briefly than `GLOSSARY.md`, in the same sense, and `pnpm test` fails when either changes until they are compared again.
 
 - The `marfa` program is **the CLI**. One of its commands, such as `marfa items list`, is **a command**.
 - One thing the API does is **an operation**, never "a door".
