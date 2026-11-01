@@ -10,36 +10,39 @@ How every page on this site is written. This file is the one place the writing r
 
 ## Who reads the docs
 
-Write for a reader who is new to Marfa. Most know software; some don't, and more of them will as apps built on Marfa reach people. The Introduction and the concepts must make sense to both. Five readers come most often, and each needs something different first:
+Write for a reader who is new to Marfa. Most know software; some don't, and more of them will as apps built on Marfa reach people. The landing page and the concepts must make sense to both. Three readers come, in this order, and each needs something different first:
 
-- **Someone deciding whether Marfa is for them** needs to know what it is, what it's for and what it isn't: the Introduction, then How Marfa works.
-- **An app builder** needs a credential, then reading and writing items, then the model: the Quickstart, the concepts, then Build.
-- **Someone running an instance** needs to start it, claim it and keep it safe: the Quickstart, then Run.
-- **A connector author** needs what the instance keeps for a connector, then the connector tutorials and guides in Build.
-- **An AI agent**, working for any of them, reads the same pages as Markdown, through the docs MCP server or `marfa docs`.
+1. **Someone working out what Marfa is** needs to know what it is, what it's for and what it isn't: the landing page (`/`), then How Marfa works.
+2. **Someone running their own Marfa** needs to start it, claim it, connect their agent and keep it safe: the Quickstart, Connect your agent, then Run.
+3. **Someone building on Marfa** needs a credential, then reading and writing items, then the model: the Quickstart, the concepts, then Build. A **connector author** is one of them, and needs what the instance keeps for a connector, then the connector tutorials and guides in Build.
 
-A page that a newcomer can follow serves an agent too. Never write that Marfa is only for technical people.
+**Agents are the most frequent readers.** An agent usually works for one of these people, and reads the same pages as Markdown, through the docs MCP server, `marfa docs` or `llms.txt`. A page that a newcomer can follow serves an agent too. Never write that Marfa is only for technical people.
+
+**The docs are for working with Marfa, not for maintaining it.** A page says what a reader meets when they run, use or build on Marfa. How Marfa is built inside, such as its modules, its internal jobs or how the server stores something, belongs in the marfa repository, not on a page.
 
 ## Where a page goes
 
 | Tab | Sidebar groups | Kind of page |
 | --- | --- | --- |
-| Overview | Get started: the Overview, an index of the docs; the Introduction; the Quickstart | Navigation, explanation, then a tutorial |
-| Overview | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation, then reference |
-| Build | Build on Marfa, an index of the tab; Tutorials; Build apps and agents; Build connectors | Navigation, tutorial, then how-to |
-| Run | Run Marfa, an index of the tab; Set up; Keys and access; Folders; Connectors; Look after it (ending with Troubleshooting) | Navigation, then how-to |
-| Catalog | The Catalog, Items, Types (its own page, with the Core types and System types folders of one page per type under it, then Type rules and Field kinds), Edges, Events, Permissions, Connectors (its own page, with one page for each connector Marfa ships under it) | Reference |
-| Reference | The Reference landing page (`/reference`): a card for each of the SDKs, the CLI, the Marfa MCP server, the HTTP API, the Changelog, Read these docs from an agent and the contract | Reference |
-| Reference | SDKs, CLI and MCP: a page for the TypeScript SDK, a folder of pages for the Swift SDK (an overview and install page, then one page for each part of the SDK), a page for the CLI, the file the CLI keeps for other programs, then the Marfa MCP server | How-to and reference for each client, then reference |
+| Start | The Overview, at `/`: the problem Marfa solves, what it makes possible, what it isn't, where it runs, and a path for each reader | Explanation, then navigation |
+| Start | Get started: the Quickstart, then Connect your agent | Tutorial, then how-to |
+| Start | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation, then reference |
+| Run | The Overview, an index of the tab; Set up; Keys and access; Folders; Connectors; Look after it (ending with Troubleshooting) | Navigation, then how-to |
+| Catalog | The Overview, Items, Types (its own page, with the Core types and System types folders of one page per type under it, then Type rules and Field kinds), Edges, Events, Permissions, Connectors (its own page, with one page for each connector Marfa ships under it) | Reference |
+| Build | The Overview, an index of the tab; Tutorials; Build apps and agents; Build connectors | Navigation, tutorial, then how-to |
+| Reference | The Overview (`/reference`): a card for each of the SDKs, the CLI, the Marfa MCP server, the HTTP API, the Changelog, Docs for agents and the contract | Reference |
+| Reference | SDKs, CLI and MCP: a page for the TypeScript SDK, a folder of pages for the Swift SDK (an overview and install page, then one page for each part of the SDK), a page for the CLI, Folder sync status (the file the CLI keeps for other programs), then the Marfa MCP server | How-to and reference for each client, then reference |
 | Reference | HTTP API: the overview, Errors, and the operations generated from the API description | Reference |
-| Reference | Resources: the Changelog, Read these docs from an agent, and the contract | Reference, then how-to |
+| Reference | Resources: the Changelog, Docs for agents, and the contract | Reference, then how-to |
+
+Every tab opens on a page titled Overview, at the top of its sidebar outside any group, whose description says what the tab covers.
 
 The tabs divide the work, and each thing is said once, with links between:
 
-- **Overview** explains what Marfa is and how it works, with two or three examples at most.
-- **Build** shows how to write an app, an agent or a connector on Marfa.
+- **Start** explains what Marfa is and how it works, with two or three examples at most, and gets a reader running and their agent connected.
 - **Run** shows how to run an instance and look after it, and how to use Marfa without writing code.
 - **Catalog** lists exactly what Marfa ships and explains nothing.
+- **Build** shows how to write an app, an agent or a connector on Marfa.
 - **Reference** covers the HTTP API's operations and errors, the SDKs, the CLI, the MCP server, the changelog and the contract.
 
 A page that needs a list the Catalog holds, such as the types, edge types, permissions, events, field kinds or reserved names, links to the Catalog page instead of restating it.
@@ -95,7 +98,7 @@ Don't restate what the API reference says. A page explains what the reference ca
 
 - No em dashes. Use a colon to introduce, a comma to separate, parentheses for an aside, or a new sentence.
 - Present tense, active voice, second person for the reader.
-- "Coming soon" appears only on the Introduction. Anywhere else, describe only what exists.
+- "Coming soon" appears only on the landing page. Anywhere else, describe only what exists.
 - Sentence case for titles and headings. Headings are plain text: no code, links or other markup.
 - Inline code is for text a reader would type or copy: type IDs, field names, paths, header names, flags, values. A product name in prose is plain text (the TypeScript SDK, not `@withmarfa/client`).
 - Internal links are paths from the site root, such as `/files`, so the Markdown copy of each page resolves them. Link text says where the link goes.
@@ -139,8 +142,8 @@ Use a component for what it's for, and only where it helps the reader.
 | `Tabs` | Alternatives that aren't code, such as two ways to claim an instance |
 | `Accordion` | Entries a reader opens one at a time. Never a reference list: a list a reader looks up is a plain table on its Catalog or Reference page |
 | `Files` | A directory a reader will see on disk |
-| `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data, or the Overview's one-line warning that Marfa is early. Every callout has a bold `title` that says what happens, and a short body under it. It draws no icon. `type="warn"` is for a loss or something that can't be undone; a neutral note takes the default, `info` |
-| `Cards` | Where to go next: the Overview, an index of the docs, the Build and Run landing pages, and the end of a tutorial or of the Introduction |
+| `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data, or the landing page's one-line warning that Marfa is early. Every callout has a bold `title` that says what happens, and a short body under it. It draws no icon. `type="warn"` is for a loss or something that can't be undone; a neutral note takes the default, `info` |
+| `Cards` | Where to go next: the landing page's paths, each tab's Overview, and the end of a tutorial |
 | `ApiMap` | The API reference's overview only: every operation, drawn from `openapi.json`, in its group and area (`src/lib/api-map-areas.json`), each linking to its page. Groups start closed; one button above the map opens or closes them all |
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
