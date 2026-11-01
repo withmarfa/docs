@@ -106,8 +106,8 @@ export function buildApiMap(spec: Spec, areas: Areas): MapArea[] {
 
 const plural = (count: number) => `${count} ${count === 1 ? 'operation' : 'operations'}`;
 
-/** Link text with any bracket that would end it escaped. */
-const linkText = (text: string) => text.replace(/[[\]]/g, '\\$&');
+/** Link text with backslashes and any bracket that would end it escaped. */
+const linkText = (text: string) => text.replace(/[\\[\]]/g, '\\$&');
 
 /**
  * The map as the Markdown copy writes it: an area in bold, then each group with
