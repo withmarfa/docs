@@ -4,40 +4,21 @@ description: Build an iOS and macOS app that lists and adds your notes, keeps wo
 ---
 
 - **You'll build** Reading List, a SwiftUI app for iPhone and Mac that lists the notes on your instance and lets you add them.
-- **You need** the instance from the [Quickstart](/quickstart), running at `http://localhost:8600`, and the terminal where you set `MARFA_API_URL` and `MARFA_API_KEY`. You also need Xcode 27 on a Mac with Apple silicon.
+- **You need** the instance from the [Quickstart](/quickstart), running at `http://localhost:8600`, its owner's email and password, and the terminal where you set `MARFA_API_URL` and `MARFA_API_KEY`. You also need Xcode 27 on a Mac with Apple silicon.
 - **You'll have** an app that reads from a working copy on the device, so it keeps working when the server can't be reached, and sends its changes when the server is back. [Edit and find notes in a Swift app](/build/swift-app-edit) builds on it.
 
 <Steps paged>
 <Step>
 
-### Create the project and its key
+### Create the project
 
 1. In Xcode, choose **File** > **New** > **Project**, then **Multiplatform** > **App**. Name it `ReadingList`, and leave **Storage** set to **None**.
 2. Choose **File** > **Add Package Dependencies**, and enter `https://github.com/withmarfa/marfa-swift`. Set **Dependency Rule** to **Up to Next Major Version**, and add the `Marfa` product to the `ReadingList` target.
 3. In the target's **Build Settings**, set **Excluded Architectures** for **Any iOS Simulator SDK** to `x86_64`. Marfa's core is built for Apple silicon only.
 4. In the target's **Signing & Capabilities**, under **App Sandbox**, turn on **Outgoing Connections (Client)**, so the Mac app can reach the server.
+5. In the target's **Info** tab, under **URL Types**, add a type with **URL Schemes** set to `com.example.readinglist`. The browser hands the sign-in back to the app at this scheme.
 
-An app should reach only what it needs. In the Quickstart terminal, make a key that reads and writes notes and nothing else:
-
-<Terminal>
-
-```bash
-marfa keys create --label "Reading List" --source reading-list --type-permission core.note=write
-```
-
-```text
-marfa_k1_<64 hexadecimal characters>
-key 01a15f23-d9b6-7160-957d-cc2f7aded236 (Reading List); the plaintext is shown once, keep it now
-  core.note  Read and edit
-```
-
-</Terminal>
-
-**Copy the key now:** Marfa shows it only once. `--source` stamps every note the app creates with `reading-list`, and [Access](/access) explains what else a key can hold.
-
-Choose **Product** > **Scheme** > **Edit Scheme**, select **Run**, and open **Arguments**. Under **Environment Variables**, add `MARFA_API_URL` with the value `http://localhost:8600`, and `MARFA_API_KEY` with the key.
-
-**The scheme now holds the key**, and Xcode shares schemes by default. Choose **Product** > **Scheme** > **Manage Schemes**, turn off **Shared** for `ReadingList`, and keep `xcuserdata` out of version control. An app you ship keeps its key in the keychain instead, as [Open a copy](/swift-sdk/working-copy#open-a-copy) shows.
+**The app signs in as itself, and asks only to read and write notes.** It never holds a key. [Sign in](/swift-sdk/server-calls#sign-in) lists the calls, including one for a device with no browser.
 
 Press Command-B. The project builds, and still shows the template's Hello, world.
 
@@ -49,6 +30,7 @@ Press Command-B. The project builds, and still shows the template's Hello, world
 Choose **File** > **New** > **File from Template**, choose **Swift File**, and name it `Library.swift`. Add the class that holds the app's state:
 
 ```swift title="Library.swift"
+import AuthenticationServices
 import Foundation
 import Marfa
 import Observation
@@ -59,15 +41,33 @@ final class Library {
     private(set) var queue: LiveQuery<[QueuedWrite]>?
     private(set) var message = ""
     private var copy: WorkingCopy?
+    private var opening = false
 
-    func open() async {
-        // Each Mac window runs this; only the first opens the copy, as a second opener of one store reads only.
-        guard copy == nil else { return }
+    func open(signingInWith session: WebAuthenticationSession) async {
+        // Each Mac window runs this; only the first opens the store, as a second opener only reads.
+        guard copy == nil, !opening else { return }
+        opening = true
+        defer { opening = false }
         do {
+            let serverURL = URL(string: "http://localhost:8600")!
+            let auth = try Authorization(
+                server: serverURL,
+                client: .init(
+                    name: "Reading List",
+                    redirect: URL(string: "com.example.readinglist:/signed-in"),
+                    scopes: ["core.note:read", "core.note:write"]),
+                service: "com.example.readinglist")
+            let credential: Credential
+            if let kept = try auth.credential() {
+                credential = kept
+            } else {
+                credential = try await auth.signIn(using: session)
+            }
             let folder = URL.applicationSupportDirectory.appending(path: "ReadingList")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let copy = try await WorkingCopy.open(
-                store: folder.appending(path: "notes.sqlite"), server: try Server.fromEnvironment())
+                store: folder.appending(path: "notes.sqlite"),
+                server: try Server(url: serverURL, credential: credential))
             self.copy = copy
             notes = LiveQuery(copy, reading: .list(ListFilters(types: ["core.note"])))
             queue = LiveQuery(copy, reading: .queue)
@@ -77,7 +77,7 @@ final class Library {
 }
 ```
 
-`open()` keeps the working copy in a SQLite file in Application Support, and reads the server's address and key from the two environment variables. Each `LiveQuery` reads from the copy and **reads again whenever the copy changes**, so a view that shows it stays current.
+`open()` uses the sign-in the keychain keeps, or signs in through the browser, and keeps the working copy in a SQLite file in Application Support. Each `LiveQuery` reads from the copy and **reads again whenever the copy changes**, so a view that shows it stays current.
 
 Add `sync()` inside the class, after `open()`:
 
@@ -103,7 +103,7 @@ Press Command-B to check that it builds.
 
 ### Show your notes
 
-Replace the contents of `ReadingListApp.swift`, so the app opens the copy when its window appears:
+Replace the contents of `ReadingListApp.swift`, so every window shares one `Library`:
 
 ```swift title="ReadingListApp.swift"
 import SwiftUI
@@ -115,20 +115,21 @@ struct ReadingListApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(library: library)
-                .task { await library.open() }
         }
     }
 }
 ```
 
-Replace the contents of `ContentView.swift` with a list of the notes, a **Sync** button, and a line for errors:
+Replace the contents of `ContentView.swift` with a list of the notes, a **Sync** button, and a line for errors. The view opens the copy when it appears:
 
 ```swift title="ContentView.swift"
+import AuthenticationServices
 import Marfa
 import SwiftUI
 
 struct ContentView: View {
     let library: Library
+    @Environment(\.webAuthenticationSession) private var session
 
     var body: some View {
         NavigationStack {
@@ -145,13 +146,14 @@ struct ContentView: View {
                 Text(library.message).font(.caption).foregroundStyle(.secondary)
             }
         }
+        .task { await library.open(signingInWith: session) }
     }
 }
 ```
 
 Each row shows the note's `title`, which every note Reading List writes has. To name an item of any type as Marfa's other apps do, ask the copy for [`items.displays(of:)`](/swift-sdk/items#names-and-previews).
 
-Choose **My Mac** or an iPhone simulator as the run destination, and press Command-R. The list shows the note you wrote in the Quickstart, read from the working copy.
+Choose **My Mac** or an iPhone simulator as the run destination, and press Command-R. The instance's sign-in page opens: sign in as the owner, and approve Reading List. The list shows the note you wrote in the Quickstart, read from the working copy. The next run signs in by itself.
 
 </Step>
 <Step>
@@ -198,12 +200,12 @@ struct NewNoteField: View {
 }
 ```
 
-Run the app, type `Bleak House` in **New note**, and press Return. The note appears at once. List the notes the app wrote to see that it reached the instance:
+Run the app, type `Bleak House` in **New note**, and press Return. The note appears at once. List the newest note to see that it reached the instance:
 
 <Terminal>
 
 ```bash
-marfa items list --type core.note --source reading-list
+marfa items list --type core.note --limit 1
 ```
 
 ```text
@@ -273,7 +275,7 @@ Start the server again with `pnpm dev`. The copy sends the write by itself once 
 
 <Cards>
   <Card title="Edit and find notes in a Swift app" href="/build/swift-app-edit">Rename a note, see a merge, link notes and find them by title.</Card>
-  <Card title="Swift SDK" href="/swift-sdk">Keep a key in the keychain, handle each error, and declare your own types.</Card>
+  <Card title="Swift SDK" href="/swift-sdk">Sign in from a device with no browser, handle each error, and declare your own types.</Card>
   <Card title="Devices" href="/devices">How a working copy stays current, and what each verdict means.</Card>
   <Card title="Sync a folder" href="/run/sync-a-folder">Keep your notes as Markdown files in a folder on your Mac.</Card>
 </Cards>
