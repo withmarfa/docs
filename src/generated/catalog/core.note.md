@@ -1,11 +1,11 @@
 ## Fields
 
-| Field      | Kind               | Description           |
-| ---------- | ------------------ | --------------------- |
-| `body`     | `string`           | The note text.        |
-| `title`    | `string`           | Heading or title.     |
-| `language` | `string` (`bcp47`) | BCP 47 language code. |
-| `notes`    | `string`           | Personal annotations. |
+| Field      | Kind               | Description                                         |
+| ---------- | ------------------ | --------------------------------------------------- |
+| `body`     | `string`           | The text of the note.                               |
+| `title`    | `string`           | The note's heading.                                 |
+| `language` | `string` (`bcp47`) | BCP 47 language code.                               |
+| `notes`    | `string`           | Your own comments, kept apart from the note's text. |
 
 ## Settings
 

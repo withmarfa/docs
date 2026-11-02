@@ -2,9 +2,9 @@
 
 | Field                        | Kind                         | Description                                                                                                                    |
 | ---------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `name`                       | `string`, required           | Display name.                                                                                                                  |
+| `name`                       | `string`, required           | The name to show for the entity.                                                                                               |
 | `url`                        | `url`                        | Web address. Label: URL.                                                                                                       |
-| `description`                | `string`                     | What the entity is.                                                                                                            |
+| `description`                | `string`                     | A short description of the entity.                                                                                             |
 | `emails`                     | `array` of `object`          | Email addresses. The first entry is the main one, and an entry's label is free text, such as work or home.                     |
 | `emails[].value`             | `email`, required            | The email address. Label: Email.                                                                                               |
 | `emails[].label`             | `string`                     | What the entry is for, such as work or home.                                                                                   |
@@ -21,7 +21,7 @@
 | `image_url`                  | `url`                        | Logo or brand image. Label: Image URL.                                                                                         |
 | `legal_name`                 | `string`                     | Official registered name.                                                                                                      |
 | `founded`                    | `date`                       | Founding date (ISO 8601).                                                                                                      |
-| `notes`                      | `string`                     | Personal annotations.                                                                                                          |
+| `notes`                      | `string`                     | Your own comments, kept apart from the entity's details.                                                                       |
 
 ## Settings
 
@@ -36,7 +36,7 @@
 
 ### core.entity.person [#core-entity-person]
 
-Contact information for an individual. Inherits all core.entity fields.
+A person, with their name, contact details and job.
 
 | Setting                                     | Value         |
 | ------------------------------------------- | ------------- |
@@ -59,7 +59,7 @@ Contact information for an individual. Inherits all core.entity fields.
 
 ### core.entity.place [#core-entity-place]
 
-A location or venue. Inherits all core.entity fields.
+A place, such as a cafe, an office or a city, with its address and coordinates.
 
 | Setting                                     | Value            |
 | ------------------------------------------- | ---------------- |
@@ -74,6 +74,6 @@ A location or venue. Inherits all core.entity fields.
 | `postal_code`    | `string`             | Postcode or ZIP code.               |
 | `country`        | `string` (`iso3166`) | ISO 3166-1 alpha-2 country code.    |
 | `timezone`       | `string`             | IANA timezone. Label: Time Zone.    |
-| `latitude`       | `number`             | Subject latitude.                   |
-| `longitude`      | `number`             | Subject longitude.                  |
+| `latitude`       | `number`             | Latitude of the place.              |
+| `longitude`      | `number`             | Longitude of the place.             |
 | `altitude`       | `number`             | Altitude in meters above sea level. |

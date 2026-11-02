@@ -1,10 +1,10 @@
 ## Fields
 
-| Field  | Kind                | Description                                                             |
-| ------ | ------------------- | ----------------------------------------------------------------------- |
-| `body` | `string`            | The message text.                                                       |
-| `from` | `string`, required  | Sender identifier: format-agnostic (phone number, email, handle, etc.). |
-| `to`   | `array` of `string` | Recipient identifiers: same format-agnostic shape as from.              |
+| Field  | Kind                | Description                                                                 |
+| ------ | ------------------- | --------------------------------------------------------------------------- |
+| `body` | `string`            | The text of the message.                                                    |
+| `from` | `string`, required  | Who sent the message, such as a phone number, an email address or a handle. |
+| `to`   | `array` of `string` | Who received the message, written the same way as `from`.                   |
 
 ## Settings
 

@@ -1,15 +1,15 @@
 ## Fields
 
-| Field          | Kind                 | Description                                                                                                                                                                                                                                                                                                  |
-| -------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `kind`         | `enum`, required     | Discriminator for connection variant. Values: `app`.                                                                                                                                                                                                                                                         |
-| `client_id`    | `string`             | OAuth client identifier.                                                                                                                                                                                                                                                                                     |
-| `name`         | `string`             | The owner's own name for this app's sign-in, set at `PATCH /owner/sign-ins/{id}`. Unset, the app's registered client name names it. Any credential that can read `system.connection` items, such as an app holding the default read bundle, can read this name and the item's ID, which is the sign-in's ID. |
-| `scopes`       | `array` of `string`  | Granted scope strings.                                                                                                                                                                                                                                                                                       |
-| `status`       | `enum`, required     | Lifecycle status. Values: `active`, `revoked`.                                                                                                                                                                                                                                                               |
-| `granted_at`   | `datetime`, required | When the grant was approved.                                                                                                                                                                                                                                                                                 |
-| `last_used_at` | `datetime`           | Most recent successful use of any token issued under this grant.                                                                                                                                                                                                                                             |
-| `revoked_at`   | `datetime`           | When the grant was revoked, if any.                                                                                                                                                                                                                                                                          |
+| Field          | Kind                 | Description                                                                           |
+| -------------- | -------------------- | ------------------------------------------------------------------------------------- |
+| `kind`         | `enum`, required     | The kind of connection. Values: `app`.                                                |
+| `client_id`    | `string`             | The app's OAuth client ID.                                                            |
+| `name`         | `string`             | Your own name for this app's sign-in. Without one, the app's registered name is used. |
+| `scopes`       | `array` of `string`  | The scopes you granted the app.                                                       |
+| `status`       | `enum`, required     | Whether the sign-in is active or revoked. Values: `active`, `revoked`.                |
+| `granted_at`   | `datetime`, required | When you approved the app.                                                            |
+| `last_used_at` | `datetime`           | When the app last used the sign-in successfully.                                      |
+| `revoked_at`   | `datetime`           | When you revoked the sign-in, if you did.                                             |
 
 ## Settings
 

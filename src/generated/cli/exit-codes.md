@@ -3,7 +3,7 @@
 | 0 | Done. |
 | 1 | The server refused the request (a wrong or spent setup code included), the CLI refused it before sending, the answer came from another contract, a docs page does not exist, or the archive of an export or a restore lacks blobs it names; a retry does not change it. |
 | 2 | The command line or the profile file was wrong, or named no store or server. |
-| 3 | The environment failed (unreachable, timed out, a 5xx, a 408, a 425, a 429, an answer naming no contract, full local storage, a docs site that cannot be read); try again. |
+| 3 | The environment failed (unreachable, timed out, a 5xx, a 408, a 425, a 429, an answer naming no contract, full local storage, a docs site that cannot be read, a new build installed under `folders watch --exit-on-new-build`); try again. |
 | 4 | The working copy or the queue refused under the device rules, the keychain cannot be used (locked, missing, unreadable, or none on this system), or the core stopped on a fault of its own. |
 | 5 | There is no credential, a profile's key command gave none, the credential was refused, or the sign-in ended; run `marfa login` to start one. |
 | 130 | You ended a long-lived command (`folders watch`, `events`, `device changes`) with Ctrl-C, or ended one that was still stopping with a second Ctrl-C. |

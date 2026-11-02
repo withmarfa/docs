@@ -1,20 +1,20 @@
 ## Fields
 
-| Field          | Kind               | Description                                                                                                                                                                                                                                           |
-| -------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `title`        | `string`, required | Name of the work.                                                                                                                                                                                                                                     |
-| `body`         | `string`           | Text content or description.                                                                                                                                                                                                                          |
-| `author`       | `string`           | Who created the work.                                                                                                                                                                                                                                 |
-| `url`          | `url`              | Web address. Label: URL.                                                                                                                                                                                                                              |
-| `description`  | `string`           | Summary or blurb.                                                                                                                                                                                                                                     |
-| `publisher`    | `string`           | Who published the work.                                                                                                                                                                                                                               |
-| `published_at` | `datetime`         | When originally published or released. Label: Published.                                                                                                                                                                                              |
-| `image_url`    | `url`              | Cover art, poster, or thumbnail. Label: Image URL.                                                                                                                                                                                                    |
-| `language`     | `string` (`bcp47`) | BCP 47 language code.                                                                                                                                                                                                                                 |
-| `progress`     | `status`           | Where the owner is with the work: want to read, watch, listen to or play it, started, finished, or gave up. Values: `planned` (group `not_started`), `started` (group `in_progress`), `finished` (group `completed`), `abandoned` (group `canceled`). |
-| `rating`       | `integer` (1 to 5) | The owner's overall view of the work, from 1 (lowest) to 5 (highest).                                                                                                                                                                                 |
-| `notes`        | `string`           | Personal annotations.                                                                                                                                                                                                                                 |
-| `thumbnail`    | `thumbnail`        | A small preview of the work, supplied by the writer.                                                                                                                                                                                                  |
+| Field          | Kind               | Description                                                                                                                                                                                                             |
+| -------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`        | `string`, required | The name of the work.                                                                                                                                                                                                   |
+| `body`         | `string`           | The text of the work, or a longer write-up of it.                                                                                                                                                                       |
+| `author`       | `string`           | Who made the work.                                                                                                                                                                                                      |
+| `url`          | `url`              | Web address. Label: URL.                                                                                                                                                                                                |
+| `description`  | `string`           | A short summary or blurb.                                                                                                                                                                                               |
+| `publisher`    | `string`           | Who published the work.                                                                                                                                                                                                 |
+| `published_at` | `datetime`         | When originally published or released. Label: Published.                                                                                                                                                                |
+| `image_url`    | `url`              | Cover art, poster, or thumbnail. Label: Image URL.                                                                                                                                                                      |
+| `language`     | `string` (`bcp47`) | BCP 47 language code.                                                                                                                                                                                                   |
+| `progress`     | `status`           | Where you are with the work, such as whether you have started or finished it. Values: `planned` (group `not_started`), `started` (group `in_progress`), `finished` (group `completed`), `abandoned` (group `canceled`). |
+| `rating`       | `integer` (1 to 5) | Your overall view of the work, from 1 (lowest) to 5 (highest).                                                                                                                                                          |
+| `notes`        | `string`           | Your own comments, kept apart from the work's details.                                                                                                                                                                  |
+| `thumbnail`    | `thumbnail`        | A small preview of the work, supplied by whoever saved it.                                                                                                                                                              |
 
 ## Settings
 
@@ -30,7 +30,7 @@
 
 ### core.media.album [#core-media-album]
 
-An album. Inherits all core.media fields.
+A music album, EP or single.
 
 | Setting                                     | Value           |
 | ------------------------------------------- | --------------- |
@@ -38,14 +38,14 @@ An album. Inherits all core.media fields.
 | [`icon`](/catalog/type-rules#display-hints) | `lucide:disc-3` |
 | [`roles`](/catalog/type-rules#roles)        | `container`     |
 
-| Field          | Kind      | Description                            |
-| -------------- | --------- | -------------------------------------- |
-| `release_type` | `string`  | Recommended values: album, ep, single. |
-| `num_tracks`   | `integer` | Total track count. Label: Tracks.      |
+| Field          | Kind      | Description                                       |
+| -------------- | --------- | ------------------------------------------------- |
+| `release_type` | `string`  | The kind of release, such as album, ep or single. |
+| `num_tracks`   | `integer` | Total track count. Label: Tracks.                 |
 
 ### core.media.article [#core-media-article]
 
-An article. Inherits all core.media fields.
+An article, such as a blog post or a news story.
 
 | Setting                                     | Value              |
 | ------------------------------------------- | ------------------ |
@@ -61,7 +61,7 @@ An article. Inherits all core.media fields.
 
 ### core.media.book [#core-media-book]
 
-A book. Inherits all core.media fields.
+A book, with details such as its ISBN and page count.
 
 | Setting                                     | Value              |
 | ------------------------------------------- | ------------------ |
@@ -76,42 +76,42 @@ A book. Inherits all core.media fields.
 
 ### core.media.episode [#core-media-episode]
 
-Any member of an ongoing series: a TV episode, a podcast episode, one part of a serial. Inherits all core.media fields. Joins its series through the in-collection edge, so one episode can belong to several series and outlives any of them.
+One episode of a TV show, a podcast or another series.
 
 | Setting                                     | Value                |
 | ------------------------------------------- | -------------------- |
 | `plural`                                    | Episodes             |
 | [`icon`](/catalog/type-rules#display-hints) | `lucide:circle-play` |
 
-| Field            | Kind      | Description                                                                                                                                                                                       |
-| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `medium`         | `enum`    | What the episode is made of. Values: `tv`, `podcast`, `radio`, `video`, `mixed`.                                                                                                                  |
-| `season_number`  | `integer` | Which season, where the series has them.                                                                                                                                                          |
-| `episode_number` | `integer` | Position within the season, or within the series when unseasoned.                                                                                                                                 |
-| `duration`       | `number`  | Runtime in seconds.                                                                                                                                                                               |
-| `media_url`      | `url`     | Direct address of the media file itself: an episode's audio or video enclosure, a track's audio file, a film's stream. Distinct from url, which is the web page about the work. Label: Media URL. |
-| `mime_type`      | `string`  | MIME type of the resource at media_url, such as audio/mpeg or video/mp4. Describes what media_url points at, not what this item is. Label: MIME Type.                                             |
+| Field            | Kind      | Description                                                                                                                                           |
+| ---------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `medium`         | `enum`    | What kind of episode it is. Values: `tv`, `podcast`, `radio`, `video`, `mixed`.                                                                       |
+| `season_number`  | `integer` | Which season, where the series has them.                                                                                                              |
+| `episode_number` | `integer` | Position within the season, or within the series when unseasoned.                                                                                     |
+| `duration`       | `number`  | Runtime in seconds.                                                                                                                                   |
+| `media_url`      | `url`     | The address of the media file itself, such as an audio file or a video stream. Unlike `url`, it is not the web page about the work. Label: Media URL. |
+| `mime_type`      | `string`  | The MIME type of the file at `media_url`, such as audio/mpeg or video/mp4. Label: MIME Type.                                                          |
 
 ### core.media.film [#core-media-film]
 
-A film. Inherits all core.media fields.
+A film.
 
 | Setting                                     | Value         |
 | ------------------------------------------- | ------------- |
 | `plural`                                    | Films         |
 | [`icon`](/catalog/type-rules#display-hints) | `lucide:film` |
 
-| Field            | Kind     | Description                                                                                                                                                                                       |
-| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `duration`       | `number` | Runtime in seconds.                                                                                                                                                                               |
-| `director`       | `string` | Primary director.                                                                                                                                                                                 |
-| `content_rating` | `string` | Age or content classification.                                                                                                                                                                    |
-| `media_url`      | `url`    | Direct address of the media file itself: an episode's audio or video enclosure, a track's audio file, a film's stream. Distinct from url, which is the web page about the work. Label: Media URL. |
-| `mime_type`      | `string` | MIME type of the resource at media_url, such as audio/mpeg or video/mp4. Describes what media_url points at, not what this item is. Label: MIME Type.                                             |
+| Field            | Kind     | Description                                                                                                                                           |
+| ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `duration`       | `number` | Runtime in seconds.                                                                                                                                   |
+| `director`       | `string` | Primary director.                                                                                                                                     |
+| `content_rating` | `string` | Age or content classification.                                                                                                                        |
+| `media_url`      | `url`    | The address of the media file itself, such as an audio file or a video stream. Unlike `url`, it is not the web page about the work. Label: Media URL. |
+| `mime_type`      | `string` | The MIME type of the file at `media_url`, such as audio/mpeg or video/mp4. Label: MIME Type.                                                          |
 
 ### core.media.game [#core-media-game]
 
-A video, board or card game. Inherits all core.media fields.
+A video game, board game or card game.
 
 | Setting                                     | Value              |
 | ------------------------------------------- | ------------------ |
@@ -126,7 +126,7 @@ A video, board or card game. Inherits all core.media fields.
 
 ### core.media.series [#core-media-series]
 
-Any ongoing media container: a TV show, a podcast, a radio serial, a video series. Inherits all core.media fields. Episodes join it through the in-collection edge; containment is never part of a type name.
+A TV show, podcast, radio serial or video series that is made of episodes.
 
 | Setting                                     | Value       |
 | ------------------------------------------- | ----------- |
@@ -134,25 +134,25 @@ Any ongoing media container: a TV show, a podcast, a radio serial, a video serie
 | [`icon`](/catalog/type-rules#display-hints) | `lucide:tv` |
 | [`roles`](/catalog/type-rules#roles)        | `container` |
 
-| Field    | Kind   | Description                                                                                |
-| -------- | ------ | ------------------------------------------------------------------------------------------ |
-| `medium` | `enum` | What the series is made of. Values: `tv`, `podcast`, `radio`, `video`, `mixed`.            |
-| `status` | `enum` | Whether the series is still producing new members. Values: `ongoing`, `ended`, `canceled`. |
+| Field    | Kind   | Description                                                                                 |
+| -------- | ------ | ------------------------------------------------------------------------------------------- |
+| `medium` | `enum` | What kind of series it is. Values: `tv`, `podcast`, `radio`, `video`, `mixed`.              |
+| `status` | `enum` | Whether the series is still producing new episodes. Values: `ongoing`, `ended`, `canceled`. |
 
 ### core.media.song [#core-media-song]
 
-A song. Inherits all core.media fields.
+A song.
 
 | Setting                                     | Value                |
 | ------------------------------------------- | -------------------- |
 | `plural`                                    | Songs                |
 | [`icon`](/catalog/type-rules#display-hints) | `lucide:audio-lines` |
 
-| Field          | Kind      | Description                                                                                                                                                                                       |
-| -------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `duration`     | `number`  | Track length in seconds.                                                                                                                                                                          |
-| `isrc`         | `string`  | International Standard Recording Code (ISO 3901). Label: ISRC.                                                                                                                                    |
-| `album`        | `string`  | Containing album name.                                                                                                                                                                            |
-| `track_number` | `integer` | Position within the album.                                                                                                                                                                        |
-| `media_url`    | `url`     | Direct address of the media file itself: an episode's audio or video enclosure, a track's audio file, a film's stream. Distinct from url, which is the web page about the work. Label: Media URL. |
-| `mime_type`    | `string`  | MIME type of the resource at media_url, such as audio/mpeg or video/mp4. Describes what media_url points at, not what this item is. Label: MIME Type.                                             |
+| Field          | Kind      | Description                                                                                                                                           |
+| -------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `duration`     | `number`  | Track length in seconds.                                                                                                                              |
+| `isrc`         | `string`  | International Standard Recording Code (ISO 3901). Label: ISRC.                                                                                        |
+| `album`        | `string`  | Containing album name.                                                                                                                                |
+| `track_number` | `integer` | Position within the album.                                                                                                                            |
+| `media_url`    | `url`     | The address of the media file itself, such as an audio file or a video stream. Unlike `url`, it is not the web page about the work. Label: Media URL. |
+| `mime_type`    | `string`  | The MIME type of the file at `media_url`, such as audio/mpeg or video/mp4. Label: MIME Type.                                                          |
