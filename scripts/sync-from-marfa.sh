@@ -531,7 +531,7 @@ STRATEGIES = {"last_writer_wins", "keep_both_copies"}
 CARDINALITIES = {"one-to-one", "one-to-many", "many-to-one", "many-to-many"}
 CASCADES = {"orphan", "cascade", "block", "with-hosts"}
 ROLES = {"container"}
-HINT_KEYS = ("title_field", "body_field", "icon")
+HINT_KEYS = ("title_field", "body_field", "name_from_body", "icon")
 RULES = "/catalog/type-rules"
 
 
@@ -694,7 +694,7 @@ def render_types(types):
         for key in HINT_KEYS:
             # A hint comes from the nearest type that sets it, so a subtype says only the ones it changes.
             if hints is not None and key in hints and hints[key] != parent_hints.get(key):
-                rows.append([f"[{code(key)}]({RULES}#display-hints)", code(hints[key])])
+                rows.append([f"[{code(key)}]({RULES}#display-hints)", code(str(hints[key]).lower() if isinstance(hints[key], bool) else hints[key])])
         policy = t.get("merge_policy")
         if isinstance(policy, dict) and (parent is None or policy != parent.get("merge_policy")):
             rows.append([f"[{code('merge_policy')}]({RULES}#merge-policy)", merge_policy_value(t["id"], policy)])
