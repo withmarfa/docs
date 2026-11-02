@@ -1,0 +1,68 @@
+---
+title: Write edges in a working copy
+description: Link items, move an edge's end and check a write first with marfa device, and learn of a refusal offline, before anything is queued.
+---
+
+An [edge](/edges) write in a working copy is judged against what the copy holds before it's queued, so a script offline learns of a refusal when it writes, not at the next drain. The commands here assume a copy that [Write in a working copy](/build/write-in-a-working-copy) has filled, named by `--db` or `MARFA_DB`.
+
+**An edge write waits until the copy is whole**: while it fills, every edge write is refused `hydration_incomplete`.
+
+## Link two items
+
+`marfa device edges create` queues an edge. This one makes a task a child of a project:
+
+```bash
+marfa device edges create --source <project-id> --target <task-id> --type parent-of
+```
+
+`marfa device edges update` changes an edge's properties, or moves one of its ends, and names the version it was based on, as an item update does:
+
+```bash
+marfa device edges update <edge-id> --version 1 --source <other-project-id>
+```
+
+**A move changes one end.** A move of both ends is always refused `validation_error`, and so is a move of one end when the end that stays can hold many edges of the type. A `parent-of` edge's parent holds many children, so a task moves to another parent by its source, and moving its target is refused.
+
+## What the copy refuses
+
+**The copy refuses an edge write the instance would refuse, before it queues anything.** It judges an edge create, a move of an edge's end and the edges of an item create in the order the instance does, and gives the first refusal it finds:
+
+| Order | Refusal | Code |
+| --- | --- | --- |
+| 1 | An end is in the bin | `item_not_found` |
+| 2 | An end's type isn't one the edge type admits, or the edge would nest under a flat edge type | `edge_constraint_violation` |
+| 3 | A second edge of the type between the same two items | `edge_constraint_violation`, with `details.constraint` `duplicate` |
+| 4 | A second edge at an end that holds one edge of the type: either end of a `one-to-one` type, the target of a `one-to-many` type, the source of a `many-to-one` type | `edge_constraint_violation`, with `details.constraint` `cardinality` |
+| 5 | A cycle, or an edge from an item to itself | `edge_cycle` |
+
+The refusal carries the instance's code and its `details`, so a script handles it as it would the instance's answer, as [Errors](/api-reference/errors#what-a-refusal-tells-you) describes. Under `--json`, the error on standard error holds them under `server`, and the command exits `1`. A script that writes an edge again after an uncertain answer can treat `duplicate` as success. The [Edges catalog](/catalog/edges) lists each edge type's cardinality.
+
+**The copy counts edges as the instance will hold them once the queue is sent**: the edges it holds, plus each waiting create or move where it will stand, minus each edge a waiting delete removes.
+
+- **A refused write counts for nothing.** An edge whose write the instance refused isn't counted, even while the copy still shows it.
+- **A move doesn't count the edge it moves**, so a move onto the end the edge already holds changes nothing and isn't refused.
+- **A repeat isn't a duplicate.** An edge create that names the ID of an edge the copy holds, with the same items and type, is a repeat the instance acknowledges.
+
+**What the copy doesn't hold, the instance judges.** An edge type, an end or an edge outside the copy's slice can't be judged, so the write is queued and the instance gives its verdict when it's sent. A write it refuses then stays in the queue as `refused`, with its body.
+
+## Check before you write
+
+`marfa device edges check` answers what the matching create would, and `marfa device edges check-move` what the matching move would. Neither queues anything. Ask before a person confirms a choice, such as dropping a task under another project:
+
+<Terminal>
+
+```bash
+marfa device edges check-move <edge-id> --source <other-project-id> --json
+```
+
+```json
+{
+  "refused": false
+}
+```
+
+</Terminal>
+
+A check that finds a refusal exits as the write would, with the same code and details. **Finding nothing isn't the instance's verdict**: it judges the write once it's sent. An app on the [Swift SDK](/swift-sdk/items) checks an edge with `edges.check`.
+
+The rules behind this guide are in the section on [an edge the server would refuse](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#an-edge-the-server-would-refuse) in the queue and verdicts chapter of the contract, and the order is [`queue-and-verdicts/edge-refusal-order`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsedge-refusal-order).
