@@ -1,0 +1,92 @@
+---
+title: Memory, CPU and disk
+description: Choose a host with the memory, CPU and disk an instance needs, and see how much of each yours uses.
+---
+
+An instance needs little while it waits. **Its memory rises while it writes a bulk page**, such as the pages of 5,000 entries that a first [folder sync](/run/sync-a-folder) or a bulk import sends, so size the host for that peak and not for the quiet hours.
+
+## What a host needs
+
+| Instance size | Memory | Disk |
+| --- | --- | --- |
+| Up to about 50,000 items | 512 MB | 1 GB, plus attachments |
+| Up to about 250,000 items | 1 GB at least, 2 GB recommended | 4 GB, plus attachments |
+
+- **One CPU core is enough.** A second keeps the host responsive during an import.
+- **Attachments add their own size.** A file's bytes are kept once, in the blob folder, beside the database.
+- **The figures assume the default settings and one person's use.**
+
+The line for 250,000 items comes from the measurements below. The line for 50,000 items is scaled down from them, not measured on its own.
+
+## What was measured
+
+The measurements were taken on the server image of release 0.0.61, in Docker on an Apple M4 Pro, with one instance of about 265,000 items. Memory is the container's resident memory.
+
+| Measurement | Result |
+| --- | --- |
+| Memory while no work runs | 150 to 255 MB |
+| Memory while a bulk page of 5,000 entries runs | About 580 MB |
+| Time to write a bulk page of 5,000 entries | 18 to 22 seconds |
+| Reads answered during that page | 95% in under 30 ms |
+| Data volume | 1.9 GB, about 7 KB for each item, before attachments |
+| An [archive export](/run/export-and-restore) | 73 MB, in about 2 minutes |
+| An NDJSON export | 367 MB, in 57 seconds |
+
+**The server hands the memory of a bulk page back within a few seconds of the page ending.** Two clients that send pages at once raise the peak further, so keep a large import to one client at a time on a small host.
+
+**Writes run on one core.** A slower processor makes each write slower, and the memory and disk stay about the same. Reads go on being answered while a page is written.
+
+**Leave room on the disk for at least one export or backup beside the data.** An archive export takes its time before the first byte, because the server checks every row before it sends any. [The data directory](/run/deploy#the-data-directory) lists what else the volume holds.
+
+## See what an instance uses
+
+`marfa metrics` asks the instance what it holds and what its process costs. It needs a credential with `instance.read`, which the owner has:
+
+```bash tab="CLI" tab-group="client"
+marfa metrics --json
+```
+
+```http tab="HTTP"
+GET /metrics
+Authorization: Bearer <key>
+```
+
+Beside its counters of items, blobs, types, keys and webhooks, the answer holds a `process` block and a `storage` block:
+
+```json title="Response" status="200"
+{
+  "uptime_seconds": 9,
+  "process": {
+    "release": "786a13203ca94d133e47c26da946d876f9397183",
+    "memory_rss_bytes": 264384512,
+    "memory_rss_peak_bytes": 324993024,
+    "heap_used_bytes": 109901168,
+    "heap_total_bytes": 164220928,
+    "cpu_user_seconds": 4.371744,
+    "cpu_system_seconds": 0.507044
+  },
+  "storage": {
+    "database_bytes": 4096,
+    "wal_bytes": 2954072,
+    "rows": { "items": 0, "versions": 0, "event_log": 0, "audit_log": 7 },
+    "counted_at": "2026-11-03T17:20:56.573Z"
+  }
+}
+```
+
+| Field | What it says |
+| --- | --- |
+| `process.release` | The commit the server was built from, or `dev` for a build that names none. |
+| `process.memory_rss_bytes` | The memory the process holds. |
+| `process.memory_rss_peak_bytes` | The most memory the process has held since it started. Compare it with the host's memory after an import. |
+| `process.heap_used_bytes`, `process.heap_total_bytes` | The memory the JavaScript engine uses for live objects, and the memory it has reserved. |
+| `process.cpu_user_seconds`, `process.cpu_system_seconds` | The CPU time the process has spent on its own work and in the operating system since it started. |
+| `storage.database_bytes`, `storage.wal_bytes` | The size of the database file and of its write-ahead log, which is `0` when there is none. |
+| `storage.rows` | The rows of the largest tables: `items`, `versions`, `event_log` and `audit_log`. |
+| `storage.counted_at` | When the rows were counted, in UTC. |
+
+**A figure the server can't read is `null`**, and the others still stand. The `process` figures, the file sizes and `uptime_seconds` are read on each request. The counters are reused for up to a minute, and `cached_at` says when they were collected.
+
+**A request never counts the rows itself.** Counting a large table holds up other requests, so the server counts in the background. The first request after a start gets `null` for every row count and for `counted_at`, and starts a count; a later request shows it. When the last count is over an hour old, a request starts a new one and still answers with the old figures. [Get instance metrics](/api-reference/health-and-maintenance/getInstanceMetrics) has the whole answer.
+
+A server that reports its exceptions to PostHog also sends these figures [once a day](/run/telemetry#the-daily-report).

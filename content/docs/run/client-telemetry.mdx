@@ -1,0 +1,45 @@
+---
+title: What the CLI and apps send
+description: See what the CLI and an app built on the Swift SDK report about themselves, when, and what they never send.
+---
+
+The CLI and the apps built on the Swift SDK report on themselves apart from the instance. **Neither sends anything until someone gives it a destination**: for the CLI, the person who runs it; for an app, the people who built it. What an instance sends, and how to turn it on, is in [Send telemetry](/run/telemetry).
+
+## What the CLI sends
+
+**The CLI sends nothing unless the environment asks for it.** `OTEL_SDK_DISABLED=true` turns off both reports:
+
+| Report | Sent when | What it holds |
+| --- | --- | --- |
+| A trace for each command | `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set | The command's name and exit code |
+| One exception to PostHog | `MARFA_POSTHOG_HOST` and `MARFA_POSTHOG_PROJECT_TOKEN` are both set, and the command ends in a fault | The command's name, the error and exit codes, the version, the operating system and a fixed sentence |
+
+As on the server, **an exception needs no OTLP endpoint**. Neither report holds an argument, address, credential, item content or message.
+
+**A fault is something the CLI or the core got wrong**, such as a panic or an answer it can't read. A refusal, a usage error, Ctrl-C, being offline, a timeout, a rate limit or any `5xx` sends none. [The CLI reference](https://github.com/withmarfa/marfa/blob/main/core/marfa-cli/COMMANDS.md#telemetry) lists every variable it reads and every fault.
+
+## What apps send
+
+**An app sends nothing unless the people who built it gave it a destination, and reporting is on.** The Swift SDK's [`MarfaTelemetry` product](/swift-sdk/errors-and-testing#report-errors-and-events) has no destination of its own. It stays inert until the app passes it an `https` PostHog host and a project token, and turns it on. A build from an app's public source, with the token kept out of the source as the SDK asks, sends nothing. In an app you build, you choose the project and own what it receives.
+
+An app that reports sends two kinds of report, to the PostHog project it was built for:
+
+- **Errors.** One exception for each failure the app reports, holding the error's type, one fixed sentence, the operation that was running and the error's code, with no stack frames, no person and no location lookup. A failure that repeats is held back, and each exception says in `dropped_since_last` how many were.
+- **Events.** A fixed set of log records, each a name with counts, flags and words fixed in the app's source, such as how many writes a sync left waiting. They go out in batches over OTLP.
+
+Every report also names the app, its version, the operating system, its version and the chip. **No report names the instance** the app is connected to, unlike the server's own telemetry, which [tells instances apart](/run/telemetry#tell-instances-apart).
+
+### What an app never sends
+
+**No report holds a word a person wrote or a place they keep it.** The SDK's types make this hard to do by accident: a report takes only text fixed in the source, numbers and booleans. An app never sends:
+
+- item text, titles or tags;
+- item IDs or natural keys;
+- keys or credentials;
+- the instance's ID, name or address;
+- file paths or search text;
+- an error's `message`, which can repeat any of these.
+
+An app sends no product analytics: nothing about which screens a person opens or what they do in Marfa.
+
+**Each app decides where its switch is.** In an app you build, it is `Telemetry.shared.isEnabled`, which starts off; turning it off drops every report waiting to go and sends nothing more.

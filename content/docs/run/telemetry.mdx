@@ -1,9 +1,9 @@
 ---
 title: Send telemetry
-description: Send an instance's traces and logs to an OpenTelemetry endpoint, its errors to PostHog, and a notice or a heartbeat to a URL you choose, and see what the CLI and apps send.
+description: Send an instance's traces and logs to an OpenTelemetry endpoint, its errors and a daily report to PostHog, and a notice or a heartbeat to a URL you choose.
 ---
 
-Marfa software can report on itself from three places: an instance, the CLI and an app built on the Swift SDK. An instance reports in four ways, and **each is off until you set its variable**, so an instance that sets none sends nothing. Set the variables in the server's environment, as [Settings](/run/settings#set-an-environment-setting) shows, and restart the server. [What the CLI sends](#what-the-cli-sends) and [What apps send](#what-apps-send) say when the other two report.
+An instance can report on itself in four ways, and **each is off until you set its variable**, so an instance that sets none sends nothing. Set the variables in the server's environment, as [Settings](/run/settings#set-an-environment-setting) shows, and restart the server. The CLI and apps report apart from the instance, as [What the CLI and apps send](/run/client-telemetry) says.
 
 | Variable | What it does | Default |
 | --- | --- | --- |
@@ -40,7 +40,7 @@ Marfa drops what carries a credential, a request body, raw SQL or an email addre
 
 ### Tell instances apart
 
-**Every log record and span names its instance by `service.instance.id`**, the `instance_id` that `GET /` answers, so several instances can share one project. Every PostHog exception does too, once the database has opened. The instance's name isn't sent, because it can change and can be personal.
+**Every log record and span names its instance by `service.instance.id`**, the `instance_id` that `GET /` answers, so several instances can share one project. Every PostHog exception and [daily report](#the-daily-report) does too, once the database has opened. The instance's name isn't sent, because it can change and can be personal.
 
 `OTEL_RESOURCE_ATTRIBUTES` adds attributes of your own. **An attribute named there replaces the server's own of the same name**, `service.instance.id` and `service.version` included. Mark a test or demo instance with `deployment.environment`, which is `production` unless you set it:
 
@@ -72,7 +72,19 @@ Use your project's region: `https://eu.i.posthog.com` for EU Cloud, `https://us.
 
 **The host must be an `https` address**, or an `http` address on the same machine, with no user name or password in it, because the token travels with every report. Any other host turns off exception reports alone, traces and logs still go, and the server warns at start without repeating the host.
 
-Marfa reports an error that no handler answered, which the request meets as a `500`, with its stack, the request's ID, the method and the path. It attaches no person to the event and turns off the location lookup. Setting `error_reporting_enabled` to `false` in the [configuration](/run/settings#change-settings-while-it-runs) stops exception reports and [failure notices](#post-a-notice-when-a-request-fails) at once, with no restart.
+Marfa reports an error that no handler answered, which the request meets as a `500`, with its stack, the request's ID, the method and the path. It attaches no person to the event and turns off the location lookup. Setting `error_reporting_enabled` to `false` in the [configuration](/run/settings#change-settings-while-it-runs) stops exception reports, the [daily report](#the-daily-report) and [failure notices](#post-a-notice-when-a-request-fails) at once, with no restart.
+
+## The daily report
+
+**A server that reports exceptions also reports its own size and cost once a day**, as a PostHog event named `marfa server report` in the same project. It sends one about 30 seconds after it starts, then one every 24 hours, so a server that restarts sends one at each start. It goes only when exception reports would: both PostHog variables set, `OTEL_SDK_DISABLED` not `true` and `error_reporting_enabled` on. It has no setting of its own, so to stop it, turn error reporting off or unset the PostHog variables.
+
+**The report carries numbers and the release, and nothing else.** The list is closed: `release`, `memory_rss_bytes`, `memory_rss_peak_bytes`, `heap_used_bytes`, `heap_total_bytes`, `cpu_user_seconds`, `cpu_system_seconds`, `uptime_seconds`, `database_bytes`, `wal_bytes`, `items_count`, `versions_count`, `event_log_count`, `audit_log_count`, `blob_count` and `blob_bytes`. They are the figures [`marfa metrics`](/run/memory-cpu-and-disk#see-what-an-instance-uses) shows, with the rows counted fresh. A figure the server can't read is left out.
+
+- **The CPU figures cover the time since the previous attempt to send**, and the first report covers the time since the process started. A report that's lost loses its own period, which the next one doesn't count again.
+- **The instance is named by `service.instance.id`**, a random ID that the instance makes the first time it starts and keeps in its database. It comes from no person, machine, host name, address or content, and only tells one deployment's reports from another's.
+- **The only other properties are `deployment.environment`**, as exception reports state it, and the fields PostHog's library adds to every event (`$lib`, `$lib_version`, `$is_server`, `$geoip_disable`, and `$process_person_profile` set to `false`, so no person is made). Nothing else from `OTEL_RESOURCE_ATTRIBUTES` or `OTEL_SERVICE_NAME` goes with it.
+
+No item content, item ID, path, host name or address goes with it. A send that gets no answer within 10 seconds is abandoned with one warning in the log, and the next report is due a day later. PostHog's library doesn't tell the server when it couldn't reach the host, so that loss is silent.
 
 ## Post a notice when a request fails
 
@@ -81,42 +93,3 @@ Set `ERROR_WEBHOOK_URL` and the server posts a JSON notice to it when a request 
 ## Send a heartbeat
 
 An instance can't report its own death. Set `MARFA_HEARTBEAT_URL` and the `heartbeat` [housekeeping job](/run/housekeeping) requests it with a `GET`, no body and no identity, every `MARFA_HEARTBEAT_INTERVAL_MS`. Give it to an uptime monitor that alarms when the requests stop. A failed request is logged as a warning.
-
-## What the CLI sends
-
-**The CLI sends nothing unless the environment asks for it.** `OTEL_SDK_DISABLED=true` turns off both reports:
-
-| Report | Sent when | What it holds |
-| --- | --- | --- |
-| A trace for each command | `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set | The command's name and exit code |
-| One exception to PostHog | `MARFA_POSTHOG_HOST` and `MARFA_POSTHOG_PROJECT_TOKEN` are both set, and the command ends in a fault | The command's name, the error and exit codes, the version, the operating system and a fixed sentence |
-
-As on the server, **an exception needs no OTLP endpoint**. Neither report holds an argument, address, credential, item content or message.
-
-**A fault is something the CLI or the core got wrong**, such as a panic or an answer it can't read. A refusal, a usage error, Ctrl-C, being offline, a timeout, a rate limit or any `5xx` sends none. [The CLI reference](https://github.com/withmarfa/marfa/blob/main/core/marfa-cli/COMMANDS.md#telemetry) lists every variable it reads and every fault.
-
-## What apps send
-
-**An app sends nothing unless the people who built it gave it a destination, and reporting is on.** The Swift SDK's [`MarfaTelemetry` product](/swift-sdk/errors-and-testing#report-errors-and-events) has no destination of its own. It stays inert until the app passes it an `https` PostHog host and a project token, and turns it on. A build from an app's public source, with the token kept out of the source as the SDK asks, sends nothing. In an app you build, you choose the project and own what it receives.
-
-An app that reports sends two kinds of report, to the PostHog project it was built for:
-
-- **Errors.** One exception for each failure the app reports, holding the error's type, one fixed sentence, the operation that was running and the error's code, with no stack frames, no person and no location lookup. A failure that repeats is held back, and each exception says in `dropped_since_last` how many were.
-- **Events.** A fixed set of log records, each a name with counts, flags and words fixed in the app's source, such as how many writes a sync left waiting. They go out in batches over OTLP.
-
-Every report also names the app, its version, the operating system, its version and the chip. **No report names the instance** the app is connected to, unlike the server's own telemetry, which [tells instances apart](#tell-instances-apart).
-
-### What an app never sends
-
-**No report holds a word a person wrote or a place they keep it.** The SDK's types make this hard to do by accident: a report takes only text fixed in the source, numbers and booleans. An app never sends:
-
-- item text, titles or tags;
-- item IDs or natural keys;
-- keys or credentials;
-- the instance's ID, name or address;
-- file paths or search text;
-- an error's `message`, which can repeat any of these.
-
-An app sends no product analytics: nothing about which screens a person opens or what they do in Marfa.
-
-**Each app decides where its switch is.** In an app you build, it is `Telemetry.shared.isEnabled`, which starts off; turning it off drops every report waiting to go and sends nothing more.
