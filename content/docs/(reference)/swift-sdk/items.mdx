@@ -151,24 +151,27 @@ An `Edit` changes the properties it names, and leaves the rest. **A `null` clear
 | `edges.create(from:to:type:properties:id:)` | Queues an edge, refusing first one the instance would refuse for what the copy holds. |
 | `edges.check(from:to:type:properties:id:)` | Throws what `create` would throw now, and queues nothing. |
 | `edges.update(_:_:)`, `edges.delete(_:)` | Queue an `EdgeEdit`, or a delete. |
+| `edges.check(_:moving:)` | Throws what `update` would throw now for an `EdgeEdit.Move` of the edge's end, and queues nothing. |
 | `tags.add(_:to:)`, `tags.remove(_:from:)` | Queue one tag change, leaving the item's other tags. |
 | `metadata.replaceTags(of:with:)` | Queues every tag of an item in one write. |
 | `extensions.write(_:_:on:)`, `extensions.delete(_:from:)` | Queue an extension write or delete by namespace. |
 
 - **The copy holds the edges going out from its items.** An edge from an item outside the slice is held only when its type was hydrated whole or its source is pinned.
-Ask `check` before the person confirms a move, so a refusal shows as they choose:
+
+Ask before the person confirms a choice, such as dropping a task under another project, so a refusal shows as they choose. This checks moving the task's `parent-of` edge to a new parent:
 
 ```swift
 do {
-    try await copy.edges.check(from: project.id, to: task.id, type: "parent-of")
-} catch let error as MarfaError {
-    // `.validation` or `.notFound`, with the code the instance would answer.
-    showRefusal(error)
+    try await copy.edges.check(parentEdge.id, moving: .source(otherProject.id))
+} catch MarfaError.validation(let code, _, let details) {
+    // `edge_constraint_violation` or `edge_cycle`, with the instance's details.
+    showRefusal(code, constraint: details?.object?["constraint"]?.string)
 }
 ```
 
-- **`check` judges from what the copy holds**: an end of a type the edge type doesn't admit, nesting under a flat edge type, an end in the bin, or a cycle. Returning isn't the instance's verdict.
-- **An `EdgeEdit` changes an edge's properties, moves one end with `.source(id)` or `.target(id)`, or both.** A move is refused `validation` when the end that stays can hold more than one edge of the type, or when the edge would point to itself. An edit that changes nothing returns `nil`. Once the instance accepts a source move, the copy expires.
+- **The copy refuses an edge write the instance would refuse, before it queues anything.** `create`, `update`, an item create's edges and both checks judge from what the copy holds, in the instance's order: an end in the bin, an end's type or nesting under a flat edge type, a duplicate of an edge the copy shows, a second edge at an end that holds its one edge of the type, then a cycle. [Write edges in a working copy](/build/edges-in-a-working-copy#what-the-copy-refuses) lists each code. Returning isn't the instance's verdict.
+- **A refusal carries the instance's `details`.** `details["constraint"]` is `"duplicate"`, `"cardinality"` or `"nesting"`, beside the edge type and the items or end concerned.
+- **An `EdgeEdit` changes an edge's properties, moves one end with `.source(id)` or `.target(id)`, or both.** A move is refused `validation` when the end that stays can hold more than one edge of the type, and `edge_cycle` when the edge would point to itself; otherwise it's judged as a new edge. An edit that changes nothing returns `nil`. Once the instance accepts a source move, the copy expires.
 - **Add several tags with one call each.** A call that would give an item more than 100 tags is refused `validation_error`, and the tags added before it stay queued.
 
 ## Names and previews
