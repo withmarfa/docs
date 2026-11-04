@@ -1,32 +1,55 @@
 ---
 title: Files outside a folder's query
-description: Tell whether a file whose item a folder's query doesn't hold will sync, stay as unmatched, be removed or be skipped.
+description: Tell whether a file whose item a folder's query doesn't hold will sync, stay as unmatched, be held unsent, be removed or be skipped.
 ---
 
-A folder's query says which items the folder holds, but a file you add, or an edit made elsewhere, can put an item outside it. **Which part of the query the item falls outside decides what happens**: outside its types, tiers, tags or filter, the folder keeps the file; outside its states, or in the bin, the folder removes it.
+A folder's query says which items the folder holds, but a file you add, or an edit made elsewhere, can put an item outside it. **Whether the item was ever in the folder decides what happens.** A new file stays, whichever part of the query it falls outside. An item the folder held keeps its file when it leaves the query's types, tiers, tags, filter or `beneath`, and loses it when it leaves the query's states or goes to the bin.
 
 ## What a folder does with each file
 
 | When | What the folder does |
 | --- | --- |
 | A new Markdown file has no frontmatter | Creates an item from the folder's `defaults`, then its query, and writes the frontmatter into the file |
-| A new Markdown file names a type, tier or tag the query doesn't hold | Creates the item anyway, and keeps the file as unmatched |
-| An edit, in the folder or elsewhere, takes an item outside the query's types, tiers, tags or filter | Keeps the file as unmatched, and still sends its edits to the item |
+| A new Markdown file names a type, tier, state or tag the query doesn't hold | Creates the item anyway, and keeps the file as unmatched. With `outside_query: hold`, holds the file unsent instead |
+| An edit, in the folder or elsewhere, takes an item outside the query's types, tiers, tags, filter or `beneath` | Keeps the file as unmatched, and still sends its edits to the item |
 | An item leaves the query's states, or goes to the bin | Removes the file at the next sync, unless you changed it since Marfa wrote it |
-| A new Markdown file names a state the query doesn't hold | Creates the item, then removes the file at the next sync, as for any item that leaves the query's states |
 | A photo, PDF or other file whose type the query doesn't hold | Leaves it on disk and sends nothing, unless a note embeds it or it's attached to one |
+
+**A new file is never removed for falling outside the query's states.** A note you write with `state: archived` in a folder that holds only active items becomes an archived item, and its file stays, counted as unmatched. While the item stays outside the query, Marfa doesn't rewrite the file. Once a sync finds the item in a state the query holds, such as after you change the `state` line, it is an ordinary member of the folder, and leaving the query's states again removes its file, as archiving any note in an active-only folder does.
 
 [Files in a folder](/run/folder-files#how-items-appear-as-files) says how a new file takes its type, tier and title.
 
 ## Unmatched files
 
-**An unmatched file stays in sync with its item**: the folder keeps it, sends your edits, and never removes it for falling outside the query. Another folder whose query holds the item can take the file over. To see which files are unmatched and take them away without touching their items, use `marfa folders unmatched`, as [Remove files a folder keeps but no longer holds](/run/keep-folders-running#remove-files-a-folder-keeps-but-no-longer-holds) shows.
+**An unmatched file stays in sync with its item**: the folder keeps it, sends your edits, and never removes it for falling outside the query. Another folder whose query holds the item can take the file over. To see which files are unmatched and take them away without touching their items, use `marfa folders unmatched`, as [Remove files a folder keeps but no longer holds](/run/keep-folders-running#remove-files-a-folder-keeps-but-no-longer-holds) shows. A new file kept outside the query's states goes the same way, while its bytes are the ones the folder last read.
+
+## Hold new files outside the query
+
+A folder that follows a narrow query, such as active notes only, can **leave a stray new file on disk instead of making it an item**. Set the folder's `outside_query` to `hold`, in `.marfa/folder.yaml` or with `--outside-query hold` on `marfa folders create` or `marfa folders change`. The default, `send`, makes every new file an item as the table above says.
+
+With `hold`, a new file whose item the query wouldn't hold, by its type, tier, state, tags, filter or `beneath`, waits on disk. It isn't sent, has no item, and nothing is written into it, not even a `marfa_id` line:
+
+<Terminal>
+
+```bash
+marfa folders push Notes
+```
+
+```text
+1 new file(s) held outside the query, not sent: the folder's outside_query is hold, so each is sent once it matches the query or the setting is send; `folders unmatched` lists them
+```
+
+</Terminal>
+
+- **Where it shows:** `marfa folders status` lists the file as `held` with the flag `outside_query`, and `--json` counts it as `paused.outside_query`. `marfa folders unmatched` lists it with the reason, and `--remove` never deletes it, since it has no item.
+- **When it's sent:** edit the file so the query would hold it, or set `outside_query` back to `send`, and the next scan sends it as a new item.
+- **What it leaves alone:** a file that already has an item, a photo or other non-text file whose type the query doesn't hold, which the folder never sends anyway, and a file a note embeds. It doesn't count toward a [large addition](/run/large-changes).
 
 ## Many files at once
 
-**New files have no limit.** Drop hundreds of files into a folder and it creates an item for each, without asking. Only two things wait for you:
+Two things wait for you whatever the query says:
 
 - **The first sync** after `marfa folders add`, which [Sync a folder](/run/sync-a-folder#confirm-the-first-sync) covers.
-- **A large removal,** files or items going at once, which [Confirm or undo a large removal](/run/folder-safeguards#confirm-or-undo-a-large-removal) covers.
+- **A large addition or removal,** many files arriving or going at once, which [Confirm a large addition or removal](/run/large-changes) covers.
 
-The rules behind this page are in the [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapter of the contract, such as [`folders/unmatched-file-kept`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersunmatched-file-kept) and [`folders/binary-outside-search`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersbinary-outside-search).
+The rules behind this page are in the [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapter of the contract, such as [`folders/unmatched-file-kept`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersunmatched-file-kept), [`folders/new-file-outside-state-kept`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersnew-file-outside-state-kept) and [`folders/outside-query-held`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#foldersoutside-query-held).
