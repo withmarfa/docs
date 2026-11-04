@@ -1,0 +1,81 @@
+---
+title: Confirm a large addition or removal
+description: Decide what happens when a folder pauses a large drop of new files or a large removal, and let it go, cancel it or pass it in a script.
+---
+
+A folder sends a few new files or a few deletions at once without asking. **When many arrive together, it pauses them and waits for you**, so a directory dropped into the wrong folder or moved out of it by mistake doesn't create hundreds of items or move them to the bin. The rest of the folder goes on syncing meanwhile, and a watch says once that something waits.
+
+Each pause has its own setting on the [folder](/catalog/folder), changed as [Change a folder's settings](/run/sync-a-folder#change-a-folders-settings) shows:
+
+| Pause | It waits when a change takes | Setting |
+| --- | --- | --- |
+| A large addition | More than 50 new files and more than a quarter of the folder's files | `addition_threshold` |
+| A large removal | More than 10 files and more than a quarter of the folder's files | `removal_threshold` |
+
+**Both halves must be passed.** A folder that holds no files yet is judged by the count alone. The first sync after `marfa folders add` is never counted, since it [waits for you anyway](/run/sync-a-folder#confirm-the-first-sync).
+
+## A large addition
+
+New files that would create items count toward the threshold; edits and renames of files the folder holds don't. **A copy that arrives slowly counts as one drop:** new files sent in the last ten minutes count with the ones a scan finds.
+
+While the addition waits, its files stay on disk with no item, and nothing is written into them. Files that arrive meanwhile join it, however few:
+
+<Terminal>
+
+```bash
+marfa folders push Notes
+```
+
+```text
+a large addition waits: 240 new file(s) held, not sent; `folders confirm` sends them, and deleting the files you did not mean to add cancels it; new files that arrive meanwhile join it
+```
+
+</Terminal>
+
+`marfa folders status Notes` lists each waiting file as `held` with the flag `addition`, and `--json` counts them as `paused.additions`, apart from a removal.
+
+- **Send them:** `marfa folders confirm Notes` queues them as new items for the next push, and reports how many it released. New files after that count afresh.
+- **Cancel it:** delete the files you didn't mean to add. Once every waiting file is gone, the next scan releases the pause.
+- **Raise the threshold:** a higher `addition_threshold` that the drop no longer passes releases it at the next scan.
+- **In a script:** `marfa folders push Notes --confirm-additions` sends every new file it finds, however many. Nobody is there to confirm, so the decision is the script's.
+
+## A large removal
+
+A removal pauses when many files go at once, such as a directory moved out of the folder. It also holds files whose items left the folder elsewhere, such as notes another app moved to the bin:
+
+<Terminal>
+
+```bash
+marfa folders push Notes
+```
+
+```text
+0 created, 0 updated, 0 renamed, 4 unchanged, 12 missing, 0 deleted, 0 skipped
+a large removal waits: 12 delete(s) not sent; `folders confirm` sends them, `folders restore` writes the files back
+the server answered 0 write(s)
+0 file(s) written
+```
+
+</Terminal>
+
+Cancel the removal to write the files back, or confirm it to move unchanged items to the bin at the next sync. Files attached to a note come back with the note, whether or not the query holds them. Confirmation checks for moves and remote edits too: a missing file found nowhere comes back if another device changed content it showed while the query still holds it. In Swift, `folders` and `directory` are those of [Set up a folder](/swift-sdk/views-and-folders#set-up-a-folder):
+
+```bash tab="CLI" tab-group="client"
+marfa folders restore Notes
+marfa folders confirm Notes
+```
+
+```swift tab="Swift"
+let status = try await folders.status(of: directory)
+if status.paused.isPaused {
+    _ = try await folders.restoreRemoval(in: directory)   // or confirmRemoval(in:)
+}
+```
+
+`restore` lists each file it couldn't write back, such as one whose bytes it couldn't fetch, with the reason, and every later pull tries again.
+
+## Read where a folder stands
+
+`marfa folders status Notes` shows where every file stands, and whether an addition or a removal waits, without asking the instance. A document the scan refuses, such as one with an unknown type, shows as `held` with the reason. `marfa folders health` takes the folder's ID and shows the server's latest report from each sign-in and local copy. A report's age says when it arrived, not whether that copy is reachable now.
+
+The rules behind this page are in the [paused additions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#paused-additions) and [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapters of the contract.
