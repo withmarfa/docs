@@ -1,4 +1,4 @@
-| Edge type       | Label         | Reverse label   | Reverse name     | Cardinality    | On delete    | Target types                       |
+| Edge type       | Label         | Reverse label   | Reverse name     | Cardinality    | On delete    | To types                           |
 | --------------- | ------------- | --------------- | ---------------- | -------------- | ------------ | ---------------------------------- |
 | `about`         | About         | Subject of      | None             | `many-to-many` | `orphan`     | Any type                           |
 | `attached-to`   | Attached to   | Attachments     | `has-attachment` | `many-to-many` | `with-hosts` | Any type                           |

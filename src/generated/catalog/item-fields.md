@@ -42,8 +42,9 @@
 
 ### Time
 
-| Field         | Kind     | Description                                                                    |
-| ------------- | -------- | ------------------------------------------------------------------------------ |
-| `occurred_at` | `string` | When the item happened, in UTC. Defaults to when it was created.               |
-| `created_at`  | `string` | When the item was created, in UTC.                                             |
-| `updated_at`  | `string` | When the item was last written, in UTC. A tag or extension write moves it too. |
+| Field              | Kind     | Description                                                                                                               |
+| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `occurred_at`      | `string` | When the item happened, in UTC. Defaults to when it was created.                                                          |
+| `created_at`       | `string` | When the item was created, in UTC.                                                                                        |
+| `updated_at`       | `string` | When the item was last written, in UTC. A tag or extension write moves it too.                                            |
+| `last_activity_at` | `string` | When the item or one of its rows last changed, in UTC. A row change moves it and leaves `updated_at` and `version` alone. |

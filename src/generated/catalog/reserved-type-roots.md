@@ -1,1 +1,1 @@
-`app`, `audit`, `blobs`, `config`, `connectors`, `content`, `core`, `edge`, `grants`, `instance`, `items`, `keys`, `marfa`, `metadata`, `profile`, `schema`, `space`, `system`, `user`, `webhooks`
+`app`, `audit`, `backups`, `blobs`, `config`, `connectors`, `content`, `core`, `edge`, `grants`, `instance`, `items`, `keys`, `marfa`, `metadata`, `profile`, `schema`, `sign_ins`, `space`, `system`, `user`, `webhooks`
