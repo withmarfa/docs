@@ -3,10 +3,10 @@
  * (STYLE.md, "Vocabulary"). The page defines each word briefly for a reader, so
  * its text can't be compared with GLOSSARY.md's word for word. Instead,
  * `glossary-sources.json` names, for each word on the page, the GLOSSARY.md
- * row that settles it and a fingerprint of the two definitions as they were
+ * entry that settles it and a fingerprint of the two definitions as they were
  * when someone last read them side by side. A sync that changes the row, or
  * an edit that changes the page's definition, fails here until both are read
- * again and the fingerprint is renewed. A word with no row says why.
+ * again and the fingerprint is renewed. A word with no entry says why.
  */
 
 import { createHash } from 'node:crypto';
@@ -33,11 +33,11 @@ function rows(text: string, pattern: RegExp): Map<string, string> {
   return found;
 }
 
-/** The rows of GLOSSARY.md's word tables, which end where "Banned" begins. */
+/** The bullets of GLOSSARY.md's word lists, `- **word**: meaning`, which end where "Banned" begins. */
 function glossaryRows(): Map<string, string> {
   const text = readFileSync(GLOSSARY, 'utf8');
   const words = text.slice(text.indexOf('## The words'), text.indexOf('## Banned'));
-  return rows(words, /^\| \*\*(.+?)\*\* +\| (.+?) +\|$/);
+  return rows(words, /^- \*\*(.+?)\*\*: (.+)$/);
 }
 
 /** The page's rows, `| [**word**](/link) | meaning |`, or a row whose word has no link. */
@@ -53,7 +53,7 @@ describe('the Glossary page', () => {
   const glossary = glossaryRows();
   const page = pageRows();
 
-  it('reads both tables', () => {
+  it('reads both lists', () => {
     expect(glossary.size).toBeGreaterThan(50);
     expect(page.size).toBeGreaterThan(40);
   });
@@ -67,8 +67,8 @@ describe('the Glossary page', () => {
     if (!source) continue;
 
     if (source.glossary === null) {
-      it(`gives a reason that ${word} has no GLOSSARY.md row`, () => {
-        expect(glossary.has(word), `GLOSSARY.md now has a row for ${word}; name it`).toBe(false);
+      it(`gives a reason that ${word} has no GLOSSARY.md entry`, () => {
+        expect(glossary.has(word), `GLOSSARY.md now has an entry for ${word}; name it`).toBe(false);
         expect(source.reason.length).toBeGreaterThan(0);
       });
       continue;
@@ -76,7 +76,7 @@ describe('the Glossary page', () => {
 
     it(`agrees with GLOSSARY.md on ${word}`, () => {
       const settled = glossary.get(source.glossary);
-      expect(settled, `GLOSSARY.md has no row for ${source.glossary}`).toBeDefined();
+      expect(settled, `GLOSSARY.md has no entry for ${source.glossary}`).toBeDefined();
       const now = fingerprint(settled!, meaning);
       expect(
         now,

@@ -43,8 +43,12 @@ interface CatalogEdgeType {
   cardinality: string;
   cascade_on_delete: string;
   reverse_name?: string;
-  source_type_constraints: string[];
-  target_type_constraints: string[];
+  from_type_constraints: string[];
+  to_type_constraints: string[];
+  written_from: 'from' | 'to' | 'none';
+  acyclic: boolean;
+  flat: boolean;
+  property_schema: Record<string, Field>;
 }
 
 interface Catalog {
@@ -239,6 +243,9 @@ const TOP_LEVEL = catalog.types.filter((type) => !type.parent);
 const slugOf = (type: CatalogType) => type.id.slice(type.id.indexOf('.') + 1);
 const CORE_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('core.'));
 const SYSTEM_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('system.'));
+/** Where a type's page belongs, for the message of a type that has none. */
+const missingPage = (type: CatalogType) =>
+  `The catalog ships ${type.id} and no page covers it. Expected content/docs/catalog/(types)/(${type.id.split('.')[0]})/${slugOf(type)}.mdx, titled "${type.label}" with identifier ${type.id}, listed in that folder's meta.json and including src/generated/catalog/${type.id}.md.`;
 const CORE_SLUGS = CORE_TYPES.map(slugOf);
 const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
 /** The pages that are not the page of one type. */
@@ -352,7 +359,14 @@ describe('the tab', () => {
 describe('a core type page', () => {
   for (const slug of CORE_SLUGS) {
     const type = catalog.types.find((candidate) => candidate.id === `core.${slug}`)!;
-    const page = PAGES.find((candidate) => candidate.slug === slug)!;
+    const page = PAGES.find((candidate) => candidate.slug === slug);
+
+    if (!page) {
+      it(`${type.id} has a page`, () => {
+        expect.fail(missingPage(type));
+      });
+      continue;
+    }
 
     describe(page.file, () => {
       it('is titled with the type\'s label, described with its description and names its identifier', () => {
@@ -384,7 +398,14 @@ describe('a system type page', () => {
   });
 
   for (const type of SYSTEM_TYPES) {
-    const page = PAGES.find((candidate) => candidate.slug === slugOf(type))!;
+    const page = PAGES.find((candidate) => candidate.slug === slugOf(type));
+
+    if (!page) {
+      it(`${type.id} has a page`, () => {
+        expect.fail(missingPage(type));
+      });
+      continue;
+    }
 
     describe(page.file, () => {
       it('is titled and described from the type, and includes its generated file', () => {
@@ -471,7 +492,7 @@ describe('the edge type table', () => {
   }
 
   it('has a row for each edge type, in the catalog\'s order, with the contract\'s wording', () => {
-    const constrained = catalog.edge_types.some((edge) => edge.source_type_constraints[0] !== '*');
+    const constrained = catalog.edge_types.some((edge) => edge.from_type_constraints[0] !== '*');
     expect(header).toEqual([
       'Edge type',
       'Label',
@@ -479,8 +500,8 @@ describe('the edge type table', () => {
       'Reverse name',
       'Cardinality',
       'On delete',
-      ...(constrained ? ['Source types'] : []),
-      'Target types',
+      ...(constrained ? ['From types'] : []),
+      'To types',
     ]);
     expect(rows).toEqual(
       catalog.edge_types.map((edge) => [
@@ -490,8 +511,8 @@ describe('the edge type table', () => {
         edge.reverse_name ? `\`${edge.reverse_name}\`` : 'None',
         `\`${edge.cardinality}\``,
         `\`${edge.cascade_on_delete}\``,
-        ...(constrained ? [wording(edge.source_type_constraints)] : []),
-        wording(edge.target_type_constraints),
+        ...(constrained ? [wording(edge.from_type_constraints)] : []),
+        wording(edge.to_type_constraints),
       ]),
     );
   });
@@ -503,7 +524,37 @@ describe('the edge type table', () => {
   it('is included by the Edges page, which says that any type is a source exactly when the table has no column for it', () => {
     expect(edgesPage).toContain('<include cwd>src/generated/catalog/edge-types.md</include>');
     const sentence = 'Every shipped edge type takes any type as its source';
-    expect(edgesPage.includes(sentence)).toBe(!header.includes('Source types'));
+    expect(edgesPage.includes(sentence)).toBe(!header.includes('From types'));
+  });
+});
+
+describe('the edge sections', () => {
+  const sections = new Map(
+    readFileSync(path.join(GENERATED, 'edges.md'), 'utf8')
+      .split(/^## /m)
+      .slice(1)
+      .map((section) => [section.split('\n')[0], section] as const),
+  );
+
+  it('has a section for each edge type, in the catalog\'s order', () => {
+    expect([...sections.keys()]).toEqual(catalog.edge_types.map((edge) => edge.id));
+  });
+
+  it('says which end writes each edge into a synced folder, and which edges are acyclic or flat, only where the catalog does', () => {
+    for (const edge of catalog.edge_types) {
+      const section = sections.get(edge.id)!;
+      const written = /^\*\*written_from:\*\* `(\w+)`$/m.exec(section)?.[1];
+      expect(written, `${edge.id}: written_from`).toBe(edge.written_from === 'from' ? undefined : edge.written_from);
+      expect(/^\*\*acyclic:\*\* `true`$/m.test(section), `${edge.id}: acyclic`).toBe(edge.acyclic === true);
+      expect(/^\*\*flat:\*\* `true`$/m.test(section), `${edge.id}: flat`).toBe(edge.flat === true);
+    }
+  });
+
+  it('lists each edge type\'s properties', () => {
+    for (const edge of catalog.edge_types) {
+      const shown = [...sections.get(edge.id)!.matchAll(/^\| `([a-z_]+)` +\|/gm)].map((match) => match[1]);
+      expect(shown, edge.id).toEqual(Object.keys(edge.property_schema));
+    }
   });
 });
 
