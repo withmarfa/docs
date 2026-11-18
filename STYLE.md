@@ -10,42 +10,37 @@ How every page on this site is written. This file is the one place the writing r
 
 ## Who reads the docs
 
-Write for a reader who is new to Marfa. Most know software; some don't, and more of them will as apps built on Marfa reach people. The landing page and the concepts must make sense to both. Three readers come, in this order, and each needs something different first:
+Write for a reader who is new to Marfa. Most know software; some don't, and more of them will as apps built on Marfa reach people. Start and Use must make sense to both. Three readers come, and each has a front door:
 
-1. **Someone working out what Marfa is** needs to know what it is, what it's for and what it isn't: the landing page (`/`), then How Marfa works.
-2. **Someone running their own Marfa** needs to start it, claim it, connect their agent and keep it safe: the Quickstart, Connect your agent, then Run.
-3. **Someone building on Marfa** needs a credential, then reading and writing items, then the model: the Quickstart, the concepts, then Build. A **connector author** is one of them, and needs what the instance keeps for a connector, then the connector tutorials and guides in Build.
+1. **Someone working out what Marfa is, or starting it,** reads Start: what Marfa is, the Quickstart, Connect your agent and Ideas in Marfa.
+2. **Someone using Marfa every day** reads Use, and Run when they look after their own instance.
+3. **Someone building on Marfa** reads Build, then looks things up in Reference. A **connector author** is one of them.
+
+**A user is never buried in technical detail, and a builder always finds the exact reference.** Use and Run never need HTTP; Build and Reference give the full rules.
 
 **Agents are the most frequent readers.** An agent usually works for one of these people, and reads the same pages as Markdown, through the docs MCP server, `marfa docs` or `llms.txt`. A page that a newcomer can follow serves an agent too. Never write that Marfa is only for technical people.
 
-**The docs are for working with Marfa, not for maintaining it.** A page says what a reader meets when they run, use or build on Marfa. How Marfa is built inside, such as its modules, its internal jobs or how the server stores something, belongs in the marfa repository, not on a page.
+## What the docs cover
+
+- **Marfa is the home for everything a person keeps, files first.** Lead with files and images, and keep examples varied. Never frame Marfa as a notes, tasks or bookmarks app, and never let a page's examples make it sound like one.
+- **The docs cover Marfa itself:** the instance, the CLI, MCP for agents, synced folders, the API, the SDKs and connectors. Apps built on Marfa, such as MAPP, aren't documented here. A page may say where an app is found, and nothing more.
+- **The docs are for working with Marfa, not for maintaining it.** A page says what a reader meets when they run, use or build on Marfa. How Marfa is built inside, such as its modules, its internal jobs or how the server stores something, belongs in the marfa repository, not on a page.
 
 ## Where a page goes
 
-| Tab | Sidebar groups | Kind of page |
+The tabs follow what a reader comes to do, in this order:
+
+| Tab | What it holds | Kind of page |
 | --- | --- | --- |
-| Start | The Overview, at `/`: the problem Marfa solves, what it makes possible, what it isn't, where it runs, and a path for each reader | Explanation, then navigation |
-| Start | Get started: the Quickstart, then Connect your agent | Tutorial, then how-to |
-| Start | Concepts: How Marfa works, then one page per idea, then the Glossary | Explanation, then reference |
-| Run | The Overview, an index of the tab; Set up; Keys and access; Folders; Connectors; Look after it (ending with Troubleshooting) | Navigation, then how-to |
-| Catalog | The Overview, Items, Types (its own page, with the Core types and System types folders of one page per type under it, then Type rules and Field kinds), Edges, Events, Permissions, Connectors (its own page, with one page for each connector Marfa ships under it) | Reference |
-| Build | The Overview, an index of the tab; Tutorials; Build apps and agents; Build connectors | Navigation, tutorial, then how-to |
-| Reference | The Overview (`/reference`): a card for each of the SDKs, the CLI, the Marfa MCP server, the HTTP API, the Changelog, Docs for agents and the contract | Reference |
-| Reference | SDKs, CLI and MCP: a page for the TypeScript SDK, a folder of pages for the Swift SDK (an overview and install page, then one page for each part of the SDK), a page for the CLI, Folder sync status (the file the CLI keeps for other programs), then the Marfa MCP server | How-to and reference for each client, then reference |
-| Reference | HTTP API: the overview, Errors, and the operations generated from the API description | Reference |
-| Reference | Resources: the Changelog, Docs for agents, and the contract | Reference, then how-to |
+| Start | What Marfa is, at `/`; the Quickstart, from `marfa server install` or Railway to an agent connected and a first item saved and found; Connect your agent; Ideas in Marfa, the few ideas everyone meets, with no HTTP | Explanation, tutorial, how-to |
+| Use | The everyday jobs: working from an agent, Claude or ChatGPT and the CLI; a synced folder from set-up to a second computer; connectors; seeing and cutting access; Limits; Get help | How-to |
+| Run | Looking after an instance: where it runs and its address, sign-in, settings, keys and apps, backups, upgrades, telemetry and Troubleshooting | How-to |
+| Build | The concepts at full depth, then the tutorials and guides for apps, agents, working copies and connectors | Explanation, tutorial, how-to |
+| Reference | The Catalog first (items, types, edges, events, permissions, connectors), then the HTTP API and Errors, the SDKs, the CLI and MCP pages, the Glossary, the Changelog and the contract | Reference |
 
-Every tab opens on a page titled Overview, at the top of its sidebar outside any group, whose description says what the tab covers.
+**No tab has a landing page.** A tab's header link opens the first page in its sidebar, and no page is a grid of cards that repeats the sidebar.
 
-The tabs divide the work, and each thing is said once, with links between:
-
-- **Start** explains what Marfa is and how it works, with two or three examples at most, and gets a reader running and their agent connected.
-- **Run** shows how to run an instance and look after it, and how to use Marfa without writing code.
-- **Catalog** lists exactly what Marfa ships and explains nothing.
-- **Build** shows how to write an app, an agent or a connector on Marfa.
-- **Reference** covers the HTTP API's operations and errors, the SDKs, the CLI, the MCP server, the changelog and the contract.
-
-A page that needs a list the Catalog holds, such as the types, edge types, permissions, events, field kinds or reserved names, links to the Catalog page instead of restating it.
+Each thing is said once, with links between. Use and Run say what to do; Build explains why it works that way. **The Catalog lists exactly what Marfa ships and explains nothing:** a page that needs a list it holds, such as the types, edge types, permissions, events, field kinds or reserved names, links to the Catalog page instead of restating it.
 
 - A **concept** page explains one idea: what it is, why it works the way it does, and the rules a reader meets in normal use.
 - A **tutorial** takes a newcomer through one complete piece of work, start to finish, and every step works.
@@ -59,6 +54,8 @@ A page that needs a list the Catalog holds, such as the types, edge types, permi
 
 **Clear, short and direct.** A reader should get the point of a page from its first screen, and the point of a section from its first sentence. Prose carries reasons and order; lists, tables and bold make a page easy to scan. Use each where it helps.
 
+- **Title a page by the reader's task,** such as "Sync a folder on a second computer" or "Upgrade an instance". A concept page or a reference page takes the name of its subject.
+- **The everyday path comes first.** Steps show what works when nothing goes wrong. Error cases, rare choices and recovery go in their own section or page, linked from the step, never written into it.
 - **Answer first.** The `description` shows as the lead under the title. The first paragraph adds what the description can't: the idea, the reason it matters, or what the reader will have at the end. Never restate the description, and never open with "This page explains" or "This guide shows".
 - **Short paragraphs.** One to three sentences, about 20 to 30 words each on average. One idea per paragraph.
 - **Bold the names of things on screen**, such as a button or a menu item, and write a menu path with `>` between bolded items: **File** > **New** > **Project**. Keys are written as on the keyboard: Command-R.
@@ -66,7 +63,7 @@ A page that needs a list the Catalog holds, such as the types, edge types, permi
 - **A list carries items that are parallel**: steps, options, things to check. A page never opens with a list, except the three opening lines of a tutorial, and a list never stands in for an explanation of why.
 - **A table compares things or holds what a reader looks up**: fields, settings, commands, options, a choice between two ways. Keep cells short. **Tables stay tables**: never turn one into a list to fit a phone. At phone width every table stacks each row, and a table of three or more columns puts each cell after the first under its column's name, so give each column a header that reads as a label.
 - **Explain, then point.** A concept page explains the idea and the rules a reader meets in normal use, with one small example. Rare cases, limits, exact numbers and error codes go in a guide, the API reference or the contract, with a link.
-- **Less is clearer.** If a page is hard going, cut before you add. A page past its limit is usually two pages, or holds detail that belongs in the reference: a guide that covers two jobs done at different times is two guides. `pnpm test` enforces the limits, counting the words after the frontmatter, code included: **900 for a concept page, 1,500 for a guide, a tutorial or a Catalog connector page.** The folder decides the kind. A lookup page (Settings, the CLI and SDK pages, the Glossary, the API reference, the Catalog type pages and the Changelog) has a limit of its own, and so does a tutorial or guide whose kind differs from its folder's. Those exceptions, each with its reason, are in `src/lib/page-limits.json`, and no page is exempt. When a page is over, the failure names it and the way out: split it, move detail to the reference, or cut. A page over its limit while it waits for a rewrite can be listed there under `pending`, with its current count as a ceiling; the test fails once the page is back within its limit.
+- **A page is as long as its one job,** and no longer: the limits are ceilings, not targets. If a page is hard going, cut before you add. A page past its limit is usually two pages, or holds detail that belongs in the reference: a guide that covers two jobs done at different times is two guides. `pnpm test` enforces the limits, counting the words after the frontmatter, code included: **900 for a concept page, 1,500 for a guide, a tutorial or a Catalog connector page.** The folder decides the kind, and a Build concept page names its own. A lookup page (Settings, the CLI, SDK and MCP pages, How a folder treats files, the Glossary, the API reference, the Catalog pages and the Changelog) has a limit of its own. Those exceptions, each with its reason, are in `src/lib/page-limits.json`, and no page is exempt. When a page is over, the failure names it and the way out: split it, move detail to the reference, or cut. A page over its limit while it waits for a rewrite can be listed there under `pending`, with its current count as a ceiling; the test fails once the page is back within its limit.
 - **Describe the present.** No history, no "now", no "new", nothing about what changed.
 - **Replace, don't append.** When something changes, rewrite the sentence or section it changes. Never add a paragraph that qualifies an older one.
 
@@ -101,13 +98,14 @@ Don't restate what the API reference says. A page explains what the reference ca
 - "Coming soon" appears only on the landing page. Anywhere else, describe only what exists.
 - Sentence case for titles and headings. Headings are plain text: no code, links or other markup.
 - Inline code is for text a reader would type or copy: type IDs, field names, paths, header names, flags, values. A product name in prose is plain text (the TypeScript SDK, not `@withmarfa/client`).
-- Internal links are paths from the site root, such as `/files`, so the Markdown copy of each page resolves them. Link text says where the link goes.
+- Internal links are paths from the site root, such as `/build/files`, so the Markdown copy of each page resolves them. Link text says where the link goes.
 - No filler: "simply", "just", "easy", "basically", "really", "actually", "very".
 
 ## Examples
 
 - **Show the smallest real request that makes the point,** with real field names and values a reader could send, and show what comes back when the answer teaches something.
-- **One example in each client the page's reader uses.** Where the same task exists in more than one client, write it as a group of code tabs in this order: CLI, HTTP, TypeScript, Swift. Give every group `tab-group="client"`, so a reader's choice follows them through the site. Include only the clients where the operation exists; never a tab with a stub. Choose for the reader: a guide to running an instance shows the CLI and HTTP, a connector guide shows TypeScript and HTTP, the Quickstart shows what runs in a terminal, and a concept page may show one HTTP request when the request is the idea.
+- **Examples work from any computer with a key, or from the browser.** Use the instance's address and a key, never the server's own machine. Only claiming an instance and recovering the owner's password run on the server itself.
+- **One example in each client the page's reader uses.** Where the same task exists in more than one client, write it as a group of code tabs in this order: CLI, HTTP, TypeScript, Swift. Give every group `tab-group="client"`, so a reader's choice follows them through the site. Include only the clients where the operation exists; never a tab with a stub. Choose for the reader: a Use or Run page shows the CLI, with HTTP only where the reader needs it, a connector guide shows TypeScript and HTTP, the Quickstart shows what runs in a terminal, and a concept page may show one HTTP request when the request is the idea.
 
   ````mdx
   ```bash tab="CLI" tab-group="client"
@@ -143,7 +141,7 @@ Use a component for what it's for, and only where it helps the reader.
 | `Accordion` | Entries a reader opens one at a time. Never a reference list: a list a reader looks up is a plain table on its Catalog or Reference page |
 | `Files` | A directory a reader will see on disk |
 | `Callout` | Something that must interrupt: an action that can't be undone, a step that loses data, or the landing page's one-line warning that Marfa is early. Every callout has a bold `title` that says what happens, and a short body under it. It draws no icon. `type="warn"` is for a loss or something that can't be undone; a neutral note takes the default, `info` |
-| `Cards` | Where to go next: the landing page's paths, each tab's Overview, and the end of a tutorial |
+| `Cards` | Where to go next: the landing page's paths and the end of a tutorial. Never a tab's or a section's index |
 | `ApiMap` | The API reference's overview only: every operation, drawn from `openapi.json`, in its group and area (`src/lib/api-map-areas.json`), each linking to its page. Groups start closed; one button above the map opens or closes them all |
 
 Write an object's fields as a Markdown table (field, type, description), not with `TypeTable`: a table reads the same on the page and in the Markdown copy.
@@ -195,6 +193,6 @@ description: How Marfa keeps a file's bytes once, however many items name them, 
 ---
 ```
 
-A page whose title another page shares, such as each tab's Overview, also holds a `headTitle`: its name in browser tabs, search results and link previews, which the site name follows unless it starts with it. The landing page's is "Marfa Docs" and what Marfa is, after a colon. `pnpm test` fails when two pages would show the same name.
+A page whose title another page shares, or whose title doesn't name it well outside the site, also holds a `headTitle`: its name in browser tabs, search results and link previews, which the site name follows unless it starts with it. The landing page's is "Marfa Docs" and what Marfa is, after a colon. `pnpm test` fails when two pages would show the same name.
 
 Quote a `description` that starts with `@`, `:`, `>`, `|`, `*`, `&`, `?` or `%`, or YAML misreads it.
