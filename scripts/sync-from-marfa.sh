@@ -18,10 +18,15 @@
 #                                     written from the server's own code list,
 #                                     included by the Errors page
 #   src/generated/housekeeping.md     the registered housekeeping job table
-#   src/generated/settings.md         the contract's table of the instance's
-#                                     environment settings, written from the
-#                                     server's own setting list, included by
+#   src/generated/settings.md         the contract's table of the start-only
+#                                     settings, the environment variables the
+#                                     server reads once at start, written from
+#                                     the server's own setting list, included by
 #                                     the Settings guide
+#   src/generated/stored-settings.md  the contract's table of the stored
+#                                     settings, the ones `PUT /config` and
+#                                     `PATCH /config` change while the server
+#                                     runs
 #   src/generated/permissions.md      the same for the twelve permissions
 #   src/generated/event-types.md      the same for the event types
 #   src/generated/contract-index.json every rule ID in the contract's chapters
@@ -35,9 +40,9 @@
 #                                     one Markdown file per top-level type with
 #                                     its subtypes inside (core.media.md,
 #                                     system.folder.md), edges.md, edge-types.md
-#                                     (a table of the edge types, with a Source
+#                                     (a table of the edge types, with a From
 #                                     types column only if one edge type
-#                                     constrains its source),
+#                                     constrains its from end),
 #                                     the three name lists (reserved-type-roots.md,
 #                                     reserved-field-names.md, searched-field-names.md)
 #                                     and, from the spec's schemas, item-fields.md,
@@ -82,7 +87,7 @@ if [ ! -f "$MARFA_ROOT/pnpm-workspace.yaml" ]; then
   exit 1
 fi
 
-for file in openapi.json GLOSSARY.md core/marfa-cli/COMMANDS.md core/marfa-core/src/builtin_catalog.json conformance/spec/errors.md conformance/spec/housekeeping.md conformance/spec/instance.md conformance/spec/types.md conformance/spec/edges.md conformance/spec/keys-and-oauth.md conformance/spec/events.md; do
+for file in openapi.json GLOSSARY.md core/marfa-cli/COMMANDS.md core/marfa-rules/src/builtin_catalog.json conformance/spec/errors.md conformance/spec/housekeeping.md conformance/spec/instance.md conformance/spec/types.md conformance/spec/edges.md conformance/spec/keys-and-oauth.md conformance/spec/events.md; do
   if [ ! -s "$MARFA_ROOT/$file" ]; then
     echo "No $file in $MARFA_ROOT. Nothing has changed." >&2
     exit 1
@@ -111,11 +116,12 @@ COMMAND_TREE="$(mktemp "${TMPDIR:-/tmp}/marfa-cli-commands.XXXXXX")"
 ERRORS="$(mktemp "${TMPDIR:-/tmp}/marfa-errors.XXXXXX")"
 HOUSEKEEPING="$(mktemp "${TMPDIR:-/tmp}/marfa-housekeeping.XXXXXX")"
 SETTINGS="$(mktemp "${TMPDIR:-/tmp}/marfa-settings.XXXXXX")"
+STORED_SETTINGS="$(mktemp "${TMPDIR:-/tmp}/marfa-stored-settings.XXXXXX")"
 PERMISSIONS="$(mktemp "${TMPDIR:-/tmp}/marfa-permissions.XXXXXX")"
 EVENT_TYPES="$(mktemp "${TMPDIR:-/tmp}/marfa-event-types.XXXXXX")"
 INDEX="$(mktemp "${TMPDIR:-/tmp}/marfa-contract-index.XXXXXX")"
 CATALOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marfa-catalog.XXXXXX")"
-cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$COMMAND_TREE" "$ERRORS" "$HOUSEKEEPING" "$SETTINGS" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$CATALOG_DIR"; }
+cleanup() { rm -rf "$CANDIDATE" "$OVERVIEW" "$COMMANDS_DIR" "$COMMAND_TREE" "$ERRORS" "$HOUSEKEEPING" "$SETTINGS" "$STORED_SETTINGS" "$PERMISSIONS" "$EVENT_TYPES" "$INDEX" "$CATALOG_DIR"; }
 trap cleanup EXIT
 
 # The overview page includes this file under its own level-2 heading, so every
@@ -356,8 +362,10 @@ fi
 
 # Each table is the part of a contract chapter between its two markers, which
 # the monorepo's CI holds to what the server defines: the code table to the
-# server's list of codes, the settings table to its settings schema, and the
-# permissions and event types to the definitions it ships.
+# server's list of codes, and the permissions and event types to the
+# definitions it ships. The two settings tables have no markers: each is the
+# first table under its own level-2 heading, which the server's registry tests
+# find the same way.
 # extract_table <chapter> <marker name> <output file> <what the table lists>
 extract_table() {
   if ! python3 - "$MARFA_ROOT/conformance/spec/$1" "$2" "$3" <<'PY'
@@ -386,9 +394,56 @@ PY
   fi
 }
 
+# extract_section_table <chapter> <heading> <output file> <what the table lists>
+extract_section_table() {
+  if ! python3 - "$MARFA_ROOT/conformance/spec/$1" "$2" "$3" <<'PY'
+import re, sys
+
+try:
+    text = open(sys.argv[1], encoding="utf-8").read()
+except UnicodeDecodeError:
+    sys.exit(1)
+
+# A heading inside a code fence is not a heading.
+lines, fence, headings = text.splitlines(), None, []
+for number, line in enumerate(lines):
+    marker = re.match(r"\s*(`{3,}|~{3,})", line)
+    if marker and (fence is None or marker.group(1).startswith(fence)):
+        fence = None if fence else marker.group(1)
+    elif fence is None and line.startswith("## "):
+        headings.append((number, line[3:].strip()))
+
+wanted = [n for n, title in headings if title == sys.argv[2]]
+if len(wanted) != 1:
+    sys.exit(1)
+start = wanted[0] + 1
+end = next((n for n, _ in headings if n > wanted[0]), len(lines))
+
+# The first run of table lines in the section is the table; rules and prose
+# after it are not.
+rows, seen = [], False
+for line in lines[start:end]:
+    if line.startswith("|"):
+        rows.append(line)
+        seen = True
+    elif seen:
+        break
+if len(rows) < 3 or not re.match(r"\|[\s:|-]+\|\s*$", rows[1]):
+    sys.exit(1)
+
+with open(sys.argv[3], "w", encoding="utf-8") as out:
+    out.write("\n".join(rows) + "\n")
+PY
+  then
+    echo "$MARFA_ROOT/conformance/spec/$1 is not UTF-8 or has no $4 table under its \"$2\" heading. Nothing has changed." >&2
+    exit 1
+  fi
+}
+
 extract_table errors.md errors "$ERRORS" code
 extract_table housekeeping.md housekeeping "$HOUSEKEEPING" "housekeeping jobs"
-extract_table instance.md settings "$SETTINGS" settings
+extract_section_table instance.md "Start-only settings" "$SETTINGS" "start-only settings"
+extract_section_table instance.md "Stored settings" "$STORED_SETTINGS" "stored settings"
 extract_table keys-and-oauth.md permissions "$PERMISSIONS" permissions
 extract_table events.md event-types "$EVENT_TYPES" "event types"
 
@@ -468,7 +523,7 @@ fi
 # input failed. A shape it does not know is refused rather than left out, so a
 # field, key or role the catalog gains cannot go missing from the Catalog
 # without someone seeing it here.
-if ! python3 - "$MARFA_ROOT/core/marfa-core/src/builtin_catalog.json" "$MARFA_ROOT/openapi.json" "$CATALOG_DIR" <<'PY'
+if ! python3 - "$MARFA_ROOT/core/marfa-rules/src/builtin_catalog.json" "$MARFA_ROOT/openapi.json" "$CATALOG_DIR" <<'PY'
 import json, os, re, sys
 
 catalog_path, spec_path, out_dir = sys.argv[1:4]
@@ -522,11 +577,16 @@ def write(name, lines):
 
 FIELD_KEYS = {"type", "label", "description", "required", "format", "enum_values", "items_type", "items_fields", "status_values", "minimum", "maximum"}
 MEMBER_KEYS = {"type", "label", "description", "required", "enum_values", "format", "minimum", "maximum"}
-TYPE_KEYS = {"id", "parent", "label", "plural", "description", "version", "fields", "display_hints", "merge_policy", "roles"}
+TYPE_KEYS = {"id", "parent", "label", "plural", "description", "version", "fields", "display_hints", "merge_policy", "roles", "tables"}
 EDGE_KEYS = {
-    "id", "label", "reverse_label", "description", "cardinality", "source_type_constraints", "target_type_constraints",
-    "cascade_on_delete", "reverse_name", "written_at", "property_schema", "shipped", "acyclic", "flat",
+    "id", "label", "reverse_label", "description", "cardinality", "from_type_constraints", "to_type_constraints",
+    "cascade_on_delete", "reverse_name", "written_from", "property_schema", "shipped", "acyclic", "flat",
 }
+TABLE_KEYS = {"label", "description", "order", "columns"}
+COLUMN_KEYS = {"type", "label", "description", "required", "enum_values", "format", "max_length", "minimum", "maximum", "type_constraints", "adds_up", "searchable"}
+COLUMN_TYPES = {"string", "email", "url", "enum", "boolean", "integer", "number", "date", "datetime", "item"}
+ORDER_TYPES = {"datetime", "number", "integer", "string"}
+ADDS_UP = {"sum", "average", "min", "max", "count"}
 STRATEGIES = {"last_writer_wins", "keep_both_copies"}
 CARDINALITIES = {"one-to-one", "one-to-many", "many-to-one", "many-to-many"}
 CASCADES = {"orphan", "cascade", "block", "with-hosts"}
@@ -621,6 +681,43 @@ def check_fields(owner, fields, allowed):
             check_fields(f"{owner}.{name}[]", field["items_fields"], MEMBER_KEYS)
 
 
+def check_tables(owner, tables):
+    if not isinstance(tables, dict) or not tables:
+        refuse(catalog_path, f"has no tables for {owner}")
+    for tname, tb in tables.items():
+        where = f"{owner}.{tname}"
+        if not isinstance(tb, dict) or not isinstance(tb.get("columns"), dict) or not tb["columns"]:
+            refuse(catalog_path, f"has a table {where} without columns")
+        if set(tb) - TABLE_KEYS:
+            refuse(catalog_path, f"has a key {sorted(set(tb) - TABLE_KEYS)[0]!r} on the table {where} that the sync does not write")
+        for key in ("label", "description"):
+            if key in tb and not (isinstance(tb[key], str) and tb[key]):
+                refuse(catalog_path, f"has a table {where} whose {key} is not text")
+        for cname, col in tb["columns"].items():
+            if not isinstance(col, dict) or col.get("type") not in COLUMN_TYPES:
+                refuse(catalog_path, f"has a column {where}.{cname} without a type the sync knows")
+            if set(col) - COLUMN_KEYS:
+                refuse(catalog_path, f"has a key {sorted(set(col) - COLUMN_KEYS)[0]!r} on the column {where}.{cname} that the sync does not write")
+            if not isinstance(col.get("description", ""), str) or ("label" in col and not (isinstance(col["label"], str) and col["label"])):
+                refuse(catalog_path, f"has a column {where}.{cname} whose description or label is not text")
+            for flag in ("required", "searchable"):
+                if not isinstance(col.get(flag, False), bool):
+                    refuse(catalog_path, f"has a column {where}.{cname} whose {flag} is not true or false")
+            if col["type"] == "enum" and not col.get("enum_values"):
+                refuse(catalog_path, f"has an enum column {where}.{cname} without values")
+            for bound in ("minimum", "maximum", "max_length"):
+                if bound in col and (isinstance(col[bound], bool) or not isinstance(col[bound], (int, float))):
+                    refuse(catalog_path, f"has a {bound} on {where}.{cname} that is not a number")
+            if "adds_up" in col and col["adds_up"] not in ADDS_UP:
+                refuse(catalog_path, f"has an adds_up on {where}.{cname} that the sync does not know")
+            if "type_constraints" in col and not (
+                isinstance(col["type_constraints"], list) and col["type_constraints"] and all(isinstance(v, str) for v in col["type_constraints"])
+            ):
+                refuse(catalog_path, f"has type_constraints on {where}.{cname} that are not a list of types")
+        if "order" in tb and tb["columns"].get(tb["order"], {}).get("type") not in ORDER_TYPES:
+            refuse(catalog_path, f"has a table {where} whose order is not one of its own columns")
+
+
 def merge_policy_value(owner, policy):
     """The strategy of each named field and the default of the rest, as values."""
     default = policy.get("default")
@@ -656,6 +753,8 @@ def render_types(types):
             if not isinstance(t.get(key), str):
                 refuse(catalog_path, f"has no {key} for {t['id']}")
         check_fields(t["id"], t.get("fields"), FIELD_KEYS)
+        if "tables" in t:
+            check_tables(t["id"], t["tables"])
         if set(t.get("roles", [])) - ROLES:
             refuse(catalog_path, f"has a role on {t['id']} other than container")
         by_id[t["id"]] = t
@@ -715,6 +814,36 @@ def render_types(types):
         cells = [[name, kind(f) + (", required" if f.get("required") else ""), described(f)] for name, f in rows]
         return [table(["Field", "Kind", "Description"], cells), ""] if cells else []
 
+    def tables_section(t, level):
+        """A table is a heading with its label, description and order, then its columns. As with a
+        field, whether a column is required or searchable is part of its kind."""
+        out = []
+        for name, tb in t.get("tables", {}).items():
+            anchor = f"{t['id'].replace('.', '-')}-table-{name.replace('_', '-')}"
+            out += ["#" * level + f" {name} [#{anchor}]", ""]
+            if tb.get("description"):
+                out += [safe(plain(tb["description"])), ""]
+            for key in ("label", "order"):
+                if key in tb:
+                    out += [f"**{key}:** {code(tb[key]) if key == 'order' else safe(plain(tb[key]))}", ""]
+            cells = []
+            for cname, col in tb["columns"].items():
+                column_kind = kind(col) + (", required" if col.get("required") else "") + (", searchable" if col.get("searchable") else "")
+                parts = [col.get("description", "")]
+                if col.get("enum_values"):
+                    parts.append("Values: " + ", ".join(code(v) for v in col["enum_values"]))
+                if col.get("type_constraints"):
+                    parts.append("Types: " + ", ".join(code(v) for v in col["type_constraints"]))
+                if "max_length" in col:
+                    parts.append(f"Maximum length: {col['max_length']}")
+                if "adds_up" in col:
+                    parts.append("Adds up: " + code(col["adds_up"]))
+                if "label" in col:
+                    parts.append("Label: " + col["label"])
+                cells.append([code(cname), column_kind, " ".join(sentence(p) for p in parts if p.strip())])
+            out += [table(["Column", "Kind", "Description"], cells), ""]
+        return out
+
     def page(t):
         """A top-level type has a page of its own, whose header gives its label, description and
         identifier, so its file starts with its fields. Its subtypes are sections of it."""
@@ -722,13 +851,15 @@ def render_types(types):
         own = settings(t, None)
         if own:
             out += ["## Settings", "", *own]
+        if t.get("tables"):
+            out += ["## Tables", "", *tables_section(t, 3)]
         children = descendants(t)
         if children:
             out += ["## Subtypes", ""]
         for child in children:
             parent = by_id[child["parent"]]
             out += [f"### {child['id']} [#{child['id'].replace('.', '-')}]", "", safe(plain(child["description"])), ""]
-            out += settings(child, parent) + fields_table(child, parent)
+            out += settings(child, parent) + fields_table(child, parent) + tables_section(child, 4)
         return out
 
     top = [t for t in types if not t.get("parent")]
@@ -771,7 +902,7 @@ def constraint(edge, key, type_ids):
 
 
 def edge_table(edges, type_ids):
-    """One row for each edge type. The Source types column appears only when some edge type constrains its source.
+    """One row for each edge type. The From types column appears only when some edge type constrains its from end.
     The reverse label is the label where an edge type names none, as the API answers it.
     Cardinality and On delete are values, so they are code: a code span keeps `many-to-many` on one line."""
     for e in edges:
@@ -785,10 +916,10 @@ def edge_table(edges, type_ids):
             refuse(catalog_path, f"has the edge type {e['id']} with no label")
         if "reverse_label" in e and not (isinstance(e["reverse_label"], str) and e["reverse_label"]):
             refuse(catalog_path, f"has the edge type {e['id']} with a reverse_label that is not a label")
-    sources = [constraint(e, "source_type_constraints", type_ids) for e in edges]
-    targets = [constraint(e, "target_type_constraints", type_ids) for e in edges]
+    sources = [constraint(e, "from_type_constraints", type_ids) for e in edges]
+    targets = [constraint(e, "to_type_constraints", type_ids) for e in edges]
     constrained = any(source != "Any type" for source in sources)
-    header = ["Edge type", "Label", "Reverse label", "Reverse name", "Cardinality", "On delete", *(["Source types"] if constrained else []), "Target types"]
+    header = ["Edge type", "Label", "Reverse label", "Reverse name", "Cardinality", "On delete", *(["From types"] if constrained else []), "To types"]
     rows = [
         [code(e["id"]), e["label"], e.get("reverse_label", e["label"]), code(e["reverse_name"]) if e.get("reverse_name") else "None", code(e["cardinality"]), code(e["cascade_on_delete"]),
          *([source] if constrained else []), target]
@@ -804,13 +935,13 @@ def render_edges(edges, type_ids):
             refuse(catalog_path, "has an edge type with no id or description")
         if set(e) - EDGE_KEYS:
             refuse(catalog_path, f"has a key {sorted(set(e) - EDGE_KEYS)[0]!r} on the edge type {e['id']} that the sync does not write")
-        if e.get("written_at") not in ("source", "target", "none"):
-            refuse(catalog_path, f"has the edge type {e['id']} with a written_at the sync does not know")
-        if e["written_at"] == "target" and not e.get("reverse_name"):
-            refuse(catalog_path, f"has the edge type {e['id']} written at its target with no reverse_name")
+        if e.get("written_from") not in ("from", "to", "none"):
+            refuse(catalog_path, f"has the edge type {e['id']} with a written_from the sync does not know")
+        if e["written_from"] == "to" and not e.get("reverse_name"):
+            refuse(catalog_path, f"has the edge type {e['id']} written from its to end with no reverse_name")
         lines = [f"## {e['id']}", "", safe(plain(e["description"])), ""]
-        if e["written_at"] != "source":
-            lines += [f"**written_at:** {code(e['written_at'])}", ""]
+        if e["written_from"] != "from":
+            lines += [f"**written_from:** {code(e['written_from'])}", ""]
         for flag in ("acyclic", "flat"):
             if not isinstance(e.get(flag, False), bool):
                 refuse(catalog_path, f"has the edge type {e['id']} with an {flag} that is not true or false")
@@ -945,7 +1076,7 @@ ITEM_GROUPS = (
     ("Origin", ("source", "source_id", "capture_latitude", "capture_longitude")),
     ("State", ("state", "read_only", "trashed_at", "trashed_by_cascade", "trashed_with")),
     ("Version", ("version", "schema_version")),
-    ("Time", ("occurred_at", "created_at", "updated_at")),
+    ("Time", ("occurred_at", "created_at", "updated_at", "last_activity_at")),
 )
 
 
@@ -964,11 +1095,17 @@ def item_fields():
 
 
 def delivery(name):
-    """The properties a webhook body adds to its frame: the allOf member that is not the frame's reference."""
-    members = [m for m in schema(name).get("allOf", []) if "$ref" not in m]
-    if len(members) != 1 or not isinstance(members[0].get("properties"), dict):
+    """The properties a webhook body adds to its frame: the allOf member that is not the frame's reference,
+    written inline or as a reference to a schema of its own."""
+    members = schema(name).get("allOf", [])
+    frames = [m for m in members if "$ref" in m and m["$ref"].endswith("Frame")]
+    others = [m for m in members if m not in frames]
+    if len(frames) != 1 or len(others) != 1:
         refuse(spec_path, f"has a webhook schema {name} that is not a frame plus its delivery fields")
-    return members[0]["properties"]
+    added = schema(others[0]["$ref"].rsplit("/", 1)[-1]) if "$ref" in others[0] else others[0]
+    if not isinstance(added.get("properties"), dict):
+        refuse(spec_path, f"has a webhook schema {name} that is not a frame plus its delivery fields")
+    return added["properties"]
 
 
 def render_spec():
@@ -980,13 +1117,15 @@ def render_spec():
     write("edge-fields.md", [table(header, rows(properties("Edge")))])
 
     lines = ["## Item event fields", "", table(header, rows(properties("ItemEventFrame"))), ""]
+    lines += ["## Rows event fields", "", table(header, rows(properties("RowsChangedFrame"))), ""]
     lines += ["## Edge event fields", "", table(header, rows(properties("EdgeEventFrame"))), ""]
-    item_delivery, edge_delivery = delivery("WebhookItemEvent"), delivery("WebhookEdgeEvent")
-    if item_delivery == edge_delivery:
-        lines += ["## Webhook delivery fields", "", table(header, rows(item_delivery)), ""]
+    lines += ["## Attention event fields", "", table(header, rows(properties("AttentionEventFrame"))), ""]
+    deliveries = {kind: delivery(f"Webhook{kind}Event") for kind in ("Item", "Rows", "Edge", "Attention")}
+    if all(found == deliveries["Item"] for found in deliveries.values()):
+        lines += ["## Webhook delivery fields", "", table(header, rows(deliveries["Item"])), ""]
     else:
-        lines += ["## Item webhook delivery fields", "", table(header, rows(item_delivery)), ""]
-        lines += ["## Edge webhook delivery fields", "", table(header, rows(edge_delivery)), ""]
+        for kind, found in deliveries.items():
+            lines += [f"## {kind} webhook delivery fields", "", table(header, rows(found)), ""]
 
     # The frames of a stream that are not events, each named by the constant
     # its event_type holds. A frame with no other field is a row with None.
@@ -1025,6 +1164,7 @@ mv "$COMMAND_TREE" "$GENERATED/cli-commands.json"
 mv "$ERRORS" "$GENERATED/error-codes.md"
 mv "$HOUSEKEEPING" "$GENERATED/housekeeping.md"
 mv "$SETTINGS" "$GENERATED/settings.md"
+mv "$STORED_SETTINGS" "$GENERATED/stored-settings.md"
 mv "$PERMISSIONS" "$GENERATED/permissions.md"
 mv "$EVENT_TYPES" "$GENERATED/event-types.md"
 mv "$INDEX" "$GENERATED/contract-index.json"
@@ -1053,4 +1193,4 @@ docker run --name marfa -d --restart unless-stopped -p 127.0.0.1:8600:8600 \\
 \`\`\`
 IMAGE
 
-echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, its command tree, the error codes, the housekeeping jobs, the settings, the permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE), its CLI download and its server image commands synced from $MARFA_ROOT"
+echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, its command tree, the error codes, the housekeeping jobs, the start-only and stored settings, the permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE), its CLI download and its server image commands synced from $MARFA_ROOT"
