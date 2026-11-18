@@ -1,0 +1,224 @@
+---
+title: Keep folders syncing
+description: Keep every folder on your computer in step with one watch, and work on a folder's files while it runs.
+---
+
+A folder you [set up](/use/sync-a-folder) stays in step only while something watches it. **One `marfa folders watch` keeps every folder on the computer in step**, and [Sync from login](/use/keep-folders-syncing) starts it each time you sign in, so a folder needs no terminal left open.
+
+The watch needs no `--url` or `--key`: it reads each folder's credential from the keychain, so run `marfa keys keep` for a folder's key first, as [the CLI](/cli#connect-to-a-server) shows. On a computer where nobody signs in to unlock the keychain, [use a key file instead](/use/keep-folders-syncing#use-a-key-file-instead-of-the-keychain).
+
+## Watch every folder
+
+With no directory, the command watches every folder that `marfa folders list` shows, in one process:
+
+<Terminal>
+
+```bash
+marfa folders watch
+```
+
+```text
+watching every folder /Users/sam/Library/Application Support/Marfa/folders.json lists (interrupt to stop)
+/Users/sam/Notes: watching
+/Users/sam/Recipes: watching
+/Users/sam/Notes: 0 created, 1 updated, 0 renamed, 0 deleted; the server answered 1 write(s); 1 file(s) written
+```
+
+</Terminal>
+
+Press Ctrl-C to stop it. `SIGTERM` stops it the same way, with exit 0, so a service manager that stopped it doesn't start it again. **A watch you started yourself keeps running the build it started with:** when you install a new one, it says so once and goes on, so start it again to use the new build.
+
+| Option | What it does |
+| --- | --- |
+| `--json` | Prints each line as one JSON object with a `dir` field. |
+| `--for <seconds>` | Stops the watch after that long. |
+| `--log <file>` | Writes its output to a file in place of the terminal. When Ctrl-C or `SIGTERM` stops the watch, the last line in the file names the signal and the time, and the process that sent it where your system reports one. |
+| `--exit-on-new-build` | Ends the watch with exit status 3 once a new build is installed at the path it was started by, after the passes under way finish, so a service manager starts the new build. [Sync from login](/use/keep-folders-syncing#after-you-upgrade-the-cli) uses it. |
+| `--key-file <file>` | Takes the server and key from a file in place of the keychain. See [Use a key file instead of the keychain](/use/keep-folders-syncing#use-a-key-file-instead-of-the-keychain). |
+
+To watch one folder, name its directory: `marfa folders watch Notes`.
+
+### How the watch treats folders
+
+- **It follows the list.** A folder you add with `marfa folders add` joins the watch, and one you remove leaves it, with no restart.
+- **Each folder keeps its own server and credential.** Folders on different servers share one watch, and no key is sent to a server it wasn't made for.
+- **A profile works for a watch you run yourself.** `marfa folders watch --profile <name>` uses the profile's key for folders on the profile's server, and the keychain for the rest. A `key_command` runs once, when the watch starts, so restart the watch after you change the key.
+- **One folder that can't be watched doesn't stop the others.** The watch reports it once and tries again. A folder fails to open while its first sync waits for `marfa folders confirm`, while another process works it, or when the keychain holds no credential for its server.
+- **A folder whose directory can't be found stays listed,** such as one on a disk that isn't connected. The watch reports these in one line, and `marfa folders remove` takes one off. [Folder safeguards](/folder-rules#a-missing-or-unreadable-directory) covers a path that now holds a different directory.
+
+## What the watch does while it runs
+
+**An edit reaches the instance within seconds**, because the system tells the watch which files changed. In case the system misses one, the watch also **reads every file once every 10 minutes**. For a large folder that rarely changes, raise the folder's `full_pass_interval_seconds`, from 60 to 86400 seconds, with `marfa folders change <id> --full-pass-interval-seconds 3600` or in `.marfa/folder.yaml`; a running watch takes the change without a restart. A missing file that may have moved to another folder is looked for again about once a minute, whatever the interval.
+
+A watch rewrites only the files a change affects: the changed item's file, files that show a linked item, files whose links change when a name changes, and any file the last pull couldn't write. **It rewrites every file** on its first pull, after a type or the folder's settings change, and when more than 4,096 items changed since the last pull. With nothing to do, it rewrites nothing.
+
+**Once an hour it rewrites every file** to check that choice. If that rewrites a file the choice skipped, it reports `warning: the hourly check rewrote <path>`.
+
+The contract states these as [`folders/watch-quiet-pass-unrendered`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#folderswatch-quiet-pass-unrendered), [`folders/watch-pull-renders-reached`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#folderswatch-pull-renders-reached) and [`folders/watch-hourly-full-render`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md#folderswatch-hourly-full-render).
+
+## Work on a folder while the watch runs
+
+One process works a folder at a time. A command that works a folder, such as `marfa folders confirm`, `restore`, `remove`, `push`, `pull` or `unmatched --remove`, asks the running watch for it. The watch finishes the step it is on, so no write is cut off, lets the folder go and keeps the others in step. It takes the folder back when the command ends, and prints:
+
+```text
+/Users/sam/Notes: let go to a command that asked for it; taken back once that command ends
+/Users/sam/Notes: taken back from the command it was let go to, and watched again
+```
+
+If the watch hasn't let go within 10 seconds, such as when it is suspended or waiting on a slow server, the command is refused with `reading_handle` before it changes anything. Run it again. A second `marfa folders watch` of the same folder is refused at once, because a watch never asks for a folder.
+
+## Send without pulling
+
+To send files you added or edited without writing the instance's changes into the directory yet, push with `--send-only`.
+
+**Stop any watch first, including [sync from login](/use/keep-folders-syncing)** (`marfa folders autostart off`, then `on` afterwards). A running watch pulls the instance's changes by itself, and takes the folder back after the push to pull what the push left.
+
+<Terminal>
+
+```bash
+marfa folders push Notes --send-only
+```
+
+```text
+1 created, 0 updated, 0 renamed, 2 unchanged, 0 missing, 0 deleted, 0 skipped
+the server answered 2 write(s), creating 1 item(s)
+send-only run: nothing was pulled, so no item's file was written or removed; the next `folders push` pulls what the server holds
+```
+
+</Terminal>
+
+It writes and removes no file outside the folder's `.marfa` directory. If the instance can't be reached, the writes stay queued. While the first sync waits for confirmation, the push is refused with `first_sync_waiting`.
+
+## Remove files a folder keeps but no longer holds
+
+When an item leaves a folder's query, for example because its type changed to one the query doesn't hold, the folder keeps its file instead of removing it. List those files:
+
+<Terminal>
+
+```bash
+marfa folders unmatched Notes
+```
+
+```text
+1 unmatched file(s), 1 of them removable with `folders unmatched --remove`
+Walks.md
+```
+
+</Terminal>
+
+Listing works while the watch runs. To take the files away, add `--remove`. At a terminal it asks first; in a script, pass `--yes`, or the command is refused and removes nothing.
+
+<Terminal>
+
+```bash
+marfa folders unmatched Notes --remove --yes
+```
+
+```text
+1 file(s) removed; their items are unchanged in Marfa, and the folder's placement of each ends, sent at the next `folders push`
+```
+
+</Terminal>
+
+Remove them with this command, **never by hand**: a file you delete by hand deletes its item, while this command ends only the folder's placement of it. It keeps a file you edited since the folder wrote it, or whose item has a change waiting, and says why.
+
+The rules behind this guide are in the [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapter of the contract.
+
+## Move to a newer CLI
+
+A folder keeps its working copy, and its record of which file is which item, in a store shaped by the build that made it. A newer CLI's next push, pull, scan or watch **replaces the store itself, unless it holds writes not yet sent or answers not yet recorded**. It says so on standard error, keeps the record of the files and the first sync, and changes no file. If writes are waiting, push the folder with the earlier CLI first. **It may also fill the folder's copy again once** to match its query, keeping every unsent write and file. [Folders](/run/troubleshooting/folders#wrong_schema-on-a-folders-store) covers a write the server refused or gave up on.
+
+If folders sync from login, run `marfa folders autostart on` again with the same options after you upgrade, so the agent gets the newer build's settings. [Sync from login](/use/keep-folders-syncing#after-you-upgrade-the-cli) says how to tell.
+
+## Start the watch when you sign in
+
+`marfa folders autostart` starts [the watch](/use/keep-folders-syncing) when you sign in to the computer, in your own account, on macOS and Linux. Every folder then stays in step with no terminal left open. It needs no administrator.
+
+### Turn it on
+
+```bash
+marfa folders autostart on
+```
+
+It starts the watch at once and says which file it wrote. The agent runs `marfa folders watch --exit-on-new-build`, by the path you ran the CLI by, so **the watch moves to each new build you install**. Running `on` again changes nothing unless the agent would differ, such as after the program moved.
+
+- **The agent:** on macOS a launchd agent, and on Linux a systemd user unit. It holds **no credential and no server**: each folder uses the keychain's credential for its server, so on Linux the keychain must be unlocked at login. With a [key file](#use-a-key-file-instead-of-the-keychain) it holds that file's path and nothing from it.
+- **The log:** `folder-watch.log` beside the folder registry, readable by you alone. At 1 MiB it moves to `folder-watch.log.1`.
+- **When the watch stopped:** a watch that `SIGTERM` or Ctrl-C stops exits 0, so the service manager doesn't start it again, and the last line of the log says so, such as `2026-10-29T12:00:00Z folders watch stopped by SIGTERM, sent by process 4821`. The time is UTC. The process is the one that sent the signal, and the line leaves it out where your system doesn't report one. If edits stop reaching the server, read the end of the log first.
+- **Output from before the log opens:** an error the watch makes before it opens its log, such as a log that can't be opened, goes to `folder-watch.launchd.log` beside the log on macOS, readable by you alone and moved to `folder-watch.launchd.log.1` at 1 MiB. On Linux the user journal keeps it: `journalctl --user -u marfa-folder-watch.service`.
+- **Restarts:** the service manager starts the watch again only after it fails, and no sooner than 30 seconds after it last started.
+- **The priority:** the watch gives way to what you are doing and keeps working when every core is busy. On macOS the agent sets `Nice` to 10 and `LowPriorityIO` to true, and sets no `ProcessType`, because launchd's `Background` class can starve the watch under full load. On Linux the unit sets `Nice=10`, `IOSchedulingClass=best-effort` and `IOSchedulingPriority=7`. On macOS the watch's threads also run at utility quality of service, however the watch starts.
+
+`marfa folders autostart on` refuses `--profile`, and the watch it starts doesn't read `MARFA_PROFILE`.
+
+### Send error reports from the watch
+
+The agent doesn't inherit your shell, so **the watch carries the telemetry settings set in the shell that ran `on`**: `MARFA_POSTHOG_HOST` and `MARFA_POSTHOG_PROJECT_TOKEN` for error reports, and the `OTEL_*` settings for traces, as [What the CLI and apps send](/run/client-telemetry#what-the-cli-sends) lists. Set them, then turn it on:
+
+```bash
+export MARFA_POSTHOG_HOST=https://eu.i.posthog.com
+export MARFA_POSTHOG_PROJECT_TOKEN=<project token>
+marfa folders autostart on
+```
+
+`on` names each setting it carried, or says it carried none, in which case the watch sends no reports. The values go to `folder-watch.env` beside the folder registry, readable by you alone, because a setting can hold a credential; the agent holds only the file's path. A setting already in the watch's environment wins over the file.
+
+**To change them, set them and run `on` again**: it rewrites the file and restarts the watch. Run with none set, or run `off`, and the file goes.
+
+### After you upgrade the CLI
+
+When an upgrade, such as `brew upgrade`, puts a new build at the path the agent names, **the watch moves to it by itself.** The watch notices it, finishes the passes under way and ends with exit status 3, and the service manager starts the new build. Nothing it was sending is lost: what it hadn't reached stays in the folder, and the new build sends it. The log names both builds:
+
+```text
+restarting for a new build: marfa 0.0.55 to 0.0.56; the watch ends once the passes under way finish, and the service manager starts /opt/homebrew/bin/marfa
+```
+
+A path that leads to no file, or to a file that isn't a build of the CLI, such as during an uninstall, is said once in the log, and the watch goes on.
+
+**An agent that an earlier build wrote doesn't move by itself.** `status` reports it as outdated, and `marfa folders status` says when a folder's watch runs another build than the command. Run `marfa folders autostart on` again with the same options, such as `--key-file`, to replace it. The same holds whenever `status` says the agent differs from what `on` writes now.
+
+### Check it or turn it off
+
+```bash
+marfa folders autostart status
+marfa folders autostart off
+```
+
+`status` needs no server or credential. It reports:
+
+- Whether the agent is installed and running.
+- Whether the agent differs from the one `on` writes now, as one from an earlier build does, and that running `on` again with the same options replaces it. `--json` reports this as `outdated`.
+- Which program the agent runs, and whether that program is gone or isn't the one you ran.
+- Where the agent logs, and on macOS where launchd keeps the watch's output from before its log opens.
+- The key file the agent names, or none where it uses the keychain.
+- Which folders the watch isn't holding, and why, including each folder with no credential the watch can use.
+
+`off` stops the watch and removes the agent. If the service manager can't be asked, it still removes the agent's file, exits 3 and says what it couldn't stop.
+
+Another program can show the same state from [the folder sync status file](/folder-sync-status).
+
+### Use a key file instead of the keychain
+
+A login agent starts outside your shell and reads your own keychain. On a machine that no one signs in to, such as a server or an automated Mac, the keychain stays locked and would raise a prompt that nobody answers. **A key file replaces the keychain for the watch**, and the agent holds the file's path and never what is in it.
+
+Make a key with only the permissions the folders need, as [Manage keys](/run/manage-keys) shows, and write the file with two lines:
+
+```bash
+MARFA_API_URL=https://marfa.example.com
+MARFA_API_KEY=<the key>
+```
+
+```bash
+chmod 600 ~/.config/marfa/watch.env
+marfa folders autostart on --key-file ~/.config/marfa/watch.env
+```
+
+To run one watch by hand with the same file, use `marfa folders watch --key-file <file>`.
+
+- **The file can live anywhere outside your folders.** It has to be a regular file with one name, owned by you, closed to the group and to others (mode 600), and with both lines and a server address. Otherwise the command exits 1 with `invalid` and says which fault, and `autostart on` writes nothing. A file inside a folder is refused, because the watch would send it to the server as one of the folder's files.
+- **The key is used for the folders on that server,** and the keychain is read for none. A folder on another server is reported as having no credential, and the key is never sent to it.
+- **The file is read again each time a folder is opened,** so a key you rotate in the file is the one used the next time the watch opens a folder. A file that has become unsafe holds that folder back, with the reason `invalid` in [the folder sync status file](/folder-sync-status), until it is fixed, and the other folders go on.
+- **`--key-file` replaces `--url`, `--key` and `--profile`:** giving any of them with it is a usage error, exit code 2.
+- **`autostart on` without the option** goes back to the keychain and replaces the agent.
+
+The rules behind this guide are in the [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapter of the contract.
