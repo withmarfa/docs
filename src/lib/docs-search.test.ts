@@ -16,13 +16,13 @@ import { source } from '@/lib/source';
  */
 const EXPECTED: [query: string, pages: string[]][] = [
   // Ideas an outside reader names differently from the docs.
-  ['optimistic concurrency', ['/versions']],
-  ['etag', ['/versions']],
-  ['If-Match header', ['/versions']],
-  ['412 precondition', ['/versions']],
-  ['timestamps', ['/items-and-types']],
-  ['delete vs purge', ['/items-and-types']],
-  ['soft delete trash', ['/items-and-types']],
+  ['optimistic concurrency', ['/build/versions']],
+  ['etag', ['/build/versions']],
+  ['If-Match header', ['/build/versions']],
+  ['412 precondition', ['/build/versions']],
+  ['timestamps', ['/build/items-and-types']],
+  ['delete vs purge', ['/build/items-and-types']],
+  ['soft delete trash', ['/build/items-and-types']],
 
   // Errors, headers and writes.
   ['409', ['/api-reference/errors']],
@@ -33,7 +33,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['retry a write safely', ['/build/write-safely']],
   [
     'rate limit 429',
-    ['/run/troubleshooting/credentials-and-access', '/run/folder-safeguards', '/build/connector-holds-and-retries', '/run/settings'],
+    ['/run/troubleshooting/credentials-and-access', '/folder-rules', '/build/connector-holds-and-retries', '/run/settings'],
   ],
   ['retry-after', ['/build/connector-webhooks', '/build/connector-holds-and-retries', '/build/keep-in-sync']],
   ['CORS', ['/run/settings']],
@@ -60,17 +60,17 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['print-token', ['/cli']],
   ['--print-token', ['/cli']],
 
-  ['edge type', ['/edges', '/catalog/edges']],
-  ['edge_cycle', ['/edges']],
+  ['edge type', ['/build/edges', '/catalog/edges']],
+  ['edge_cycle', ['/build/edges']],
 
   // Running an instance.
   ['environment variables', ['/run/settings']],
-  ['docker compose', ['/run/install', '/run/deploy']],
-  ['litestream', ['/run/deploy', '/run/back-up-and-restore']],
-  ['s3 bucket', ['/run/settings', '/run/deploy', '/run/install', '/run/back-up-and-restore']],
+  ['docker compose', ['/run/install', '/run/run-on-a-server']],
+  ['litestream', ['/run/run-on-a-server', '/run/back-up-and-restore']],
+  ['s3 bucket', ['/run/settings', '/run/run-on-a-server', '/run/install', '/run/back-up-and-restore']],
   ['upgrade server', ['/run/upgrade']],
-  ['folders autostart', ['/run/sync-from-login']],
-  ['watch key file', ['/run/sync-from-login']],
+  ['folders autostart', ['/use/keep-folders-syncing']],
+  ['watch key file', ['/use/keep-folders-syncing']],
   ['change instance name', ['/run/settings']],
   ['install marfa on linux', ['/cli', '/run/install', '/quickstart']],
   ['how do I back up my data', ['/run/back-up-and-restore', '/run/export-and-restore']],
@@ -87,12 +87,12 @@ const EXPECTED: [query: string, pages: string[]][] = [
 
   // A flag that is also an ordinary word, and a word that starts a permission scope (`webhooks.manage`).
   ['--force', ['/build/change-a-type']],
-  ['--scope', ['/docs-for-agents']],
-  ['webhooks', ['/events', '/build/receive-webhooks']],
-  ['audit', ['/run/audit-log']],
+  ['--scope', ['/docs-mcp-server']],
+  ['webhooks', ['/build/events', '/build/receive-webhooks']],
+  ['audit', ['/use/audit-log']],
 
   // An apostrophe is part of a word, not a break in it.
-  ["can't overwrite", ['/agents-cli-and-mcp', '/run/export-and-restore']],
+  ["can't overwrite", ['/connect-your-agent', '/run/export-and-restore']],
 ];
 
 /**
@@ -153,7 +153,7 @@ describe('a query that names a page', () => {
   it('shows that page first, by its title or its identifier', async () => {
     expect((await searchDocs('note')).hits[0].url).toBe('/catalog/note');
     expect((await searchDocs('core.task')).hits[0].url).toBe('/catalog/task');
-    expect((await searchDocs('versions')).hits[0].url).toBe('/versions');
+    expect((await searchDocs('versions')).hits[0].url).toBe('/build/versions');
   });
 });
 

@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import type * as PageTree from 'fumadocs-core/page-tree';
 import { describe, expect, it } from 'vitest';
 import { SECTIONS } from '@/components/section-nav';
 import { pathToSlugs } from './docs-tools';
@@ -32,7 +33,7 @@ describe('links in the site code', () => {
 
   it('finds the header and section links', () => {
     expect(links.some(({ url }) => url === '/')).toBe(true);
-    expect(links.some(({ url }) => url === '/reference')).toBe(true);
+    expect(links.some(({ url }) => url === '/catalog/items')).toBe(true);
   });
 
   it.each(links.map(({ file, url }) => [url, file]))('%s in %s reaches a page', (url) => {
@@ -49,12 +50,25 @@ describe('the section pills', () => {
     expect(SECTIONS.map((section) => section.label)).toEqual(tabs.map((tab) => tab.title));
   });
 
-  it("open each tab on its first page, titled Overview", () => {
+  // A tab opens on the first page its sidebar lists; no tab has a landing page of its own.
+  const firstPage = (nodes: PageTree.Node[]): string | undefined => {
+    for (const node of nodes) {
+      if (node.type === 'page') return node.url;
+      if (node.type === 'folder') {
+        const url = node.index?.url ?? firstPage(node.children);
+        if (url) return url;
+      }
+    }
+    return undefined;
+  };
+
+  it('open each tab on the first page of its sidebar', () => {
+    const folders = source.getPageTree().children.filter((node) => node.type === 'folder');
+    expect(folders.map((folder) => folder.name)).toEqual(tabs.map((tab) => tab.title));
     for (const [index, section] of SECTIONS.entries()) {
-      const page = source.getPage(pathToSlugs(section.href));
-      expect(page, section.href).toBeDefined();
-      expect(page!.data.title, section.href).toBe('Overview');
-      expect(tabs[index].pages[0], section.label).not.toMatch(/^---/);
+      expect(source.getPage(pathToSlugs(section.href)), section.href).toBeDefined();
+      const folder = folders[index] as PageTree.Folder;
+      expect(section.href, section.label).toBe(folder.index?.url ?? firstPage(folder.children));
     }
   });
 });

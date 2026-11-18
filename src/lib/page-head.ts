@@ -5,9 +5,8 @@ type PageHeadData = { title: string; headTitle?: string; description: string; ur
 
 /**
  * A page's name in browser tabs, search results and link previews: its
- * `headTitle` when it has one, else its title. Every tab opens on a page titled
- * Overview, so those pages set `headTitle` to tell them apart. The site name
- * follows, unless the name already starts with it, as the landing page's does.
+ * `headTitle` when it has one, else its title. A page whose title another
+ * page shares sets `headTitle` to tell them apart. The site name follows, unless the name already starts with it, as the landing page's does.
  */
 export function headTitle(data: Pick<PageHeadData, 'title' | 'headTitle'>): { title: string; ogTitle: string } {
   const ogTitle = data.headTitle ?? data.title;

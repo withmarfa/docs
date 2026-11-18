@@ -10,9 +10,9 @@ export function NotFound() {
     <HomeLayout {...baseOptions()} slots={{ ...baseOptions().slots, header: DocsHomeHeader }}>
       <ErrorPage
         title="Page not found"
-        message="There's no page at this address. It may have moved, so start from the Overview or the Quickstart."
+        message="There's no page at this address. It may have moved, so start from the home page or the Quickstart."
         primaryHref="/"
-        primaryLabel="Go to the Overview"
+        primaryLabel="Go to the home page"
         secondaryHref="/quickstart"
         secondaryLabel="Quickstart"
       />

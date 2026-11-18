@@ -419,14 +419,14 @@ describe('structured results', () => {
   it('declares no outputSchema for docs_fetch, which returns Markdown and not JSON', async () => {
     const tools = await listTools(legacyPost({ jsonrpc: '2.0', id: 2, method: 'tools/list' }));
     expect(tools.find((t) => t.name === 'docs_fetch')?.outputSchema).toBeUndefined();
-    const result = await callTool('docs_fetch', { path: '/files' });
+    const result = await callTool('docs_fetch', { path: '/build/files' });
     expect(result.structuredContent).toBeUndefined();
-    expect(result.content![0]!.text).toMatch(/^# Files \(\/files\)/);
+    expect(result.content![0]!.text).toMatch(/^# Files \(\/build\/files\)/);
   });
 });
 
 describe('docs_fetch takes the path forms its description lists', () => {
-  const PAGE = '/files';
+  const PAGE = '/build/files';
 
   it('describes the forms it accepts', async () => {
     const tools = await listTools(legacyPost({ jsonrpc: '2.0', id: 2, method: 'tools/list' }));
@@ -438,22 +438,22 @@ describe('docs_fetch takes the path forms its description lists', () => {
 
   it('answers one page for each form', async () => {
     const whole = (await callTool('docs_fetch', { path: PAGE })).content![0]!.text;
-    for (const path of ['files', '/files.md', 'files.md', '/files/', 'https://docs.marfa.so/files', 'https://docs.marfa.so/files.md']) {
+    for (const path of ['build/files', '/build/files.md', 'build/files.md', '/build/files/', 'https://docs.marfa.so/build/files', 'https://docs.marfa.so/build/files.md']) {
       expect((await callTool('docs_fetch', { path })).content![0]!.text, path).toBe(whole);
     }
   });
 
   it('treats a /docs/ prefix as part of the path, so it is a miss', async () => {
-    const result = await callTool('docs_fetch', { path: '/docs/files' });
+    const result = await callTool('docs_fetch', { path: '/docs/build/files' });
     expect(result.isError).toBe(true);
     const payload = JSON.parse(result.content![0]!.text) as { error: string; slugs: string[] };
     expect(payload.error).toBe('not_found');
-    expect(payload.slugs).toEqual(['docs', 'files']);
+    expect(payload.slugs).toEqual(['docs', 'build', 'files']);
   });
 });
 
 describe('docs_fetch takes an optional section', () => {
-  const PAGE = '/files';
+  const PAGE = '/build/files';
   const HEADING = 'Who may read a blob';
 
   it('describes the section input', async () => {
@@ -503,7 +503,7 @@ describe('docs_fetch takes an optional section', () => {
       headings: { level: number; text: string; id: string | null }[];
     };
     expect(payload.error).toBe('section_not_found');
-    expect(payload.message).toBe('No section "No such heading" on /files');
+    expect(payload.message).toBe('No section "No such heading" on /build/files');
     expect(payload.path).toBe(PAGE);
     expect(payload.section).toBe('No such heading');
     const texts = payload.headings.map((h) => h.text);

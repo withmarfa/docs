@@ -14,7 +14,7 @@ import { parse as parseYaml } from 'yaml';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const CONTENT = path.join(ROOT, 'content/docs');
-const CATALOG_PAGES = path.join(CONTENT, 'catalog');
+const CATALOG_PAGES = path.join(CONTENT, '(reference)', 'catalog');
 const GENERATED = path.join(ROOT, 'src/generated/catalog');
 
 interface Field {
@@ -234,7 +234,7 @@ const PAGES = (readdirSync(CATALOG_PAGES, { recursive: true }) as string[])
   .map((file) => ({
     slug: path.basename(file, '.mdx') === 'index' && path.dirname(file) !== '.' ? path.basename(path.dirname(file)) : path.basename(file, '.mdx'),
     group: path.dirname(file),
-    file: `content/docs/catalog/${file}`,
+    file: `content/docs/(reference)/catalog/${file}`,
     text: readFileSync(path.join(CATALOG_PAGES, file), 'utf8'),
   }));
 
@@ -245,11 +245,11 @@ const CORE_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('core.'));
 const SYSTEM_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('system.'));
 /** Where a type's page belongs, for the message of a type that has none. */
 const missingPage = (type: CatalogType) =>
-  `The catalog ships ${type.id} and no page covers it. Expected content/docs/catalog/(types)/(${type.id.split('.')[0]})/${slugOf(type)}.mdx, titled "${type.label}" with identifier ${type.id}, listed in that folder's meta.json and including src/generated/catalog/${type.id}.md.`;
+  `The catalog ships ${type.id} and no page covers it. Expected content/docs/(reference)/catalog/(types)/(${type.id.split('.')[0]})/${slugOf(type)}.mdx, titled "${type.label}" with identifier ${type.id}, listed in that folder's meta.json and including src/generated/catalog/${type.id}.md.`;
 const CORE_SLUGS = CORE_TYPES.map(slugOf);
 const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
 /** The pages that are not the page of one type. */
-const OTHER_PAGES = ['index', 'items', 'types', 'field-kinds', 'type-rules', 'display-hints', 'edges', 'events', 'permissions', 'connectors'];
+const OTHER_PAGES = ['items', 'types', 'field-kinds', 'type-rules', 'display-hints', 'edges', 'events', 'permissions', 'connectors'];
 /** The connectors Marfa ships, one page each beneath the Connectors page. */
 const CONNECTORS_DIR = 'connectors';
 const CONNECTOR_SLUGS = ['github', 'google-calendar', 'todoist', 'readwise', 'readwise-reader', 'rss'];
@@ -289,7 +289,7 @@ describe('the tab', () => {
   it('lists exactly those pages in its meta.json files', () => {
     const readMeta = (dir: string) => JSON.parse(readFileSync(path.join(CATALOG_PAGES, dir, 'meta.json'), 'utf8'));
     const meta = readMeta('.');
-    expect(meta.root).toBe(true);
+    expect(meta.root).toBeUndefined();
     const listed = meta.pages.filter((entry: string) => !entry.startsWith('---'));
     const groups = listed.filter((entry: string) => entry.startsWith('('));
     const direct = listed.filter((entry: string) => !entry.startsWith('('));
@@ -698,7 +698,7 @@ describe('the links', () => {
 
   it('reach a heading on the page they name, from the pages, from the generated files they include and from every page that links to the Catalog', () => {
     const elsewhere = (readdirSync(CONTENT, { recursive: true }) as string[])
-      .filter((file) => file.endsWith('.mdx') && !file.startsWith('catalog'))
+      .filter((file) => file.endsWith('.mdx') && !file.startsWith(path.join('(reference)', 'catalog')))
       .map((file) => ({ file: `content/docs/${file}`, text: readFileSync(path.join(CONTENT, file), 'utf8') }))
       .filter(({ text }) => text.includes('](/catalog'));
     const sources = [
@@ -715,7 +715,7 @@ describe('the links', () => {
         if (!file.includes('/catalog/') && !target.startsWith('/catalog')) continue;
         const page = target.startsWith('/catalog')
           ? PAGES.find((candidate) => candidate.slug === (target.split('/').at(-1) === 'catalog' ? 'index' : target.split('/').at(-1)))?.file ?? target
-          : /^\/(build|run)\//.test(target)
+          : /^\/(use|run|build)\//.test(target)
             ? `content/docs${target}.mdx`
             : ['(start)', '(reference)'].map((group) => `content/docs/${group}${target}.mdx`).find((file) => existsSync(path.join(ROOT, file))) ?? target;
         const ids = headingIds(page);

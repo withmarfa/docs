@@ -62,7 +62,7 @@ const searchOutput = z.object({
     .array(
       z.object({
         title: z.string().describe('Page title.'),
-        url: z.string().describe('Page path, such as "/files". Pass it to docs_fetch.'),
+        url: z.string().describe('Page path, such as "/build/files". Pass it to docs_fetch.'),
         snippets: z.array(z.string()).describe('Passages of the page that match the query, as plain text.'),
       }),
     )
@@ -74,7 +74,7 @@ const topicsOutput = z.object({
     .array(
       z.object({
         title: z.string().describe('Page title.'),
-        url: z.string().describe('Page path, such as "/files". Pass it to docs_fetch.'),
+        url: z.string().describe('Page path, such as "/build/files". Pass it to docs_fetch.'),
         description: z.string().nullable().describe('The page\'s one-sentence description, or null when it has none.'),
         breadcrumbs: z.array(z.string()).describe('The path segments of the page\'s url.'),
       }),
