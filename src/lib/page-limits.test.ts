@@ -1,5 +1,5 @@
 /**
- * Holds every page to a word limit (STYLE.md, "Less is clearer"). The words
+ * Holds every page to a word limit (STYLE.md, "Writing"). The words
  * are those of the MDX after the frontmatter, code included and includes not
  * expanded. A page's limit comes from its kind, which its folder decides
  * unless `page-limits.json` names the page, and a lookup page has a limit of

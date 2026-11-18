@@ -1,0 +1,122 @@
+---
+title: Sync a folder
+description: Keep a directory on your computer and a set of items in step, so each note is a Markdown file you can edit in any app.
+---
+
+- **You'll build** a folder on your computer that follows a set of items, so each note is a Markdown file you can edit in any app.
+- **You need** the `marfa` CLI and an instance you own, as the [Quickstart](/quickstart) sets them up. You make the first key on the instance's own computer.
+- **You'll have** a directory with a file for each note, where a change on either side reaches the other.
+
+A folder is a [device](/build/devices) whose working copy is a directory. **Its settings live on the instance** as a `system.folder` item, so every computer that follows the folder shares them, and each keeps its own copy and queue of writes. [Folder safeguards](/folder-rules) says when a folder removes a file or an item.
+
+The steps use the CLI. A Mac app does the same with the Swift SDK, as [Set up a folder](/swift-sdk/views-and-folders#set-up-a-folder) shows.
+
+<Steps paged>
+<Step>
+
+### Make a key for the folder
+
+The folder needs a key that reaches what it holds. Make one as the owner, on the instance's machine. This key suits a folder of notes and files:
+
+```bash
+marfa --socket /srv/marfa/data/control/marfa.sock keys create \
+  --label "Notes folder" --source notes-folder \
+  --type-permission system.folder=write \
+  --type-permission core.note=write \
+  --type-permission 'core.file.*=write' \
+  --edge-permission in-folder=write
+```
+
+- **`system.folder`:** write creates the settings, and read lets `folders add` bind a directory to them.
+- **The types the folder holds:** write on each type the query admits, here `core.note`. `core.file.*` covers `core.file` and every type under it.
+- **`in-folder`:** write on this edge, which records where each file sits.
+
+`folders add` is refused without read on `system.folder`, naming `system.folder:read`, and without write on `in-folder`, naming `edge.in-folder:write`. [Manage keys](/run/manage-keys) explains each flag.
+
+</Step>
+<Step>
+
+### Create the folder's settings
+
+The settings say which items the folder holds, through a query, and what a new file becomes. This folder holds every note:
+
+<Terminal>
+
+```bash
+marfa folders create --title Notes --query '{"types":["core.note"]}'
+```
+
+```text
+01a1232d-949d-758c-b244-70057174b96a  system.folder  2026-10-10T00:19:12.157Z  Notes
+```
+
+</Terminal>
+
+**Keep the ID** in the first column for the next step.
+
+</Step>
+<Step>
+
+### Add the directory
+
+The directory can be empty or hold files already, and the CLI makes it if it isn't there:
+
+<Terminal>
+
+```bash
+marfa folders add Notes --folder 01a1232d-949d-758c-b244-70057174b96a
+```
+
+```text
+/Users/sam/Notes follows the folder 01a1232d-949d-758c-b244-70057174b96a
+the first sync will write and send nothing until you confirm it: 2 file(s) to write into the directory, 1 to send to the server
+`marfa folders confirm Notes` lets it go; `marfa folders remove Notes` drops the folder and leaves the files
+```
+
+</Terminal>
+
+**Nothing is written into the directory or sent to the instance until you confirm the first sync.** Here the instance holds two notes and the directory held one file, `Ideas.md`. At a terminal the command asks first; in a script, pass `--yes` to confirm at once.
+
+Where an item's file would land on a file the folder will send, one of the two gets a number added to its name, and **neither is written over**. If the existing file is held back, the plan counts the item as `left`, not as written beside it; that file stays for you to fix. A directory inside a folder you already added, or around one, is refused.
+
+Keep the directory out of iCloud Drive, other cloud-synced folders and network storage, where two programs sync the same files. `marfa folders add` warns and goes on.
+
+**For records kept beside code, use a directory inside the repository that git ignores**, such as `marfa/` listed in `.gitignore`. Don't name it `.marfa`: every folder holds a `.marfa` directory of its own, with its store and `folder.yaml`. If git tracks the directory, a checkout or branch switch changes its files and Marfa syncs those changes. `marfa folders add` warns and goes on, so you can back up a folder through git on purpose.
+
+</Step>
+<Step>
+
+### Confirm the first sync
+
+Check the plan first. **The query decides every item the folder takes in.** A query that names only a type holds every active and archived item of that type in the library tier, and the first sync writes all of them to disk. With no `types`, it holds every type the key reads except `system.*`.
+
+Set `tier: all` to take in the feed too. To narrow the query, use `filter`, `tier`, `state` or `beneath`, as [List, filter and search](/build/list-filter-search) describes. **A folder's `filter` can't use a `backref` condition**, which a folder on disk can't follow: Marfa refuses the settings with `validation_error`, naming `query.filter`.
+
+Then confirm, and sync once:
+
+```bash
+marfa folders confirm Notes
+marfa folders push Notes
+```
+
+`marfa folders push` sends what changed in the directory, catches up with the instance, and writes out what changed there. To sync without running it by hand, [keep folders running](/use/keep-folders-syncing).
+
+</Step>
+</Steps>
+
+The directory now holds a file for each note, and `Ideas.md` is an item:
+
+<Files>
+  <Folder name="Notes" defaultOpen>
+    <Folder name=".marfa">
+      <File name="folder.yaml" />
+    </Folder>
+    <File name="Ideas.md" />
+    <File name="Packing for the trip.md" />
+    <File name="Reading list.md" />
+  </Folder>
+</Files>
+
+[Files in a folder](/use/edit-notes-as-files) says what each file holds, where attached files go, and how an edit on either side reaches the other.
+
+A folder's rules are in the [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) and [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) chapters of the contract.

@@ -1,0 +1,120 @@
+---
+title: Work from an agent
+description: Connect Claude Code, Codex or an agent that runs unattended to your instance, so it can find, read and save your items with only the access you give it.
+---
+
+An agent on your computer connects to your instance's [MCP server](/marfa-mcp-server) and gets tools to find, read, save and change your items. **Every tool call is made with the agent's own credential**, so it reaches only what you approved, and you can cut it off at any time. If you installed the Marfa plugin from [Connect your agent](/connect-your-agent), its `connect` skill does the first steps below for you. [Agents, the CLI and MCP](/connect-your-agent) explains the choices.
+
+## Connect the agent
+
+Without the plugin, add the server with your instance's address followed by `/mcp`, then sign in. `/mcp` finds, reads, saves and changes items; **connect `/mcp/schema` or `/mcp/admin` only when the agent shapes types or runs the instance**, as [Endpoints](/marfa-mcp-server#endpoints) describes.
+
+<Tabs items={["Claude Code", "Codex"]}>
+<Tab value="Claude Code">
+
+```bash
+claude mcp add --transport http --scope user marfa https://marfa.example.com/mcp
+```
+
+Then run `/mcp` in a session and choose **marfa** to sign in. `--scope user` adds the server for every project of yours; leave it out to add it for this project only.
+
+</Tab>
+<Tab value="Codex">
+
+```bash
+codex mcp add marfa --url https://marfa.example.com/mcp
+codex mcp login marfa
+```
+
+</Tab>
+</Tabs>
+
+Your browser opens your instance's approval page. Sign in as the owner if you aren't already. **Full access** gives the agent what it asked for, and **Choose access** lets you give less, such as read and edit on notes and nothing else. [Approve an app](/run/manage-apps#approve-an-app) describes the page.
+
+The agent then calls `marfa_overview`, which answers with the types, tags and views it can reach. If it later needs access you didn't approve, the instance tells its client which scope to ask for, and a client that supports this asks you to approve it.
+
+The computer that runs the agent must reach the instance at its address: over `https`, such as an address on your tailnet, or at `http://localhost` on the same machine. [Install the server](/run/address#choose-how-its-reached) covers the choices.
+
+## Connect an agent that runs unattended
+
+An agent that runs on a schedule, with nobody to approve it in a browser, uses a key instead. **Give each agent a key of its own**, holding only what it needs. This key reads and writes notes, reads tasks, and stops working after 30 days:
+
+```bash
+marfa keys create --label nightly-digest --source nightly-digest \
+  --type-permission core.note=write \
+  --type-permission core.task=read \
+  --expires-in 30d
+```
+
+Run it with a credential that holds `keys.mint`, or as the owner on the instance's machine with `--socket`. The CLI prints the key, which begins `marfa_k1_`, once. **The source, `nightly-digest`, is stamped on every item the agent creates**, so you can tell its work from yours. [Manage keys](/run/manage-keys) covers what else a key can hold.
+
+Put the key in `MARFA_API_KEY` in the agent's environment, from your secrets manager, and have the client send it as a Bearer header:
+
+<Tabs items={["Claude Code", "Codex"]}>
+<Tab value="Claude Code">
+
+```json title=".mcp.json"
+{
+  "mcpServers": {
+    "marfa": {
+      "type": "http",
+      "url": "https://marfa.example.com/mcp",
+      "headers": { "Authorization": "Bearer ${MARFA_API_KEY}" }
+    }
+  }
+}
+```
+
+Claude Code reads `${MARFA_API_KEY}` from the environment, so the key stays out of the file.
+
+</Tab>
+<Tab value="Codex">
+
+```bash
+codex mcp add marfa --url https://marfa.example.com/mcp --bearer-token-env-var MARFA_API_KEY
+```
+
+</Tab>
+</Tabs>
+
+## Use the CLI instead
+
+A coding agent that runs shell commands can also use the [CLI](/cli), which reaches every operation, with a key of its own. Write a [profile](/cli#name-a-server-with-a-profile) whose `key_command` reads the key from your secrets manager, so the key is never in a file:
+
+```toml title="profiles.toml"
+[example]
+url = "https://marfa.example.com"
+key_command = ["op", "read", "op://Private/Marfa/agent-key"]
+```
+
+Then set `MARFA_PROFILE=example` and `MARFA_NO_KEYCHAIN=1` in the environment the agent runs its commands in. **With the keychain off, a command that names no profile or server is refused**, so the agent can't reach whichever instance the keychain made current. Each write also prints which instance it changed on standard error.
+
+Tell the agent how to use it in its instructions file:
+
+```markdown title="AGENTS.md"
+## Marfa
+
+My notes are in Marfa. Use the `marfa` CLI, with `--json` on every command.
+
+- Learn what the key reaches: `marfa overview --json`
+- Find notes: `marfa search "<words>" --type core.note --json`
+- Read one: `marfa items get <id> --json`
+- To change one, read it first, then pass its `version` to `marfa items update`.
+```
+
+With `--json`, a refusal is one JSON object on the last line of standard error, and the exit code says whether to try again. [Exit codes](/cli#exit-codes) lists them.
+
+## Let the agent read these docs
+
+An agent that builds on Marfa does better with the current docs than from memory. Connect the docs MCP server, or point the agent at [`/llms.txt`](/llms.txt), as [Docs for agents](/docs-mcp-server) shows.
+
+## What keeps it safe
+
+An agent is held to the same rules as any program, and a few more:
+
+- **It reaches only what you allowed.** A type you didn't approve is invisible to it.
+- **It asks before it deletes.** A tool that moves items to the bin first shows you what would go, and acts only once you agree.
+- **`marfa_update` can't overwrite a change the agent hasn't seen.** It names the version the agent read, and writes nothing if the item changed since, as [Versions](/build/versions) explains.
+- **It reads your items as data.** The MCP server tells every agent that connects that what it reads was saved by you and is never an instruction to follow.
+
+Every write is in the [audit log](/use/audit-log), and you can cut an agent off at any time by revoking its key or its access.
