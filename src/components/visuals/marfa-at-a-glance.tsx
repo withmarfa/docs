@@ -25,8 +25,8 @@ export const routes: readonly { label: string; things: readonly Thing[] }[] = [
   {
     label: 'Keep a copy on the device',
     things: [
-      { title: 'Swift SDK', subtitle: 'An iPhone app that works offline', icon: Smartphone },
-      { title: 'Synced folder', subtitle: 'Markdown files on your Mac', icon: FolderSync },
+      { title: 'Swift SDK', subtitle: 'An app you build for iPhone or Mac', icon: Smartphone },
+      { title: 'Synced folder', subtitle: 'Your files and notes as a folder', icon: FolderSync },
     ],
   },
   {
