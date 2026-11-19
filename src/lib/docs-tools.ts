@@ -113,36 +113,6 @@ export function tokenizeSearchText(text: string, forQuery: boolean): string[] {
   return [...tokens];
 }
 
-/**
- * Orama orders equal scores by the order it indexed pages, and many rows score alike, so that order decides which
- * page leads for a short query such as `note` or `sign in`. Index the Reference and Home pages first and the rest in
- * the loader's order, so a tie goes to the same pages whatever the folders' names sort to; `docs-search.test.ts`
- * pins the results.
- */
-const INDEXED_FIRST = ['reference', '(home)'];
-
-function indexOrder(page: { path: string }) {
-  const at = INDEXED_FIRST.indexOf(page.path.split('/')[0]);
-  return at === -1 ? INDEXED_FIRST.length : at;
-}
-
-/**
- * Built once per isolate rather than per request. Fumadocs builds the Orama
- * index lazily on first query and caches it against this instance. The site's
- * search box (`/api/search`) uses the same instance, so one cold start builds
- * one index.
- */
-export const searchServer = createFromSource(
-  { ...source, getPages: () => [...source.getPages()].sort((a, b) => indexOrder(a) - indexOrder(b)) } as typeof source,
-  {
-    tokenizer: {
-      language: 'english',
-      normalizationCache: new Map(),
-      tokenize: (raw, _language, property) => tokenizeSearchText(raw, property === undefined),
-    },
-  },
-);
-
 /** Default and ceiling for a search, mirrored in the MCP tool description. */
 export const DEFAULT_SEARCH_LIMIT = 10;
 export const MAX_SEARCH_LIMIT = 50;
@@ -333,6 +303,105 @@ function kindOf(page: (typeof source)['$inferPage']): PageKind {
   return folder === 'build' ? 'build' : 'reference';
 }
 
+type Page = (typeof source)['$inferPage'];
+
+/**
+ * How two pages of equal standing are ordered, wherever BM25 or the ranking cannot tell them apart: the better kind
+ * first (`KIND_WEIGHT`), then the title in code-unit order, then the address. It reads only what the page is, never
+ * where it sits in the index or in a folder listing, so the same pages give the same order whatever the folders
+ * are called.
+ */
+function comparePages(left: Page, right: Page): number {
+  const kinds = KIND_WEIGHT[kindOf(right)] - KIND_WEIGHT[kindOf(left)];
+  if (kinds !== 0) return kinds;
+  const [a, b] = [left.data.title ?? '', right.data.title ?? ''];
+  const titles = a < b ? -1 : a > b ? 1 : 0;
+  if (titles !== 0) return titles;
+  return left.url < right.url ? -1 : left.url > right.url ? 1 : 0;
+}
+
+/**
+ * A BM25 score at the precision that counts. Two rows with the same terms can differ in the last digits of the
+ * float, by the order the index summed its statistics in, so equal scores are compared after this rounding, which
+ * is far finer than any real difference between pages.
+ */
+function scoreTier(score: number): number {
+  return Math.round(score * 1e6);
+}
+
+type Row = [id: number, score: number, row: { page_id?: unknown }];
+
+/**
+ * The order Orama gives rows of equal BM25 score. Left alone it keeps the order the pages were indexed in, so the
+ * pages that a search cuts off at its row limit, and the order of the rows of a tie, would depend on it. A row of a
+ * better score goes first, then the row's page by `comparePages`, then the rows of one page in the order of its text.
+ */
+function compareRows(a: Row, b: Row): number {
+  if (scoreTier(a[1]) !== scoreTier(b[1])) return scoreTier(b[1]) - scoreTier(a[1]);
+  const left = typeof a[2].page_id === 'string' ? source.getPage(pathToSlugs(a[2].page_id)) : undefined;
+  const right = typeof b[2].page_id === 'string' ? source.getPage(pathToSlugs(b[2].page_id)) : undefined;
+  return (left && right ? comparePages(left, right) : 0) || a[0] - b[0];
+}
+
+/** `comparePages` for two addresses, or the address order for one that is no page. */
+function compareUrls(a: string, b: string): number {
+  const left = source.getPage(pathToSlugs(a));
+  const right = source.getPage(pathToSlugs(b));
+  return (left && right ? comparePages(left, right) : 0) || (a < b ? -1 : a > b ? 1 : 0);
+}
+
+/** Queries whose page scores `createSearchServer` keeps, oldest dropped first. */
+const SCORED_QUERIES = 100;
+
+/**
+ * A search index over the given pages. `searchServer` indexes them in the loader's order; a test passes another order
+ * to show the answer does not depend on it. Fumadocs returns rows without their BM25 scores, so the index also keeps
+ * each page's best score for the query, in `pageScores`, which `searchDocs` needs to tell a tie from a lead.
+ */
+export function createSearchServer(getPages: () => Page[] = () => source.getPages()) {
+  const scores = new Map<string, Map<string, number>>();
+  const server = createFromSource({ ...source, getPages } as typeof source, {
+    search: { sortBy: compareRows as never },
+    plugins: [
+      {
+        name: 'page-scores',
+        afterSearch: (_db, params, _language, results) => {
+          if (!params.term) return;
+          const pages = new Map<string, number>();
+          for (const hit of results.hits) {
+            const id = (hit.document as { page_id?: unknown }).page_id;
+            if (typeof id === 'string' && !pages.has(id)) pages.set(id, hit.score);
+          }
+          scores.delete(params.term);
+          scores.set(params.term, pages);
+          if (scores.size > SCORED_QUERIES) scores.delete(scores.keys().next().value as string);
+        },
+      },
+    ],
+    tokenizer: {
+      language: 'english',
+      normalizationCache: new Map(),
+      tokenize: (raw, _language, property) => tokenizeSearchText(raw, property === undefined),
+    },
+  });
+  return Object.assign(server, {
+    /** Each page's best BM25 score for a query that was just searched. */
+    pageScores(query: string): Map<string, number> {
+      const found = scores.get(query);
+      if (!found) throw new Error(`The search index kept no scores for "${query}".`);
+      return found;
+    },
+  });
+}
+
+/**
+ * Built once per isolate rather than per request. Fumadocs builds the Orama
+ * index lazily on first query and caches it against this instance. The site's
+ * search box (`/api/search`) uses the same instance, so one cold start builds
+ * one index.
+ */
+export const searchServer = createSearchServer();
+
 /**
  * Whether a page is a concept page, known as `kindFor` in `page-limits.ts` knows it: the frontmatter's `kind`, then
  * the page's entry in `page-limits.json`, then the entry of the longest folder that holds it. A `fix-*` page is never
@@ -440,6 +509,7 @@ function boost(profile: PageProfile, words: string[], task: boolean, asksWhat: b
 export async function searchDocs(
   query: string,
   limit: number = DEFAULT_SEARCH_LIMIT,
+  server: typeof searchServer = searchServer,
 ): Promise<{ hits: SearchHit[] }> {
   if (!query.trim()) return { hits: [] };
   const cap = Math.min(Math.max(Math.trunc(limit), 1), MAX_SEARCH_LIMIT);
@@ -454,27 +524,32 @@ export async function searchDocs(
   // Pages beyond those asked for: the ranking below moves a page up, and the changelog can move from first
   // to last, so the page that takes its place must already be in the results.
   const lists = await Promise.all(
-    searched.map((q) => searchServer.search(q, { limit: Math.max(cap + 1, CANDIDATE_PAGES) * ROWS_PER_PAGE })),
+    searched.map((q) => server.search(q, { limit: Math.max(cap + 1, CANDIDATE_PAGES) * ROWS_PER_PAGE })),
   );
 
-  // Orama returns one row per heading or text fragment. Fold the rows of a page into one candidate, ranked by
-  // its best row in any of the searches.
+  // Orama returns one row per heading or text fragment. Fold the rows of a page into one candidate. A page's rank is
+  // its place in the list of pages by BM25 score, best of the searches; pages that tie on score share the middle of
+  // the places they hold, so the order the index happens to give them decides nothing.
   const rowsByPage = new Map<string, Awaited<(typeof lists)[number]>>();
   const rankOf = new Map<string, number>();
-  for (const results of lists) {
-    const seen = new Set<string>();
+  lists.forEach((results, i) => {
+    const scores = server.pageScores(searched[i]);
+    const pages = [...new Set(results.map((r) => r.url.split('#')[0]))];
+    const tiers = pages.map((url) => scoreTier(scores.get(url) ?? Number.NaN));
+    for (let first = 0, last = 0; first < pages.length; first = last + 1) {
+      for (last = first; last + 1 < pages.length && tiers[last + 1] === tiers[first]; ) last++;
+      for (let at = first; at <= last; at++) {
+        rankOf.set(pages[at], Math.min(rankOf.get(pages[at]) ?? Infinity, (first + last) / 2));
+      }
+    }
     for (const r of results) {
       const url = r.url.split('#')[0];
-      if (!seen.has(url)) {
-        rankOf.set(url, Math.min(rankOf.get(url) ?? Infinity, seen.size));
-        seen.add(url);
-      }
       const rows = rowsByPage.get(url) ?? [];
       if (!rows.some((row) => row.url === r.url && row.content === r.content)) rowsByPage.set(url, [...rows, r]);
     }
-  }
+  });
 
-  // BM25 puts a page in the results; the page's own words and kind then order them. A tie keeps BM25's order.
+  // BM25 puts a page in the results; the page's own words and kind then order them. A tie in place goes to the better BM25 rank, and a tie in that to `comparePages`.
   const words = tokenizeSearchText(query, true);
   const rankWords = tokenizeSearchText(task ? spaced : query, true).map(singular);
   const known = await pageProfiles();
@@ -483,7 +558,7 @@ export async function searchDocs(
       const profile = known.get(url);
       return { url, rank, place: rank - (profile ? boost(profile, rankWords, task, asksWhat) : 0) };
     })
-    .sort((a, b) => a.place - b.place || a.rank - b.rank)
+    .sort((a, b) => a.place - b.place || a.rank - b.rank || compareUrls(a.url, b.url))
     .map((c) => c.url);
 
   // A query that is a page's name is a request for that page, however many pages repeat the word. Where a guide

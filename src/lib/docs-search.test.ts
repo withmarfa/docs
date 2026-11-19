@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksAboutARelease, MAX_SEARCH_LIMIT, namesAnIdentifier, searchDocs, tokenizeSearchText, trimPassage } from './docs-tools';
+import { asksAboutARelease, createSearchServer, MAX_SEARCH_LIMIT, namesAnIdentifier, searchDocs, tokenizeSearchText, trimPassage } from './docs-tools';
 import changelog from '@/generated/changelog.json';
 import { source } from '@/lib/source';
 
@@ -346,6 +346,36 @@ describe('trimmed passages', () => {
     // A closed pair is left alone.
     expect(trimPassage(`${short}**bold** and more words follow here for a long while yet, enough to pass the limit, and then a good deal more, past it`)).toContain('**bold**');
   });
+});
+
+describe('ties', () => {
+  /** A repeatable shuffle (Fisher-Yates over a small seeded generator), so a failure can be run again. */
+  function shuffled<T>(items: T[], seed: number): T[] {
+    const out = [...items];
+    let state = seed;
+    const next = () => (state = (Math.imul(state, 1664525) + 1013904223) >>> 0) / 2 ** 32;
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(next() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  }
+
+  it('are decided by the page, not by the order the pages were indexed in', async () => {
+    const pages = source.getPages();
+    const queries = [...new Set([...EXPECTED, ...FIRST].map(([query]) => query)), 'note', 'sign in', 'item', 'key', 'what is an item'];
+    const wanted = await Promise.all(queries.map((query) => searchDocs(query, 20)));
+    for (const seed of [1, 2, 3]) {
+      const server = createSearchServer(() => shuffled(pages, seed));
+      for (const [i, query] of queries.entries()) {
+        const { hits } = await searchDocs(query, 20, server);
+        expect(
+          hits.map((h) => h.url),
+          `${query}: the hits changed when the pages were indexed in another order (seed ${seed})`,
+        ).toEqual(wanted[i].hits.map((h) => h.url));
+      }
+    }
+  }, 60_000);
 });
 
 describe('ranking', () => {
