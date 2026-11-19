@@ -60,8 +60,9 @@ Each page is one type, and the type sets what it holds and how long it may be. *
 
 - **Terminals and code:** a `Terminal` holds at most 12 lines, its command and its output together, and 5 on a Start page. The command's own `--help` or the reference holds the full output. Except on a reference page, no code block runs past 25 lines, and a block with no language, or `text` or `md`, runs past 12 at most, because prose in a block is prose nobody counts. A concept page holds at most 2 code blocks.
 - **A fix page's entries** are its H2 and H3 headings, each the text the reader sees; a deeper heading and its text belong to the entry above. A file named `fix-*` is a fix page.
-- **Each page has a `job` line** in its frontmatter (see "Frontmatter").
-- **A page that needs more than its ceiling is listed in `src/lib/page-limits.json`** under `pages`, with its budget and its reason. Add no entry for a page that you can split.
+- **Each page has a `job` line** in its frontmatter (see "Frontmatter"), and **the job line names one job.** No "and" or "or" joins two jobs in it. A page that holds two jobs is split into two pages, never given a bigger budget.
+- **Every sentence serves this reader, doing this job, now.** Fitting the ceiling isn't enough: cut a sentence the reader doesn't need at this point of this job, however true it is, and link to the page where they will need it.
+- **A page that needs more than its ceiling is listed in `src/lib/page-limits.json`** under `pages`, with its budget and its reason. Add no entry for a page that you can split, or that holds two jobs.
 - **A page that is over a rule today is listed under `pending`** with its current numbers, until it is rewritten. It may not grow, and the test fails when the page falls below a ceiling, with the number to lower it to, or no longer needs its entry. A rewritten page leaves `pending`: it comes in within its ceiling, or is split or cut, never given a new entry.
 - **The kind comes from the page.** A file named `fix-*` is a fix page; otherwise `kind` in the frontmatter (`concept`, `how-to`, `tutorial`, `fix`, `connector` or `reference`); otherwise the page's entry, or its folder's, in `page-limits.json`. A folder lists the kinds its pages may name (`kinds`), and a kind outside the list fails the page, a `fix-*` file included, so a page cannot name its way to a bigger budget. A rewritten page names its own `kind`.
 
@@ -74,6 +75,9 @@ Each page is one type, and the type sets what it holds and how long it may be. *
 - **A title is the task in the words a reader would type,** such as "Upgrade an instance" or "Upload and download files". A concept or reference page takes the name of its subject.
 - **A title stands alone in search,** where an agent's results show it without its tab or group. Name the object: "Manage keys for scripts and agents", not "Manage keys".
 - **A sidebar label may lean on its group heading, but must be true on its own.** "Second computer" fails: the page is about another directory too. "Read and write" fails: it is true and says nothing. Read a page's steps, not its first sentence, before naming it.
+- **Files first.** Wherever a page covers both, answer the case of an ordinary file, such as a PDF, a photo or a spreadsheet, before the case of a note.
+- **Every word is one the reader knows,** or is explained in plain words where it first appears on the page. A link to the Glossary doesn't replace that line.
+- **Output proves the step.** Show only the lines that prove a step worked. Never write a sentence whose only purpose is to explain confusing output: if a message from Marfa needs explaining, open an issue on withmarfa/marfa to change the message.
 - **The everyday path comes first.** Steps show what works when nothing goes wrong. Error cases, rare choices and recovery go in their own section or page, linked from the step, never written into it.
 - **Answer first.** The `description` shows as the lead under the title. The first paragraph adds what the description can't: the idea, the reason it matters, or what the reader will have at the end. Never restate the description, and never open with "This page explains" or "This guide shows".
 - **Short paragraphs.** One to three sentences, about 20 to 30 words each on average. One idea per paragraph.
@@ -93,6 +97,7 @@ Marfa's [`GLOSSARY.md`](https://github.com/withmarfa/marfa/blob/main/GLOSSARY.md
 
 - The `marfa` program is **the CLI**. One of its commands, such as `marfa items list`, is **a command**.
 - One thing the API does is **an operation**, never "a door".
+- A **folder** is what the instance keeps: its settings and the items it holds. A **directory** is the place on a computer's disk where a folder's files sit. Keep the two words apart, and the first time a page needs both, say it in one plain line, such as "The folder lives on your instance; the directory is where its files sit on this computer."
 - Write **the bin** for where a deleted item goes, and **move to the bin** for the act. Use `trash` only in a literal name: the owner's **Trash** page, `trashed`, `trash-purge`, `TRASH_RETENTION_DAYS` and API operation titles.
 
 If the glossary doesn't settle a term, ask the owners of the contract before a page uses it.
@@ -154,7 +159,7 @@ Use a component for what it's for, and only where it helps the reader.
 | Component | Use it for |
 | --- | --- |
 | `Steps` | An ordered procedure: the Quickstart, the tutorials, a how-to with an order. Each step opens with a `###` heading |
-| `Steps paged` | A tutorial: one step on screen at a time in a card, with a step indicator and Previous and Next buttons above it. The card takes each step's height, so keep its steps close in length. A how-to's few short steps stay a plain `Steps` list |
+| `Steps paged` | A tutorial: one step on screen at a time in a card, with a step indicator and Previous and Next buttons above it. The card takes each step's height, so keep its steps close in length. It ends the page: the next steps go in the last step, under no heading. A how-to's few short steps stay a plain `Steps` list |
 | `Terminal` | A command and what it prints, as one block under a "Terminal" header (see Examples) |
 | Code tabs | The same example in more than one client: the tabs are the block's header row, with Copy at the right (see Examples) |
 | `Tabs` | Alternatives that aren't code, such as two ways to claim an instance |
@@ -168,7 +173,7 @@ Write an object's fields as a Markdown table (field, type, description), not wit
 
 An interactive figure builds its controls from `Controls`, `Choices` and `Menu` in `src/components/visuals/interactive.tsx`, and nothing else: one style of control on every page (see Visuals).
 
-The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence`, `Files` and `Terminal` (the command, then "Output:" and its output) as plain Markdown, and a block's `note` or `status` as a line above it, such as "Response (Server-sent events):", and leaves the visuals out (`source.config.ts`). `Changelog` writes every release and every line of its notes. `ApiMap` writes every operation as its method and path with a link to its page, under its area and group. A component outside those lists is left out of the copy too, so add it there before a page relies on it.
+The Markdown copy of a page, which agents read, keeps the content of `Steps`, `Tabs`, code tabs, `Accordions` and `ReferenceList`, writes `Card`, `Callout`, `Accordion`, `Tab`, a code tab's label, `Sequence`, `Files` and `Terminal` (the command, then "Output:" and its output) as plain Markdown, and a block's `note` or `status` as a line above it, such as "Response (Server-sent events):", and leaves the visuals out (`source.config.ts`). A static figure that shows a flow takes a `label` in the page, one or two sentences of what it shows, which the copy writes as a "Figure:" line and a screen reader reads; its words count toward the page's limit. `Changelog` writes every release and every line of its notes. `ApiMap` writes every operation as its method and path with a link to its page, under its area and group. A component outside those lists is left out of the copy too, so add it there before a page relies on it.
 
 ## Visuals
 
@@ -176,7 +181,7 @@ A visual earns its place by showing what prose can't, in the form that suits the
 
 **Draw a real example, not a category.** A figure of "your notes app on your iPhone" and "a Todoist connector" teaches more than boxes named "Apps" and "Connectors".
 
-- **A static figure** shows a shape: what connects to what, what holds what, which way things flow. Build it with `Figure` in `src/components/visuals/`.
+- **A static figure** shows a shape: what connects to what, what holds what, which way things flow. Build it with `Figure` in `src/components/visuals/`. **A diagram shows relations and flows,** with arrows that say what moves or links, never a list of boxes.
 - **A sequence** shows order in time: two writers editing one item, a write going from queue to verdict. Build it with `Sequence`, which takes an ordered list in the MDX and shows every step at once on a numbered timeline, so the reader sees the whole story and the Markdown copy keeps every step.
 - **An interactive diagram** shows cause and effect a reader explores, such as what moving an item to the bin takes with it. Use one only when the interaction is the point; a few cases side by side are often clearer as a static figure.
 - **A table** is often the right visual for a comparison.
@@ -185,7 +190,7 @@ Every visual follows these rules:
 
 - **The prose carries every fact.** A visual shows the shape of what the text says; nothing is only in the visual, and no list after it repeats it.
 - **Use HTML and CSS on the site's theme tokens** (`--color-fd-*`, and `--marfa-diagram-accent` for the one accent color), so light and dark both work. No images and no hard-coded colors.
-- **Caption short, or none.** The lead-in sentence before a figure states the fact it shows, never "the figure shows" or "pick a key": the Markdown copy leaves the figure out. A caption, if any, is one short line.
+- **Caption short, or none.** The lead-in sentence before a figure states the fact it shows, never "the figure shows" or "pick a key": the Markdown copy keeps no more of a figure than its `label`. A caption, if any, is one short line.
 - **Color marks one thing**: the part the page is about, such as the items a cascade takes. Everything else stays neutral.
 - **One style of control.** One row of the site's buttons, each named for its choice ("Bin the note", "Notes app"), with no label, prompt, tabs or reset. The figure opens with a choice made. A second choice is one compact menu at the right of the same row; in a narrow figure it always sits on its own line under the buttons, so nothing moves when the reader chooses.
 - **Nothing moves.** A choice changes what's highlighted and what the text says, never a size or the layout: the figure keeps one height, and every changing word sits in a place as large as its longest version. The server render shows the whole visual. A filter on a lookup page, such as the Changelog's part filters, may show and hide entries.
