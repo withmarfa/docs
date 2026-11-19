@@ -1,0 +1,59 @@
+---
+title: Go back to an earlier release
+description: Return an install to the release it ran before an update, and put back the copy of the database the update took.
+---
+
+Whether you can go back depends on one thing: **whether the update changed the database.** An earlier release reads a database the new one left unchanged, and refuses one it changed. `marfa server upgrade` says which happened.
+
+## While the database is unchanged
+
+After `marfa update start`, the server puts back the earlier programs by itself if the new release doesn't stay up through its second start. To go back by hand, run `marfa server stop`, install the earlier release's programs again, or set `MARFA_RELEASE` in `.env` for Docker, then run `marfa server start` with the earlier release's `marfa`.
+
+## Once the database has changed
+
+**A release that changes the database schema first copies the database** to `marfa.db.before-upgrade` beside it. That copy is the way back, and **everything written since the update is lost.** An archive exported with the new release doesn't save it: restored into the copy, it adds only the items the copy lacks, and every change to an item that was there before is still lost. Such an archive serves a new install of the new release instead, as [Upgrade an instance](/run/upgrade#move-to-a-newer-release) shows.
+
+To put the copy back on an install in `~/marfa-server`:
+
+<Steps>
+<Step>
+
+### Stop the server
+
+Run `marfa server stop --dir ~/marfa-server`.
+
+</Step>
+<Step>
+
+### Swap in the copy
+
+Move `marfa.db` away **with its `marfa.db-wal` and `marfa.db-shm`**, then copy `marfa.db.before-upgrade` into its place. After a crash, or a stop while another program read the database, `marfa.db-wal` holds writes that would otherwise be read into the copy.
+
+```bash
+mkdir ~/marfa-server/replaced
+cd ~/marfa-server/data
+mv marfa.db marfa.db-wal marfa.db-shm ~/marfa-server/replaced/
+cp marfa.db.before-upgrade marfa.db
+```
+
+`mv` reports a file that isn't there and moves the rest. Keep the moved files until the instance works again.
+
+In a Docker install the files are in the volume `<name>-data`, and `docker cp` can't remove a file, so swap them in a one-off container on the volume:
+
+```bash
+docker run --rm --user 65532:65532 -v marfa-data:/data busybox:1.37 sh -c 'cd /data && mkdir replaced && for f in marfa.db marfa.db-wal marfa.db-shm; do [ ! -e "$f" ] || mv "$f" replaced/; done && cp marfa.db.before-upgrade marfa.db'
+```
+
+`docker cp marfa:/data/replaced .` copies the moved files out of the stopped container.
+
+</Step>
+<Step>
+
+### Start the earlier release
+
+Install the earlier release's programs, or set its release in `.env` for Docker, and run `marfa server start --dir ~/marfa-server` with its `marfa`.
+
+</Step>
+</Steps>
+
+The rules behind this page are in the contract's [updates](https://github.com/withmarfa/marfa/blob/main/conformance/spec/updates.md) chapter and the [instance](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#a-database-this-build-did-not-write) chapter.
