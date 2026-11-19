@@ -1,15 +1,15 @@
 ---
 title: TypeScript SDK
-description: Call your instance from TypeScript or JavaScript with a client that knows every operation, its parameters and its answers.
+description: Call your instance from TypeScript or JavaScript with a typed client generated from Marfa's API description.
 ---
 
-The TypeScript SDK is a thin, typed layer over the API for a script, a server or a web app. It's **generated from Marfa's API description**, so a path the API doesn't have, or a required parameter you leave out, doesn't compile.
+The TypeScript SDK, `@withmarfa/client`, is a typed client for the API, for a script, a server or a web page. **It's generated from Marfa's API description**, so a path the API doesn't serve, or a required parameter you leave out, fails to compile. Its version is the Marfa release it was generated from.
 
-The SDK keeps nothing between requests. An app that should keep working offline needs a [device](/build/devices), such as one built on the [Swift SDK](/swift-sdk).
+Each call is one API request, and the SDK keeps nothing between them. An app that should keep working while the instance is out of reach needs a [device](/build/devices), such as one built on the [Swift SDK](/swift-sdk).
 
 ## Install the SDK
 
-The SDK is the npm package `@withmarfa/client`, an ES module:
+The SDK is an ES module on npm:
 
 ```bash
 npm install @withmarfa/client
@@ -28,7 +28,13 @@ export const marfa = createClient({
 });
 ```
 
-`baseUrl` is an `http` or `https` URL, and can include a path. **The client sends the credential only to URLs under `baseUrl` and never follows a redirect**, so the credential can't reach another server. `createClient` throws a `TypeError` for an empty credential or a `baseUrl` it can't use.
+| Option | What it is |
+| --- | --- |
+| `baseUrl` | The instance's `http` or `https` URL, with a path where the instance is served under one, and no query or fragment |
+| `credential` | A key or an access token, sent as `Authorization: Bearer <credential>` |
+| `fetch` | Optional. A `fetch` to use instead of the global one |
+
+**The client sends the credential only to URLs under `baseUrl`, and never follows a redirect**, so the credential can't reach another server. `createClient` throws a `TypeError` for an empty credential, a credential that a bearer token can't hold, or a `baseUrl` it can't use. The message never repeats the credential.
 
 ## Call an operation
 
@@ -36,20 +42,22 @@ Name an operation by its method and path, as the [API reference](/api-reference)
 
 ```ts
 const { data, error } = await marfa.POST("/items", {
-  body: { type: "core.note", properties: { title: "Reading list", body: "Start with the essays." } },
+  body: { type: "core.note", properties: { title: "Tide times", body: "High water at 06:12." } },
 });
 if (error) throw new Error(error.error.message);
 
-const { data: detail } = await marfa.GET("/items/{id}", {
+const { data: tagged } = await marfa.POST("/items/{id}/tags", {
   params: { path: { id: data.item.id } },
+  body: { tags: ["coast"] },
 });
+console.log(tagged?.tags); // [ 'coast' ]
 ```
 
-Once you've checked `error`, TypeScript knows `data` holds the answer's shape.
+Once you've checked `error`, TypeScript knows `data` holds the answer's shape. A path parameter of `.` or `..` throws before anything is sent, because it would name another route.
 
 ## Walk every page of a list
 
-A list or a search answers one page at a time, as `{ data, next_cursor }`. `pages` takes a function that fetches the page for a cursor, and yields every row, fetching each page as you reach it:
+A list or a search answers one page at a time, as `{ data, next_cursor }`. `pages` takes a function that fetches the page for a cursor, and yields every entry, fetching each page as you reach it:
 
 ```ts
 import { pages } from "@withmarfa/client";
@@ -67,11 +75,15 @@ for await (const note of notes) {
 }
 ```
 
-`pages` follows `next_cursor` until it's `null`. **A page can be short, or empty, and still have more after it**, so don't stop a walk early. The `"id" in note` check is there because a listing with `include=metadata` returns each item with its metadata instead.
+- **`pages` follows `next_cursor` until it's `null`.** A page can be short, or empty, and still have more after it, so don't stop a walk early.
+- **It throws when a page has no `next_cursor`, or repeats a cursor it already followed**, rather than yield entries it can't trust or walk forever.
+- The `"id" in note` check is there because a listing with `include=metadata` returns each item with its metadata instead.
+
+The rows of a [table](/build/tables) page the same way, from `GET /items/{id}/tables/{table}/rows`.
 
 ## Upload a file
 
-[Upload a blob](/api-reference/blobs/uploadBlob) takes a file's bytes, not JSON. Pass a `Blob`, an `ArrayBuffer`, a typed array such as a Node `Buffer`, or a `ReadableStream`, and name the file's type in `Content-Type`, which the instance keeps with the blob. Without it, the client sends a `Blob`'s own type, or `application/octet-stream`. The answer is the blob's hash, type and size:
+[Upload a blob](/api-reference/blobs/uploadBlob) takes a file's bytes, not JSON. Pass a `Blob`, an `ArrayBuffer`, a typed array such as a Node `Buffer`, or a `ReadableStream`, and name the file's type in `Content-Type`, which the instance keeps with the blob. Without it, the client sends a `Blob`'s own type, or the type the operation declares. The answer is the blob's hash, type and size:
 
 <Terminal>
 
@@ -88,19 +100,19 @@ console.log(blob);
 
 ```text
 {
-  hash: 'sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640',
+  hash: 'sha256:67fe48825b9b87c5f8502a5e179ad35d8b2560a3a5370585fcf60031cdec39ea',
   mime_type: 'image/png',
-  size_bytes: 69
+  size_bytes: 70
 }
 ```
 
 </Terminal>
 
-[Handle files](/build/handle-files) attaches the blob to an item.
+[Handle files](/build/handle-files) makes the blob a file item.
 
 ## Handle errors
 
-When the server refuses a request, `error` holds its error envelope, `{ error: { code, message } }`, with `details` where the refusal has them. **Write your logic against `code`**, because the wording of `message` can change. `response` has the status and headers, such as `Retry-After`. Reading an item that doesn't exist prints its status and code:
+When the server refuses a request, `error` holds its error envelope, `{ error: { code, message } }`, with `details` where the refusal has them. **Write your logic against `code`**, because the wording of `message` can change. Reading an item that doesn't exist prints its status and code:
 
 <Terminal>
 
@@ -117,11 +129,18 @@ if (error) console.log(response.status, error.error.code);
 
 </Terminal>
 
-[Errors](/api-reference/errors) lists every code. A call throws instead of returning `error` when there's no answer to read: the network failed, the URL is outside `baseUrl`, the server answered with a redirect, or the answer failed the contract check.
+A refusal that says when to try again, such as `429 rate_limited`, carries a `Retry-After` header in `response`, and the same number of seconds in `error.error.details.retry_after_seconds`. [Errors](/api-reference/errors) lists every code.
+
+A call throws instead of returning `error` when there's no answer to read: the network failed, the URL is outside `baseUrl`, the server answered with a redirect, or the answer failed the contract check.
 
 ## The contract check
 
-The SDK was generated for one version of Marfa's contract, which it exports as `CONTRACT_VERSION`. The server names its version on every answer, in the `X-Marfa-Contract` header. **If an answer names another version, or a success names none, the client throws `ContractMismatchError`** instead of reading a body it may not understand. Against a server on contract 1, it prints:
+The SDK was generated for one version of Marfa's contract, which it exports as `CONTRACT_VERSION`. The version travels in the `X-Marfa-Contract` header, which the SDK exports as `CONTRACT_HEADER`:
+
+- **Every request names the client's version**, except a read of `/` or `/health`, which says which version a server speaks. A server on another version refuses the request with `412 contract_mismatch` before it acts.
+- **Every answer is checked.** If an answer names another version, or a success names none, the client throws `ContractMismatchError` instead of reading a body it may not understand. An error answer with no header, such as one from a proxy in front of the server, comes back as `error` like any other.
+
+Against a server on contract 1, this prints:
 
 <Terminal>
 
@@ -142,8 +161,21 @@ The server answered with contract "1"; this client was generated for contract 0.
 
 </Terminal>
 
-The fix is the `@withmarfa/client` release that matches your instance. An error answer with no header, such as one from a proxy in front of the server, comes back as `error` like any other.
+The error also holds `served`, the header as it arrived or `null`, and the answer's `status`. The fix is the `@withmarfa/client` release that matches your instance.
+
+## Exports
+
+| Export | What it is |
+| --- | --- |
+| `createClient` | Makes a client for one instance |
+| `pages` | Walks every page of a list |
+| `ContractMismatchError` | Thrown for an answer from another contract version |
+| `CONTRACT_VERSION`, `CONTRACT_HEADER` | The contract version the SDK was generated for, and the header that carries it |
+| `MarfaClient`, `Page` | The client's type, and one page of a list |
+| `paths`, `components`, `operations` | The types generated from the API description, such as `components["schemas"]["Item"]` |
+
+The client is an [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) client. Middleware you add with `client.use` sees each request without the credential, and each answer after the contract check.
 
 ## What the SDK doesn't do
 
-The SDK sends what the API description declares and returns what the server answered. It doesn't retry a request (even one refused with `Retry-After`), poll a bulk job, read the event stream, verify a webhook's signature or resolve a version conflict. [Write safely](/build/write-safely), [Keep in sync](/build/keep-in-sync) and [Receive webhooks](/build/receive-webhooks) show how to do each with the API.
+The SDK sends what the API description declares and returns what the server answered. It doesn't retry a request, even one refused with `Retry-After`, poll a bulk job, read the event stream, verify a webhook's signature or resolve a version conflict. [Write safely](/build/write-safely), [Keep in sync](/build/keep-in-sync) and [Receive webhooks](/build/receive-webhooks) show how to do each with the API.
