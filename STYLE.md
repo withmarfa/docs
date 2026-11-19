@@ -10,9 +10,9 @@ How every page on docs.marfa.so is written. Read it before you write a page. Pas
 
 ## Who reads the docs
 
-Write for someone new to Marfa. Start and Use must make sense to a reader who doesn't know software.
+Write for someone new to Marfa. Home and Use must make sense to a reader who doesn't know software.
 
-- **Someone finding out what Marfa is, or starting it,** reads Start.
+- **Someone finding out what Marfa is, or starting it,** reads Home.
 - **Someone using Marfa every day** reads Use, and Run when they look after their own instance.
 - **Someone building on Marfa,** a connector author included, reads Build, then Catalog and Reference.
 
@@ -30,14 +30,14 @@ Write for someone new to Marfa. Start and Use must make sense to a reader who do
 
 | Tab | What it holds |
 | --- | --- |
-| Start | What Marfa is, on the home page; the Quickstart; Connect your agent; How Marfa works, with no HTTP |
+| Home | Get started: What Marfa is, the Quickstart, Connect your agent, How Marfa works, with no HTTP. Resources: Glossary, Changelog, Get help |
 | Use | Everyday jobs: agents, the CLI, synced folders, connectors, access and keys, Limits |
 | Run | Looking after an instance: where it runs, its address, sign-in, settings, health, backups, upgrades, telemetry, troubleshooting |
 | Build | Concepts at full depth, then tutorials and guides for apps, types, working copies and connectors |
 | Catalog | What Marfa ships, generated from the code: types, edge types, events, permissions, connectors |
 | Reference | The HTTP API and errors, the SDKs, the CLI, the MCP servers, folder rules, settings, the contract |
 
-- **Every address starts with its tab's segment,** such as `/use/sync-a-folder`, except the home page, `/`, and the top-bar pages: the Glossary, the Changelog and Get help.
+- **Every address starts with its tab's segment,** such as `/use/sync-a-folder`. Home's segment is the root, so its pages sit at `/`, `/quickstart` or `/glossary`. `src/lib/addresses.test.ts` enforces it.
 - **No tab or group has a landing page,** and no page is a grid of cards that repeats the sidebar.
 - **Say each thing once, and link to it.** Use and Run say what to do; Build explains why.
 - **The Catalog lists what Marfa ships and explains nothing.** A page that needs one of its lists links to it.
