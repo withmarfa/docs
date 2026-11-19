@@ -1,7 +1,6 @@
 import type { ComponentProps } from 'react';
 import Link from 'fumadocs-core/link';
 import release from '@/generated/marfa-release.json';
-import { TopBarLinks } from './section-nav';
 
 // The Marfa release these docs describe. The version comes from the
 // monorepo's latest tag (scripts/sync-from-marfa.sh), because the API
@@ -54,12 +53,10 @@ function WebsiteLink() {
 // only ever shows in the phone menu. This function form renders the label and
 // the website link in a row of their own, visible at every width, and keeps
 // the default footer (icon links and theme switch in the phone menu) beneath
-// it. Where the top bar is too narrow for them, the top bar's text links come
-// first, as a row of their own.
+// it.
 export function SidebarFooter(props: ComponentProps<'div'>) {
   return (
     <>
-      <TopBarLinks className="flex-wrap px-4 pt-2 min-[1400px]:hidden" />
       <div className="flex items-center justify-between px-6 py-2.5">
         <ReleaseLabel />
         <WebsiteLink />

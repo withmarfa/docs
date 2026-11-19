@@ -280,7 +280,7 @@ export function checkFrontmatter(file: string, text: string): Violation[] {
 }
 
 /** Pages that may still say "coming soon", relative to content/docs. */
-const COMING_SOON_ALLOWED = new Set(['(start)/index.mdx']);
+const COMING_SOON_ALLOWED = new Set(['(home)/index.mdx']);
 
 export function checkComingSoon(file: string, text: string): Violation[] {
   if (COMING_SOON_ALLOWED.has(file)) return [];
@@ -585,7 +585,7 @@ describe('content lint: the corpus', () => {
     expect(PAGE_URLS.has('/')).toBe(true);
     expect(PAGE_URLS.has('/connect-your-agent')).toBe(true);
     // Generated pages are in the set, so links into the API reference resolve.
-    expect([...PAGE_URLS].some((url) => url.startsWith('/api-reference/') && url.split('/').length > 3)).toBe(true);
+    expect([...PAGE_URLS].some((url) => url.startsWith('/reference/api/') && url.split('/').length > 3)).toBe(true);
   });
 
   it('excludes only banned terms that the glossary still lists', () => {
@@ -600,8 +600,8 @@ describe('content lint: the corpus', () => {
   it('resolves every include to text it can read', () => {
     expect(RESOLVED.flatMap((resolved) => resolved.violations).map(format)).toEqual([]);
     const files = INCLUDED.map((included) => included.file);
-    expect(files).toContain('src/generated/cli/global-options.md (included by (reference)/cli.mdx)');
-    expect(files).toContain('src/generated/api-overview.md (included by (reference)/api-reference/index.mdx)');
+    expect(files).toContain('src/generated/cli/global-options.md (included by reference/cli.mdx)');
+    expect(files).toContain('src/generated/api-overview.md (included by reference/api/index.mdx)');
     for (const { text } of INCLUDED) expect(text.trim().length).toBeGreaterThan(0);
   });
 
@@ -787,8 +787,8 @@ describe('content lint: each rule fires on a bad sample', () => {
 
   it('coming-soon', () => {
     expect(rules(checkComingSoon('build/x.mdx', 'This is Coming Soon.'))).toEqual(['coming-soon']);
-    expect(checkComingSoon('(start)/index.mdx', 'Coming soon.')).toEqual([]);
-    expect(rules(checkComingSoon('(start)/run-an-instance.mdx', 'Coming soon.'))).toEqual(['coming-soon']);
+    expect(checkComingSoon('(home)/index.mdx', 'Coming soon.')).toEqual([]);
+    expect(rules(checkComingSoon('(home)/run-an-instance.mdx', 'Coming soon.'))).toEqual(['coming-soon']);
   });
 
   it('callout-title', () => {
@@ -827,7 +827,7 @@ describe('content lint: each rule fires on a bad sample', () => {
   });
 
   describe('link', () => {
-    const urls = new Set(['/overview', '/api-reference/items/createItem']);
+    const urls = new Set(['/overview', '/reference/api/items/createItem']);
 
     it('fires on a link that reaches no page', () => {
       const found = checkLinks('x.mdx', 'Ok.\nSee [it](/learn/files).', urls);
@@ -840,7 +840,7 @@ describe('content lint: each rule fires on a bad sample', () => {
       const text = [
         '[a](/overview)',
         '[b](/overview#heading)',
-        '[c](/api-reference/items/createItem)',
+        '[c](/reference/api/items/createItem)',
         '[d](/overview.md)',
         '[e](/llms.txt)',
         '[f](https://example.com/learn)',

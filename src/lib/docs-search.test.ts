@@ -25,22 +25,22 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['soft delete trash', ['/build/items-and-types']],
 
   // Errors, headers and writes.
-  ['409', ['/api-reference/errors']],
-  ['version_conflict', ['/api-reference/errors', '/build/write-safely']],
-  ['type_not_permitted', ['/api-reference/errors']],
-  ['unauthorized', ['/api-reference/errors']],
+  ['409', ['/reference/errors']],
+  ['version_conflict', ['/reference/errors', '/build/write-safely']],
+  ['type_not_permitted', ['/reference/errors']],
+  ['unauthorized', ['/reference/errors']],
   ['idempotency key', ['/build/write-safely']],
   ['retry a write safely', ['/build/write-safely']],
   [
     'rate limit 429',
-    ['/run/troubleshooting/credentials-and-access', '/folder-rules', '/build/connector-holds-and-retries', '/run/settings'],
+    ['/run/troubleshooting/credentials-and-access', '/reference/folder-rules', '/build/connector-holds-and-retries', '/run/settings'],
   ],
   ['retry-after', ['/build/connector-webhooks', '/build/connector-holds-and-retries', '/build/keep-in-sync']],
   ['CORS', ['/run/settings']],
 
   // Reading and listing.
-  ['pagination cursor', ['/api-reference', '/build/list-filter-search']],
-  ['next_cursor', ['/build/list-filter-search', '/api-reference']],
+  ['pagination cursor', ['/reference/api', '/build/list-filter-search']],
+  ['next_cursor', ['/build/list-filter-search', '/reference/api']],
   ['list items by tag', ['/build/list-filter-search']],
   ['filter items by property', ['/build/list-filter-search']],
 
@@ -50,18 +50,18 @@ const EXPECTED: [query: string, pages: string[]][] = [
 
   // Sign-in, keys and the command line.
   ['oauth device flow', ['/build/authenticate']],
-  ['marfa login', ['/cli', '/run/sign-in-as-the-owner']],
-  ['create type scaffold', ['/cli', '/build/define-a-type']],
-  ['MARFA_API_KEY', ['/cli', '/run/manage-keys']],
+  ['marfa login', ['/reference/cli', '/run/sign-in-as-the-owner']],
+  ['create type scaffold', ['/reference/cli', '/build/define-a-type']],
+  ['MARFA_API_KEY', ['/reference/cli', '/run/manage-keys']],
   ['rotate a key', ['/run/manage-keys']],
   ['passkey', ['/run/sign-in-as-the-owner']],
-  ['json output', ['/cli', '/use/command-line']],
-  ['exit code 5', ['/cli']],
-  ['print-token', ['/cli']],
-  ['--print-token', ['/cli']],
+  ['json output', ['/reference/cli', '/use/command-line']],
+  ['exit code 5', ['/reference/cli']],
+  ['print-token', ['/reference/cli']],
+  ['--print-token', ['/reference/cli']],
 
   ['edge type', ['/build/edges', '/catalog/edges']],
-  ['edge_cycle', ['/build/edges', '/api-reference/errors']],
+  ['edge_cycle', ['/build/edges', '/reference/errors']],
 
   // Running an instance.
   ['environment variables', ['/run/settings']],
@@ -72,12 +72,12 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['folders autostart', ['/use/keep-folders-syncing']],
   ['watch key file', ['/use/keep-folders-syncing']],
   ['change instance name', ['/run/settings']],
-  ['install marfa on linux', ['/cli', '/run/install', '/quickstart']],
+  ['install marfa on linux', ['/reference/cli', '/run/install', '/quickstart']],
   ['how do I back up my data', ['/run/back-up-and-restore', '/run/export-and-restore']],
   ['restore', ['/run/back-up-and-restore', '/run/export-and-restore']],
 
   // Files.
-  ['blob upload', ['/build/handle-files', '/api-reference/blobs/uploadBlob']],
+  ['blob upload', ['/build/handle-files', '/reference/api/blobs/uploadBlob']],
   ['attach a file to a note', ['/build/handle-files']],
 
   // A dotted type key, and a word that is the end of one.
@@ -87,7 +87,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
 
   // A flag that is also an ordinary word, and a word that starts a permission scope (`webhooks.manage`).
   ['--force', ['/build/change-a-type']],
-  ['--scope', ['/docs-mcp-server']],
+  ['--scope', ['/reference/docs-mcp-server']],
   ['webhooks', ['/build/events', '/build/receive-webhooks']],
   ['audit', ['/use/audit-log']],
 
@@ -96,7 +96,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ["can't overwrite", ['/build/versions', '/build/write-safely']],
 
   // A question in a reader's own words, answered by one of the pages that explains it.
-  ['install the cli', ['/cli', '/quickstart']],
+  ['install the cli', ['/reference/cli', '/quickstart']],
   ['tables', ['/build/tables', '/catalog/table']],
   ['edge types', ['/build/edges', '/catalog/edges']],
   ['permissions', ['/catalog/permissions', '/build/access']],
@@ -110,7 +110,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
 const FIRST: [query: string, pages: string[]][] = [
   ['backup', ['/run/back-up-and-restore']],
   ['back up', ['/run/back-up-and-restore']],
-  // A hyphen or a small number is not a code, so the guide still comes first; `/swift-sdk/server-calls` has a heading "Sign in" and the
+  // A hyphen or a small number is not a code, so the guide still comes first; `/reference/swift-sdk/server-calls` has a heading "Sign in" and the
   // `restoreBackup` operation answers "restore from backup", but a reader asking for a task wants the guide.
   ['back-up', ['/run/back-up-and-restore']],
   ['restore from backup', ['/run/back-up-and-restore']],
@@ -138,7 +138,7 @@ const FIRST: [query: string, pages: string[]][] = [
   ['report a security issue', ['/get-help']],
   ['ask a question', ['/get-help']],
   ['limits', ['/use/limits']],
-  ['errors', ['/api-reference/errors']],
+  ['errors', ['/reference/errors']],
   ['webhooks', ['/build/receive-webhooks']],
 ];
 

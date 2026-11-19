@@ -85,7 +85,7 @@ export type Pending = Partial<Record<Measure, number>> & { reason: string; missi
 
 export interface Limits {
   kinds: Record<string, KindCaps>;
-  /** The most lines in one `Terminal` (its command and its sample output), and on a Start page. */
+  /** The most lines in one `Terminal` (its command and its sample output), and on a Home page. */
   terminalLines: number;
   startTerminalLines: number;
   jobWords: number;
@@ -481,7 +481,7 @@ export interface Evaluated {
   values: Record<Measure, number>;
   /** The most each measure may be; a measure the kind has no cap for is absent. */
   allowed: Partial<Record<Measure, number>>;
-  /** Whether the page is a Start page, which has a lower cap on Terminal length. */
+  /** Whether the page is a Home page, which has a lower cap on Terminal length. */
   start: boolean;
   job: unknown;
 }
@@ -493,7 +493,7 @@ export function evaluate(file: string, text: string, limits: Limits): Evaluated 
   if (typeof found === 'string') return found;
   const { kind, caps, limit } = found;
   const measured = measure(body);
-  const start = file.startsWith('(start)/');
+  const start = file.startsWith('(home)/');
   return {
     kind,
     measured,
@@ -570,7 +570,7 @@ export function checkPages(pages: Page[], limits: Limits): string[] {
         if (ceiling !== undefined) problems.push(`${file}: a ${kind} page has no cap on ${rule.what}. Remove "${measure}" from its "pending" entry in page-limits.json.`);
         continue;
       }
-      const where = start && measure === 'terminalLines' ? 'on a Start page' : `on a ${kind}`;
+      const where = start && measure === 'terminalLines' ? 'on a Home page' : `on a ${kind}`;
       const value = values[measure];
       if (value <= cap) {
         if (ceiling !== undefined) {

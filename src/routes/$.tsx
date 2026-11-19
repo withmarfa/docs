@@ -21,7 +21,6 @@ import { PageActions } from '@/components/page-actions';
 import { PageFooter } from '@/components/page-footer';
 import { Icon } from '@/components/icon';
 import type { IconData } from '@/lib/icons';
-import { TOP_BAR_LINKS } from '@/lib/top-bar';
 import { SidebarFooter } from '@/components/release-label';
 import {
   useFumadocsLoader,
@@ -123,7 +122,7 @@ const clientLoader = browserCollections.docs.createClientLoader({
     const { pageIcon } = exported as { pageIcon?: IconData };
     // The Changelog draws its releases with a component, so its headings are
     // not in the compiled page's table of contents.
-    const entries = path === '(reference)/changelog.mdx' ? [...toc, ...releaseToc(changelog as Release[])] : toc;
+    const entries = path === '(home)/changelog.mdx' ? [...toc, ...releaseToc(changelog as Release[])] : toc;
     return (
       // Keep the TOC column reserved on every narrative page (so the centred
       // body sits in the same place whether or not a page has a TOC), but only
@@ -132,8 +131,6 @@ const clientLoader = browserCollections.docs.createClientLoader({
       // popover that reveals nothing. Passing an empty toc renders fumadocs'
       // hidden placeholder, which reserves the column without showing anything.
       <DocsPage
-        // A page the top bar links to is in no sidebar, so a trail would name a section it isn't in.
-        breadcrumb={{ enabled: !TOP_BAR_LINKS.some((link) => link.href === url) }}
         toc={entries.length > 1 ? entries : []}
         tableOfContent={{
           enabled: true,
@@ -147,8 +144,8 @@ const clientLoader = browserCollections.docs.createClientLoader({
       >
         {/* Title and the Copy button share the top row; the description spans the
             full content width on its own line below, like a lead paragraph. */}
-        <div className="flex flex-row items-start justify-between gap-4">
-          <DocsTitle className={cn(titleClass, 'min-w-0')}>
+        <div className="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <DocsTitle className={cn(titleClass, 'min-w-[min(100%,12rem)] flex-1')}>
             {pageIcon ? <Icon {...pageIcon} className="marfa-title-icon" /> : null}
             {frontmatter.title}
           </DocsTitle>
@@ -224,8 +221,8 @@ function OpenAPIView({
             app.css) so they sit screen-centred like a narrative page; the code
             rail extends to the right of the centred body. Title on the left, the
             Copy Markdown button at the body's top-right. */}
-        <div className="flex flex-row items-start justify-between gap-4">
-          <div className="min-w-0">
+        <div className="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-[min(100%,12rem)] flex-1">
             <DocsTitle className={titleClass}>{data.title}</DocsTitle>
           </div>
           <div className="shrink-0">

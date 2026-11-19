@@ -180,7 +180,7 @@ describe('page limits: each rule fires on a bad sample', () => {
       'b/ref': { limit: 5, reason: 'Lookup.' },
       c: { kinds: ['how-to', 'concept'] },
       k: { kind: 'connector' },
-      '(start)': { kind: 'concept', kinds: ['tutorial'] },
+      '(home)': { kind: 'concept', kinds: ['tutorial'] },
     },
     pages: { 'a/long.mdx': { kind: 'concept', limit: 30, reason: 'Takes in a second idea.' }, 'a/lookup.mdx': { limit: 30, reason: 'Lookup.' } },
     pending: {},
@@ -196,7 +196,7 @@ describe('page limits: each rule fires on a bad sample', () => {
     page('b/x.mdx', 'x'),
     page('c/anchor.mdx', 'x', `kind: how-to\njob: ${JOB}`),
     page('k/x.mdx', 'x'),
-    page('(start)/s.mdx', 'x'),
+    page('(home)/s.mdx', 'x'),
   ];
   const run = (pages: Page[], over: Partial<Limits> = {}) => {
     const names = new Set(pages.map((p) => p.file));
@@ -266,14 +266,14 @@ describe('page limits: each rule fires on a bad sample', () => {
     expect(run([page('b/p.mdx', '## 1\n\n### a\n\n### b\n\n### c\n\n### d')])).toEqual([]);
   });
 
-  it('fails a long Terminal, command and output together, and a lower cap on a Start page', () => {
+  it('fails a long Terminal, command and output together, and a lower cap on a Home page', () => {
     const terminal = (output: number, command = 'marfa x') =>
       `<Terminal>\n\`\`\`sh\n${command}\n\`\`\`${output ? `\n\n\`\`\`json\n${Array(output).fill('out').join('\n')}\n\`\`\`` : ''}\n</Terminal>`;
     expect(run([page('b/p.mdx', terminal(2))])).toEqual([]);
     expect(run([page('b/p.mdx', terminal(3))])[0]).toContain('4 lines in one Terminal (the command and its output), over the 3 allowed on a how-to');
     expect(run([page('b/p.mdx', terminal(0, 'a\nb\nc\nd'))])[0]).toContain('4 lines in one Terminal');
-    expect(run([page('(start)/s.mdx', terminal(0))])).toEqual([]);
-    expect(run([page('(start)/s.mdx', terminal(1))])[0]).toContain('over the 1 allowed on a Start page');
+    expect(run([page('(home)/s.mdx', terminal(0))])).toEqual([]);
+    expect(run([page('(home)/s.mdx', terminal(1))])[0]).toContain('over the 1 allowed on a Home page');
   });
 
   it('fails a fix page with too many entries or an entry that runs long, naming the entry', () => {
@@ -318,8 +318,8 @@ describe('page limits: each rule fires on a bad sample', () => {
     expect(decline('b/ref/z.mdx', 'kind: how-to')[0]).toContain('allows only reference');
     expect(decline('b/ref/z.mdx', 'kind: reference')).toEqual([]);
     expect(decline('c/p.mdx', 'kind: reference')[0]).toContain('allows only how-to, concept');
-    expect(decline('(start)/p.mdx', 'kind: tutorial')).toEqual([]);
-    expect(decline('(start)/p.mdx', 'kind: fix')[0]).toContain('allows only concept, tutorial');
+    expect(decline('(home)/p.mdx', 'kind: tutorial')).toEqual([]);
+    expect(decline('(home)/p.mdx', 'kind: fix')[0]).toContain('allows only concept, tutorial');
     expect(decline('z/p.mdx', 'kind: how-to')[0]).toContain('has no entry for the page or its folder');
     // A page's own entry decides, and its folder's list does not widen it.
     const own = { ...limits.pages, 'b/own.mdx': { kind: 'how-to' } };

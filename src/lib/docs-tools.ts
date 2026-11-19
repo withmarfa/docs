@@ -13,8 +13,7 @@
  */
 
 import { createFromSource } from 'fumadocs-core/search/server';
-import { source, getLLMText } from '@/lib/source';
-import { TOP_BAR_LINKS } from '@/lib/top-bar';
+import { source, getLLMText, findPage } from '@/lib/source';
 import pageLimits from '@/lib/page-limits.json';
 
 /** Words a reader types around the one that matters. Dropped from a query, never from the index. */
@@ -115,18 +114,34 @@ export function tokenizeSearchText(text: string, forQuery: boolean): string[] {
 }
 
 /**
+ * Orama orders equal scores by the order it indexed pages, and many rows score alike, so that order decides which
+ * page leads for a short query such as `note` or `sign in`. Index the Reference and Home pages first and the rest in
+ * the loader's order, so a tie goes to the same pages whatever the folders' names sort to; `docs-search.test.ts`
+ * pins the results.
+ */
+const INDEXED_FIRST = ['reference', '(home)'];
+
+function indexOrder(page: { path: string }) {
+  const at = INDEXED_FIRST.indexOf(page.path.split('/')[0]);
+  return at === -1 ? INDEXED_FIRST.length : at;
+}
+
+/**
  * Built once per isolate rather than per request. Fumadocs builds the Orama
  * index lazily on first query and caches it against this instance. The site's
  * search box (`/api/search`) uses the same instance, so one cold start builds
  * one index.
  */
-export const searchServer = createFromSource(source, {
-  tokenizer: {
-    language: 'english',
-    normalizationCache: new Map(),
-    tokenize: (raw, _language, property) => tokenizeSearchText(raw, property === undefined),
+export const searchServer = createFromSource(
+  { ...source, getPages: () => [...source.getPages()].sort((a, b) => indexOrder(a) - indexOrder(b)) } as typeof source,
+  {
+    tokenizer: {
+      language: 'english',
+      normalizationCache: new Map(),
+      tokenize: (raw, _language, property) => tokenizeSearchText(raw, property === undefined),
+    },
   },
-});
+);
 
 /** Default and ceiling for a search, mirrored in the MCP tool description. */
 export const DEFAULT_SEARCH_LIMIT = 10;
@@ -311,11 +326,10 @@ let profiles: Promise<Map<string, PageProfile>> | undefined;
 function kindOf(page: (typeof source)['$inferPage']): PageKind {
   // A generated operation page has no written body.
   if (!('getText' in page.data)) return 'operation';
-  // A top-bar page is in no folder of a tab, so it names its own kind.
-  const topBar = TOP_BAR_LINKS.find((link) => link.href === page.url);
-  if (topBar) return topBar.kind;
   const folder = page.path.split('/')[0];
-  if (folder === 'use' || folder === 'run' || folder === '(start)') return 'guide';
+  // The Glossary and the Changelog are lookups, so they rank with the Reference; the rest of Home reads as guides.
+  if (page.url === '/glossary' || page.url === '/changelog') return 'reference';
+  if (folder === '(home)' || folder === 'use' || folder === 'run') return 'guide';
   return folder === 'build' ? 'build' : 'reference';
 }
 
@@ -523,7 +537,7 @@ export async function searchDocs(
 
 /** The page's Markdown, the same text its `<path>.md` copy serves, or `null` when there is no such page. */
 export async function fetchDocsPage(path: string): Promise<string | null> {
-  const page = source.getPage(pathToSlugs(path));
+  const page = findPage(pathToSlugs(path));
   return page ? getLLMText(page) : null;
 }
 

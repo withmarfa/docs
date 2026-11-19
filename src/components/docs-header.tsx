@@ -4,7 +4,7 @@ import { Menu, X } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 import { appName, gitConfig } from '@/lib/shared';
 import { cn } from '@/lib/cn';
-import { SectionNav, TopBarLinks } from './section-nav';
+import { SectionNav } from './section-nav';
 import { GitHubIcon, HeaderBar, IconLink, NpmIcon, SearchButton, iconButton } from './site-header';
 import { StatusIndicator } from './status-indicator';
 import { ThemeSwitch } from './theme-switch';
@@ -15,11 +15,7 @@ import { ThemeSwitch } from './theme-switch';
 // left them to be moved and hidden from CSS.
 //
 // The icon row drops what the screen can't hold: the links below 1024px, the
-// appearance control below 768px, where the phone menu carries both. The
-// text links (Glossary, Changelog, Get help) drop below 1400px, where the
-// sidebar's footer carries them. The tabs are centered on the screen and the
-// icon row is fixed to its right edge, so at 1280px the two collide; 1400px is
-// the width at which a divider and a gap of about 45px fit between them.
+// appearance control below 768px, where the phone menu carries both.
 export function DocsHeader(props: ComponentProps<'header'>) {
   const { slots } = useNotebookLayout();
   const sidebar = slots.sidebar;
@@ -57,9 +53,6 @@ export function DocsHeader(props: ComponentProps<'header'>) {
 export function DocsActions({ children }: { children?: ReactNode }) {
   return (
     <>
-      {/* The divider and the gap keep Glossary from reading as a seventh tab beside Reference. */}
-      <span aria-hidden className="ms-4 me-2 h-5 w-px bg-fd-border max-[1399px]:hidden" />
-      <TopBarLinks className="me-2 max-[1399px]:hidden" />
       <StatusIndicator className="max-lg:hidden" />
       <IconLink
         label="npm"

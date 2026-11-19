@@ -13,4 +13,4 @@ export function splitResponseCodes(codes: string[]): { success: string[]; errors
 }
 
 /** The page that says what each error code means; the select links to it. */
-export const ERRORS_PAGE = '/api-reference/errors';
+export const ERRORS_PAGE = '/reference/errors';

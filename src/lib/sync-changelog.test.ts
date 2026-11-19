@@ -103,7 +103,7 @@ describe('fetchReleases', () => {
 
 describe('the Changelog page', () => {
   it('names the first version, so its introduction stays true when the constant moves', () => {
-    const page = readFileSync(fileURLToPath(new URL('../../content/docs/(reference)/changelog.mdx', import.meta.url)), 'utf8');
+    const page = readFileSync(fileURLToPath(new URL('../../content/docs/(home)/changelog.mdx', import.meta.url)), 'utf8');
     expect(page).toContain(FIRST_VERSION);
   });
 });

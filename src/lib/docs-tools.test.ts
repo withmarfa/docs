@@ -100,15 +100,15 @@ describe('fetchDocsPage', () => {
     expect(await fetchDocsPage('/definitely/not/a/page')).toBeNull();
   });
 
-  it('serves the Start and Reference pages at the site root, and nothing at the old paths', async () => {
+  it('serves each page under its tab, and nothing at an unknown path', async () => {
     const page = await fetchDocsPage('/build/files');
     expect(page).toMatch(/^# Files \(\/build\/files\)\n/);
     expect(await fetchDocsPage('/')).toMatch(/^# What Marfa is \(\/\)\n/);
     expect(await fetchDocsPage('/index.md')).toMatch(/^# What Marfa is \(\/\)\n/);
     expect(await fetchDocsPage('/overview')).toBeNull();
     expect(await fetchDocsPage('/introduction')).toBeNull();
-    expect(await fetchDocsPage('/cli')).toContain('marfa items list');
-    expect(await fetchDocsPage('/typescript-sdk')).toMatch(/^# TypeScript SDK \(\/typescript-sdk\)\n/);
+    expect(await fetchDocsPage('/reference/cli')).toContain('marfa items list');
+    expect(await fetchDocsPage('/reference/typescript-sdk')).toMatch(/^# TypeScript SDK \(\/reference\/typescript-sdk\)\n/);
     // A command keeps its output, and code tabs keep their examples under each tab's label.
     const quickstart = await fetchDocsPage('/quickstart');
     expect(quickstart).toContain('marfa items add ~/Downloads/receipt.pdf');
@@ -117,17 +117,65 @@ describe('fetchDocsPage', () => {
     expect(await fetchDocsPage('/how-marfa-works')).toContain('Figure: Your instance holds the library, the feed and the bin.');
     expect(await fetchDocsPage('/build/write-safely')).toContain('**TypeScript**');
     expect(await fetchDocsPage('/cli-reference')).toBeNull();
-    expect(await fetchDocsPage('/cli/items')).toBeNull();
+    expect(await fetchDocsPage('/reference/cli/items')).toBeNull();
     expect(await fetchDocsPage('/typescript-client')).toBeNull();
     expect(await fetchDocsPage('/build/docs-mcp-server')).toBeNull();
     expect(await fetchDocsPage('/get-started/files')).toBeNull();
     expect(await fetchDocsPage('/tools/marfa-command')).toBeNull();
   });
 
+  it('finds a page by a name that is only its last segment, when one page ends in it', async () => {
+    const page = await fetchDocsPage('/connect-your-agent');
+    expect(page).not.toBeNull();
+    for (const name of ['connect-your-agent', '/connect-your-agent.md', 'cli', 'quickstart']) {
+      expect(await fetchDocsPage(name), name).not.toBeNull();
+    }
+    expect(await fetchDocsPage('connect-your-agent')).toBe(page);
+    expect(await fetchDocsPage('cli')).toBe(await fetchDocsPage('/reference/cli'));
+  });
+
+  it.each([
+    ['quickstart', '/quickstart'],
+    ['connect-your-agent', '/connect-your-agent'],
+    ['how-marfa-works', '/how-marfa-works'],
+    ['typescript-sdk', '/reference/typescript-sdk'],
+    ['swift-sdk', '/reference/swift-sdk'],
+    ['cli', '/reference/cli'],
+    ['folder-rules', '/reference/folder-rules'],
+    ['folder-sync-status', '/reference/folder-sync-status'],
+    ['marfa-mcp-server', '/reference/marfa-mcp-server'],
+    ['docs-mcp-server', '/reference/docs-mcp-server'],
+    ['errors', '/reference/errors'],
+  ])('keeps the name %s reading the page at %s', async (name, url) => {
+    const page = await fetchDocsPage(url);
+    expect(page, url).not.toBeNull();
+    expect(await fetchDocsPage(name)).toBe(page);
+  });
+
+  it('prefers the page nearest the root, and finds none where two tie or the path is longer', async () => {
+    const urls = listTopics().pages.map((p) => p.url);
+    // Witness: `cli` ends two addresses, at different depths.
+    expect(urls.filter((url) => url.endsWith('/cli')).length).toBeGreaterThan(1);
+    expect(await fetchDocsPage('cli')).toBe(await fetchDocsPage('/reference/cli'));
+
+    const ends = new Map<string, string[]>();
+    for (const url of urls) {
+      const last = url.split('/').filter(Boolean).at(-1);
+      if (last) ends.set(last, [...(ends.get(last) ?? []), url]);
+    }
+    const tied = [...ends].filter(([name, list]) => {
+      const depth = Math.min(...list.map((url) => url.split('/').length));
+      return list.filter((url) => url.split('/').length === depth).length > 1 && !urls.includes(`/${name}`);
+    });
+    expect(tied.length, 'witness: two pages tie at one depth').toBeGreaterThan(0);
+    for (const [name] of tied) expect(await fetchDocsPage(name), name).toBeNull();
+    expect(await fetchDocsPage('start/cli')).toBeNull();
+  });
+
   it('returns every page the topics list, including ones whose names start with docs', async () => {
     const { pages } = listTopics();
-    expect(pages.map((p) => p.url)).toContain('/docs-mcp-server');
-    expect(pages.map((p) => p.url)).toContain('/marfa-mcp-server');
+    expect(pages.map((p) => p.url)).toContain('/reference/docs-mcp-server');
+    expect(pages.map((p) => p.url)).toContain('/reference/marfa-mcp-server');
     for (const { url } of pages) {
       expect(await fetchDocsPage(url), url).not.toBeNull();
     }

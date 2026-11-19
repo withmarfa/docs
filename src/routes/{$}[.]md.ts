@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { markdownPathToSlugs, markdownResponse, source } from '@/lib/source';
+import { findPage, markdownPathToSlugs, markdownResponse } from '@/lib/source';
 
 // A missing page answers with a plain 404 here. Throwing the router's
 // `notFound()` from a server handler answers 200 with a JSON body, which a
@@ -9,7 +9,7 @@ export const Route = createFileRoute('/{$}.md')({
     handlers: {
       GET: async ({ params }) => {
         const slugs = markdownPathToSlugs(params._splat?.split('/') ?? []);
-        const page = source.getPage(slugs);
+        const page = findPage(slugs);
         if (!page) {
           return new Response('No such page.\n', {
             status: 404,
