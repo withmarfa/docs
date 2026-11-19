@@ -2,7 +2,6 @@ import { BinCascade } from './bin-cascade';
 import { ConnectorParts } from './connector-parts';
 import { EventFlow } from './event-flow';
 import { Arrow, Box, Branch, Branches, Chip, Figure, Flow, Group } from './figure';
-import { FileStorage } from './file-storage';
 import { ItemLifecycle } from './item-lifecycle';
 import { KeyReach } from './key-reach';
 import { MarfaAtAGlance } from './marfa-at-a-glance';
@@ -22,7 +21,6 @@ export const visualComponents = {
   ConnectorParts,
   EventFlow,
   Figure,
-  FileStorage,
   Flow,
   Group,
   ItemLifecycle,

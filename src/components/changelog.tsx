@@ -1,6 +1,8 @@
 import Link from 'fumadocs-core/link';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
-import { useMemo, useState, type ReactNode } from 'react';
+import { createContext, use, useMemo, useState, type ReactNode } from 'react';
+import { useTreeContext } from 'fumadocs-ui/contexts/tree';
+import type * as PageTree from 'fumadocs-core/page-tree';
 import changelog from '@/generated/changelog.json';
 import {
   formatDate,
@@ -15,13 +17,35 @@ import {
 
 const DOCS_ORIGIN = 'https://docs.marfa.so';
 
+/**
+ * The site's page paths, when known. Older notes link pages the site has since
+ * removed, and such a link is shown as text rather than sent to a missing page.
+ */
+const SitePages = createContext<ReadonlySet<string> | null>(null);
+
 /** A link the page may draw: a web address, a mail address or a path. Anything else, such as `javascript:`, is shown as text. */
-function safeHref(href: string): string | null {
-  if (href.startsWith(DOCS_ORIGIN + '/')) return href.slice(DOCS_ORIGIN.length);
+function safeHref(href: string, pages: ReadonlySet<string> | null = null): string | null {
+  if (href.startsWith(DOCS_ORIGIN + '/')) {
+    const path = href.slice(DOCS_ORIGIN.length);
+    const page = path.replace(/[#?].*$/, '').replace(/(.)\/$/, '$1');
+    return pages === null || pages.has(page) ? path : null;
+  }
   return /^(https?:\/\/|mailto:|\/|#)/i.test(href) ? href : null;
 }
 
+function pageUrls(nodes: PageTree.Node[], into = new Set<string>()): Set<string> {
+  for (const node of nodes) {
+    if (node.type === 'page') into.add(node.url);
+    if (node.type === 'folder') {
+      if (node.index) into.add(node.index.url);
+      pageUrls(node.children, into);
+    }
+  }
+  return into;
+}
+
 function Inlines({ nodes }: { nodes: Inline[] }) {
+  const pages = use(SitePages);
   return (
     <>
       {nodes.map((node, index) => {
@@ -37,7 +61,7 @@ function Inlines({ nodes }: { nodes: Inline[] }) {
               </strong>
             );
           case 'link': {
-            const href = safeHref(node.href);
+            const href = safeHref(node.href, pages);
             return href ? (
               <Link key={index} href={href}>
                 <Inlines nodes={node.children} />
@@ -95,7 +119,7 @@ const H2 = defaultMdxComponents.h2;
  * part. A filter hides parts and nothing else, so the page never moves a
  * release's heading or summary.
  */
-export function ChangelogView({ releases }: { releases: Release[] }) {
+export function ChangelogView({ releases, pages = null }: { releases: Release[]; pages?: ReadonlySet<string> | null }) {
   const notes = useMemo(() => releases.map((release) => parseNotes(release.body)), [releases]);
   const parts = useMemo(() => partsOf(notes), [notes]);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
@@ -110,36 +134,38 @@ export function ChangelogView({ releases }: { releases: Release[] }) {
     });
 
   return (
-    <div className="marfa-cl">
-      {parts.length > 1 ? (
-        <div className="marfa-cl-filters">
-          <div className="marfa-cl-filter-options" role="group" aria-label="Filter by part">
-            <button
-              type="button"
-              className="marfa-cl-filter-button"
-              aria-pressed={selected.size === 0}
-              onClick={() => setSelected(new Set())}
-            >
-              All parts
-            </button>
-            {parts.map((name) => (
+    <SitePages value={pages}>
+      <div className="marfa-cl">
+        {parts.length > 1 ? (
+          <div className="marfa-cl-filters">
+            <div className="marfa-cl-filter-options" role="group" aria-label="Filter by part">
               <button
-                key={name}
                 type="button"
                 className="marfa-cl-filter-button"
-                aria-pressed={selected.has(name)}
-                onClick={() => toggle(name)}
+                aria-pressed={selected.size === 0}
+                onClick={() => setSelected(new Set())}
               >
-                {name}
+                All parts
               </button>
-            ))}
+              {parts.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  className="marfa-cl-filter-button"
+                  aria-pressed={selected.has(name)}
+                  onClick={() => toggle(name)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      ) : null}
-      {releases.map((release, index) => (
-        <ReleaseEntry key={release.tag} release={release} notes={notes[index]} selected={selected} />
-      ))}
-    </div>
+        ) : null}
+        {releases.map((release, index) => (
+          <ReleaseEntry key={release.tag} release={release} notes={notes[index]} selected={selected} />
+        ))}
+      </div>
+    </SitePages>
   );
 }
 
@@ -172,5 +198,7 @@ function ReleaseEntry({ release, notes, selected }: { release: Release; notes: N
 
 /** The Changelog page's releases, from the GitHub release notes that `scripts/sync-changelog.ts` writes. */
 export function Changelog(): ReactNode {
-  return <ChangelogView releases={changelog as Release[]} />;
+  const { full } = useTreeContext();
+  const pages = useMemo(() => pageUrls(full.children), [full]);
+  return <ChangelogView releases={changelog as Release[]} pages={pages} />;
 }

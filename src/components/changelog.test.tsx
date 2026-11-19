@@ -52,6 +52,14 @@ describe('the changelog on the server', () => {
     expect(html).toContain('Unsafe link.');
   });
 
+  it('shows a link to a page the site no longer has as text', () => {
+    const gone = renderToStaticMarkup(<ChangelogView releases={releases} pages={new Set(['/catalog/note'])} />);
+    expect(gone).not.toContain('href="/catalog/task"');
+    expect(gone).toContain('repeats. Docs');
+    const kept = renderToStaticMarkup(<ChangelogView releases={releases} pages={new Set(['/catalog/task'])} />);
+    expect(kept).toContain('href="/catalog/task"');
+  });
+
   it('links the Full changelog address when the notes have one, and the release otherwise', () => {
     expect(html).toContain('href="https://github.com/withmarfa/marfa/compare/v0.0.51...v0.0.52"');
     expect(html).toContain('href="https://github.com/withmarfa/marfa/releases/tag/v0.0.51"');
