@@ -63,7 +63,8 @@ describe('buildDocsMap', () => {
       '- Events]',
       '- Permissions]',
       '- Connectors]',
-      ...['GitHub', 'Google Calendar', 'Readwise', 'Readwise Reader', 'RSS', 'Todoist'].map((title) => `  - ${title}]`),
+      // File-name order, as the sidebar lists them: `readwise-reader` sorts before `readwise`.
+      ...['GitHub', 'Google Calendar', 'Readwise Reader', 'Readwise', 'RSS', 'Todoist'].map((title) => `  - ${title}]`),
     ]);
     expect(catalog.some((line) => line.startsWith('  - [GitHub](/catalog/connectors/github)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('    - [Media](/catalog/media)'))).toBe(true);
