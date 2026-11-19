@@ -21,7 +21,7 @@ Set **one** of two stored settings, from any machine, with a credential that hol
 marfa config set backup_path /Volumes/Backup/marfa
 ```
 
-- **`backup_path`** names a folder, best on another disk. The server makes only the folders inside it, and refuses a folder inside its data directory or blob folder, since a backup there is lost with the data. In a container, mount the folder as a volume and name its path inside the container.
+- **`backup_path`** names a folder, best on another disk. The server makes only the folders inside it, and refuses a folder inside its data directory or blob folder, since a backup there is lost with the data. In a container, name the path where the folder is mounted.
 - **`object_store_bucket`**, with the other `object_store_` settings, names a bucket, as [Use an object store](#use-an-object-store) shows.
 
 Setting both is refused `400 validation_error`, so a restore always knows where to look. `backup_interval_seconds` sets how often a backup runs, `3600` by default, and `0` turns the schedule off. A run that finds nothing changed takes no backup.
@@ -38,9 +38,9 @@ marfa config set object_store_secret_access_key
 marfa config set object_store_bucket marfa-backups
 ```
 
-`config set` asks for the secret access key with no echo, or reads it from standard input, and never takes it as an argument.
+`config set` asks for the secret key with no echo, or reads it from standard input.
 
-- **Give each instance its own `object_store_prefix`,** such as `home` and `trial`. A prefix holds one instance's files and backups, and its default is `marfa`. A new instance started on the same bucket and prefix finds the old one's backups and files.
+- **A prefix holds one instance's backups and files,** and its default is `marfa`. An instance that replaces another, after a lost machine or [a move to a new release](/run/upgrade#move-to-a-newer-release), takes the old one's prefix and finds its backups and files there. Give an instance that runs beside yours, such as a trial, a prefix of its own.
 - **Share a bucket only between instances of one owner.** A prefix keeps instances apart, not access: each holds credentials for the whole bucket.
 - **Serve the bucket from a different site from the instance.** A link the bucket signs serves a file from the bucket's own origin, which keeps an uploaded HTML file from running as one of the instance's pages.
 
@@ -91,49 +91,35 @@ name                       instance_id  created_at                size_bytes
 }
 ```
 
-A wrong or missing destination stops the backups, never the instance: it goes on serving, and tries the destination again on the next run.
+A wrong or missing destination stops the backups, never the instance, which tries it again on the next run.
 
 ## Restore a backup
 
-**What you need depends on what you kept.** With a backup place, the place is all: the folder, or the bucket with its prefix and credentials. Nothing else is needed, since a restore brings back no key or sign-in. A [copy of the data directory](#copy-the-data-directory-instead) also needs the server's secrets.
+**With a backup place, the place is all you need:** the folder, or the bucket with its prefix and credentials. A [copy of the data directory](#copy-the-data-directory-instead) also needs the server's secrets.
 
 To bring an instance back after a lost disk or machine:
 
 1. [Install](/run/install) a new instance and claim it.
 2. Point it at the same place: the same `backup_path`, or the same bucket, prefix and credentials.
 3. Run `marfa backups list` to find the backup and its `instance_id`.
-4. Restore it. A restore needs [a sign-in from the last five minutes](/run/sign-in-as-the-owner#confirm-its-you), so sign the CLI in again first.
+4. Restore it. A restore writes into whichever instance the CLI reaches, so **check that `marfa status` names the new instance first.** It needs [a sign-in from the last five minutes](/run/sign-in-as-the-owner#confirm-its-you), so sign the CLI in again.
 
 ```bash
 marfa login --fresh-sign-in
 marfa backups restore <instance id> 20261119T003713.995Z.json
 ```
 
-On the server's own machine, the [private socket](/run/run-on-a-server#the-private-socket) restores with no sign-in: `marfa --socket <install folder>/data/control/marfa.sock backups restore …`. The server reads the backup and its files itself, so nothing is downloaded to your machine.
+On the server's own machine, the [private socket](/run/run-on-a-server#the-private-socket) reaches that instance alone and restores with no sign-in: `marfa --socket <install folder>/data/control/marfa.sock backups restore …`. The server reads the backup and its files itself, so nothing comes to your machine.
 
-The answer counts what it restored, then says what it didn't restore and what to do about each:
-
-```text
-The owner's sign-in is not restored. Sign in again on this instance.
-Keys are not restored. Make new keys on this instance.
-Apps are not restored. Each app signs in again and is approved again.
-Webhooks are not restored. Make them again.
-Inbound endpoints are not restored, and the addresses other services hold for them no longer work. Make each endpoint again and give its sender the new address.
-A connector's state and agreements are restored but not its key. Give each connector a new key.
-The instance's addresses are not restored. Set them on this instance.
-The instance's name is not restored. Set it on this instance.
-The audit log and the event log are not restored.
-```
-
-A connector's new key is made through the private socket today, as [Manage keys](/run/manage-keys#a-key-for-a-connector) shows. **A file that neither the backup's place nor the instance holds** makes the restore refuse and name it. `--allow-missing-files` restores without it instead, listing it in `blobs_missing`, and uploading the file again restores it.
+The answer counts what it restored, then names what it didn't restore and what to do: sign in again, make new keys, and approve each app again; make webhooks and inbound endpoints again, giving each sender the new address; give each connector a new key, through the private socket today, as [Manage keys](/run/manage-keys#a-key-for-a-connector) shows; and set the instance's addresses and name. The audit log and the event log aren't restored. **A file that neither the backup's place nor the instance holds** makes the restore refuse and name it. `--allow-missing-files` restores without it instead, listing it in `blobs_missing`, and uploading the file again restores it.
 
 ### After a restore
 
-- **Check `trash_retention_days`** in what `marfa config get` prints. A restore takes each setting the instance hasn't set from the backup, and a short retention makes the next bin purge delete items for good.
-- **Set what describes a machine,** which no backup carries: the addresses, `allow_private_addresses`, and each secret the answer names in `secrets_to_set`.
+- **Check `trash_retention_days`** in what `marfa config get` prints. A restore takes each setting the instance hasn't set from the backup, and a short retention makes the next bin purge delete items for good. An instance keeps a setting it already has, so setting it before you restore is safer.
+- **Set what describes a machine,** which no backup carries: the addresses, `allow_private_addresses`, and each secret the answer names in `secrets_to_set`. Give a `heartbeat_url` of its own to an instance that runs beside another: two instances pinging one monitor hide an outage of either.
 - **Expect deleted things back.** A restore [adds what the instance lacks](/run/export-and-restore#what-a-restore-changes), and a link or type the instance deleted comes back if the backup holds it.
 
-The answer also names the old instance and the folders it kept in the backup folder: `backups/<id>`, `backup-parts/<id>` and `files/<id>`. Delete them only once the old instance no longer runs and nothing else restores from them.
+The answer also names the old instance and what it kept in the backup place: in a folder, `backups/<id>`, `backup-parts/<id>` and `files/<id>`; in a bucket, `backups/<id>` and `backup-parts/<id>` under the prefix. Delete them only once the old instance no longer runs and nothing else restores from them. **Never delete a bucket's `blobs/`:** every instance on the prefix shares the file copies there.
 
 ## When the backup disk was replaced
 
@@ -147,8 +133,8 @@ The server forgets the backups and copies it kept on the old disk, and copies ev
 
 ## Copy the data directory instead
 
-A copy of [the data directory](/run/run-on-a-server#the-data-directory) brings back the same instance, keys and sign-ins included. **Take it with the server stopped,** or as a snapshot of the whole volume at one moment, such as a host's disk snapshot. Time Machine, or any copy of the files taken while the server runs, can catch the database mid-write and leave one that won't open, so it isn't a backup of Marfa.
+A copy of [the data directory](/run/run-on-a-server#the-data-directory) brings back the same instance, keys and sign-ins included. **It must be an image of one moment:** a copy taken with the server stopped, or a snapshot, such as a host's disk snapshot or Time Machine, which copies from an APFS snapshot. The server opens such an image with every write it had answered. A copy of the files taken one by one while the server runs can hold a database that isn't whole. A backup place is still the way Marfa backs itself up.
 
-Keep the server's secrets with the copy: `marfa.env` from the install folder, or `marfa.secrets` where the server made them, or the two variables your platform holds. **With a different `MARFA_KEY_SALT`, the server starts but refuses every key and app token,** and only the owner's password still signs in. A different `MARFA_AUTH_SECRET` signs everyone out of the browser. `marfa.settings.key`, inside the data directory, seals the secret settings: without it, each must be set again.
+Keep the server's secrets with the copy: `marfa.env` from the install folder, or `marfa.secrets` where the server made them, or the two variables your platform holds. **With a different `MARFA_KEY_SALT`, the server starts but refuses every key and app token,** and every browser is signed out: sign in as the owner again and make new keys. A different `MARFA_AUTH_SECRET` also signs everyone out of the browser. `marfa.settings.key`, inside the data directory, seals the secret settings: without it, each must be set again.
 
 The rules behind this page are in the [backing up](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#backing-up) section of the instance chapter of the contract.
