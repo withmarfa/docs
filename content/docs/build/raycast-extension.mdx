@@ -1,32 +1,32 @@
 ---
 title: Build a Raycast extension
-description: Write a small Raycast extension that saves a note to your instance, with a key of its own that can write notes and nothing else.
+description: Write a small Raycast extension that saves a link to your instance, with a key of its own that can write bookmarks and nothing else.
 ---
 
-- **You'll build** a Raycast extension with one command. It shows a form for a note, and saves what you type to your instance.
-- **You need** the [Quickstart](/quickstart) instance and its terminal, plus [Raycast](https://www.raycast.com) 1.26.0 or later and [Node.js](https://nodejs.org) 22.14 or later on a Mac.
-- **You'll have** a command that saves notes from anywhere on your Mac. [Build forms from types in a Raycast extension](/build/raycast-type-forms) builds on it.
+- **You'll build** a Raycast extension with one command. It shows a form for a link, and saves what you type to your instance as a bookmark.
+- **You need** your own Marfa instance, with the CLI signed in to it, as the [Quickstart](/quickstart) leaves you, plus [Raycast](https://www.raycast.com) and [Node.js](https://nodejs.org) 22.22.2 or later on a Mac.
+- **You'll have** a command that saves links from anywhere on your Mac. [Build forms from types in a Raycast extension](/build/raycast-type-forms) builds on it.
 
-An extension is a client of your instance, like any app you write. It sends requests with a key, and the key decides what it may do. Here the key can write notes and nothing else.
+An extension is a client of your instance, like any app you write. It sends requests with a key, and the key decides what it may do. Here the key can write bookmarks and nothing else.
 
 <Steps paged>
 <Step>
 
 ### Make a key for the extension
 
-A key is the credential a program sends with each request. Give the extension a key of its own, so that it reaches only what it needs. In the Quickstart terminal, make a key that reads and writes notes:
+A key is the credential a program sends with each request. Give the extension a key of its own, so that it reaches only what it needs. In a terminal, make a key that reads and writes bookmarks:
 
 <Terminal>
 
 ```bash
 marfa keys create --label "Raycast" --source raycast \
-  --type-permission core.note=write
+  --type-permission core.bookmark=write
 ```
 
 ```text
 marfa_k1_…
-key 01a17415-4521-7b79-a8e5-39276a8b527d (Raycast); the plaintext is shown once, keep it now
-  core.note  Read and edit
+key 01a1f142-25ea-7671-bd26-35207a9efab1 (Raycast); the plaintext is shown once, keep it now
+  core.bookmark  Read and edit
 ```
 
 </Terminal>
@@ -40,7 +40,7 @@ The **source** is the label Marfa puts on every item the key creates, so you can
 
 ### Create the extension and add the client
 
-Open Raycast and run the **Create Extension** command. Name the extension "Marfa Capture", choose the **Detail** template, and pick a folder. Then, in the new folder, add the Marfa client:
+Open Raycast and run the **Create Extension** command. Name the extension "Marfa Capture", pick any template, since step 4 replaces its code, and choose a folder. Then, in the new folder, add the Marfa client:
 
 ```bash
 npm install @withmarfa/client
@@ -48,15 +48,28 @@ npm install @withmarfa/client
 
 The [TypeScript SDK](/typescript-sdk) is a typed client for every operation. It knows each path, parameter and answer, so a mistake in a request fails to build.
 
+The client is an ES module, and the template's `tsconfig.json` compiles for CommonJS, which can't find it. In `tsconfig.json`, set `module` to `preserve`, so that TypeScript resolves the client the way Raycast's bundler does:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "module": "preserve"
+  }
+}
+```
+
+Leave the template's other options as they are.
+
 The extension needs to know where your instance is and which key to use. In `package.json`, set the command's `title` and `description`, and add two **preferences**. Raycast asks for them the first time the command runs, and hides a `password` preference:
 
 ```json title="package.json"
 {
+  "platforms": ["macOS"],
   "commands": [
     {
       "name": "index",
-      "title": "Capture Item",
-      "description": "Save an item to Marfa",
+      "title": "Save Link",
+      "description": "Save a link to Marfa",
       "mode": "view"
     }
   ],
@@ -67,7 +80,7 @@ The extension needs to know where your instance is and which key to use. In `pac
       "description": "Where your Marfa instance answers",
       "type": "textfield",
       "required": true,
-      "placeholder": "http://localhost:8600"
+      "default": "http://localhost:8600"
     },
     {
       "name": "apiKey",
@@ -124,24 +137,24 @@ export async function createItem(type: string, properties: Record<string, unknow
 }
 ```
 
-[Create an item](/api-reference/items/createItem) returns `data` when it works and `error` when Marfa refuses it. A refusal carries a stable `code` and a `message` for people, so `MarfaError` keeps both. `Preferences` is a type Raycast generates from the `package.json` you edited.
+[Create an item](/api-reference/items/createItem) returns `data` when it works and `error` when Marfa refuses it. A refusal carries a stable `code` and a `message` for people, so `MarfaError` keeps both. `Preferences` is a type Raycast generates from the `package.json` you edited, so don't write it yourself.
 
 </Step>
 <Step>
 
-### Build the form and save the note
+### Build the form and save the link
 
-A note is an item of the type `core.note`. A **type** is the shape of an item: it lists the fields the item holds, and a note holds a `title` and a `body`, its text. Replace `src/index.tsx` with a form for those two fields:
+A bookmark is an item of the type `core.bookmark`. A **type** is the shape of an item: it lists the fields the item holds. A bookmark holds a `url`, a `title` and `notes`, among others. Replace `src/index.tsx` with a form for those three fields:
 
 ```tsx title="src/index.tsx"
 import { Action, ActionPanel, Form, popToRoot, showToast, Toast } from "@raycast/api";
 import { createItem, MarfaError } from "./marfa";
 
-export default function Capture() {
+export default function SaveLink() {
   async function save(values: Form.Values) {
     const properties = Object.fromEntries(Object.entries(values).filter(([, value]) => value !== ""));
     try {
-      const item = await createItem("core.note", properties);
+      const item = await createItem("core.bookmark", properties);
       await showToast({ style: Toast.Style.Success, title: "Saved", message: item.id });
       await popToRoot();
     } catch (error) {
@@ -161,14 +174,15 @@ export default function Capture() {
         </ActionPanel>
       }
     >
+      <Form.TextField id="url" title="URL" placeholder="https://" />
       <Form.TextField id="title" title="Title" />
-      <Form.TextArea id="body" title="Body" />
+      <Form.TextArea id="notes" title="Notes" />
     </Form>
   );
 }
 ```
 
-Each control's `id` is the name of the field it fills. `save` leaves out a field left empty, so the note holds no value for it, and shows the server's `code` and `message` when Marfa refuses the note. The note arrives with the `source` of the key, `raycast`, and goes to your **library**, the part of Marfa for what you have kept.
+Each control's `id` is the name of the field it fills. `save` leaves out a field left empty, so the bookmark holds no value for it, and shows the server's `code` and `message` when Marfa refuses it. The bookmark arrives with the `source` of the key, `raycast`. [Bookmark](/catalog/bookmark) lists every field the type holds.
 
 </Step>
 <Step>
@@ -183,9 +197,9 @@ npm run dev
 
 It builds the extension, adds it to Raycast and rebuilds it each time you save a file. If it reports a type error, the message names the file and line.
 
-Open Raycast and search for **Capture Item**. The first time, Raycast asks for the preferences. Enter `http://localhost:8600` and the key from step 1. Type a title and some text, and press Command-Return. A **Saved** toast shows the new note's ID.
+Open Raycast and search for **Save Link**. The first time, Raycast asks for the preferences. The server URL is filled in with `http://localhost:8600`; change it if your instance answers elsewhere, and paste the key from step 1. Enter a URL and a title, and press Command-Return. A **Saved** toast shows the new bookmark's ID.
 
-Check the note with your own key in the Quickstart terminal:
+Check the bookmark in the terminal, with the CLI's own key:
 
 <Terminal>
 
@@ -194,12 +208,13 @@ marfa items list --source raycast
 ```
 
 ```text
-01a17415-bd76-7c26-8fb4-215d948360aa  core.note  2026-10-25T17:22:24.246Z  Hello from Raycast
+id                                    type           when                      title
+01a1f142-4174-75ec-9281-22401f2a0c56  core.bookmark  2026-11-19T00:43:33.620Z  Great Expectations on Project Gutenberg
 ```
 
 </Terminal>
 
-You now have a Raycast command that saves notes to your own instance, with a key that can do little else. Press Control-C in the terminal to stop `npm run dev`. The extension stays in Raycast.
+You now have a Raycast command that saves links to your own instance, with a key that can do little else. Stop `npm run dev` in the terminal when you're done. The extension stays in Raycast.
 
 </Step>
 </Steps>
@@ -210,5 +225,5 @@ You now have a Raycast command that saves notes to your own instance, with a key
   <Card title="Build forms from types in a Raycast extension" href="/build/raycast-type-forms">Let the command save an item of any type, with a form built from the type.</Card>
   <Card title="Manage keys" href="/run/manage-keys">Narrow, expire, rotate and revoke the extension's key.</Card>
   <Card title="TypeScript SDK" href="/typescript-sdk">Call every operation from TypeScript, and walk a list a page at a time.</Card>
-  <Card title="Build a connector" href="/build/connector">Write a program that keeps items in step with another service.</Card>
+  <Card title="Items and types" href="/build/items-and-types">What an item is, and how its type shapes it.</Card>
 </Cards>

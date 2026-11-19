@@ -30,8 +30,8 @@ export const choices: readonly { id: ItemId; label: string }[] = [
 
 /**
  * What trashing one item does to the others. A cascading edge, which only
- * `parent-of` is among the shipped types, takes its target into the bin with
- * its source, at every depth (`items/trash-cascade`), and never the other way,
+ * `parent-of` is among the shipped types, takes its to item into the bin with
+ * its from item, at every depth (`items/trash-cascade`), and never the other way,
  * because the walk follows outbound edges only. An edge that orphans leaves the
  * other end active, whichever end is trashed, and the edge stays
  * (`edges/orphan-shipped`).
@@ -42,7 +42,7 @@ export function trashed(root: ItemId): ItemId[] {
 
 export const messages: Record<ItemId, string> = {
   note: 'The child note goes too, because `parent-of` cascades. The book stays, because `about` orphans.',
-  child: 'Only the child note goes. A cascade runs from an edge\'s source to its target, never back.',
+  child: 'Only the child note goes. A cascade runs from an edge\'s from item to its to item, never back.',
   book: 'Only the book goes. `about` orphans, so the note stays and keeps its edge.',
 };
 

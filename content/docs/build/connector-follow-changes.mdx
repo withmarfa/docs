@@ -1,134 +1,144 @@
 ---
 title: Make a connector follow changes
-description: Teach the reading list connector to archive entries its service drops, then change the list, run it again, and see a failed run reported.
+description: Edit a ticket in Marfa and see the connector put it back, teach it to archive what the service drops, and read a failed run.
 ---
 
-- **You'll build** on the connector from [Build a connector](/build/connector). It will archive an entry the service drops, and you'll watch it follow a changed list.
-- **You need** that connector, built, with its key, and the reading list service still running. Keep the `marfa-connectors` checkout as your working folder.
-- **You'll have** a connector that creates, updates and archives items to match the service, and a failed run you can read on the instance.
+- **You'll build** on the connector from [Build a connector](/build/connector). It will archive a ticket the service no longer lists, and you'll watch it follow a changed list.
+- **You need** that connector, built, with its key, and the ticket service still running. Keep the `marfa-connectors` checkout as your working folder.
+- **You'll have** a connector that keeps its items matching the service, and a failed run you can read on your instance.
 
 <Steps paged>
 <Step>
 
-### Set aside what the service dropped
+### Edit a ticket in Marfa
 
-So far the connector only adds and updates. Open `connectors/readlist/src/main.ts`, and ask `run` for two more helpers, `held` and `archive`:
+The ticket service owns these records, and this connector carries nothing back to it, so the connector holds its items **read only**. Change a ticket's title anyway, using an ID and version from your own instance:
 
-```ts title="connectors/readlist/src/main.ts"
+<Terminal>
+
+```bash
+marfa items update 01a1f127-f7d5-72da-a366-d758f847a11f --version 1 --prop title="Khruangbin, with support"
+```
+
+```text
+updated tickets.ticket 01a1f127-f7d5-72da-a366-d758f847a11f "Khruangbin, with support" (version 2)
+```
+
+</Terminal>
+
+Marfa takes the edit: `read_only` tells an app what the connector will do, and Marfa refuses nothing for it. Run the connector again, with the same settings as before:
+
+<Terminal>
+
+```bash
+MARFA_API_URL=http://localhost:8600 MARFA_API_KEY=<connector key> \
+  TICKETS_URL=http://127.0.0.1:4100 TICKETS_TOKEN=demo-token-1234 \
+  node connectors/tickets/dist/main.js --once
+```
+
+```text
+… warn title on 01a1f127-f7d5-72da-a366-d758f847a11f was changed in Marfa and put back from the vendor, which Marfa mirrors
+… info run succeeded: created 0, updated 1, archived 0, unchanged 2, skipped 0
+```
+
+</Terminal>
+
+The kit read the edit from your instance's event log and put back the service's title. A connector that carries changes back sends the edit to the vendor instead, as [Carry changes back](/build/connector-push) shows.
+
+</Step>
+<Step>
+
+### Archive what the service dropped
+
+So far the connector only adds and updates. Open `connectors/tickets/src/main.ts`, and ask `run` for two more helpers, `held` and `archive`:
+
+```ts title="connectors/tickets/src/main.ts"
   async run({ env, signal, upsert, held, archive }) {
 ```
 
-At the end of `run`, after the `upsert`, archive each item whose entry the service no longer lists:
+At the end of `run`, after the `upsert`, archive each item whose ticket the service no longer lists:
 
-```ts title="connectors/readlist/src/main.ts"
-    const listed = new Set(entries.map((entry) => key(entry.id)));
-    const gone = (await held(readlistEntry.id))
+```ts title="connectors/tickets/src/main.ts"
+    const listed = new Set(tickets.map((ticket) => `${account}:${ticket.id}`));
+    const gone = (await held(ticketType.id))
       .map((row) => row.source_id)
-      .filter((id): id is string => id !== undefined && !listed.has(id));
-    await archive(readlistEntry.id, gone);
+      .filter((id): id is string => typeof id === "string" && !listed.has(id));
+    await archive(ticketType.id, gone);
 ```
 
-`held` returns the items the connector wrote. Reading a missing entry as deleted is safe here because **this service lists every entry it has**; [Pull from a vendor](/build/connector-pull#set-aside-what-the-vendor-deleted) covers a vendor that doesn't.
+`held` returns the items the connector holds of a type. Reading a missing ticket as gone is safe only because **the service lists every ticket the account holds**. A vendor that answers part of its records, such as one page or open records only, says nothing about the rest.
 
-Build again:
+An archived item leaves everyday lists but keeps its history, and comes back if the vendor lists it again. The bin is for people, so a connector never moves an item there. Build the connector again:
 
 ```bash
-pnpm build
+pnpm exec tsc -b connectors/tickets
 ```
 
 </Step>
 <Step>
 
-### Change the list
+### Change the list and run it again
 
-In the `reading-list` folder, change `entries.json`: retitle entry 1, delete entry 2, and add entry 3.
+In the service's `tickets.json`, change T-1041's venue, remove T-1187 and add a new ticket:
 
-```json title="reading-list/entries.json"
+```json title="ticket-service/tickets.json"
 [
-  {
-    "id": "1",
-    "title": "The Pragmatic Programmer, 20th anniversary edition",
-    "url": "https://example.com/pragmatic",
-    "author": "Hunt and Thomas",
-    "added": "2026-09-01T09:00:00Z"
-  },
-  {
-    "id": "3",
-    "title": "Designing Data-Intensive Applications",
-    "url": "https://example.com/ddia",
-    "author": "Kleppmann",
-    "added": "2026-10-02T07:15:00Z"
-  }
+  { "id": "T-1041", "event": "Khruangbin", "venue": "O2 Academy Brixton, London", "starts": "2026-12-04T19:30:00Z" },
+  { "id": "T-1302", "event": "Arooj Aftab", "venue": "Union Chapel, London", "starts": "2027-02-20T19:00:00Z" }
 ]
 ```
 
-</Step>
-<Step>
-
-### Run it again
-
-Run the connector with the same command as before, using the connector's key. Its report counts one entry of each kind:
+The service reads the file on every request, so it needs no restart. Run the connector, and list every ticket, archived ones included:
 
 <Terminal>
 
 ```bash
-MARFA_API_URL=http://localhost:8600 \
-MARFA_API_KEY=<the connector's key> \
-READLIST_URL=http://127.0.0.1:4100 \
-READLIST_TOKEN=demo-token \
-node connectors/readlist/dist/main.js --once
+MARFA_API_URL=http://localhost:8600 MARFA_API_KEY=<connector key> \
+  TICKETS_URL=http://127.0.0.1:4100 TICKETS_TOKEN=demo-token-1234 \
+  node connectors/tickets/dist/main.js --once
 ```
 
 ```text
-2026-10-21T15:34:24.816Z info registered as 01a15f19-6d25-7806-8fd1-226237a916c5
-2026-10-21T15:34:24.883Z info run succeeded: created 1, updated 1, archived 1, unchanged 0, skipped 0
+… info run succeeded: created 1, updated 1, archived 1, unchanged 0, skipped 0
 ```
-
-</Terminal>
-
-List the items in every state, with your own key, to see the archived one too:
-
-<Terminal>
 
 ```bash
-marfa items list --type readlist.entry --state any
+marfa items list --type tickets.ticket --state any
 ```
 
 ```text
-01a15f19-6f60-799a-bccf-49486b3d0b19  readlist.entry  2026-10-02T07:15:00.000Z  Designing Data-Intensive Applications
-01a15f19-6d82-79db-9eb9-e662460ad766  readlist.entry  2026-09-03T18:30:00.000Z  A Philosophy of Software Design                     [archived]
-01a15f19-6d7e-7700-bb96-225106877d41  readlist.entry  2026-09-01T09:00:00.000Z  The Pragmatic Programmer, 20th anniversary edition
+id                                    type            when                      title        state
+01a1f128-a1d2-71ff-81b6-792a89ab391f  tickets.ticket  2027-02-20T19:00:00.000Z  Arooj Aftab
+01a1f127-f7d6-7216-bd43-7298a1c1b6bf  tickets.ticket  2027-01-15T20:00:00.000Z  Nils Frahm   [archived]
+01a1f127-f7d5-72da-a366-d758f847a11f  tickets.ticket  2026-12-04T19:30:00.000Z  Khruangbin
 ```
 
 </Terminal>
 
-The retitled entry kept its ID and moved to version 2. The new entry is a new item, and the dropped one is **archived, not deleted**, so it keeps its history. Run the connector once more without changing the list, and its report counts every entry `unchanged`.
+The kit compares each entry with the item it matches and writes only what differs, so a ticket the service didn't change is left alone and announces nothing.
 
 </Step>
 <Step>
 
-### See a run fail
+### Read a failed run
 
-Run the connector with a token the service refuses. The service answers `401`, and the run fails:
+Run the connector with a token the service refuses:
 
 <Terminal>
 
 ```bash
-MARFA_API_URL=http://localhost:8600 \
-MARFA_API_KEY=<the connector's key> \
-READLIST_URL=http://127.0.0.1:4100 \
-READLIST_TOKEN=wrong-token \
-node connectors/readlist/dist/main.js --once
+MARFA_API_URL=http://localhost:8600 MARFA_API_KEY=<connector key> \
+  TICKETS_URL=http://127.0.0.1:4100 TICKETS_TOKEN=wrong-token-1234 \
+  node connectors/tickets/dist/main.js --once
 ```
 
 ```text
-2026-10-21T15:34:25.323Z info registered as 01a15f19-6d25-7806-8fd1-226237a916c5
-2026-10-21T15:34:25.355Z error run failed: the reading list answered 401; created 0, updated 0, archived 0, unchanged 0, skipped 0
+… error run failed: the ticket service answered 401; created 0, updated 0, archived 0, unchanged 0, skipped 0
 ```
 
 </Terminal>
 
-The instance keeps the failure on the connector's registration, with its error:
+The process exits with status 1. The kit reported the run to your instance, so you can read it from any computer:
 
 <Terminal>
 
@@ -137,26 +147,24 @@ marfa connectors list
 ```
 
 ```text
-01a15f19-6d25-7806-8fd1-226237a916c5  readlist  readlist  failed  2026-10-21T15:34:25.355Z  the reading list answered 401
+id                                    source   name     last run  finished                  note
+01a1f127-f790-7407-a9c1-5b755f7292c3  tickets  tickets  failed    2026-11-19T00:15:39.729Z  the ticket service answered 401
 ```
 
 </Terminal>
 
-**Nothing it wrote before is lost**, and the next run with the right token reads the whole list again.
+`marfa connectors runs` with the connector's ID lists its runs, newest first. The next run reads the service whole again, so a failure loses nothing.
 
 </Step>
 </Steps>
 
 ## Next steps
 
-Stop the reading list service with Control-C when you're done.
-
-This connector only reads. Edit an entry's title in Marfa, and the next run puts the service's title back, with a warning that names the field. To carry changes back to the vendor, or to act on its webhooks, go on to the connector guides:
+When you're done, stop the ticket service with Control-C.
 
 <Cards>
-  <Card title="Run a connector" href="/use/connect-a-service">Run a connector on a schedule, and read its exit codes.</Card>
-  <Card title="Pull from a vendor" href="/build/connector-pull">Write what a vendor holds, and only what changed.</Card>
+  <Card title="Bring in records from another service" href="/use/connect-a-service">Run a connector on a schedule, and read its exit codes.</Card>
+  <Card title="Pull from a vendor" href="/build/connector-pull">Write what a vendor holds, and connect the items it relates.</Card>
   <Card title="Carry changes back" href="/build/connector-push">Carry changes made in Marfa back to the vendor.</Card>
   <Card title="Receive vendor webhooks" href="/build/connector-webhooks">Let the vendor tell the connector what changed, as it happens.</Card>
-  <Card title="Holds and retries" href="/build/connector-holds-and-retries">Keep one process writing at a time, and recover from a failed request.</Card>
 </Cards>

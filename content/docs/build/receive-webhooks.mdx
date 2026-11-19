@@ -3,24 +3,29 @@ title: Receive webhooks
 description: Register a webhook, check that each delivery came from your instance, and handle repeats, deliveries that arrive out of order, retries and failed deliveries.
 ---
 
-A webhook lets a service react to changes in your instance without holding a connection open: you register a URL, and Marfa posts each event you chose to it as it happens. [Events and webhooks](/build/events) explains when to use a webhook rather than the event stream.
+A webhook lets a service react to changes without holding a connection open: you register a URL, and Marfa posts each event you chose to it. [Events](/build/events) explains when to use a webhook rather than the event stream.
 
-To register or change a webhook, you need its maker's credential with the `webhooks.manage` permission. The webhook belongs to that key, or to the app that registered it: Marfa sends it nothing once the key is revoked or expires, and deletes it when the app's access is revoked.
+You need your own Marfa instance, with the CLI signed in to it, as the [Quickstart](/quickstart) leaves you. Make the receiving service a key that holds `webhooks.manage` and reads the types it's told about:
 
-The owner sees each webhook and its deliveries, without their payloads, on the **API keys** and **Connected apps** detail pages.
+```bash
+marfa keys create --label "Note hook" --source note-hook \
+  --permission webhooks.manage --type-permission core.note=read
+```
+
+**A webhook belongs to the key that registered it**, or to the app that did. Only that key or app can read, change or delete it. Marfa sends it nothing once the key is revoked or expires, and deletes it when the app's access is revoked. Each key or app can hold 100 webhooks.
 
 ## Register a webhook
 
-[Create a webhook](/api-reference/webhooks/createWebhook) takes the `url` to post to and the `events` you want, such as `item.created`, from the [events](/catalog/events). There is no wildcard: name each event. `type_filter` limits item events to one type and its subtypes, and leaves edge events as they are.
+[Create a webhook](/api-reference/webhooks/createWebhook) takes the `url` to post to and the `events` you want, such as `item.created`, from the Catalog's [Events](/catalog/events). There is no wildcard: name each event. `type_filter` limits item events and `metadata.changed` to one type and its subtypes, and leaves edge events as they are.
 
 ```bash tab="CLI" tab-group="client"
-marfa webhooks create --to https://example.com/marfa \
+marfa webhooks create --delivery-url https://example.com/marfa \
   --event item.created --event item.updated --type-filter core.note
 ```
 
 ```http tab="HTTP"
 POST /webhooks
-Authorization: Bearer <key>
+Authorization: Bearer $MARFA_API_KEY
 Content-Type: application/json
 
 {
@@ -41,60 +46,54 @@ const { data: webhook, error } = await marfa.POST("/webhooks", {
 if (error) throw new Error(error.error.message);
 ```
 
-Marfa answers with the webhook, its `secret` included:
+In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows. Marfa answers with the webhook, its `secret` included:
 
 ```json title="Response" status="201"
 {
-  "id": "01a12329-ce8c-7a1a-868c-a9cc85b6b7b2",
+  "id": "01a1f129-39f3-759b-84ea-b791ecb64764",
   "url": "https://example.com/marfa",
-  "secret": "dfaa1787b11d7e7223ac25bf0951c25b70f3985d5b737d8943eb03d2279d06a7",
   "events": ["item.created", "item.updated"],
   "type_filter": "core.note",
+  "secret": "dfaa1787b11d7e7223ac25bf0951c25b70f3985d5b737d8943eb03d2279d06a7",
   "active": true,
-  "created_at": "2026-10-10T00:15:04.844Z",
-  "updated_at": "2026-10-10T00:15:04.844Z"
+  "created_at": "2026-11-19T00:16:10.512Z",
+  "updated_at": "2026-11-19T00:16:10.512Z"
 }
 ```
 
 Marfa shows the secret **only this once**; every later read shows `****` and its last four characters. Keep it where only your receiver can read it, as you would a password. The CLI prints it alone on the first line. To use a secret of your own, send `secret` with at least 32 characters.
 
-The webhook receives events written after you registered it, and nothing earlier. A `url` at a private address is refused unless [the instance allows it](#receive-deliveries-on-a-private-network).
+The webhook receives events written after you registered it, and nothing earlier. A `url` at an address that isn't public is refused unless [the instance allows it](#receive-deliveries-on-a-private-network).
 
 ## Check each delivery
 
-A delivery is a `POST` whose body is the event, as the stream would send it, with three more members: `event_id`, the event's ID in the log; `delivery_id`, the same on every attempt to deliver this event; and `delivered_at`, when Marfa sent this attempt. The event type and the signature arrive as headers, and the body follows them:
+A delivery is a `POST` whose body is the event, as the stream would send it, with three more members: `event_id`, the event's ID in the log; `delivery_id`, the same on every attempt to deliver this event; and `delivered_at`, when Marfa sent this attempt. The event type and the signature arrive as headers:
 
 ```http title="Request"
 POST /marfa
 Content-Type: application/json
 X-Marfa-Event-Type: item.updated
-X-Marfa-Signature: t=1791591307,v1=80bc920e57a1e1bee2f839cc2d8eb62841069e5da0e5bc242c39e3c6952ddd2c
+X-Marfa-Signature: t=1795047415,v1=02cf60cdfab91dc4c0b59be82d09af59ef11b124d2b3a31b5cb52c771df46f98
 
 {
+  "event_type": "item.updated",
   "item": {
-    "id": "01a12329-d2ca-71a2-871d-772152cdb003",
+    "id": "01a1f129-55c9-75e8-ac63-f21787875a7c",
     "type": "core.note",
     "state": "active",
-    "tier": "library",
-    "properties": { "title": "Reading list", "body": "Start with the essays, then the letters." },
-    "created_at": "2026-10-10T00:15:05.930Z",
-    "updated_at": "2026-10-10T00:15:05.957Z",
-    "occurred_at": "2026-10-10T00:15:05.930Z",
-    "version": 2,
-    "source": "laptop",
-    "schema_version": 0
+    "version": 4,
+    "properties": { "title": "Reading list", "body": "Start with the essays, then the letters." }
   },
-  "metadata": { "item_id": "01a12329-d2ca-71a2-871d-772152cdb003", "tags": [], "extensions": {} },
-  "event_type": "item.updated",
-  "event_id": "252",
-  "delivery_id": "01a12329-d546-703a-8b86-845703c6e005",
-  "delivered_at": "2026-10-10T00:15:07.573Z"
+  "metadata": { "item_id": "01a1f129-55c9-75e8-ac63-f21787875a7c", "tags": [], "extensions": {} },
+  "event_id": "29",
+  "delivery_id": "01a1f129-dfa6-703f-8e00-3a7400ff6497",
+  "delivered_at": "2026-11-19T00:16:55.723Z"
 }
 ```
 
-Anyone can post to your URL, so check `X-Marfa-Signature` before you trust a delivery. It reads `t=<unix seconds>,v1=<hex>`, where `v1` is the HMAC-SHA-256, under your secret, of `t`, a period, and the raw body. Compute it over the bytes **exactly as they arrived**: parsing the JSON and serializing it again changes them.
+The request above is shortened. Anyone can post to your URL, so check `X-Marfa-Signature` before you trust a delivery. It reads `t=<unix seconds>,v1=<hex>`, where `v1` is the HMAC-SHA-256, under your secret, of `t`, a period, and the raw body. Compute it over the bytes **exactly as they arrived**: parsing the JSON and serializing it again changes them.
 
-The receiver uses only Node.js's built-in modules and runs as is on Node.js 22.18 or later. The first file checks the signature and refuses one older than five minutes, so a captured delivery can't be replayed later:
+The receiver uses only Node.js's built-in modules, on Node.js 22.18 or later. The first file checks the signature and refuses one older than five minutes, so a captured delivery can't be replayed:
 
 ```ts title="verify-signature.mts"
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -141,7 +140,7 @@ createServer((request, response) => {
     if (handled.has(delivery.delivery_id)) return; // a repeat
     handled.add(delivery.delivery_id);
 
-    console.log(delivery.event_type, delivery.item?.id);
+    console.log(delivery.event_type, delivery.event_id, delivery.item?.id);
   });
 }).listen(3000);
 ```
@@ -154,86 +153,82 @@ Marfa signs every attempt afresh, with its own `t`, so a retry of an old event s
 
 ## Answer, and recognize a repeat
 
-Answer with a `2xx` status, and answer quickly: do slow work after you've answered, or in a queue. Marfa can deliver the same event more than once, such as when your answer was lost on the way back, and every attempt carries the same `delivery_id`. Record the IDs you've handled, as the receiver above does, and ignore one you've seen.
+Answer with a `2xx` status **within 10 seconds**, or the attempt counts as not answered: do slow work after you've answered, or in a queue. Marfa can deliver the same event more than once, such as when your answer was lost, and every attempt carries the same `delivery_id`. Record the IDs you've handled, as the receiver above does.
 
 ## Expect deliveries out of order
 
-Marfa doesn't deliver events in the order they happened. It sends waiting deliveries at the same time and retries a failed one later while newer events go through. So the delivery for an item's second update can arrive before the one for its first.
+Marfa sends one delivery at a time to each webhook, but not always in the order the events happened: a delivery that failed waits for its retry while newer ones go through.
 
-Each delivery's `event_id` is the event's ID in the log, and IDs rise with every event. It's a string of decimal digits, so compare IDs as numbers: as text, `"99"` sorts after `"252"`. Keep the highest `event_id` you've applied for each item and ignore a delivery with a lower one. Alternatively, treat a delivery as a prompt and [get the item](/api-reference/items/getItem) again, which always shows its current state.
+`event_id` rises with every event. It's a string of decimal digits, so compare IDs as numbers: as text, `"99"` sorts after `"252"`. Keep the highest `event_id` you've applied for each item and ignore a delivery with a lower one. Alternatively, treat a delivery as a prompt and [get the item](/api-reference/items/getItem) again, which always shows its current state.
 
 ## When a delivery fails
 
-Marfa tries a delivery again when your receiver can't be reached, doesn't answer in time, or answers `5xx`, `408` or `429`. It waits longer before each attempt, starting at a second, and makes eight attempts over about five hours; a `Retry-After` header asks it to wait longer, up to five minutes. Any other `4xx`, or a redirect, ends the delivery at once.
+Marfa tries a delivery again when your receiver can't be reached, doesn't answer in time, or answers `5xx`, `408` or `429`. It makes eight attempts, waiting 1, 5, 25, 125, 625, 3,125 and 15,625 seconds between them. A `Retry-After` header asks it to wait longer, up to five minutes. Any other `4xx`, or a redirect, ends the delivery at once: Marfa never follows a redirect.
 
-A delivery Marfa gives up on is `dead_letter`. The receiver above answers `401` for a bad signature, so a wrong secret ends the delivery at once instead of being retried for hours. Once you've fixed it, you can send the deliveries again.
+A delivery Marfa gives up on is `failed`. The receiver above answers `401` for a bad signature, so a wrong secret ends the delivery at once instead of being retried for hours. Once you've fixed it, you can send the delivery again.
 
 [List webhook deliveries](/api-reference/webhooks/listWebhookDeliveries) shows each delivery, newest first, with its `status` and the last answer your receiver gave:
 
 ```bash tab="CLI" tab-group="client"
-marfa webhooks deliveries 01a12312-401e-7331-a4dc-9096bb32ac1d --json
+marfa webhooks deliveries 01a1f129-39f3-759b-84ea-b791ecb64764 --json
 ```
 
 ```http tab="HTTP"
-GET /webhooks/01a12312-401e-7331-a4dc-9096bb32ac1d/deliveries
-Authorization: Bearer <key>
-```
-
-```ts tab="TypeScript"
-const { data: deliveries } = await marfa.GET("/webhooks/{id}/deliveries", {
-  params: { path: { id: webhook.id } },
-});
+GET /webhooks/01a1f129-39f3-759b-84ea-b791ecb64764/deliveries
+Authorization: Bearer $MARFA_API_KEY
 ```
 
 ```json title="Response" status="200"
 {
   "data": [
     {
-      "id": "01a12312-90a8-7828-a95e-475fe680baeb",
-      "webhook_id": "01a12312-401e-7331-a4dc-9096bb32ac1d",
+      "id": "01a1f129-8222-708f-9ddc-1483d55cd7ee",
+      "status": "failed",
+      "webhook_id": "01a1f129-39f3-759b-84ea-b791ecb64764",
       "event_type": "item.updated",
-      "status_code": 400,
+      "status_code": 401,
       "attempt": 1,
-      "status": "dead_letter",
-      "succeeded": false,
-      "error": "HTTP 400",
-      "created_at": "2026-10-09T23:49:41.672Z"
+      "error": "HTTP 401",
+      "created_at": "2026-11-19T00:16:31.777Z"
     }
   ],
   "next_cursor": null
 }
 ```
 
-[Redeliver a webhook delivery](/api-reference/webhooks/redeliverWebhookDelivery) sends a `dead_letter` delivery again, to the webhook's current URL and signed with its current secret, with the same `delivery_id`. It answers the delivery as `pending`, and Marfa sends it shortly after:
+A delivery's `status` is `pending`, `succeeded`, `failed` or `canceled`. [Redeliver a webhook delivery](/api-reference/webhooks/redeliverWebhookDelivery) sends a `failed` delivery again, to the webhook's current URL and signed with its current secret, with the same `delivery_id`. It answers `202` with the delivery as `pending`, and Marfa sends it shortly after, with eight attempts of its own:
 
 ```bash tab="CLI" tab-group="client"
-marfa webhooks redeliver 01a12312-401e-7331-a4dc-9096bb32ac1d 01a12312-90a8-7828-a95e-475fe680baeb
+marfa webhooks redeliver 01a1f129-39f3-759b-84ea-b791ecb64764 01a1f129-8222-708f-9ddc-1483d55cd7ee
 ```
 
 ```http tab="HTTP"
-POST /webhooks/01a12312-401e-7331-a4dc-9096bb32ac1d/deliveries/01a12312-90a8-7828-a95e-475fe680baeb/redeliver
-Authorization: Bearer <key>
+POST /webhooks/01a1f129-39f3-759b-84ea-b791ecb64764/deliveries/01a1f129-8222-708f-9ddc-1483d55cd7ee/redeliver
+Authorization: Bearer $MARFA_API_KEY
 ```
 
-```ts tab="TypeScript"
-await marfa.POST("/webhooks/{id}/deliveries/{delivery_id}/redeliver", {
-  params: { path: { id: webhook.id, delivery_id: "01a12312-90a8-7828-a95e-475fe680baeb" } },
-});
-```
+A refusal is `409 conflict`, with the reason in `details.reason`:
 
-Only a `dead_letter` delivery still on record can be sent again, while its webhook is active and its maker keeps the access it needs, even when the owner retries it. A retry from the owner's browser needs a [recent sign-in](/run/sign-in-as-the-owner#confirm-its-you). A refusal is `409 conflict`, with the reason in `details.reason`. A delivery's record is kept as long as the instance keeps its audit log.
+- **`webhook_inactive`:** the webhook is turned off.
+- **`credential_unavailable`:** the key or app that registered it is no longer valid, or no longer holds `webhooks.manage`.
+- **`delivery_not_failed`:** the delivery is `pending`, `succeeded` or `canceled`.
+- **`delivery_expired`:** the delivery is older than the instance keeps its audit log, 90 days by default (`audit_retention_days`).
 
 ## Change what a webhook sends
 
-[Update a webhook](/api-reference/webhooks/updateWebhook) changes its `url`, its `events`, its `type_filter` or whether it is `active`. A change ends the pending deliveries it no longer allows, so a receiver is never sent an event the owner has since excluded.
+[Update a webhook](/api-reference/webhooks/updateWebhook) changes its `url`, its `events`, its `type_filter` or whether it is `active`. A change ends the pending deliveries it no longer allows, so a receiver is never sent an event it has since excluded:
 
-- **Narrowing `events` or `type_filter`** settles each pending delivery they no longer select as `canceled` before the update answers, including one being sent as the change commits. Widening them again revives nothing.
+- **Narrowing `events` or `type_filter`** settles each pending delivery they no longer select as `canceled` before the update answers.
 - **Changing the `url` or setting `active` to `false`** settles every pending delivery as `canceled`, so none goes to the old address.
+
+Deleting a webhook sends none of its pending deliveries.
 
 ## Receive deliveries on a private network
 
-By default, Marfa posts only to public addresses. It refuses, with `400 validation_error`, a `url` whose host, named or written as an address, is loopback, private, link-local, unique-local or carrier-grade NAT, such as `localhost` or a Tailscale address. [`MARFA_WEBHOOK_ALLOW_PRIVATE_ADDRESSES`](/run/settings#let-webhooks-reach-a-private-network) allows them.
+By default, Marfa posts only to public addresses. It refuses `400 validation_error` a `url` whose host isn't public, such as `localhost` or a home network, or whose name leads to such an address.
 
-Marfa checks a name again at each delivery. One that now resolves to an address that isn't public is never sent: the delivery is recorded as `dead_letter`, with the error "The receiver's address is not public.". Once the setting allows it or the name is fixed, [redeliver it](#when-a-delivery-fails).
+The configuration's **`allow_private_addresses`** lets Marfa post to them, and to a receiver on your own machine, such as `http://localhost:3000/marfa`. A key can't change it: a person does, on the server's own computer or from an app they signed in to within the last five minutes, as [Settings](/run/settings) shows.
+
+Marfa looks a name up again at each delivery, and one that now finds an address that isn't public is `failed`, with the error "The receiver's address is not public." Once that's fixed, [redeliver it](#when-a-delivery-fails).
 
 The rules behind this guide are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) chapter of the contract.

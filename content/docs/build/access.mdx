@@ -1,65 +1,94 @@
 ---
 title: Access
-description: Who can act on an instance, and how a key or an app is limited to the data and operations it needs.
+description: How a key or an app is limited to the data and operations it needs, and how each one gets its access.
 ---
 
-Your instance holds everything about you, so each **credential** reaches only what it was given. A notes app can read and write notes and nothing else.
+**Each credential reaches only what it was given.** A reading-list app can write bookmarks, read the rest, and see nothing of the owner's tasks.
 
-## Who can act
+## Credentials
 
-Three kinds of caller act on an instance:
+Two kinds of credential call the API, each sent as `Authorization: Bearer <credential>`:
 
-| Caller | How it acts | What it reaches |
+| Credential | Looks like | Holds |
 | --- | --- | --- |
-| The owner | Signs in to the instance in a browser | Managing the instance, listing item summaries, managing the bin, reading item counts and exporting data. |
-| A key | Sent with each request, as `Authorization: Bearer marfa_k1_…` | What it was made with |
-| An app | Signs in through OAuth, and sends its access token, `marfa_at_…` | What the owner approved |
+| A key | `marfa_k1_…` | What it was made with |
+| An app's access token | `marfa_at_…` | What the owner approved for the app |
 
-Through a **browser session**, the owner manages the instance without a key, and sees each item's summary but **never its content**. [What the owner's browser reaches](/run/sign-in-as-the-owner#what-the-owners-browser-reaches) lists it. A credential sent beside the session alone decides the request's access, so no key or app ever gets the owner's authority.
+The owner's browser session is neither. **It counts only on the sign-in and approval pages**: it never reads an item or changes a setting, so a page that rides on the owner's cookie reaches nothing. [What the owner's browser reaches](/run/sign-in-as-the-owner#what-the-owners-browser-reaches) lists those pages.
 
-The computer the instance runs on has an authority of its own. The CLI uses it through a [private socket](/run/run-on-a-server#the-private-socket), reachable only by the account running the server, to claim an instance, make the first key and recover the owner's password.
+The server's own machine has one more authority, the [private socket](/run/run-on-a-server#the-private-socket), which the CLI uses to claim an instance, make the first key and recover the owner's password.
 
 ## What a credential reaches
 
 A credential is limited in two ways. Its **maps** say which data it reads and writes, and its **permissions** say which other operations it may use.
 
-A map names things at a level, `read` or `write`, and `write` includes reading. Anything a map doesn't name is out of reach. A key has five:
+The reading-list key, made from the CLI:
+
+<Terminal>
+
+```bash
+marfa keys create --label "Reading list" --source reading-list \
+  --type-permission core.bookmark=write \
+  --type-permission 'core.*=read' \
+  --type-permission core.task=none \
+  --edge-permission about=write
+```
+
+```text
+key 01a1f14c-0ec4-7088-a16e-77f22ed3958d (Reading list); the plaintext is shown once, keep it now
+  core.bookmark   Read and edit
+  Built-in types  Read only
+  core.task       No access
+  edge.about      Read and edit
+```
+
+</Terminal>
+
+A map names things at a level, `read` or `write`, and `write` includes reading. Anything a map doesn't name is out of reach. A credential has five maps:
 
 | Map | Field | What it names | Example |
 | --- | --- | --- | --- |
-| Type | `type_permissions` | Item types, by identifier or pattern | `"core.*": "write"` |
-| Edge | `edge_permissions` | Edge types | `"about": "read"` |
-| Extension | `extension_permissions` | Extension namespaces | `"com.example.reader": "write"` |
+| Type | `type_permissions` | Item types, by ID or pattern | `"core.*": "read"` |
+| Edge | `edge_permissions` | [Edge](/build/edges) types | `"about": "write"` |
+| Extension | `extension_permissions` | [Extension](/build/properties-and-metadata#extensions) namespaces | `"app.ledger.reminders": "write"` |
 | Metadata | `metadata_permissions` | Registering types and edge types | `"types": "write"` |
-| Profile | `profile_permissions` | The owner's name, email and picture | `"email": "read"` |
+| Profile | `profile_permissions` | The owner's name, email and avatar | `"email": "read"` |
 
 A few rules apply to single maps:
 
-- **The type map** matters most. Only it takes a third level, `none`, which shuts out a type its wildcard covers.
-- **The metadata map** covers the definitions on your instance, not an item's tags and extensions.
-- **The extension map** is a key's alone: an app reaches no extensions.
-- **The profile map** can write only the owner's name and picture, never the sign-in email.
+- **The type map matters most.** Only it takes a third level, `none`, which shuts out a type its wildcard covers. An exact entry wins, then the longest pattern, then `*`.
+- **The metadata map** covers the definitions on the instance, not an item's tags and extensions.
+- **The extension map** is a key's alone: no app scope names a namespace.
+- **The profile map's** `*` at `write` writes the name and avatar. **Changing the email takes `email` named at `write`.**
 
 ## What a refusal reveals
 
-An item of a type the credential **can't read** answers `404 item_not_found`, as an item that doesn't exist does, so a refusal reveals nothing. An edge from such an item, and a blob only such items name, answer as missing too, though a readable edge still names a hidden target's ID. An item the credential can read but not write is refused with `403 type_not_permitted`.
+An item of a type the credential **can't read** answers `404 item_not_found`, as an item that doesn't exist does, so a refusal reveals nothing. So do its edges, and a blob only such items name. An item the credential can read but not write is refused with `403 type_not_permitted`.
 
-So a notes app's key that may write notes reads a task as missing, and a key that may only read tasks is refused when it changes one.
+So the reading-list key reads a task as missing, reads a note, and is refused when it changes the note.
 
 <KeyReach />
 
 ## Permissions
 
-A permission opens a group of operations, such as reading the audit log or making keys. It opens no items: a key with every permission and no type map reads nothing, and every item operation is refused `403 type_not_permitted`.
+A permission opens a group of operations, such as making keys. **It opens no items:** a key with every permission and no type map reads nothing, and every item operation is refused `403 type_not_permitted`. The Catalog's [Permissions](/catalog/permissions) page lists all fourteen.
 
-The Catalog's [Permissions](/catalog/permissions) page lists them all.
+## How an app gets access
 
-## How a key or an app gets access
+**Signing in with OAuth is how an app reaches Marfa.** The instance is its own authorization server: its address is the issuer, the endpoints live under `/oauth`, and `/.well-known/oauth-authorization-server` lists them. Every app is a public client, holding no secret, and proves itself with PKCE. An AI agent connecting to the [MCP server](/marfa-mcp-server) signs in the same way.
 
-You make a key as the owner, or with a key or an app that holds the `keys.mint` permission, and say what it holds. A key made by another credential can hold only the permissions and maps its maker holds, and can't outlive its maker's expiry. [Manage keys](/run/manage-keys) shows how.
+1. The app registers itself and names the scopes it wants. One that names none asks to read and write every type outside `system` and `marfa`, and the edges between items, with `offline_access`.
+2. It sends the owner to the approval page, where the owner chooses **Full access**, or **Choose access** to give it less.
+3. The app exchanges the code for an access token and a refresh token.
 
-**Signing in by approval is the preferred way for an app to reach Marfa.** The app registers itself and sends the owner to an approval page, which can give it less than it asked for. The app holds only what the owner approved, until the owner narrows or disconnects it, or it goes unused for the inactivity period, a year by default. An AI agent that connects to the [MCP server](/marfa-mcp-server) signs in the same way. [Approve an app](/run/manage-apps#approve-an-app) shows the owner's side, and [Authenticate](/build/authenticate) the app's.
+The app then holds a **grant**, exactly what the owner approved, and writes under the source `oauth:<client_id>`. A grant outlives the browser session that approved it, and lasts until the owner narrows or disconnects it at `/grants`, or the app goes unused for `grant_inactivity_days`, a year by default.
 
-An app may also use a key, given by the owner or minted with `keys.mint`. A key an app mints stays within the app's grant and carries the app's `client_id`.
+A web page connects the same way. Once the owner approves it, its address may call the instance from a browser, and `cors_origins` adds others. No answer allows credentials, so a page reaches only what its token holds.
 
-The rules behind this page are in the [keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md), [authentication](https://github.com/withmarfa/marfa/blob/main/conformance/spec/authentication.md), [owner summaries](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#owner-item-summaries), [owner trash management](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#owner-trash-management), [owner counts and exports](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#search-and-filtersowner-count-export), and [instance claim](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance-claim.md) chapters of the contract.
+[Authenticate](/build/authenticate) and [Connect a web page](/build/connect-a-web-page) show the app's side, and [Manage apps](/run/manage-apps) the owner's.
+
+## How a key gets access
+
+A key suits a script, your own agent or a [connector](/build/connectors). The owner makes one from the CLI, and any key or app holding `keys.mint` can make another. A made key holds only the maps and permissions its maker holds, and its expiry is never later than its maker's. A key an app makes stays within the app's grant, can name no extension namespace, and carries the app's `oauth_client_id`. [Manage keys](/run/manage-keys) shows how.
+
+The rules behind this page are in the [keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md) and [authentication](https://github.com/withmarfa/marfa/blob/main/conformance/spec/authentication.md#where-a-browser-session-counts) chapters of the contract.

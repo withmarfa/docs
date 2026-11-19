@@ -4,10 +4,10 @@ description: Let a Raycast command save an item of any type, with a form built f
 ---
 
 - **You'll build** a form that changes with the type you choose, built from what Marfa says about the type.
-- **You need** the extension from [Build a Raycast extension](/build/raycast-extension), its key, and the Quickstart terminal.
+- **You need** the extension from [Build a Raycast extension](/build/raycast-extension), its key, and a terminal with the CLI signed in to your instance.
 - **You'll have** a command that saves an item of any type its key can write, and shows the server's refusal for one it can't.
 
-A **type** lists the fields its items hold, and each field says what kind of value it takes. Read the type, and the extension can draw a form for it with no code that knows the type by name. A type you add later gets its form with no change to the extension.
+A **type** lists the fields its items hold, and each field says what kind of value it takes. Read the type, and the extension can draw a form for it with no code that knows the type by name. A type you add later gets its form with no change to the extension. [Items and types](/build/items-and-types) explains both.
 
 <Steps paged>
 <Step>
@@ -42,14 +42,14 @@ export async function getType(id: string) {
 }
 ```
 
-[List types](/api-reference/types/listTypes) answers every type the instance holds. [Get a type](/api-reference/types/getType) answers one with **every field it holds, including the ones it inherits from its parent type**, so a form built from it is complete.
+[List types](/api-reference/types/listTypes) answers the types the instance holds, in `data`. [Get a type](/api-reference/types/getType) answers one with **every field it holds, including the ones it inherits from its parent type**, so a form built from it is complete.
 
 </Step>
 <Step>
 
 ### Turn a field into a form control
 
-Each field has a kind: text, a number, a yes or no, or one value from a list. Match each kind to a Raycast control:
+Each field has a kind: text, a number, a date, a yes or no, or one value from a list. Match each kind to a Raycast control:
 
 ```tsx title="src/fields.tsx"
 import { Form } from "@raycast/api";
@@ -62,6 +62,11 @@ export function isShown(field: Field) {
   return !["array", "object", "thumbnail"].includes(field.type);
 }
 
+function choices(field: Field) {
+  if (field.type === "status") return (field.status_values ?? []).map((status) => status.value);
+  return field.enum_values ?? [];
+}
+
 export function FieldControl({ name, field, isBody }: { name: string; field: Field; isBody: boolean }) {
   const label = field.label ?? name;
   const title = field.required ? `${label} *` : label;
@@ -69,11 +74,22 @@ export function FieldControl({ name, field, isBody }: { name: string; field: Fie
   switch (field.type) {
     case "boolean":
       return <Form.Checkbox id={name} title={title} label="Yes" info={info} />;
+    case "date":
+    case "datetime":
+      return (
+        <Form.DatePicker
+          id={name}
+          title={title}
+          info={info}
+          type={field.type === "date" ? Form.DatePicker.Type.Date : Form.DatePicker.Type.DateTime}
+        />
+      );
     case "enum":
+    case "status":
       return (
         <Form.Dropdown id={name} title={title} info={info}>
           <Form.Dropdown.Item value="" title="Not set" />
-          {(field.enum_values ?? []).map((value) => (
+          {choices(field).map((value) => (
             <Form.Dropdown.Item key={value} value={value} title={value} />
           ))}
         </Form.Dropdown>
@@ -88,7 +104,14 @@ export function FieldControl({ name, field, isBody }: { name: string; field: Fie
 }
 ```
 
-**A field's `label` is its name for people.** Get a type answers one for every field: the label the type gives it, else the nearest a parent type gives, else one made from the field's name, such as `Due At` for `due_at`. A required field gets a star, and the field's description shows as its help text. A type can name one field as its **body**, the long text of an item, and the form shows that field as a larger box. A field the form can't draw, such as a list or an object, is left out. [Field kinds](/catalog/field-kinds) lists every kind.
+**A field's `label` is its name for people.** Get a type answers one for every field: the label the type gives it, else the nearest a parent type gives, else one made from the field's name. A required field gets a star, and the field's description shows as its help text.
+
+- An `enum` field lists its values in `enum_values`.
+- A `status` field lists its values in `status_values`, each with the group it belongs to.
+- A type can name one field as its **body**, the long text of an item, in its display hints. The form shows that field as a larger box.
+- A field the form can't draw, such as a list or an object, is left out.
+
+[Field kinds](/catalog/field-kinds) lists every kind.
 
 </Step>
 <Step>
@@ -101,11 +124,21 @@ The command loads the types for a dropdown, then the one you pick, and draws a c
 import { Action, ActionPanel, Form, popToRoot, showToast, Toast } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
 import { useState } from "react";
-import { FieldControl, isShown } from "./fields";
+import { type Field, FieldControl, isShown } from "./fields";
 import { createItem, getType, listTypes, MarfaError } from "./marfa";
 
-export default function Capture() {
-  const [typeId, setTypeId] = useState("core.note");
+function toValue(field: Field, value: unknown) {
+  if (value instanceof Date) {
+    return field.type === "date" ? value.toISOString().slice(0, 10) : value.toISOString();
+  }
+  if ((field.type === "number" || field.type === "integer") && !Number.isNaN(Number(value))) {
+    return Number(value);
+  }
+  return value;
+}
+
+export default function SaveItem() {
+  const [typeId, setTypeId] = useState("core.bookmark");
   const types = usePromise(listTypes);
   const type = usePromise(getType, [typeId]);
 
@@ -116,10 +149,8 @@ export default function Capture() {
     const properties: Record<string, unknown> = {};
     for (const [name, field] of fields) {
       const value = values[name];
-      if (value === "" || value === false || value === undefined) continue;
-      const number = Number(value);
-      const isNumber = field.type === "number" || field.type === "integer";
-      properties[name] = isNumber && !Number.isNaN(number) ? number : value;
+      if (value === "" || value === false || value === undefined || value === null) continue;
+      properties[name] = toValue(field, value);
     }
     try {
       const item = await createItem(typeId, properties);
@@ -159,38 +190,56 @@ export default function Capture() {
 }
 ```
 
-The dropdown leaves out the `system.` types, which Marfa writes itself. `save` skips a field left empty, so the item holds no value for it, and sends a number as a number.
+The dropdown leaves out the `system.` types, which Marfa writes itself. `save` skips a field left empty, so the item holds no value for it. It sends a number as a number, a `date` as a day such as `1861-08-01`, and a `datetime` as a date and time.
 
 </Step>
 <Step>
 
 ### Run it and see a refusal
 
-Start the extension with `npm run dev`, open Raycast and search for **Capture Item**. The form opens on Note, with a control for each of its fields. Choose another type, and the form changes to that type's fields.
+Start the extension with `npm run dev`, open Raycast and search for **Save Link**. The form opens on Bookmark, with a control for each of its fields. Choose another type, and the form changes to that type's fields.
 
-The dropdown lists every type, because any key may **read** a type's definition. Only the types in a key's access may be **written**. Your key writes notes, so a task is refused. Choose **Task**, type a title, and press Command-Return. Raycast shows a toast:
+The dropdown lists every type, because any key may **read** a type's definition. Only the types in a key's access may be **written**. Your key writes bookmarks, so a book is refused. Choose **Book**, type a title, and press Command-Return. Raycast shows a toast:
 
 ```text
 Refused: type_not_permitted
-No access to type "core.task"
+No access to type "core.media.book"
 ```
 
-The refusal comes from the server, not from the extension. `MarfaError` kept the `code` and the `message`, and `save` showed them. The body of the refusal also names the grant the key lacks, in `details.grant`. [Errors](/api-reference/errors) lists every code and what each one tells a program to do.
+The refusal comes from the server, not from the extension. `MarfaError` kept the `code` and the `message`, and `save` showed them. The body of the refusal also names the grant the key lacks, in `details.grant`:
+
+```json
+{ "kind": "type", "name": "core.media.book", "level": "write" }
+```
+
+[Errors](/api-reference/errors) lists every code and what each one tells a program to do.
 
 </Step>
 <Step>
 
 ### Widen the key
 
-To let the extension write tasks, make a new key that names both types. A source belongs to one live key, so revoke the first key before you reuse `raycast`. [Rotate a key](/run/manage-keys#rotate-a-key) covers this:
+To let the extension write books, make a new key that names both types. A source belongs to one live key, so revoke the first key before you reuse `raycast`:
+
+<Terminal>
 
 ```bash
-marfa keys revoke <the first key's ID>
+marfa keys revoke 01a1f142-25ea-7671-bd26-35207a9efab1
 marfa keys create --label "Raycast" --source raycast \
-  --type-permission core.note=write --type-permission core.task=write
+  --type-permission core.bookmark=write --type-permission core.media.book=write
 ```
 
-Paste the new key into the **API Key** preference. Raycast keeps an extension's preferences in its settings, under **Extensions**, in the entry for Marfa Capture. Choose **Task** again and save. The **Saved** toast replaces the refusal.
+```text
+revoked key 01a1f142-25ea-7671-bd26-35207a9efab1
+marfa_k1_…
+key 01a1f142-fbb2-72c2-9926-0d5c748ededb (Raycast); the plaintext is shown once, keep it now
+  core.bookmark    Read and edit
+  core.media.book  Read and edit
+```
+
+</Terminal>
+
+Use your own key's ID, which `marfa keys list` shows. Paste the new key into the **API Key** preference: in Raycast's settings, open **Extensions** and select Marfa Capture. Choose **Book** again and save. The **Saved** toast replaces the refusal. [Rotate a key](/run/manage-keys#rotate-a-key) covers replacing a key in more detail.
 
 </Step>
 </Steps>
@@ -202,6 +251,6 @@ Add a type of your own and open the command again. Its form appears with no chan
 <Cards>
   <Card title="Define a type" href="/build/define-a-type">Make a type, then save an item of it from this command.</Card>
   <Card title="Field kinds" href="/catalog/field-kinds">Every kind of field, and the value each takes.</Card>
+  <Card title="Access" href="/build/access">What a key can hold, and how Marfa decides a request.</Card>
   <Card title="Manage keys" href="/run/manage-keys">Narrow, expire, rotate and revoke the extension's key.</Card>
-  <Card title="Build a connector" href="/build/connector">Write a program that keeps items in step with another service.</Card>
 </Cards>

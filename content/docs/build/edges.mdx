@@ -1,72 +1,84 @@
 ---
 title: Edges
-description: How one item links to another, and how the link's type decides what happens when either item goes to the bin.
+description: How one item links to another, what each edge type means, and what the bin does across a link.
 ---
 
-An **edge** links one item, its source, to another, its target, such as a note `about` a book. It's a record of its own, with its own `id`, properties and [version](/build/versions), so writing an edge never moves either item's version.
+An **edge** links one item to another: it points **from** one item **to** another, such as a comment to the lease it's about. It's a record of its own, with an `id`, properties and a [version](/build/versions), so writing an edge never moves either item's version.
 
 ```http title="Request"
 POST /edges
+Authorization: Bearer <key>
 Content-Type: application/json
 
-{ "source_id": "<note id>", "target_id": "<book id>", "edge_type": "about" }
+{
+  "from_id": "01a1f144-e102-7276-97a9-e93846d7cf4e",
+  "to_id": "01a1f144-e0da-77a3-a1c4-ead9c1e9d53c",
+  "edge_type": "comments-on"
+}
 ```
 
-A new item can carry its edges in the same write: `POST /items` takes `edges`, an object from each edge type to the IDs of the targets. If the instance refuses any edge, it creates neither the item nor its edges.
+A new item can carry its edges: `POST /items` takes `edges`, an object from each edge type to the IDs it points to. If Marfa refuses any edge, it creates neither the item nor its edges.
 
 ## Edge types
 
-Every edge has an **edge type**, which sets the rules its edges follow:
+Every edge has an **edge type**, and the type sets the rules:
 
-- **Which types each end can be.** Most shipped edge types join any two items, but an `in-collection` edge must point at a container and an `in-folder` edge at a folder. A registered edge type can name its own.
-- **How many edges an end holds.** A child has one parent, a message is in one thread, and a new item supersedes one old one.
-- **Whether its edges can loop.** No edge links an item to itself. `parent-of` and `supersedes` refuse an edge that would close a loop, and so do `attached-to` and `comments-on`, through any mix of the two.
+- **Which types each end can be.** An `in-collection` edge points to a container, and an `in-folder` edge to a folder.
+- **How many edges an end holds.** A child has one parent, a message is in one thread, and a comment is on one item.
+- **Whether its edges can loop.** No edge links an item to itself, and `parent-of` and `supersedes` refuse any loop.
 - **What the bin does across it**, as [Moving an item to the bin](#moving-an-item-to-the-bin) shows.
-- **Its labels**, the headings an app shows at each end, such as Children and Parent.
+- **Its labels**, the headings an app shows at each end.
 
-A write that breaks one is refused with `400 edge_constraint_violation`, or `400 edge_cycle` for a self-link or a loop of `parent-of` or `supersedes`.
+A write that breaks one is refused with `400 edge_constraint_violation`, or `400 edge_cycle` for a loop. Marfa ships eleven, and a key can [register more](/api-reference/edge-types/registerEdgeType) where its edge map allows. The Catalog's [Edges](/catalog/edges) page has each one's limits.
 
-Marfa ships eleven edge types, and a key that may write edge types can [register more](/api-reference/edge-types/registerEdgeType). The Catalog's [Edges](/catalog/edges) page lists each one's labels and limits.
+| Edge type | Use it when |
+| --- | --- |
+| `parent-of` | An item sits under another, as a subtask under its task. |
+| `in-collection` | Items are gathered, in order, as recipes in a collection. |
+| `in-thread` | A message belongs to one conversation, as an email to its thread. |
+| `in-folder` | A [synced folder](/use/sync-a-folder) places a file. Marfa writes it. |
+| `attached-to` | An item exists for another, as a receipt photo for an expense. |
+| `comments-on` | An item is a comment on another, or a reply to a comment. |
+| `about` | One item is on the subject of another, as a note about a film. |
+| `references` | One item's text links to or embeds another. |
+| `excerpt-of` | An item is a passage taken from another, as a highlight from a book. |
+| `derived-from` | An item was made from another, as a summary from an article. |
+| `supersedes` | A new item replaces an old one, as this year's lease replaces last year's. |
 
-### Where an item sits
+In a synced folder, each edge type is **written from** one end: the file at that end holds the link. A child's file names its parent, so `parent-of` is written from its to end.
 
-| Edge type | Use it when | Example |
-| --- | --- | --- |
-| `parent-of` | An item sits under another in a hierarchy. The source is the parent, and an item has at most one parent. | A task `parent-of` its subtasks |
-| `in-collection` | You gather items into a container, in order. | A recipe in a collection of dinners |
-| `in-thread` | Messages make one conversation, in order. A message is in at most one thread. | An email in its thread |
-| `attached-to` | An item, such as a file or a page of a scan, exists only for another. The source is the attachment. | A receipt photo attached to an expense |
-| `comments-on` | An item is a comment on another item, or a reply to a comment. | A reply to a comment on a draft |
-| `in-folder` | A [synced folder](/use/sync-a-folder) writes it for you, with the file's `path`. | A note in your `Notes` folder |
+## Mentions and excerpts
 
-### How two items relate
+A link in an item's text is a **mention**: a device reads `[[Plan]]` in a note and writes a `references` edge to Plan. Keep `references` for that, or a program's own link.
 
-| Edge type | Use it when | Example |
-| --- | --- | --- |
-| `about` | One item is on the subject of another. | A note about a book |
-| `references` | One item's text links to or embeds another, or a program links them for its own use. | A note that links to another note |
-| `excerpt-of` | An item is a passage taken from another, such as a highlight or a clip, and carries its own text. | A highlight from a book |
-| `derived-from` | An item was made from another, and both stay valid. | A summary written from an article |
-| `supersedes` | A new item replaces an old one. | This year's lease superseding last year's |
+A passage taken from an item, such as a highlight, a quote or a clip, is an **excerpt**. It carries its own text and points to where it came from with `excerpt-of`, and it stays when that item goes to the bin or is purged.
+
+## Parts
+
+Some items exist only for another: a comment, a reply, a scan's pages, a receipt attached to an expense. Such an item is a **part**, and the item it belongs to is its **host**. `attached-to` and `comments-on` make parts, and a registered edge type can too.
+
+**Would you look for it on its own?** If not, make it a part. If you would, as with a note about a film or a photo in an album, use another edge type.
+
+A part follows its host into the bin: it goes once its last host goes, and comes back when any host is restored. Listings still include parts, so an app that wants them out filters with `part eq false`. Archiving a host, or deleting the edge, leaves the part where it is.
 
 ## Read an item's edges
 
-An item read carries its outbound edges in `edges`, keyed by edge type, up to 50 of each type. Add `include=backrefs` for the edges that point at it, and `include=neighbors` for the items at the other ends. [List an item's edges](/api-reference/edges/listItemEdges) and [List an item's backrefs](/api-reference/edges/listItemBackrefs) page through the rest.
+An item read carries its outbound edges in `edges`, up to 50 of each type. Add `include=backrefs` for the edges that point to it, and `include=neighbors` for the items at the other ends. [List an item's edges](/api-reference/edges/listItemEdges) and [List an item's backrefs](/api-reference/edges/listItemBackrefs) page through the rest.
 
-A key reads an edge only when it may read the edge type, which its [edge map](/build/access#what-a-credential-reaches) grants, and the source item.
+A key reads an edge only when it may read the edge type, which its [edge map](/build/access#what-a-credential-reaches) grants, and the item it points from.
 
 ## Moving an item to the bin
 
-An edge type's `cascade_on_delete` decides what the bin does across its edges. The shipped edge types use three of the four choices:
+An edge type's `cascade_on_delete` decides what the bin does across its edges:
 
 - **`cascade`, on `parent-of`.** Moving a parent to the bin takes its children with it, at every depth, and never the other way.
-- **`with-hosts`, on `attached-to` and `comments-on`.** The source is a **part** of its target, its **host**. A part goes to the bin once its last host does, comes back when any host is restored, and is purged with the host that took it once no host is left. Archiving a host, or deleting the edge, leaves the part where it is.
+- **`with-hosts`, on `attached-to` and `comments-on`.** A part goes with its last host, as [Parts](#parts) explains.
 - **`orphan`, on the other eight.** The other item stays active, and so does the edge.
 
-So a note moved to the bin takes its child note and its comments with it, and leaves the book it's `about` where it is.
+So a note moved to the bin takes its child note and its comments, and leaves the book it's `about` where it is.
 
 <BinCascade />
 
-A registered edge type can choose any of the four, including `block`, which refuses to move either end into the bin while the edge holds it. A purge is never blocked: it deletes the item's edges at both ends.
+A registered edge type can also choose `block`, which keeps both ends out of the bin while the edge holds them. A purge is never blocked: it deletes the item's edges.
 
 The rules behind this page are in the [edges](https://github.com/withmarfa/marfa/blob/main/conformance/spec/edges.md) chapter of the contract.
