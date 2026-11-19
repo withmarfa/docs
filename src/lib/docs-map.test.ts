@@ -58,6 +58,7 @@ describe('buildDocsMap', () => {
       '  - Display hints]',
       '  - Field kinds]',
       '- Edges]',
+      ...['about', 'attached-to', 'comments-on', 'derived-from', 'excerpt-of', 'in-collection', 'in-folder', 'in-thread', 'parent-of', 'references', 'supersedes'].map((title) => `  - ${title}]`),
       '- Events]',
       '- Permissions]',
       '- Connectors]',
