@@ -5,9 +5,9 @@
  * samples. The numbers live in `page-limits.json`.
  *
  * How a page is measured:
- * - A word is a run of characters between spaces, tables' pipes and the text of
- *   a link, and holds at least one letter or digit. Markup that holds none
- *   (`#`, `-`, `|`, `---`) is not a word.
+ * - A word is a run of characters between spaces or table pipes that holds at
+ *   least one letter or digit. A link counts as its text. Markup that holds no
+ *   letter or digit (`#`, `-`, `|`, `---`) is not a word.
  * - Prose is what a reader reads: paragraphs, headings, lists, hand-written
  *   tables and inline code. It leaves out the frontmatter, fenced code blocks
  *   (a command, its sample output and every other block), the markup of MDX
@@ -349,11 +349,11 @@ export function checkPages(pages: Page[], limits: Limits): string[] {
     }
     const { kind, measured, values, allowed, start, job } = evaluated;
     const excuse: Pending | undefined = limits.pending[file];
-    const where = start ? 'on a Start page' : `on a ${kind}`;
 
     for (const measure of MEASURES) {
       const cap = allowed[measure];
       if (cap === undefined) continue;
+      const where = start && measure === 'terminalLines' ? 'on a Start page' : `on a ${kind}`;
       const value = values[measure];
       const ceiling = excuse?.[measure];
       const rule = RULES[measure];

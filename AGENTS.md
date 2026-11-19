@@ -18,7 +18,7 @@ The source of the public documentation site at `docs.marfa.so` and the status pa
 - This repository is public. Commit no internal hostname, private IP address, personal path, key or token, in a page or anywhere else.
 - A comment says only what the code cannot: the reason, the constraint or the trade-off. It never names a tracker, ticket number or project phase.
 - A code change in another repository opens a docs issue here, not a docs pull request. Pages are rewritten whole from those issues after each Marfa release ("Docs pass at each release").
-- Each page has a kind and a `job` line, and `pnpm test` fails a page over its kind's word ceiling or caps (concept 500, how-to 600, tutorial 800, fix page 600, Catalog connector page 500, and caps on code blocks, sample output and headings). Ceilings are not targets; `STYLE.md`, "Page types", sets them, and `src/lib/page-limits.json` lists each exception with its reason and each page still waiting for its rewrite under `pending`, which may not grow.
+- Each page has a kind and a `job` line. `pnpm test` fails a page over its kind's word ceiling or caps, and a page under `pending` that grows. `STYLE.md`, "Page types", sets the numbers. `src/lib/page-limits.json` lists each page with a bigger budget and its reason, and each page still waiting for its rewrite under `pending`.
 
 ## Layout
 

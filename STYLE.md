@@ -48,7 +48,7 @@ Each page is one type, and the type sets what it holds and how long it may be. *
 
 | Type | What goes in | What goes out, and where it goes instead | Ceiling |
 | --- | --- | --- | --- |
-| Tutorial | Three opening lines, at most seven steps, the code each step adds and one check that each step worked | Alternatives and options go to a how-to. A refusal goes to a fix page, unless showing it is the lesson. Output is cut to the lines that prove a step worked | 800 words, 12 code blocks |
+| Tutorial | Three opening lines in a list (**You'll build**, **You need**, **You'll have**), each true of the page, then at most seven steps, the code each step adds and one check that each step worked | Alternatives and options go to a how-to. A refusal goes to a fix page, unless showing it is the lesson. Output is cut to the lines that prove a step worked | 800 words, 12 code blocks |
 | How-to | One job, what the reader needs in one line, then the everyday steps | Explanation goes to a concept page. Every option goes to the reference. Error cases go to a fix page. Another vendor's plan rules become a link to that vendor's help | 600 words, 6 code blocks, 6 H2 headings |
 | Fix page | Entries headed by the exact text the reader sees, each with the cause in one sentence and the fix in one step | Rare messages, and codes the Errors page explains, stay on Errors and get a link | 600 words, 8 entries, 80 words an entry |
 | Concept | One idea: what it is, why it works this way, the rules a reader meets in normal use, and one example | Lists go to the Catalog. Numbers and codes go to the reference. Steps go to a how-to | 500 words, 5 H2 headings |
@@ -56,9 +56,9 @@ Each page is one type, and the type sets what it holds and how long it may be. *
 | Catalog | Generated tables, and for a core type one example item. A connector page adds only "What goes back" and "What to know" | Everything that explains | 150 words for a type page, 200 for an edge page, 500 for a connector page |
 
 - **Sample output:** at most 12 lines in each `Terminal`, and 5 on a Start page. The command's own `--help` or the reference holds the full output.
-- **A fix page's entries** are its H2 and H3 headings, and each is headed by the text the reader sees. It is a how-to, and a file named `fix-*` is one.
+- **A fix page's entries** are its H2 and H3 headings, each the text the reader sees. A file named `fix-*` is a fix page.
 - **Each page has a `job` line** in its frontmatter (see "Frontmatter").
-- **A page that needs more than its ceiling is listed in `src/lib/page-limits.json`** under `pages`, with its budget and its reason. Only the page map's agreed budgets qualify. If a page cannot do its job within its ceiling, split it.
+- **A page that needs more than its ceiling is listed in `src/lib/page-limits.json`** under `pages`, with its budget and its reason. Add no entry for a page that you can split.
 - **A page that is over a rule today is listed under `pending`** with its current numbers, until it is rewritten. It may not grow, and the test fails when the page no longer needs its entry. A rewritten page leaves `pending`: it comes in within its ceiling, or is split or cut, never given a new entry.
 - **The kind comes from the page.** A file named `fix-*` is a fix page; otherwise `kind` in the frontmatter (`concept`, `how-to`, `tutorial`, `fix`, `connector` or `reference`); otherwise the page's entry, or its folder's, in `page-limits.json`. A rewritten page names its own `kind`.
 
