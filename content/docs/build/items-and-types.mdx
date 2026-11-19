@@ -3,21 +3,23 @@ title: Items and types
 description: An item is one thing a person keeps, such as a photo, a note or a contact, and its type says what the item holds. Everything else in Marfa builds on these two ideas.
 ---
 
-Everything in an instance is an item: a PDF, a photo, a bookmark, a contact, a conversation. Every item has a type, and **the type is a promise**: every app that reads a `core.bookmark` knows it will find a `url`, because Marfa refused any bookmark without one.
+Everything in an instance is an item: a PDF, a photo, a bookmark, a contact, a conversation. Every item has a type, and **Marfa holds every item to its type**: every app that reads a `core.file.image` knows it will find a `blob_ref` and a `mime_type`, because Marfa refused any image without them.
 
 Every item also has the same fixed fields, such as `id`, `state`, `version` and its three timestamps, `occurred_at`, `created_at` and `updated_at`. The Catalog's [Items](/catalog/items) page lists them.
 
 ## What a type does
 
-A type is the schema for an item's properties. It names each property, gives its kind, and says which ones are required. Marfa **checks every write** against it, so this bookmark, which has no `url`, is refused with `400 invalid_properties`:
+A type is the schema for an item's properties. It names each property, gives its kind, and says which ones are required. Marfa **checks every write** against it, so this image, which names no bytes, is refused with `400 invalid_properties`:
 
 ```http title="Request"
 POST /items
 Authorization: Bearer <key>
 Content-Type: application/json
 
-{ "type": "core.bookmark", "properties": { "title": "Brutalist housing in London" } }
+{ "type": "core.file.image", "properties": { "title": "Kitchen before the move" } }
 ```
+
+**A property the type doesn't declare is kept**, so an app can carry a little more than the type names. An owner who wants a type held to exactly its properties turns on `strict_mode` for it in [Settings](/run/settings#what-the-enforcement-levers-do).
 
 Marfa ships types for files, images, notes, bookmarks, contacts, events, conversations and more, which the Catalog's [Types](/catalog/types) page lists. When none fits, [define a type](/build/define-a-type) of your own.
 
@@ -36,7 +38,7 @@ A type can name a **parent**. It then has every property the parent has, and add
 
 **A listing of a type includes every type beneath it.** Inherit only when every property of the parent fits your type, because a child can't reshape what it inherits.
 
-When your type should be readable as another type without taking on its properties, name the other type in `compatible_with` instead. Marfa checks that your type requires everything the other one does. A listing of `core.file` returns images and an app's receipt type; a listing of `core.note` leaves out `user.recipe`, which names `core.note` only in `compatible_with`.
+When your type should be readable as another type without inheriting from it, name the other type in `compatible_with`. **It's a promise about shape:** Marfa takes it only when your type requires everything the other requires, in a form an app that reads the other type can read. It changes no listing: a listing of `core.note` leaves out a `user.recipe` that names it only in `compatible_with`.
 
 <TypeInheritance />
 
@@ -52,13 +54,13 @@ Every item records its **source**, a code for what wrote it, which never changes
 
 An item can also carry a `source_id`, its own ID at that source, such as an event's ID in Google Calendar. **Together they are its natural key**: a connector that writes the record again updates the item instead of making a second one.
 
-A source is shown by a **name** and an optional **mark**, an icon ID. Until someone sets a name, it's the name of the app that writes under the source, or the label of the key that holds it, or else the code itself. A key may name its own source and the ones it claims; any other takes `keys.manage`. `GET /sources` lists the sources a credential can see, and `marfa sources update` sets a name.
+An app shows a source by its **name** and an optional **mark**, an icon, which `marfa sources update` sets.
 
 ## Library and feed
 
 Items sit in one of two **tiers**. The **library** holds what a person chose to keep. The **feed** holds what arrives in volume from elsewhere, such as the posts an RSS connector brings in. A listing returns both unless it names one.
 
-A feed item stays until someone acts on it, or until its type's feed window runs out and [housekeeping](/run/housekeeping) moves it to the bin. To keep one, change its `tier` to `library`. It's the same item, not a copy.
+A feed item stays until someone acts on it, or until its type's feed window runs out and [housekeeping](/run/housekeeping) moves it to the bin. To keep one, change its `tier` to `library`.
 
 ## An item's life
 
@@ -68,7 +70,7 @@ An item starts `active`. It can be **archived**, which sets it aside: it stays r
 
 ### Delete and purge
 
-**A delete is a soft delete:** `DELETE /items/{id}` moves the item to the trash, taking its children by `parent-of` and its [parts](/build/edges#parts), such as comments. A restore brings them all back.
+**A delete is a soft delete:** `DELETE /items/{id}` moves the item to the bin, taking its children by `parent-of` and its [parts](/build/edges#parts), such as comments. A restore brings them all back.
 
 **Purging** an item in the bin deletes it and its history for good. The bin empties itself after `trash_retention_days`, 60 days by default.
 
