@@ -29,9 +29,14 @@ export function PageFooter(props: ComponentProps<typeof FumadocsPageFooter>) {
     return { previous: withCode(pages[index - 1]), next: withCode(pages[index + 1]) };
   }, [pages, pathname]);
 
+  // The card keeps half the width whether or not its neighbour exists, so a
+  // page with only a next page shows the card on the right, as when both show.
+  const lone = items.next && !items.previous ? 'next' : undefined;
+
   return <FumadocsPageFooter
       {...props}
-      className={cn('marfa-page-footer', props.className)}
+      className={cn('marfa-page-footer grid-cols-2', props.className)}
+      data-lone={lone}
       items={items}
     />;
 }
