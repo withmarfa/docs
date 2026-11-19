@@ -804,6 +804,9 @@ check "the release is the latest version tag" '{"version":"v1.2.3"}' "$(cat "${w
 check "the CLI download names that release and its archive" \
   'curl -fsSL https://github.com/withmarfa/marfa/releases/download/v1.2.3/marfa-1.2.3-darwin-arm64.tar.gz | tar -xz' \
   "$(sed -n 2p "${work}/good/docs/src/generated/cli-download.md")"
+check "the CLI download moves marfa-server beside marfa" \
+  'sudo mv marfa marfa-server /usr/local/bin/' \
+  "$(sed -n 4p "${work}/good/docs/src/generated/cli-download.md")"
 check "the CLI download is one bash block" '```bash|```' "$(head -1 "${work}/good/docs/src/generated/cli-download.md")|$(tail -1 "${work}/good/docs/src/generated/cli-download.md")"
 check "the server image commands name that release's image, on loopback" \
   'docker pull ghcr.io/withmarfa/marfa-server:1.2.3|docker run --name marfa -d --restart unless-stopped -p 127.0.0.1:8600:8600 \|  -v marfa-data:/data --env-file marfa.env ghcr.io/withmarfa/marfa-server:1.2.3' \

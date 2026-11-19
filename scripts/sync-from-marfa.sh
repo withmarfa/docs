@@ -56,8 +56,8 @@
 #                                     list is already there, because a type links to
 #                                     its Catalog page only if the catalog has one
 #   src/generated/marfa-release.json  the latest release tag, shown in the sidebar
-#   src/generated/cli-download.md     the macOS install of that release's CLI,
-#                                     included by the Quickstart and the CLI page
+#   src/generated/cli-download.md     the macOS install of that release's CLI and
+#                                     server programs, included by the CLI page
 #   src/generated/server-image.md     the commands that pull that release's server
 #                                     image and start it, included by the Deploy
 #                                     guide
@@ -1180,13 +1180,14 @@ mv "$CATALOG_DIR" "$GENERATED/catalog"
 trap - EXIT
 cp "$MARFA_ROOT/GLOSSARY.md" "$GENERATED/GLOSSARY.md"
 printf '{"version":"%s"}\n' "$RELEASE" > "$GENERATED/marfa-release.json"
-# The macOS install the Quickstart and the CLI page include, for the release
-# the CLI archive is published with. A release sync changes it with no page edit.
+# The macOS install the CLI page includes, for the release the archive is
+# published with. Both programs move, because a native server install runs the
+# marfa-server beside marfa. A release sync changes it with no page edit.
 cat > "$GENERATED/cli-download.md" <<DOWNLOAD
 \`\`\`bash
 curl -fsSL https://github.com/withmarfa/marfa/releases/download/${RELEASE}/marfa-${RELEASE#v}-darwin-arm64.tar.gz | tar -xz
 sudo mkdir -p /usr/local/bin
-sudo mv marfa /usr/local/bin/
+sudo mv marfa marfa-server /usr/local/bin/
 marfa --version
 \`\`\`
 DOWNLOAD
