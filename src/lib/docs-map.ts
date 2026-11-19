@@ -7,8 +7,8 @@ import { siteUrl } from '@/lib/shared';
  * A hierarchical index of the docs (Anthropic claude_code_docs_map.md pattern),
  * read from the page tree so it has the same tabs, groups and order as the
  * sidebar: each tab is an H2, each sidebar group or API tag an H3, and each
- * page a Markdown link. Served at `/docs-map.md` for agents that want one fetch
- * with every page and its address.
+ * page a Markdown link. Served at `/docs-map.md` for agents that want one fetch with every page
+ * and its address.
  */
 export function buildDocsMap(): string {
   return buildIndex(
@@ -37,7 +37,7 @@ export function buildLlmsTxt(): string {
       '',
       `These docs cover what Marfa is, running an instance, building apps, connectors and agents on it, and the API. Each written page below links to its Markdown copy, and the same address without \`.md\` is the HTML. A request for a page's address with \`Accept: text/markdown\` gets the Markdown copy too. \`${siteUrl}/docs-map.md\` is this index with HTML links.`,
       '',
-      `\`${siteUrl}/llms-full.txt\` holds the written pages in one file. It leaves out the API operations and the changelog. The changelog is long, and an operation's Markdown copy holds only its title and description, so each API operation links to its HTML page, which holds its full request and response. The API description with every operation is \`openapi.json\` in https://github.com/withmarfa/marfa. The changelog's Markdown copy is \`${siteUrl}/changelog.md\`. The docs MCP server at \`${siteUrl}/mcp\` searches every page, including the operations and the changelog, and its \`docs_fetch\` tool reads one page. It reaches no one's data: each Marfa instance serves its own MCP server at \`/mcp\`, which \`${siteUrl}/marfa-mcp-server.md\` describes.`,
+      `\`${siteUrl}/llms-full.txt\` holds the written pages in one file. It leaves out the API operations and the changelog. The changelog is long, and an operation's Markdown copy holds only its title and description, so each API operation links to its HTML page, which holds its full request and response. The API description with every operation is \`openapi.json\` in https://github.com/withmarfa/marfa. The changelog's Markdown copy is \`${siteUrl}/changelog.md\`. The docs MCP server at \`${siteUrl}/mcp\` searches every page, including the operations and the changelog, and its \`docs_fetch\` tool reads one page. It reaches no one's data: each Marfa instance serves its own MCP server at \`/mcp\`, which \`${siteUrl}/reference/marfa-mcp-server.md\` describes.`,
       '',
     ],
     (url, page) => {

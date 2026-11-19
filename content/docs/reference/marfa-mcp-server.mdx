@@ -1,0 +1,127 @@
+---
+title: Marfa MCP server
+description: The endpoints and tools an instance serves to AI agents over MCP, how a client signs in, and the rules a tool call meets.
+---
+
+Every instance serves MCP at `/mcp`, over the Streamable HTTP transport. **Each tool call is an API call made with the credential the client sent**, so the API's permissions, refusals and limits apply. To connect, see [Connect your agent](/connect-your-agent) and [Connect Claude and ChatGPT](/use/claude-and-chatgpt).
+
+The [Docs MCP server](/reference/docs-mcp-server) searches these docs. The rules are in the [MCP chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/mcp.md) of the contract.
+
+## Endpoints
+
+| Endpoint | Tools | For |
+| --- | --- | --- |
+| `/mcp` | The everyday tools | Finding, reading, saving and changing items |
+| `/mcp/schema` | The everyday and schema tools | Shaping what the instance holds: types, views, moves, imports and sources |
+| `/mcp/admin` | The everyday and admin tools | Running the instance: health, the audit log, keys and webhooks |
+
+Connect an agent to the **smallest endpoint it needs**. Each takes only `POST`.
+
+## Sign-in and discovery
+
+A request carries a key or an app's access token as a Bearer credential. Without one, the answer is a challenge:
+
+```http title="Response"
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://marfa.example.com/.well-known/oauth-protected-resource/mcp"
+```
+
+- **Protected resource metadata** is at `/.well-known/oauth-protected-resource` followed by the endpoint's path. Every endpoint lists the scopes `content:read`, `content:write`, `edge.*:read`, `edge.*:write` and `offline_access`. `/mcp/schema` adds `metadata.types:write`, `schema.write` and `system.view:write`, and `/mcp/admin` adds `instance.read`, `connectors.manage`, `audit.read`, `keys.mint` and `webhooks.manage`.
+- **The authorization server is the instance**, and its issuer is the instance's origin, with no path or trailing slash, such as `https://marfa.example.com`. Its metadata is at `/.well-known/oauth-authorization-server` only, and names the `/oauth/*` endpoints.
+- **The client signs in as any app does**, as [Authenticate](/build/authenticate) shows, and the owner approves it in [Manage apps](/run/manage-apps). It asks for the instance's origin or one endpoint's address as `resource`. Its token works at the API and at every endpoint, within what the owner granted.
+- **A client can ask for more access.** When an app's token lacks a scope a tool call needs, the endpoint answers `403` with `WWW-Authenticate: Bearer error="insufficient_scope"` and the `scope` to ask for, before the call changes anything. A key's refusal is a tool error instead.
+- **A browser page can call an endpoint only from the instance's own origin or an approved page's** ([Connect a web page](/build/connect-a-web-page)). Any other `Origin` gets `403 forbidden`.
+
+## Tools
+
+An endpoint lists only the tools a credential can use. **A credential that may write a type is offered all eight everyday tools; one that may only read is offered `marfa_overview`, `marfa_find`, `marfa_get` and `marfa_read_rows`.**
+
+### Everyday tools
+
+| Tool | What it does |
+| --- | --- |
+| `marfa_overview` | Types with counts, edge types, top tags, views and folders. With `type`, its fields and tables |
+| `marfa_find` | Searches by words, or lists by type, tags, source, state, tier or dates: 20 short entries, up to 50 |
+| `marfa_get` | Reads up to 20 items in full, with versions and tables. `edges` adds edges; `file_link` adds a file's download link, valid for `ttl_seconds` |
+| `marfa_read_rows` | Reads the rows of an item's [table](/build/tables), with a filter, a sort and totals: 50 rows, up to 1,000 |
+| `marfa_create` | Creates an item, or saves a file from a web address or a chat |
+| `marfa_update` | Sets or clears fields, or changes tags, edges, tier or state, including a restore from the bin |
+| `marfa_write_rows` | Puts, patches or deletes up to 200 rows, written whole or not at all |
+| `marfa_delete` | Moves up to 20 items to the bin, after a preview |
+
+### Schema tools
+
+| Tool | What it does | Offered when the credential |
+| --- | --- | --- |
+| `marfa_save_type` | Registers or changes a type | May register types, or holds `schema.write` |
+| `marfa_save_view` | Makes or changes a saved view | Writes `system.view` |
+| `marfa_move_items` | Moves every item of one type to another as a job, after a preview | Writes a type |
+| `marfa_bulk_save` | Creates up to 200 items, or with `mode: "upsert"` updates saved ones | Writes a type |
+| `marfa_search_docs` | Says where to search these docs | Always |
+| `marfa_sources` | Lists each source's name and mark | Always |
+| `marfa_name_source` | Names a source: its own, one it claims, or any with `keys.manage` | Always |
+
+### Admin tools
+
+| Tool | What it does | Offered when the credential holds |
+| --- | --- | --- |
+| `marfa_health` | The instance's health and each connector's last run; error text and housekeeping only with `instance.read` | `instance.read` or `connectors.manage` |
+| `marfa_audit` | Reads the [audit log](/use/audit-log), newest first, narrowed by filters | `audit.read` |
+| `marfa_keys` | Lists the keys the credential can reach | `keys.mint` or `keys.manage` |
+| `marfa_manage_key` | Makes or narrows a key, answering a new key's secret once | `keys.mint` or `keys.manage` |
+| `marfa_revoke_key` | Revokes a key, after a preview | `keys.mint` or `keys.manage` |
+| `marfa_webhooks` | Lists webhooks | `webhooks.manage` |
+| `marfa_manage_webhook` | Makes, changes, pauses, resumes or deletes a webhook | `webhooks.manage` |
+
+**No tool purges items**, exports or restores the instance, claims it, changes its settings, runs housekeeping, or manages the owner, passkeys, sign-ins or file storage. The owner uses the [CLI](/reference/cli) or the API.
+
+Annotations tell a client when to ask the person first: `readOnlyHint` on the tools that only read, `destructiveHint` on every tool that writes except `marfa_create` and `marfa_name_source`, and `openWorldHint` only on `marfa_create` and `marfa_manage_webhook`, which reach outside the instance.
+
+## Previews and confirmation
+
+`marfa_delete`, `marfa_move_items`, `marfa_revoke_key` and `marfa_manage_webhook` act in two calls. **The first call changes nothing** and answers a preview with a `confirm` token. Only if the person agrees does the agent call again with the same arguments and the token.
+
+- `marfa_delete`'s preview names every item that moving to the bin would take. `marfa_manage_webhook` previews only making a webhook or changing its `url`, `events` or `type_filter`.
+- **A token is refused with `confirmation_stale`** when another credential sends it, five minutes have passed, or what the preview showed has changed.
+- **A token works once.** Sent again to `marfa_delete`, it answers `already_trashed: true`; to `marfa_manage_webhook`, it's refused, so a retry never makes a second webhook.
+
+## Changing an item
+
+`marfa_update` takes the `version` the agent read. **Unlike [Update an item](/reference/api/items/updateItem), it never merges a stale change**: if the item changed since, nothing is written, and `version_conflict` holds the item in `current` and, in `conflicting_fields`, each field of the call that a write since also changed. If the item changes partway through a call, the error names the refused step in `failed_step` and the steps written in `applied`.
+
+## Long answers
+
+- `marfa_find` and `marfa_read_rows` answer a `next_cursor` when more matches; send it back as `cursor`.
+- `marfa_get` keeps each answer within **40,000 characters**. A cut field is named in `cut` with its item's `id`, the `field` and the `next_offset`; call again with that ID, `field` and `offset` for the rest. Items that don't fit are named in `not_returned`.
+
+## Saving a file
+
+`marfa_create` saves a file from a web address in `url`, or one attached in a chat in `file`, as a [file item](/build/files). The instance fetches **only from public addresses** and follows no redirect. A refused fetch answers `file_not_fetched` with a `reason`:
+
+| `reason` | When |
+| --- | --- |
+| `not_public`, `redirect` | The address isn't public, or answered with a redirect |
+| `bad_url`, `unreachable` | The address isn't `http` or `https`, or didn't answer |
+| `status` | The address answered with an error, as a chat's expired attachment link does |
+| `too_large`, `timeout` | The file passed `mcp_fetch_max_bytes` (50 MiB), or the fetch passed `mcp_fetch_timeout_seconds` (60) |
+| `busy`, `rate_limited` | Four fetches are running, or the credential passed 30 in `rate_limit_window_seconds`. `retry_after_seconds` says when to retry |
+| `disabled` | `mcp_fetch_enabled` is `false` |
+
+The `mcp_fetch_*` [settings](/run/settings) apply from the next fetch, without a restart. Each fetch's `mcp.file_fetch` audit entry keeps the address's path and query only as lengths and a hash.
+
+## Tool errors
+
+A refused call is a tool result with `isError` set, holding one JSON object:
+
+```json
+{ "error": { "code": "version_conflict", "message": "…", "hint": "Read the item again with marfa_get…" } }
+```
+
+The `code` is an API [error code](/reference/errors#codes), or `confirmation_stale` or `file_not_fetched`, which only tools answer. An argument the tool doesn't take is refused by name.
+
+## Protocol
+
+- **Revisions:** MCP 2026-07-28, which needs no `initialize` handshake, and 2025-11-25 and earlier through `initialize`. Each gets the same tools.
+- **No sessions or streams:** nothing is kept between requests, and `subscriptions/listen` answers `-32601`. Follow changes with [events](/build/events).
+- **Instructions:** the server tells the agent to call `marfa_overview` first, to read an item before changing it, and to confirm a preview only once the person agrees.
+- **Audit:** a tool's write is recorded with the credential, the caller's address and `"via": "mcp"`.

@@ -4,15 +4,16 @@ import { docs } from 'collections/server';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { docsRoute } from './shared';
 import { openapi } from './openapi';
+import { sidebarLabelPlugin } from './sidebar-label';
 
 export const source = loader(
   {
     docs: docs.toFumadocsSource(),
-    openapi: await openapi.staticSource({ baseDir: '(reference)/api-reference', groupBy: 'tag' }),
+    openapi: await openapi.staticSource({ baseDir: 'reference/api', groupBy: 'tag' }),
   },
   {
     baseUrl: docsRoute,
-    plugins: [openapi.loaderPlugin(), lucideIconsPlugin()],
+    plugins: [openapi.loaderPlugin(), lucideIconsPlugin(), sidebarLabelPlugin()],
   },
 );
 
@@ -23,6 +24,25 @@ export function markdownPathToSlugs(segs: string[]) {
   out[out.length - 1] = out[out.length - 1].replace(/\.md$/, '');
   if (out.length === 1 && out[0] === 'index') out.pop();
   return out;
+}
+
+/**
+ * The page a name reads as, for the Markdown copy and the docs tools: the page
+ * at that path, or, for a single name such as `connect-your-agent` that is no
+ * path, the page whose address ends in it. Where several end in it, the one
+ * nearest the root wins, so `cli` is the CLI reference and not a troubleshooting
+ * page; two at the same depth find neither, so a lookup never guesses. This
+ * keeps a name that the CLI and the install message print working while pages
+ * sit under their tab. A page's own address is unchanged and the HTML site has
+ * no alias.
+ */
+export function findPage(slugs: string[]) {
+  const exact = source.getPage(slugs);
+  if (exact || slugs.length !== 1) return exact;
+  const ending = source.getPages().filter((page) => page.slugs.at(-1) === slugs[0]);
+  const nearest = Math.min(...ending.map((page) => page.slugs.length));
+  const nearestPages = ending.filter((page) => page.slugs.length === nearest);
+  return nearestPages.length === 1 ? nearestPages[0] : undefined;
 }
 
 export function slugsToMarkdownPath(slugs: string[]) {

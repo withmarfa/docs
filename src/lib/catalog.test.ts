@@ -11,10 +11,11 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
+import { readConnectors } from './connectors';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const CONTENT = path.join(ROOT, 'content/docs');
-const CATALOG_PAGES = path.join(CONTENT, '(reference)', 'catalog');
+const CATALOG_PAGES = path.join(CONTENT, 'catalog');
 const GENERATED = path.join(ROOT, 'src/generated/catalog');
 
 interface Field {
@@ -238,7 +239,7 @@ const PAGES = (readdirSync(CATALOG_PAGES, { recursive: true }) as string[])
   .map((file) => ({
     slug: path.basename(file, '.mdx') === 'index' && path.dirname(file) !== '.' ? path.basename(path.dirname(file)) : path.basename(file, '.mdx'),
     group: path.dirname(file),
-    file: `content/docs/(reference)/catalog/${file}`,
+    file: `content/docs/catalog/${file}`,
     text: readFileSync(path.join(CATALOG_PAGES, file), 'utf8'),
   }));
 
@@ -249,14 +250,15 @@ const CORE_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('core.'));
 const SYSTEM_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('system.'));
 /** Where a type's page belongs, for the message of a type that has none. */
 const missingPage = (type: CatalogType) =>
-  `The catalog ships ${type.id} and no page covers it. Expected content/docs/(reference)/catalog/(types)/(${type.id.split('.')[0]})/${slugOf(type)}.mdx, titled "${type.label}" with identifier ${type.id}, listed in that folder's meta.json and including src/generated/catalog/${type.id}.md.`;
+  `The catalog ships ${type.id} and no page covers it. Expected content/docs/catalog/(types)/(${type.id.split('.')[0]})/${slugOf(type)}.mdx, titled "${type.label}" with identifier ${type.id}, listed in that folder's meta.json and including src/generated/catalog/${type.id}.md.`;
 const CORE_SLUGS = CORE_TYPES.map(slugOf);
 const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
 /** The pages that are not the page of one type. */
 const OTHER_PAGES = ['items', 'types', 'field-kinds', 'type-rules', 'display-hints', 'edges', 'events', 'permissions', 'connectors'];
 /** The connectors Marfa ships, one page each beneath the Connectors page. */
 const CONNECTORS_DIR = 'connectors';
-const CONNECTOR_SLUGS = ['github', 'google-calendar', 'todoist', 'readwise', 'readwise-reader', 'rss'];
+// A connector's page is named for it, and the list is marfa-connectors' (scripts/sync-from-connectors.sh).
+const CONNECTOR_SLUGS = readConnectors(ROOT).map((connector) => connector.name);
 /** The edge types Marfa ships, one page each beneath the Edges page, named by the edge type's ID. */
 const EDGES_DIR = 'edges';
 const EDGE_SLUGS = catalog.edge_types.map((edge) => edge.id);
@@ -296,7 +298,7 @@ describe('the tab', () => {
   it('lists exactly those pages in its meta.json files', () => {
     const readMeta = (dir: string) => JSON.parse(readFileSync(path.join(CATALOG_PAGES, dir, 'meta.json'), 'utf8'));
     const meta = readMeta('.');
-    expect(meta.root).toBeUndefined();
+    expect(meta.root).toBe(true);
     const listed = meta.pages.filter((entry: string) => !entry.startsWith('---'));
     const groups = listed.filter((entry: string) => entry.startsWith('('));
     const direct = listed.filter((entry: string) => !entry.startsWith('('));
@@ -307,11 +309,10 @@ describe('the tab', () => {
     // The Types page is the folder's own page, named by `pagesIndex`, and the folder lists the rest.
     const inTypes = [typesMeta.pagesIndex, ...typesMeta.pages.filter((entry: string) => !entry.startsWith('('))];
     const inFamilies = families.flatMap((family: string) => readMeta(`${TYPES_DIR}/${family}`).pages as string[]);
-    const connectorsMeta = readMeta(CONNECTORS_DIR);
     const edgesMeta = readMeta(EDGES_DIR);
     expect(direct).toContain(CONNECTORS_DIR);
     expect(direct).toContain(EDGES_DIR);
-    const all = [...direct, ...inTypes, ...inFamilies, ...connectorsMeta.pages, ...edgesMeta.pages];
+    const all = [...direct, ...inTypes, ...inFamilies, ...CONNECTOR_SLUGS, ...edgesMeta.pages];
     expect(all.sort()).toEqual(PAGES.map((page) => page.slug).sort());
     expect(all.length).toBe(new Set(all).size);
   });
@@ -348,7 +349,8 @@ describe('the tab', () => {
     const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, CONNECTORS_DIR, 'meta.json'), 'utf8'));
     expect(meta.title).toBe('Connectors');
     expect(meta.defaultOpen).toBe(false);
-    expect([...meta.pages].sort()).toEqual([...CONNECTOR_SLUGS].sort());
+    // The sync writes no list: the folder's pages come in file-name order, which is how the index lists them.
+    expect(meta.pages).toBeUndefined();
     expect(
       PAGES.filter((page) => page.group === CONNECTORS_DIR)
         .map((page) => page.slug)
@@ -592,7 +594,7 @@ describe('an edge type page', () => {
     if (!page) {
       it(`${edge.id} has a page`, () => {
         expect.fail(
-          `The catalog ships the edge type ${edge.id} and no page covers it. Expected content/docs/(reference)/catalog/${EDGES_DIR}/${edge.id}.mdx, titled ${edge.id}, listed in that folder's meta.json and including src/generated/catalog/edges.md#${edge.id}.`,
+          `The catalog ships the edge type ${edge.id} and no page covers it. Expected content/docs/catalog/${EDGES_DIR}/${edge.id}.mdx, titled ${edge.id}, listed in that folder's meta.json and including src/generated/catalog/edges.md#${edge.id}.`,
         );
       });
       continue;
@@ -766,7 +768,7 @@ describe('the links', () => {
 
   it('reach a heading on the page they name, from the pages, from the generated files they include and from every page that links to the Catalog', () => {
     const elsewhere = (readdirSync(CONTENT, { recursive: true }) as string[])
-      .filter((file) => file.endsWith('.mdx') && !file.startsWith(path.join('(reference)', 'catalog')))
+      .filter((file) => file.endsWith('.mdx') && !file.startsWith('catalog'))
       .map((file) => ({ file: `content/docs/${file}`, text: readFileSync(path.join(CONTENT, file), 'utf8') }))
       .filter(({ text }) => text.includes('](/catalog'));
     const sources = [
@@ -783,9 +785,7 @@ describe('the links', () => {
         if (!file.includes('/catalog/') && !target.startsWith('/catalog')) continue;
         const page = target.startsWith('/catalog')
           ? PAGES.find((candidate) => candidate.slug === (target.split('/').at(-1) === 'catalog' ? 'index' : target.split('/').at(-1)))?.file ?? target
-          : /^\/(use|run|build)\//.test(target)
-            ? `content/docs${target}.mdx`
-            : ['(start)', '(reference)'].map((group) => `content/docs/${group}${target}.mdx`).find((file) => existsSync(path.join(ROOT, file))) ?? target;
+          : [`content/docs${target}.mdx`, `content/docs${target}/index.mdx`, `content/docs/(home)${target}.mdx`].find((file) => existsSync(path.join(ROOT, file))) ?? target;
         const ids = headingIds(page);
         checked += 1;
         if (!ids?.has(id)) broken.push(`${file}: ${target}#${id}`);

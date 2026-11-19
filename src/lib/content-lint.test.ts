@@ -25,10 +25,12 @@ type Rule =
   | 'banned-term'
   | 'avoided-term'
   | 'statement-number'
+  | 'connector-count'
   | 'frontmatter'
   | 'coming-soon'
   | 'callout-title'
   | 'tutorial-length'
+  | 'paged-steps-last'
   | 'link'
   | 'include';
 
@@ -213,6 +215,30 @@ export function checkStatementNumbers(file: string, text: string): Violation[] {
   return out;
 }
 
+// A count of the connectors: the set grows, and its list is the Catalog's
+// (generated from marfa-connectors), so a page that says how many goes stale.
+const ONES = 'one|two|three|four|five|six|seven|eight|nine';
+const TEENS = 'ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen';
+const TENS = 'twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety';
+const CONNECTOR_COUNT = new RegExp(
+  `\\b(?:\\d[\\d,]*|zero|${ONES}|${TEENS}|(?:${TENS})(?:[- ](?:${ONES}))?|hundred)\\s+connectors?\\b`,
+  'gi',
+);
+
+export function checkConnectorCounts(file: string, text: string): Violation[] {
+  const out: Violation[] = [];
+  const prose = stripCode(text);
+  for (const match of prose.matchAll(CONNECTOR_COUNT)) {
+    out.push({
+      file,
+      line: lineOf(prose, match.index),
+      rule: 'connector-count',
+      detail: `"${match[0]}" counts the connectors; link the Catalog's list instead of saying how many there are`,
+    });
+  }
+  return out;
+}
+
 // An em or en dash, as the character or an HTML entity. The title and the
 // description reach search results and link previews, so neither may hold one.
 const TITLE_DASH = /[\u2013\u2014]|&[mn]dash;|&#0*82(?:11|12);|&#x0*201[34];/i;
@@ -244,11 +270,17 @@ export function checkFrontmatter(file: string, text: string): Violation[] {
   } else if (typeof head === 'string' && TITLE_DASH.test(head)) {
     out.push(...fail('headTitle has an em or en dash, which search results and link previews show; use a comma or a colon'));
   }
+  const label = fields.sidebar_label;
+  if (label !== undefined && (typeof label !== 'string' || label.trim() === '')) {
+    out.push(...fail('sidebar_label is empty; leave it out to use the title'));
+  } else if (typeof label === 'string' && TITLE_DASH.test(label)) {
+    out.push(...fail('sidebar_label has an em or en dash; use a comma or a colon'));
+  }
   return out;
 }
 
 /** Pages that may still say "coming soon", relative to content/docs. */
-const COMING_SOON_ALLOWED = new Set(['(start)/index.mdx']);
+const COMING_SOON_ALLOWED = new Set(['(home)/index.mdx']);
 
 export function checkComingSoon(file: string, text: string): Violation[] {
   if (COMING_SOON_ALLOWED.has(file)) return [];
@@ -295,6 +327,27 @@ export function checkTutorialLength(file: string, text: string): Violation[] {
       line: lineOf(text, match.index),
       rule: 'tutorial-length',
       detail: `a tutorial has at most ${String(MAX_TUTORIAL_STEPS)} steps and this one has ${String(steps)}; split it in two`,
+    });
+  }
+  return out;
+}
+
+/**
+ * A paged stepper ends its page: a heading after it reads as one more step's
+ * title under the card, so the next steps go in the last step.
+ */
+export function checkPagedStepsLast(file: string, text: string): Violation[] {
+  const prose = stripCode(text);
+  const out: Violation[] = [];
+  for (const match of prose.matchAll(/<Steps\s+paged\b[\s\S]*?<\/Steps>/g)) {
+    const after = prose.slice(match.index + match[0].length);
+    const heading = /^#{1,6}\s/m.exec(after);
+    if (!heading) continue;
+    out.push({
+      file,
+      line: lineOf(text, match.index + match[0].length + heading.index),
+      rule: 'paged-steps-last',
+      detail: 'nothing is headed after a paged Steps; put the next steps inside its last step',
     });
   }
   return out;
@@ -421,7 +474,9 @@ function includedPart(content: string, section: string | undefined): string | un
  * fumadocs-mdx resolves it: the path is relative to the including file, or to
  * `cwd` with the `cwd` attribute, and `#id` picks one section. An include of
  * anything other than Markdown, or with `lang`, becomes a code block and holds
- * no prose. One that cannot be resolved is a violation, as it fails the build.
+ * no prose. One that cannot be resolved is a violation, as it fails the build,
+ * and so is one of a file outside `src/generated/`: the page's word count skips
+ * every include, so only text the sync writes may arrive that way.
  */
 export function resolveIncludes(
   page: string,
@@ -443,9 +498,14 @@ export function resolveIncludes(
     const file = hash === -1 ? specifier : specifier.slice(0, hash);
     const section = hash === -1 ? undefined : specifier.slice(hash + 1);
     const extension = path.extname(file);
+    const target = path.resolve(/\bcwd\b/.test(match[1]) ? cwd : path.dirname(pagePath), file);
+    const name = path.relative(cwd, target).split(path.sep).join('/');
+    if (!name.startsWith('src/generated/')) {
+      fail(match.index, `<include> of ${specifier} is not a file under src/generated/, so the words it brings would not count toward the page's limit`);
+      continue;
+    }
     if (/\blang=/.test(match[1]) || (extension !== '.md' && extension !== '.mdx')) continue;
 
-    const target = path.resolve(/\bcwd\b/.test(match[1]) ? cwd : path.dirname(pagePath), file);
     if (chain.includes(target)) {
       fail(match.index, `<include> of ${specifier} includes itself`);
       continue;
@@ -461,7 +521,6 @@ export function resolveIncludes(
       continue;
     }
 
-    const name = path.relative(cwd, target).split(path.sep).join('/');
     included.push({ file: `${name} (included by ${page})`, text: part });
     const nested = resolveIncludes(`${name} (included by ${page})`, target, part, cwd, read, [...chain, target]);
     included.push(...nested.included);
@@ -526,7 +585,7 @@ describe('content lint: the corpus', () => {
     expect(PAGE_URLS.has('/')).toBe(true);
     expect(PAGE_URLS.has('/connect-your-agent')).toBe(true);
     // Generated pages are in the set, so links into the API reference resolve.
-    expect([...PAGE_URLS].some((url) => url.startsWith('/api-reference/') && url.split('/').length > 3)).toBe(true);
+    expect([...PAGE_URLS].some((url) => url.startsWith('/reference/api/') && url.split('/').length > 3)).toBe(true);
   });
 
   it('excludes only banned terms that the glossary still lists', () => {
@@ -541,8 +600,8 @@ describe('content lint: the corpus', () => {
   it('resolves every include to text it can read', () => {
     expect(RESOLVED.flatMap((resolved) => resolved.violations).map(format)).toEqual([]);
     const files = INCLUDED.map((included) => included.file);
-    expect(files).toContain('src/generated/cli/global-options.md (included by (reference)/cli.mdx)');
-    expect(files).toContain('src/generated/api-overview.md (included by (reference)/api-reference/index.mdx)');
+    expect(files).toContain('src/generated/cli/global-options.md (included by reference/cli.mdx)');
+    expect(files).toContain('src/generated/api-overview.md (included by reference/api/index.mdx)');
     for (const { text } of INCLUDED) expect(text.trim().length).toBeGreaterThan(0);
   });
 
@@ -564,6 +623,11 @@ describe('content lint: the corpus', () => {
 
   it('cites no contract statement numbers', () => {
     expect(lintAll(checkStatementNumbers)).toEqual([]);
+  });
+
+  it('never says how many connectors there are', () => {
+    expect(lintAll(checkConnectorCounts)).toEqual([]);
+    expect(lintIncluded(checkConnectorCounts)).toEqual([]);
   });
 
   it('gives every page a title and a description, with no em or en dash', () => {
@@ -597,6 +661,10 @@ describe('content lint: the corpus', () => {
 
   it('keeps every tutorial to seven steps', () => {
     expect(lintAll(checkTutorialLength)).toEqual([]);
+  });
+
+  it('ends every paged tutorial with its last step', () => {
+    expect(lintAll(checkPagedStepsLast)).toEqual([]);
   });
 });
 
@@ -684,6 +752,21 @@ describe('content lint: each rule fires on a bad sample', () => {
     expect(checkStatementNumbers('x.mdx', 'The .md copy has 3 sections. A statement is a rule.')).toEqual([]);
   });
 
+  it('connector-count', () => {
+    expect(rules(checkConnectorCounts('x.mdx', 'The six connectors Marfa ships.'))).toEqual(['connector-count']);
+    expect(rules(checkConnectorCounts('x.mdx', 'Run 3 connectors, or Twenty-one Connectors.'))).toEqual([
+      'connector-count',
+      'connector-count',
+    ]);
+    expect(rules(checkConnectorCounts('x.mdx', 'The two connectors share items.'))).toEqual(['connector-count']);
+  });
+
+  it('connector-count leaves other uses of the word alone', () => {
+    expect(
+      checkConnectorCounts('x.mdx', 'Each connector has a key. Every connector runs. Both are in the connectors repository.\n\n```\nsix connectors\n```\n'),
+    ).toEqual([]);
+  });
+
   it('frontmatter', () => {
     expect(rules(checkFrontmatter('x.mdx', '# No block\n'))).toEqual(['frontmatter']);
     expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\n---\nBody\n'))).toEqual(['frontmatter']);
@@ -697,12 +780,15 @@ describe('content lint: each rule fires on a bad sample', () => {
     expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\nheadTitle: A \u2014 B\ndescription: C\n---\n'))).toEqual(['frontmatter']);
     expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\nheadTitle: ""\ndescription: C\n---\n'))).toEqual(['frontmatter']);
     expect(checkFrontmatter('x.mdx', '---\ntitle: A\nheadTitle: "Marfa Docs: B"\ndescription: C\n---\n')).toEqual([]);
+    expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\nsidebar_label: ""\ndescription: C\n---\n'))).toEqual(['frontmatter']);
+    expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\nsidebar_label: A \u2014 B\ndescription: C\n---\n'))).toEqual(['frontmatter']);
+    expect(checkFrontmatter('x.mdx', '---\ntitle: A long title\nsidebar_label: Short\ndescription: C\n---\n')).toEqual([]);
   });
 
   it('coming-soon', () => {
     expect(rules(checkComingSoon('build/x.mdx', 'This is Coming Soon.'))).toEqual(['coming-soon']);
-    expect(checkComingSoon('(start)/index.mdx', 'Coming soon.')).toEqual([]);
-    expect(rules(checkComingSoon('(start)/run-an-instance.mdx', 'Coming soon.'))).toEqual(['coming-soon']);
+    expect(checkComingSoon('(home)/index.mdx', 'Coming soon.')).toEqual([]);
+    expect(rules(checkComingSoon('(home)/run-an-instance.mdx', 'Coming soon.'))).toEqual(['coming-soon']);
   });
 
   it('callout-title', () => {
@@ -725,6 +811,15 @@ describe('content lint: each rule fires on a bad sample', () => {
     expect(checkTutorialLength('x.mdx', steps(8).replace('Steps paged', 'Steps'))).toEqual([]);
   });
 
+  it('paged-steps-last', () => {
+    const tutorial = 'Intro.\n\n<Steps paged>\n<Step>\n\n### A\n\n</Step>\n</Steps>\n';
+    expect(checkPagedStepsLast('x.mdx', tutorial)).toEqual([]);
+    expect(rules(checkPagedStepsLast('x.mdx', `${tutorial}\n## Next steps\n`))).toEqual(['paged-steps-last']);
+    expect(checkPagedStepsLast('x.mdx', `${tutorial}\n## Next steps\n`)[0].line).toBe(11);
+    expect(checkPagedStepsLast('x.mdx', `${tutorial.replace('Steps paged', 'Steps')}\n## Next steps\n`)).toEqual([]);
+    expect(checkPagedStepsLast('x.mdx', `${tutorial}\n\`\`\`md\n## In code\n\`\`\`\n`)).toEqual([]);
+  });
+
   it('callout-title accepts a title and ignores code', () => {
     expect(checkCalloutTitles('x.mdx', '<Callout title="Copy the key now">Body.</Callout>')).toEqual([]);
     expect(checkCalloutTitles('x.mdx', '<Callout type="warn" title={"Copy"}>Body.</Callout>')).toEqual([]);
@@ -732,7 +827,7 @@ describe('content lint: each rule fires on a bad sample', () => {
   });
 
   describe('link', () => {
-    const urls = new Set(['/overview', '/api-reference/items/createItem']);
+    const urls = new Set(['/overview', '/reference/api/items/createItem']);
 
     it('fires on a link that reaches no page', () => {
       const found = checkLinks('x.mdx', 'Ok.\nSee [it](/learn/files).', urls);
@@ -745,7 +840,7 @@ describe('content lint: each rule fires on a bad sample', () => {
       const text = [
         '[a](/overview)',
         '[b](/overview#heading)',
-        '[c](/api-reference/items/createItem)',
+        '[c](/reference/api/items/createItem)',
         '[d](/overview.md)',
         '[e](/llms.txt)',
         '[f](https://example.com/learn)',
@@ -790,6 +885,7 @@ describe('content lint: each rule fires on a bad sample', () => {
     const files = new Map<string, string>([
       ['/repo/src/generated/rules.md', '# Rules\n\nIntro.\n\n## One\nFirst — dash.\n### Two\nSecond.\n## One\nThird.\n'],
       ['/repo/content/docs/build/local.md', 'Local — text.\n'],
+      ['/repo/src/other/not-generated.md', 'Not generated.\n'],
       ['/repo/src/generated/fenced.md', '## A\n```\n## B\n```\nIn A.\n## C\nIn C.\n'],
       ['/repo/src/generated/custom.md', '## Words [#custom-id]\nBody.\n## `Code` and [a link](/x)\nMore.\n'],
       ['/repo/src/generated/front.md', '---\ntitle: T — U\n---\nBody.\n'],
@@ -807,10 +903,30 @@ describe('content lint: each rule fires on a bad sample', () => {
       const root = resolve('<include cwd>src/generated/rules.md</include>');
       expect(root.violations).toEqual([]);
       expect(root.included.map((i) => i.file)).toEqual(['src/generated/rules.md (included by build/page.mdx)']);
-      const local = resolve('<include>./local.md</include>');
-      expect(local.violations).toEqual([]);
-      expect(local.included[0].text).toBe('Local — text.\n');
+      const generated = resolve('<include>../../../src/generated/rules.md</include>');
+      expect(generated.violations).toEqual([]);
+      expect(generated.included[0].text).toContain('Intro.');
       expect(rules(resolve('<include>src/generated/rules.md</include>').violations)).toEqual(['include']);
+    });
+
+    it('fails an include of any file outside src/generated/, whatever its kind', () => {
+      const refused = [
+        '<include>./local.md</include>',
+        '<include cwd>content/docs/build/local.md</include>',
+        '<include cwd>src/other/not-generated.md</include>',
+        '<include cwd>src/generated/../other/not-generated.md</include>',
+        '<include cwd>src/generated/../../content/docs/build/local.md</include>',
+        '<include cwd lang="md">src/other/not-generated.md</include>',
+        '<include cwd>src/other/code.ts</include>',
+        '<include cwd>src/generated-not/x.md</include>',
+      ];
+      for (const text of refused) {
+        const { included, violations } = resolve(`Ok.\n${text}`);
+        expect(rules(violations), text).toEqual(['include']);
+        expect(violations[0].detail, text).toContain('not a file under src/generated/');
+        expect(violations[0].line).toBe(2);
+        expect(included, text).toEqual([]);
+      }
     });
 
     it('takes one section, to the next heading of any level, and keeps the file\'s line numbers', () => {

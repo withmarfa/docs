@@ -19,14 +19,14 @@ const map: MapArea[] = [
       {
         name: 'Folders',
         description: 'A folder\'s settings, held as a `system.folder` item.',
-        href: '/api-reference/folders/listFolders',
+        href: '/reference/api/folders/listFolders',
         operations: [
-          { method: 'GET', path: '/folders', title: 'List folders', href: '/api-reference/folders/listFolders', webhook: false },
+          { method: 'GET', path: '/folders', title: 'List folders', href: '/reference/api/folders/listFolders', webhook: false },
           {
             method: 'PATCH',
             path: '/folders/{id}',
             title: 'Update a folder',
-            href: '/api-reference/folders/updateFolder',
+            href: '/reference/api/folders/updateFolder',
             webhook: false,
           },
         ],
@@ -40,13 +40,13 @@ const map: MapArea[] = [
       {
         name: 'Webhooks',
         description: '',
-        href: '/api-reference/webhooks/receiveWebhookEvent',
+        href: '/reference/api/webhooks/receiveWebhookEvent',
         operations: [
           {
             method: 'WEBHOOK',
             path: 'event',
             title: 'Receive a webhook event',
-            href: '/api-reference/webhooks/receiveWebhookEvent',
+            href: '/reference/api/webhooks/receiveWebhookEvent',
             webhook: true,
           },
         ],
@@ -60,7 +60,7 @@ describe('the API map on the server', () => {
 
   it('renders every operation as a link to its page, with its method', () => {
     expect(html.match(/<a [^>]*class="marfa-apimap-row"/g)).toHaveLength(3);
-    expect(html).toContain('href="/api-reference/folders/updateFolder"');
+    expect(html).toContain('href="/reference/api/folders/updateFolder"');
     expect(html).toContain('marfa-api-method--patch');
     expect(html).toContain('marfa-api-method--webhook');
   });

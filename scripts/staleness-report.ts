@@ -201,7 +201,7 @@ export interface Citations {
 
 const CONTRACT_LINK =
   /https:\/\/github\.com\/withmarfa\/marfa\/blob\/[^/\s)"'<>]+\/conformance\/spec\/([a-z0-9-]+)\.md(?:#([A-Za-z0-9_-]+))?/g;
-const OPERATION_LINK = /\/api-reference\/[a-z0-9-]+\/([A-Za-z0-9_]+)/g;
+const OPERATION_LINK = /\/reference\/api\/[a-z0-9-]+\/([A-Za-z0-9_]+)/g;
 
 /** What a page cites. A rule's anchor is its ID without the slash. */
 export function scanCitations(mdx: string): Citations {

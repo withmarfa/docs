@@ -2,6 +2,7 @@ import { createFileRoute, notFound } from '@tanstack/react-router';
 import { DocsLayout } from 'fumadocs-ui/layouts/notebook';
 import { createServerFn } from '@tanstack/react-start';
 import { slugsToMarkdownPath, source } from '@/lib/source';
+import { fullTitles } from '@/lib/sidebar-label';
 import { regroupApiReference } from '@/lib/api-reference-tree';
 import browserCollections from 'collections/browser';
 import {
@@ -18,6 +19,8 @@ import { releaseToc, type Release } from '@/lib/changelog';
 import { DocsHeader } from '@/components/docs-header';
 import { PageActions } from '@/components/page-actions';
 import { PageFooter } from '@/components/page-footer';
+import { Icon } from '@/components/icon';
+import type { IconData } from '@/lib/icons';
 import { SidebarFooter } from '@/components/release-label';
 import {
   useFumadocsLoader,
@@ -69,6 +72,7 @@ const serverLoader = createServerFn({
     const page = source.getPage(slugs);
     if (!page) throw notFound();
 
+    const titles = fullTitles(source.getPages());
     const pageTree = await source.serializePageTree(
       regroupApiReference(source.getPageTree()),
     );
@@ -81,6 +85,7 @@ const serverLoader = createServerFn({
         url: page.url,
         markdownUrl: slugsToMarkdownPath(page.slugs).url,
         apiProps: await page.data.getOpenAPIPageProps(),
+        titles,
         pageTree,
       };
     }
@@ -93,24 +98,31 @@ const serverLoader = createServerFn({
       url: page.url,
       path: page.path,
       markdownUrl: slugsToMarkdownPath(page.slugs).url,
+      titles,
       pageTree,
     };
   });
 
 const clientLoader = browserCollections.docs.createClientLoader({
   component(
-    { toc, frontmatter, default: MDX },
+    { toc, frontmatter, default: MDX, ...exported },
     {
       markdownUrl,
       path,
+      titles,
+      url,
     }: {
       markdownUrl: string;
       path: string;
+      titles: Record<string, string>;
+      url: string;
     },
   ) {
+    // A Catalog page's own icon, resolved while the page compiled (src/lib/remark-icons.ts).
+    const { pageIcon } = exported as { pageIcon?: IconData };
     // The Changelog draws its releases with a component, so its headings are
     // not in the compiled page's table of contents.
-    const entries = path === '(reference)/changelog.mdx' ? [...toc, ...releaseToc(changelog as Release[])] : toc;
+    const entries = path === '(home)/changelog.mdx' ? [...toc, ...releaseToc(changelog as Release[])] : toc;
     return (
       // Keep the TOC column reserved on every narrative page (so the centred
       // body sits in the same place whether or not a page has a TOC), but only
@@ -128,12 +140,15 @@ const clientLoader = browserCollections.docs.createClientLoader({
           enabled: entries.length > 1,
           component: <PageTableOfContentsPopover />,
         }}
-        footer={{ component: <PageFooter className="mt-12" /> }}
+        footer={{ component: <PageFooter className="mt-12" titles={titles} /> }}
       >
         {/* Title and the Copy button share the top row; the description spans the
             full content width on its own line below, like a lead paragraph. */}
-        <div className="flex flex-row items-start justify-between gap-4">
-          <DocsTitle className={cn(titleClass, 'min-w-0')}>{frontmatter.title}</DocsTitle>
+        <div className="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <DocsTitle className={cn(titleClass, 'min-w-[min(100%,12rem)] flex-1')}>
+            {pageIcon ? <Icon {...pageIcon} className="marfa-title-icon" /> : null}
+            {frontmatter.title}
+          </DocsTitle>
           <div className="flex flex-row gap-2 items-center shrink-0">
             <PageActions
               markdownUrl={markdownUrl}
@@ -177,6 +192,7 @@ function OpenAPIView({
     description: string;
     markdownUrl: string;
     apiProps: Parameters<typeof APIPage>[0];
+    titles: Record<string, string>;
     pageTree: SerializedPageTree;
   };
 }) {
@@ -199,14 +215,14 @@ function OpenAPIView({
         // centred body and extends into this reserved space.
         tableOfContent={{ enabled: true }}
         toc={[]}
-        footer={{ component: <PageFooter className="mt-12" /> }}
+        footer={{ component: <PageFooter className="mt-12" titles={data.titles} /> }}
       >
         {/* The breadcrumb, title, body, and footer are each centred at 680px (in
             app.css) so they sit screen-centred like a narrative page; the code
             rail extends to the right of the centred body. Title on the left, the
             Copy Markdown button at the body's top-right. */}
-        <div className="flex flex-row items-start justify-between gap-4">
-          <div className="min-w-0">
+        <div className="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-[min(100%,12rem)] flex-1">
             <DocsTitle className={titleClass}>{data.title}</DocsTitle>
           </div>
           <div className="shrink-0">
@@ -233,11 +249,13 @@ function DocsView({
   data: {
     kind: 'docs';
     path: string;
+    url: string;
     markdownUrl: string;
+    titles: Record<string, string>;
     pageTree: SerializedPageTree;
   };
 }) {
-  const { path, pageTree, markdownUrl } = useFumadocsLoader(data);
+  const { path, url, pageTree, markdownUrl, titles } = useFumadocsLoader(data);
 
   return (
     <DocsLayout
@@ -248,7 +266,7 @@ function DocsView({
       tabMode="navbar"
       sidebar={sidebarOptions}
     >
-      <Suspense>{clientLoader.useContent(path, { markdownUrl, path })}</Suspense>
+      <Suspense>{clientLoader.useContent(path, { markdownUrl, path, titles, url })}</Suspense>
     </DocsLayout>
   );
 }

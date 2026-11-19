@@ -1,46 +1,30 @@
 import Link from 'fumadocs-core/link';
 import { useRouterState } from '@tanstack/react-router';
-import referenceMeta from '../../content/docs/(reference)/meta.json';
 
-// The Start and Reference folders are groups, so their pages share the site
-// root (`/quickstart`, `/cli`). A Reference page is told apart by its first
-// path segment, read from the folder's own list so a new page can't be missed;
-// the Catalog and the API's pages sit under `/catalog` and `/api-reference`,
-// the two folders the list lifts in with `...`. Start is every path that
-// belongs to no other section, `/` included.
-const REFERENCE_SEGMENTS = new Set(
-  referenceMeta.pages.map((entry) => entry.replace(/^\.\.\./, '')).filter((entry) => /^[a-z0-9-]+$/.test(entry)),
-);
-
-function firstSegment(pathname: string) {
-  return pathname.split('/').filter(Boolean)[0] ?? '';
-}
-
+// Every page's address starts with its tab's segment (`/use/sync-a-folder`,
+// `/reference/cli`). Home's segment is the root, so a page that starts with no
+// other tab's segment belongs to Home: `/`, `/quickstart`, `/glossary`.
 function isUnder(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
+
+const OTHER_TABS = ['/use', '/run', '/build', '/catalog', '/reference'];
 
 // The top-level sections, drawn as pills in the middle of the top bar
 // (DocsHeader). `href` is the first page in the section's sidebar. The notebook layout's own
 // tabs aren't drawn, since the header slot replaces them, but they still scope
 // the sidebar by URL; these pills are the visible switcher.
-export const SECTIONS: { label: string; href: string; matches: ((pathname: string) => boolean) | null }[] = [
-  { label: 'Start', href: '/', matches: null },
+export const SECTIONS: { label: string; href: string; matches: (pathname: string) => boolean }[] = [
+  { label: 'Home', href: '/', matches: (pathname) => !OTHER_TABS.some((tab) => isUnder(pathname, tab)) },
   { label: 'Use', href: '/use/from-an-agent', matches: (pathname) => isUnder(pathname, '/use') },
   { label: 'Run', href: '/run/memory-cpu-and-disk', matches: (pathname) => isUnder(pathname, '/run') },
-  { label: 'Build', href: '/build/how-marfa-works', matches: (pathname) => isUnder(pathname, '/build') },
-  {
-    label: 'Reference',
-    href: '/catalog/items',
-    matches: (pathname) => REFERENCE_SEGMENTS.has(firstSegment(pathname)),
-  },
+  { label: 'Build', href: '/build/architecture', matches: (pathname) => isUnder(pathname, '/build') },
+  { label: 'Catalog', href: '/catalog/items', matches: (pathname) => isUnder(pathname, '/catalog') },
+  { label: 'Reference', href: '/reference/api', matches: (pathname) => isUnder(pathname, '/reference') },
 ];
 
 export function sectionFor(pathname: string) {
-  return (
-    SECTIONS.find((section) => section.matches?.(pathname)) ??
-    SECTIONS.find((section) => section.matches === null)!
-  ).label;
+  return (SECTIONS.find((section) => section.matches(pathname)) ?? SECTIONS[0]).label;
 }
 
 export function SectionNav() {

@@ -1,0 +1,237 @@
+---
+title: Sign-in and server calls
+description: Sign a Swift app in with the owner's approval, and make the calls that only the instance can answer, such as reading an item's history or registering a type.
+---
+
+The working copy answers from the device. **Some calls need the instance itself**: signing in, reading an item's history, naming sources, registering types and looking after the instance. Each is sent at once and never queued. With the device offline, a call throws `noConnection` and sends nothing.
+
+## A server
+
+A `Server` is an address and what it signs in with. A working copy, `Folders` and `Client` all take one.
+
+| Make it with | For |
+| --- | --- |
+| `Server(url:key:)` | An API key. Throws `AddressError.userInfo` for an address that holds a user or password. |
+| `Server(url:credential:)` | A sign-in from `Authorization`. Throws `SignInError.otherServer` for an address on another server, and `.notSignedIn` once the keychain no longer holds it. |
+| `Server.fromEnvironment()` | `MARFA_API_URL` and `MARFA_API_KEY`, or `nil` when neither is set. One without the other throws `EnvironmentError.incomplete(missing:)`, and an address that isn't `http` or `https` with a host throws `.notAServer`. |
+
+- **Its `description` never shows the key.**
+- `plainHTTPOrigin` is the origin for a plain `http` address to another machine, where a key can be read on the way, and `nil` for `https` and for this machine. Show it as a warning.
+- **Every request names the contract the build was made for** in `X-Marfa-Contract`, except a read of the root or `/health`. A server on another contract refuses the request `412 contract_mismatch` before it acts, and the call throws `contractMismatch`.
+
+## Sign in
+
+An app can use a key the person pastes in, or ask the owner to approve it. **`Authorization` signs the app in with the owner's approval** and keeps the sign-in in the keychain. The app never sees the owner's password, and the approval stands until the owner revokes it.
+
+```swift
+let auth = try Authorization(
+    server: serverURL,
+    client: .init(
+        name: "Shoebox",
+        redirect: URL(string: "com.example.shoebox:/signed-in"),
+        scopes: ["core.file:read", "core.file:write"]),
+    service: "com.example.shoebox")
+
+let credential: Credential
+if let kept = try auth.credential() {
+    credential = kept
+} else {
+    credential = try await auth.signIn(presentingFrom: window)
+}
+let server = try Server(url: serverURL, credential: credential)
+let copy = try await WorkingCopy.open(store: storeURL, server: server)
+```
+
+- **`redirect` is a private-use address** whose scheme is a reverse domain name you control, with a path and no host. Claim the scheme in the app's `CFBundleURLTypes`. An app that signs in only through the device flow passes none.
+- **`scopes` are what the app asks for.** `offline_access` is added, so the sign-in lasts. `permissions:` adds [instance permissions](/catalog/permissions) as `InstancePermission` cases, such as `.configManage`, which the approval page shows as a switch each.
+- **The owner may approve fewer.** `Credential.scopes` lists what was approved, and `credential.grants(.configManage)` says whether a permission was. Check before offering a control that needs one.
+- **The copy renews the sign-in** whenever the server refuses its access token. Renewals run one at a time across every copy in the process, and across an app and its extensions that share a `Keychain(accessGroup:)`.
+
+| `Authorization` call | Does |
+| --- | --- |
+| `credential()` | The kept sign-in, or `nil` when the app hasn't signed in, signed out, or the sign-in ended. |
+| `signIn(presentingFrom:prefersEphemeralWebBrowserSession:)` | Shows the server's sign-in and approval pages in the system's web authentication session. |
+| `signIn(using:)` | The same through SwiftUI's `webAuthenticationSession` environment value. |
+| `startDeviceSignIn()` | For a device with no browser: a `DeviceSignIn` with `userCode`, `verificationURL`, `verificationURLComplete` and `expiresAt`. Its `credential()` waits until the person approves on another device or the code expires. |
+| `signOut()` | Deletes the sign-in from the keychain, then revokes it at the server. Returns `false` when the server didn't confirm the grant ended. |
+
+**Signing in again ends the grant of the sign-in it replaces,** so each leaves one approval among the owner's [connected apps](/run/manage-apps). Where `Credential.replacedGrantStands` is `true`, the server didn't confirm it: tell the person to remove the old approval.
+
+**The SDK reads the server's sign-in metadata at `/.well-known/oauth-authorization-server`**, and nowhere else. Its `issuer` must be the instance's origin and every endpoint must be under it, at `/oauth/authorize`, `/oauth/token`, `/oauth/register`, `/oauth/revoke` and `/oauth/device-authorization`. Otherwise the sign-in throws `unreadable` and sends the person nowhere.
+
+| `SignInError` | Means |
+| --- | --- |
+| `.canceled`, `.denied` | The person closed the browser, or declined. |
+| `.expired` | The device code expired before the person decided. |
+| `.stateMismatch`, `.issuerMismatch` | The browser returned an approval this sign-in didn't ask for, or one from another issuer, so it's refused. |
+| `.notSignedIn`, `.otherServer` | The keychain holds no sign-in for the server, or the address is on another server than the sign-in's. |
+| `.notAServer`, `.noRedirect` | The address isn't an `http` or `https` server, or a browser sign-in has no `redirect`. |
+| `.refused(code:message:)` | The server refused, with an OAuth error code. |
+| `.unavailable(message:)`, `.unreadable(message:)` | The server couldn't be reached or the browser couldn't open, or the server answered something the SDK can't use. |
+| `.heldElsewhere` | Another process sharing the keychain held the sign-in too long. Nothing changed, and an approval that couldn't be kept is revoked. |
+
+Once the server ends a sign-in, calls throw `signedOut`: sign in again. [Authenticate](/build/authenticate) explains the flow.
+
+### Confirm it's you
+
+Four acts need the owner to have signed in within the last five minutes: restoring an archive or a backup, moving the sign-in address, and changing `allow_private_addresses`. The server answers an older sign-in `401 insufficient_user_authentication`.
+
+```swift
+let server = try Server(url: serverURL, credential: credential).confirming(from: { window })
+```
+
+**A server made with `confirming(from:)` or `confirming(using:)` signs the owner in again and sends the call once more.** Only one sheet shows at a time, however many calls wait.
+
+- Without it, or at a second challenge for the same call, it throws [`confirmationRequired`](/reference/swift-sdk/errors-and-testing#sign-in-and-the-owner). A closed sheet throws `canceled`, and a decline `forbidden` with `access_denied`.
+- **A key can't make these calls,** and throws `appSignInRequired`. A device-grant sign-in can't confirm either.
+
+## Calls on the server
+
+A `Server` makes these with the key or sign-in it holds. **Each waits 20 seconds in all**, renewing a sign-in included, then throws `network`. Pass `timeout:` to change it.
+
+| `Server` call | Does |
+| --- | --- |
+| `instanceDescription()` | The instance's `name`, `version`, `instanceId`, `contract` and `features`, read without the key. |
+| `snapshots(ofItem:after:limit:)` | One page of an item's earlier versions, oldest first. |
+| `sources()`, `source(_:)` | The sources the key can see, as `ItemSource`. |
+| `updateSource(_:name:mark:)` | Changes a source's name or mark. |
+| `itemCountsBySource(type:state:tier:filter:)` | How many items each source wrote, by source code. |
+| `itemCounts(of:_:)` | Counts for up to 100 IDs, as [`counts`](/reference/swift-sdk/items#counts) gives them, from the server alone. |
+| `setTypeIcon(_:ofType:expecting:)` | Sets or removes the owner's icon for a type. |
+
+**Pass `expecting:` the instance ID** when a change must reach the instance the person saw. Where another instance now answers at the address, the change throws `instanceChanged` and changes nothing.
+
+### Read an item's history
+
+The working copy keeps no history. Each `ItemSnapshot` holds the item's `version`, `type`, `tier`, `properties`, `occurredAt` and `sourceID` before a write replaced them, and that write's `writer` and `createdAt`.
+
+```swift
+var page = try await server.snapshots(ofItem: id)
+var history = page.snapshots
+while let next = page.next {
+    page = try await server.snapshots(ofItem: id, after: next)
+    history += page.snapshots
+}
+```
+
+- **Stop only when `next` is `nil`.** A short or empty page can have more after it. `limit` is 1 to 200.
+- **A `Writer` has a `kind`**: `.browser`, `.app`, `.key`, `.local` for the command on the server's machine, or `.other`. `writer` is `nil` for a change the server made itself.
+- **An item in the bin, or of a type the key doesn't reach,** throws `notFound`.
+
+### Sources
+
+An `ItemSource` has `code`, as an item's `source` carries it, `name`, `nameOrigin` and `mark`, an icon ID to draw with `TypeIcon(id:)`.
+
+- **A key sees** its own source, those it claims and those of items it can read, or every source with `keys.manage`. `source(_:)` throws `notFound` for any other.
+- `nameOrigin` is `.set` for a name set here, `.app` for the name of the app that writes it, `.key` for its key's label, or `.code` where nothing names it.
+- **`updateSource` sends only what it names.** `.clear` removes a name or mark. A bad name throws `validation` with `validation_error`, and a bad mark `invalid_schema`. A key changes its own and claimed sources; any other needs `keys.manage`.
+
+## Types and the catalog
+
+`copy.catalog` reads the item and edge types the copy holds, **from the store with no request**. Before its first hydration it holds Marfa's built-in types and the app's [declared types](/reference/swift-sdk/working-copy#declare-types).
+
+| `Catalog` call | Answers |
+| --- | --- |
+| `itemTypes()`, `itemType(_:)` | `ItemType`, by ID. An ID it doesn't hold throws `notFound` with `type_not_found`. |
+| `edgeTypes()`, `edgeType(_:)` | `EdgeType`, by ID, or `notFound` with `edge_type_not_found`. |
+| `fromServer()` | A `ServerCatalog` read from the server now, to offer a choice of types before a first hydration. The copy doesn't change. |
+
+| `ItemType` field | Holds |
+| --- | --- |
+| `label`, `plural`, `description` | Names to show. `plural` is the type's own, or made from its label. |
+| `parent`, `version`, `roles`, `compatibleWith` | Its place among the types. |
+| `fields` | Each `TypeField` with `name`, `label`, `type`, `required`, `description` and `declaredBy`, inherited fields included. |
+| `titleField`, `bodyField`, `nameFromBody`, `icon` | Display hints, each from the nearest type that sets it. |
+| `statusField`, `statusWords` | The status field and each word with its group, the ancestors' first. |
+| `linkField` | The field holding a row's ID at the service that writes it. |
+
+| `EdgeType` field | Holds |
+| --- | --- |
+| `label`, `reverseLabel`, `reverseName` | Names for the from end and the to end. |
+| `cardinality`, `fromTypeConstraints`, `toTypeConstraints` | Which items it links, and how many. |
+| `writtenFrom` | **Which file a folder writes it in**: `.from`, `.to` (under `reverseName`) or `.none`. |
+| `cascadeOnDelete`, `acyclic`, `flat`, `shipped`, `properties` | What a delete does, its shape rules, and whether Marfa ships it. |
+
+## The API client
+
+**`Client` from `MarfaAPI` makes the operations the working copy doesn't**, with the same `Server`:
+
+```swift
+import MarfaAPI
+
+let api = Client(server)
+let title = Components.Schemas.FieldDefinition(_type: .string, required: true)
+let entry = Components.Schemas.TypeDefinitionInput(
+    fields: .init(additionalProperties: ["title": title]),
+    id: "app.readinglist.entry")
+
+_ = try await api.check(itemType: entry)
+_ = try await api.register(itemType: entry)
+```
+
+| `Client` call | Operation |
+| --- | --- |
+| `check(itemType:)` | [Check a type definition](/reference/api/types/normalizeType) without registering it. |
+| `register(itemType:)`, `replace(itemType:with:)`, `delete(itemType:force:)` | [Register](/reference/api/types/registerType), [replace](/reference/api/types/replaceType) or [delete](/reference/api/types/deleteType) an item type. |
+| `register(edgeType:)`, `edgeTypes()`, `delete(edgeType:force:)` | [Register](/reference/api/edge-types/registerEdgeType), [list](/reference/api/edge-types/listEdgeTypes) or [delete](/reference/api/edge-types/deleteEdgeType) an edge type. |
+
+Every other operation is a method named after its operation ID, such as `listAuditLog()`. **A refusal throws a `MarfaError`**, so read a success from the answer's `ok` case: `try await api.listAuditLog().ok.body.json`.
+
+- **The client has no call for one item or edge, for search or for events.** Those go through the working copy.
+- **A call waits 30 seconds** for the answer to start, and between parts of a streamed body, then throws `network`. Pass `Client(server, timeout:)` a longer time for a call such as `runHousekeeping`.
+- **A refused access token is renewed once** and the call sent again. **A redirect is never followed**, so the credential reaches no other host.
+- **A delete of a type something still names** throws `server` with status 409 and `type_in_use`. Its `details` hold the `item_count`, the `settings` and the table `columns` that name it.
+
+### The owner's controls
+
+| Calls | Do | Needs |
+| --- | --- | --- |
+| `getConfig`, `updateConfig` | Read and change the [instance's settings](/run/settings). Pass `X-Marfa-Instance-Id` in `headers:`. | `config.manage` |
+| `check(_ AddressChange)`, `apply(_:expecting:)` | Check a [change of address](/run/address), then make exactly the change checked, confirming a move of the sign-in address. | `config.manage` |
+| `listAppGrants`, `narrowAppGrant`, `revokeAppGrant` | List every app the owner approved in one `AppGrantPage` at `GET /grants`, narrow one, or end it. A grant that doesn't exist answers `404 grant_not_found`. | `grants.manage` |
+| `restoreBackup` | [Restore a backup](/run/back-up-and-restore). | `backups.manage` |
+
+Moving the sign-in address signs every app out. **Show the owner the check's `consequences`** before `apply`, then its `nextSteps`. The restore and address calls need a [recent sign-in](#confirm-its-you).
+
+### Move the items of a type
+
+A type's ID never changes, so renaming a type means registering the new one, moving the items and deleting the old one. **The move is a job on the instance.** Once no item remains, it rewrites the folders, views and webhooks that name the old type.
+
+```swift
+let started = try await api.startMove(
+    ofType: "app.deal", to: "app.contract", properties: ["stage": "signed"])
+let job = try await api.follow(moveJob: started.id)
+if job.status == .completed, job.result?.settingsRewritten == true {
+    try await api.delete(itemType: "app.deal")
+}
+```
+
+| `Client` call | Does |
+| --- | --- |
+| `previewMove(ofType:to:properties:)` | The items the move would change and the settings that name the type. Writes nothing. |
+| `startMove(ofType:to:properties:)` | Starts the job. `properties` merge into each item, and a `null` value removes one. |
+| `follow(moveJob:every:)` | Polls until the job is `completed`, `failed` or `canceled`. Canceling the task stops the wait, not the job. |
+| `cancel(moveJob:)` | Stops the job. Items already moved stay moved. |
+
+**Check the job's `result` before you delete the old type.** `remaining` counts the items left and `remainingHidden` says whether the credential can't see some. Run the move again to finish it. A setting that names the type in a way the move can't rewrite throws `server` with `type_move_blocked`, and nothing moves.
+
+## Draw a type's icon
+
+A type's icon is an Iconify ID from one of two pinned sets: `lucide:book-open` from [Lucide](https://lucide.dev/icons/), or `simple-icons:github` from [Simple Icons](https://simpleicons.org). **`ItemType.icon` is the icon the type resolves to**: the owner's choice for the type or its nearest parent, else the nearest author's. [Display hints](/catalog/display-hints) explains.
+
+```swift
+import MarfaIcons
+
+TypeIcon(type)                   // from an ItemType
+TypeIcon(id: "lucide:book-open") // from an ID
+Image(typeIcon: type.icon)       // where a view needs an Image
+```
+
+- **A `lucide:` ID draws the SF Symbol that stands for it**, or Lucide's own artwork where none suits.
+- **Brand marks need `MarfaBrandIcons.register()`**, once at launch.
+- **Every icon tints with `foregroundStyle`**, follows the appearance, and sizes with the font.
+- **A `nil` ID, or one the SDK can't draw, draws a fallback symbol** and never fails.
+
+`LucideIconSet.ids` and `MarfaBrandIcons.ids` list every ID the instance accepts, for an app that lets the person choose.
+
+`server.setTypeIcon(_:ofType:)` sets the owner's icon for any type, including one Marfa ships, and returns the type's icon. `nil` shows the author's again. **It needs `schema.write` and write on the type**, else it throws `forbidden`. An ID outside the pinned sets throws `validation` with `invalid_schema`. Other devices show the change within about two minutes, when their copy's catalog is next read.

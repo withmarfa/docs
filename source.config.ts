@@ -9,6 +9,8 @@ import { apiMapMarkdown, buildApiMap, type Areas, type Spec } from './src/lib/ap
 import { changelogMarkdown, remarkChangelogIndex, type Release } from './src/lib/changelog';
 import { statusLabel } from './src/lib/http-status';
 import { sseLanguage } from './src/lib/sse-language';
+import { rehypeFieldTables } from './src/lib/field-tables';
+import { remarkIcons } from './src/lib/remark-icons';
 import { rehypeTableLabels } from './src/lib/table-labels';
 
 /** The releases the Changelog page draws, from the file `scripts/sync-changelog.ts` writes. */
@@ -48,6 +50,7 @@ const REWRITTEN = new Set([
   'Terminal',
   'Changelog',
   'ApiMap',
+  'Icon',
 ]);
 
 /** Node types that start a block, as opposed to text within one. */
@@ -99,7 +102,8 @@ function fileTree(node: JsxElement, depth = 0): string[] {
  * The Markdown copy of each page, which agents read at `<page>.md`, through the
  * docs MCP server and in `llms-full.txt`. Layout components give way to their
  * content, a few become plain Markdown, and the visuals are left out: a page's
- * prose carries every fact a visual shows.
+ * prose carries every fact a visual shows. A visual the page gives a `label`,
+ * its text form, is written as that label on a "Figure:" line.
  */
 const llms: LLMsOptions = {
   // Tables without column alignment: padding each cell to its column's width
@@ -110,7 +114,7 @@ const llms: LLMsOptions = {
     if (!isJsx(node) || !node.name) return true;
     if (WRAPPERS.has(node.name)) return 'children-only';
     if (REWRITTEN.has(node.name)) return true;
-    return false;
+    return attribute(node, 'label') !== undefined;
   },
   stringify(node, parent, state, info) {
     // A fenced block with a note or a status chip in its header: the header's
@@ -129,7 +133,11 @@ const llms: LLMsOptions = {
       const fence = state.handle({ ...node, meta: rest.trim() || null } as never, parent as never, state, info);
       return `${label}:\n\n${fence}`;
     }
-    if (!isJsx(node) || !node.name || !REWRITTEN.has(node.name)) return undefined;
+    if (!isJsx(node) || !node.name) return undefined;
+    if (!REWRITTEN.has(node.name)) {
+      const label = WRAPPERS.has(node.name) ? undefined : attribute(node, 'label');
+      return label === undefined ? undefined : `Figure: ${label}`;
+    }
     // A component written on one line holds phrasing, not paragraphs, and
     // writing that as flow would break the text at each inline element.
     const inline = node.children.every((child) => !FLOW.has(child.type));
@@ -139,6 +147,9 @@ const llms: LLMsOptions = {
         : state.containerFlow(node as never, info)
       ).trim();
     switch (node.name) {
+      // An icon is not text: the copy keeps only what a page says it stands for, such as a mark's ID.
+      case 'Icon':
+        return attribute(node, 'markdown') ?? '';
       case 'Tab':
       case 'CodeBlockTab':
         return `**${attribute(node, 'value') ?? ''}**\n\n${inner()}`;
@@ -185,7 +196,14 @@ export const docs = defineDocs({
     // A Catalog type page names its type's identifier, which the header shows
     // under the description and the Markdown copy under the title. `headTitle`
     // names a page in browser tabs and search results (`src/lib/page-head.ts`).
-    schema: pageSchema.extend({ identifier: z.string().optional(), headTitle: z.string().optional() }),
+    // `sidebar_label` is a shorter name for the sidebar only (`src/lib/sidebar-label.ts`).
+    schema: pageSchema.extend({
+      identifier: z.string().optional(),
+      headTitle: z.string().optional(),
+      sidebar_label: z.string().min(1).optional(),
+      // The page's kind where neither its name nor page-limits.json says it (`src/lib/page-limits.ts`), which search reads.
+      kind: z.string().optional(),
+    }),
     postprocess: {
       includeProcessedMarkdown: llms,
     },
@@ -207,8 +225,10 @@ export default defineConfig({
   mdxOptions: {
     // Before Fumadocs's structure step, which builds the search index: the Changelog page's releases are
     // data the component draws, so the index would otherwise hold none of their notes.
-    remarkPlugins: [remarkChangelogIndex(readReleases)],
-    rehypePlugins: (plugins) => [...plugins, rehypeTableLabels],
+    remarkPlugins: [remarkChangelogIndex(readReleases), remarkIcons()],
+    // The icon a Catalog page's heading shows, which `remarkIcons` finds (src/lib/remark-icons.ts).
+    valueToExport: ['pageIcon'],
+    rehypePlugins: (plugins) => [...plugins, rehypeTableLabels, rehypeFieldTables],
     rehypeCodeOptions: {
       ...rehypeCodeDefaultOptions,
       langs: ['yaml', 'markdown', 'json', sseLanguage as never],

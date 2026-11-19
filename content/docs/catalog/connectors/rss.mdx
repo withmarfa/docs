@@ -1,0 +1,112 @@
+---
+title: RSS
+description: The entries of the Atom, RSS and JSON feeds you list, read only, and on request the pictures they point to, saved as files.
+---
+
+The RSS connector reads the feeds you list and writes one item for each entry into the feed. Nothing goes back to a feed. With `RSS_PICTURES` set, it also saves an entry's pictures as files attached to the entry. **It needs no account**, so it is the connector to try first.
+
+<include cwd>src/generated/connectors/rss.md</include>
+
+## What it brings in
+
+Atom, RSS 2.0, RSS 1.0 (RDF) and JSON Feed, judged by the document rather than its content type. Each run fetches every feed in `RSS_FEEDS` and writes the entries that are new or changed; a feed whose server answers 304 isn't read again. Its `User-Agent` names the connector, so a feed's owner can tell who is reading.
+
+## Types it writes
+
+| Type | Parent type | Holds |
+| --- | --- | --- |
+| `rss.entry` | [Bookmark](/catalog/bookmark) | One entry of a feed |
+| `rss.picture` | [File image](/catalog/file#core-file-image) | One picture saved from an entry. Declared only when `RSS_PICTURES` is `save` or `save-in-library` |
+
+An entry item holds:
+
+- **`url`, `title` and `description`:** the entry's link, and its title and summary as plain text.
+- **`body`:** the entry's content as Markdown. HTML is converted, keeping its structure, links and images and dropping scripts, styles, frames and tracking pixels.
+- **`author`, `published_at`, `image_url`, `source_url`, `source_title` and `language`**, each where the feed has a value.
+- **`entry_id`:** the entry's Atom `id`, RSS `guid`, RSS 1.0 `rdf:about` or JSON Feed `id`, else its link.
+- **`feed_origin` and `feed_hash`:** the scheme, host and port of the feed's address, and a hash that is the same for every entry of one feed.
+- **`rss_pictures`:** with pictures on, what became of the entry's pictures. Read only.
+
+An item's `source_id` is the feed's hash, a colon and the entry's ID. An entry with no ID and no link is left out. A field longer than 100,000 characters is left out of its entry, and the run names it.
+
+A picture item holds `source_url`, the address it was saved from, and a `title` such as `p-0123456789ab.png`, made from a hash of that address. Match a picture to an address in the entry's text by `source_url`, never by title.
+
+## Edges it writes
+
+| Edge type | From | To |
+| --- | --- | --- |
+| [`attached-to`](/catalog/edges/attached-to) | A picture | Its entry |
+
+Only with pictures on. Without them, it writes no edges.
+
+## Saving pictures
+
+| `RSS_PICTURES` | What happens |
+| --- | --- |
+| `addresses` (the default) | Nothing is fetched. |
+| `save` | Pictures are saved for every entry. A picture takes its entry's tier when it's created. |
+| `save-in-library` | Pictures are saved only for entries in the [library](/build/items-and-types#library-and-feed), up to one run after an entry gets there. |
+
+**The entry's text doesn't change:** `body` and `image_url` still hold the feed's addresses. The connector reads `image_url`, then the Markdown images in `body`, each address once, up to 20 for each entry. It fetches only `https` addresses and keeps only PNG, JPEG, GIF, WebP, AVIF and HEIC files, judged by their bytes.
+
+Each run fetches at most 100 pictures and 200 MiB, and starts no fetch after 10 minutes. Reaching a limit raises `pictures:limit`, and the next run carries on. A failure in the pictures raises `pictures:failed` and doesn't fail the feeds. A failure that may pass, such as a timeout, is tried in three runs in all.
+
+**A picture goes to the bin with its entry**, and comes back when the entry is restored. When an entry is archived or gone, the next run archives its pictures. A picture a person moved to the bin or purged is never saved again for that entry.
+
+The [README](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/rss/README.md#what-is-saved) has every fetch rule, the keys of `rss_pictures` and each reason a picture is not kept.
+
+## What goes back
+
+Nothing. The connector never writes to a feed, and never archives an entry, moves it to the bin or removes it. An entry a feed drops stays as last written, and so do the items of a feed you take out of `RSS_FEEDS`. The only items it archives are pictures.
+
+## Settings
+
+| Setting | What it holds |
+| --- | --- |
+| `RSS_FEEDS` | The feeds to read, one for each line or separated by whitespace. A secret. |
+| `RSS_PRIVATE_HOSTS` | Host names that may resolve to this machine or a private network, separated by whitespace. Optional. |
+| `RSS_PICTURES` | `addresses` (the default), `save` or `save-in-library`. Any other value stops the start. Optional. |
+
+A feed in `RSS_FEEDS` is an `http` or `https` address, or `name=address`. **Name a feed whose address or token may change:** the name then identifies the feed, and its items carry on. Without a name, a changed address or query starts new items. Credentials in an address go as Basic authorization to that address's origin only.
+
+## What to know
+
+- **A feed's address is a secret,** since a private feed's address carries its token. Logs, reports and items carry only the feed's origin and hash.
+- **It never fetches from a private network** unless `RSS_PRIVATE_HOSTS` names the host, whether a feed lists it or redirects to it.
+- **A feed is skipped, and named in the run,** when it's too large, too slow to read or answers with a status other than 200 or 304. A 410 stops it until you change its address. A 301 or 308 is followed, and each run says the feed moved. The [README](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/rss/README.md#limits-and-conditions) has the limits.
+- **An entry without a date** is dated by when the connector first stored it, and keeps that date.
+- **Treat `body` as untrusted.** The conversion drops what can run, but the text, links and images are still the feed's own.
+- **Other feeds carry on.** A run fails only when none of the feeds could be read.
+
+## Make its key
+
+The key depends on `RSS_PICTURES`. With `addresses`:
+
+```bash
+marfa keys create --label rss --source rss \
+  --type-permission rss.entry=write \
+  --metadata-permission types=write \
+  --default-tier feed
+```
+
+With `save` or `save-in-library`:
+
+```bash
+marfa keys create --label rss --source rss \
+  --type-permission rss.entry=write \
+  --type-permission rss.picture=write \
+  --edge-permission attached-to=write \
+  --metadata-permission types=write \
+  --default-tier feed
+```
+
+**The connector refuses a key of the other shape**, names what is wrong, and exits. To change `RSS_PICTURES`, revoke the key with `marfa keys revoke <key-id>` and make the other one.
+
+## Run it
+
+[Bring in records from another service](/use/connect-a-service) uses this connector as its example, and [Connectors](/build/connectors) explains how they work.
+
+```bash
+RSS_FEEDS="news=https://example.com/feed.xml" node connectors/rss/dist/main.js --once
+node connectors/rss/dist/main.js --every 15m
+```

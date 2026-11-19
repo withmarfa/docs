@@ -1,0 +1,163 @@
+---
+title: Views and folders
+description: Read and write saved views and folder settings from a working copy, and keep folders of files in step on a Mac.
+---
+
+A saved view is a `system.view` item, and a folder's settings are a `system.folder` item. A working copy reads both from its store, and **writes them through the server at once, never through the queue**. `Folders` keeps directories on a Mac in step with a folder's settings.
+
+## Saved views
+
+`SavedView` is a view with `id`, `version`, `state` and `settings`. It isn't called `View`, which would clash with SwiftUI's. **Hydrate with `system.view` in the slice, or pin a view,** to hold it.
+
+| Call | Answers |
+| --- | --- |
+| `items.views()` | `Rows<SavedView>`, every held view. |
+| `items.view(_:)` | `SavedView?`: `nil` where the copy doesn't hold it. |
+| `items.list(inView:limit:offset:)` | The view's items in its sort order, ties in ascending ID order. |
+| `items.groups(inView:timeZone:)` | `Rows<ViewGroup>`, each `key` with its `count`. |
+| `copy.search(_:inView:limit:)` | A search narrowed to what the view lists. |
+
+**A view's reads never answer in part.** They throw:
+
+- `hydrationIncomplete` while a hydration fills the copy or the copy is stale.
+- `notFound` with `not_held` for a view the copy doesn't hold.
+- `invalid` where the copy can't answer the whole view: a type or tier the slice doesn't hold, `beneath` without `parent-of` held whole, a `backref` or a group by `edge[<type>]` or `backref[<type>]` of an edge type not held whole, or a revoked view.
+
+Groups come in the view's `order` first, then by ascending key, with the `null` group last. Groups in `hidden` are left out, but their items still list. A view that groups nothing answers one `null` group. Date groups follow `timeZone`, or the device's.
+
+[Read a view](/build/read-a-view) shows a view on screen, and `LiveQuery` has [readings](/reference/swift-sdk/updates#live-queries) for each call.
+
+### View settings
+
+| Type | Fields |
+| --- | --- |
+| `ViewSettings` | `title`, `query`, `sort` (first key first; empty keeps the server's order), `group` (`nil` groups nothing). |
+| `ViewQuery` | `types` (empty is every type but `system.*`), `tier` (`nil` is both), `states` (`nil` is active and archived), `filter`, `beneath`. |
+| `ViewSort` | `by`, an own field such as `created_at` or `properties.<name>`, and `direction`. |
+| `ViewGrouping` | `by`, a field or `edge[<type>]` or `backref[<type>]`; `bucket` (`.day`, `.week` from Monday, `.month` or `.year`); `order`; `hidden`. |
+
+A `filter` takes the `status_group` term: `status_group neq "completed" AND status_group neq "canceled"` holds the open items.
+
+### Write a view
+
+| Call | Does |
+| --- | --- |
+| `copy.createView(_ ViewSettings, idempotencyKey:)` | Creates a view and returns it. |
+| `copy.changeView(_:_ ViewSettingsChange, baseVersion:idempotencyKey:)` | Replaces each setting the change names. |
+| `copy.deleteView(_:idempotencyKey:)` | **Deletes a view for good**, revoked ones included. |
+
+`ViewSettingsChange` replaces each field it names whole. An empty `sort` removes the sort, and `group: .clear` removes the grouping.
+
+- With no server the call throws `noServer`, and offline `network`. **Nothing waits to be sent.**
+- After a `network` failure, retry with the same `idempotencyKey`. The server may have made the change, and the key answers it rather than writing twice.
+- A query the server refuses throws `validation` with `validation_error`. A key that may not write `system.view` throws `forbidden` with `type_not_permitted`.
+- A setting changed since `baseVersion` throws `versionConflict`, and the copy keeps the view it held. Settings nobody else changed are merged.
+- A revoked view throws `validation` with `invalid_transition`. A view the server doesn't have throws `notFound` with `item_not_found`.
+
+[Save a view](/build/save-a-view) explains views.
+
+## Folder settings
+
+`items.folder(_:)` reads a held `Folder`, with `id`, `version`, `state` and `settings`. It throws `invalid` for an item that isn't a `system.folder`.
+
+| `FolderSettings` field | Holds |
+| --- | --- |
+| `title` | Required to create a folder. |
+| `query` | `FolderQuery`: `types`, `tier` (`nil` is the library tier), `states` (`nil` is active and archived), `filter` and `beneath`. |
+| `defaults` | `FolderDefaults` for a new file: `type`, `tier`, `properties`, `tags`, and `edges` from edge type to item IDs. |
+| `include`, `ignore` | Gitignore patterns for the paths taken and left alone. **`ignore` wins.** |
+| `firstPlacement` | Where an item of a type made elsewhere first appears, from type to directory. |
+| `removalThreshold` | `RemovalThreshold(files:fraction:)`, `nil` being 10 files and 0.25. |
+| `additionThreshold` | `AdditionThreshold(files:fraction:)`, `nil` being 50 files and 0.25. |
+| `outsideQuery` | `OutsideQuery`: `.send` makes a new file outside the query an item and flags it unmatched; `.hold` leaves it on the disk. |
+
+The server's removal threshold also has a ceiling, 100 files when unset. **The Swift type doesn't carry it yet**, so a change that names a `removalThreshold` sends none.
+
+| Call | Does |
+| --- | --- |
+| `copy.createFolder(_ FolderSettings, idempotencyKey:)` | Creates a folder and returns it. |
+| `copy.changeFolder(_:_ FolderSettingsChange, baseVersion:idempotencyKey:)` | Replaces each setting the change names. |
+| `copy.revokeFolder(_:idempotencyKey:)` | Revokes a folder. **A revoked folder changes no more.** |
+
+These are sent as view writes are, and answer the same way to a `network` failure, a changed `baseVersion` and a revoked folder. **Before sending, they throw** `invalid` for settings no folder follows, and `validation` for a filter that doesn't parse or a default tag or property name the server refuses. Each tells held streams `.refreshed(.folderWritten)`.
+
+## Folders on a Mac
+
+`Folders(server:)` works the Mac's folders through the same registry as the `marfa` command line, so a folder added in either shows in both. Without a server, only `list()`, `status(of:)`, `confirmFirstSync(in:)`, `confirmRemoval(in:)`, `restoreRemoval(in:)` and `remove(_:)` work.
+
+| Call | Does |
+| --- | --- |
+| `add(_ directory:following:)` | Makes a directory follow a `system.folder`, making the directory if needed. Returns `AddedFolder`. |
+| `list()` | Every `ListedFolder` in the registry, with `directory` and `folderId`. |
+| `status(of:)` | `FolderStatus` from the folder's own store, with no request. |
+| `sync(_:)` | One pass: sends disk changes, catches up, writes out what the query matches, and sends placements. Returns `FolderSyncResult`. |
+| `confirmFirstSync(in:)` | Lets the first sync go. Returns whether it was waiting. |
+| `confirmRemoval(in:)` | Lets a paused large removal and a paused drop of new files go. Returns `ConfirmedFolder`. |
+| `restoreRemoval(in:)` | Cancels a paused removal and writes the files back. Returns `RestoredRemoval`. |
+| `remove(_:)` | Takes the folder off the Mac and leaves plain files. **Throws `invalid` while writes wait to be sent**: sync first. |
+| `watch(_:)` | Keeps the folder in step while the app runs. Returns a `FolderWatch`. |
+
+**A new folder's first sync waits for the person.** Until `confirmFirstSync(in:)`, `sync(_:)` only reads the folder and returns `.awaitingConfirmation(FirstSyncPlan)`, and `watch(_:)` throws `firstSyncWaiting`. The plan counts what it will `write` and `send`, the files it writes `beside` a file at the same path, and the items it leaves (`left`).
+
+**One process works a folder at a time.** A call that finds a watch holding the folder asks it to let go and waits up to 10 seconds, then throws `readingHandle`. `watch(_:)` throws `readingHandle` at once. `status(of:)` answers beside a watch.
+
+`AddedFolder.storage` and `FolderEvent.watching` give a `StorageCause` for a directory in iCloud Drive, a cloud service or a network file system. **It's a warning, not a refusal.** Show its `warning` once for each folder in a session.
+
+### What a sync reports
+
+`.synced(FolderSync)` holds `hydrated`, `catchUpError` (why it couldn't catch up; it still writes out what the copy holds) and a `FolderPass`:
+
+| `FolderPass` field | Holds |
+| --- | --- |
+| `settings` | The settings file: `sent`, `written`, `flagged`, `unwritten`. |
+| `scan` | `FolderScan`: what it read from the disk. |
+| `drain` | The `DrainReport`. A conflicted edit is `.conflicted` naming the copy that took its text. |
+| `rebased`, `gaveWay` | Edits sent again on the held version, and placements another Mac made first. |
+| `pull` | `FolderPull`: what it wrote to the disk. `nil` where the copy expired and couldn't be hydrated. |
+| `flagged` | Each held file once, as `FlaggedFile` with `path`, `flag`, `reason` and the pull's `item`. |
+
+`FolderScan` counts `created`, `updated`, `renamed`, `unchanged`, `waiting`, `missing`, `deleted`, `skipped`, `movedAway`, `paused`, `pausedAdditions` and `heldOutside`, and lists `trashed` and `secrets`, the files not sent because their names are ones secrets use.
+
+`FolderPull` counts `written`, `rewritten`, `moved`, `unchanged`, `skipped`, `removed`, `purged`, `kept`, `unwritten`, `absent`, `unplaced`, `unmatched` and `paused`.
+
+- **Two items with names that compare as one, and no placement yet:** the one created later gets the numbered name, such as `Plan (2).md`, on every device. A file already at the plain name keeps it.
+- **A link lookup that finds the copy expired, or the call stopped,** ends the sync with `copyExpired`, `streamIncomplete` or `canceled`.
+
+### Status
+
+`FolderStatus` has `files`, `paused` and `firstSync`. Each `FileStatus` has `path`, `itemId`, `state`, `waits`, `flag`, `reason` and `warning`.
+
+| `FileState` | Means |
+| --- | --- |
+| `.inStep` | The file and its item agree. |
+| `.waiting` | A write for it waits to be sent. |
+| `.held` | Not sent; `reason` says why. |
+| `.unmatched` | Its item no longer matches the query. |
+| `.unreached` | The scan didn't reach it, so it's held rather than deleted. |
+| `.outside` | It lies where the folder takes no files. |
+
+`FolderPaused` counts `disk` (deletes not sent), `pull` (files whose items left elsewhere), `additions` and `outsideQuery`. `isPaused` is set while a removal or a drop of new files waits, and `outsideQuery` doesn't count toward it.
+
+### Watch
+
+```swift
+let watch = try await Folders(server: server).watch(directory)
+for try await event in watch {
+    if case .passed(let pass) = event { show(pass) }
+}
+```
+
+| `FolderEvent` | Means |
+| --- | --- |
+| `.watching(_:storage:)` | Passes begin. |
+| `.passed(FolderPass)` | A pass changed something or found something to report. |
+| `.unreachable(reason:)`, `.reachable` | The server stopped or started answering. Told when it changes. |
+| `.retrying(_:after:)` | Hydrating failed; it tries again after the wait. |
+| `.watcherFailed(message:)` | The file system reported an error; the watch goes on. |
+| `.waiting(reason:)` | The directory is gone, and the watch waits for it. |
+| `.handedOver`, `.heldElsewhere`, `.takenBack` | The watch let the folder go, to a call or to another process, and took it back. **No pass runs in between.** |
+| `.removed`, `.unlisted` | A call removed the folder or took it off the registry. The watch ends. |
+
+The sequence ends after `stop()`, `.removed` or `.unlisted`, and throws a `MarfaError` when the watch fails, such as `unauthorized`. **Leaving a loop early doesn't stop the watch**: call `stop()`, which returns once the folder is let go.
+
+[Sync a folder](/use/sync-a-folder) and [How a folder treats files](/reference/folder-rules) explain folders, and the rules are in the contract's [folder sync](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-sync.md) and [folder guards](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-guards.md) chapters.

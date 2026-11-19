@@ -1,0 +1,4 @@
+- **Source:** `google-calendar`, shown as Google Calendar
+- **Types:** `google.calendar.calendar`, `google.calendar.event`
+- **Carries changes back:** Yes, for `google.calendar.event`
+- **Can be turned off:** No
