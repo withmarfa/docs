@@ -58,9 +58,11 @@ function stem(word: string): string {
  *   permission scope or a job name would outrank the pages about a word it
  *   holds. A flag is also a token of its own, `--force` beside `force`.
  * - A query holds the compound and, for a dotted name, its letter-only parts,
- *   so `core.task` finds the page about `task`. A code that no page writes,
- *   such as `NO_COLOR`, finds nothing instead of every page that says "no" or
- *   "color". A query also drops its stop words, unless nothing else is left.
+ *   so `core.task` finds the page about `task`, and for a hyphenated word its
+ *   words, so `back-up` finds the page that writes `back up`. A hyphenated name
+ *   in backticks stays whole. A code that no page writes, such as `NO_COLOR`,
+ *   finds nothing instead of every page that says "no" or "color". A query also
+ *   drops its stop words, unless nothing else is left.
  *
  * Orama passes the property name when it indexes and none when it searches,
  * which is how the two are told apart.
@@ -75,12 +77,16 @@ export function tokenizeSearchText(text: string, forQuery: boolean): string[] {
     // `v0.0.24` and `0.0.24` are the same release.
     .replace(/\bv(?=\d+\.\d)/g, '');
   const tokens = new Set<string>();
-  // A lowercase hyphenated name in code (`webhook-poll`, `trash-purge`) is an identifier, so only whole: its
-  // short row would outrank the pages about `webhook` or `trash`.
+  // A lowercase hyphenated name in code (`trash-purge`) is an identifier, so only whole: its short row would
+  // outrank the pages about `trash` or `purge`.
   const identifiers = new Set(Array.from(text.matchAll(CODE_NAME), (m) => m[1]));
   // A flag is also its own token, `--scope` besides `scope`: a one-word flag is otherwise a word that
   // half the pages use, and `--force` could not find the page that explains it.
-  for (const flag of folded.matchAll(FLAG)) tokens.add(`--${flag[1].replace(/-/g, '_')}`);
+  const flagNames = new Set<string>();
+  for (const flag of folded.matchAll(FLAG)) {
+    flagNames.add(flag[1]);
+    tokens.add(`--${flag[1].replace(/-/g, '_')}`);
+  }
   const words: string[] = [];
   for (const match of folded.match(WORD) ?? []) {
     const parts = match.split(/[._-]/);
@@ -89,12 +95,12 @@ export function tokenizeSearchText(text: string, forQuery: boolean): string[] {
       continue;
     }
     tokens.add(parts.join('_'));
-    // The index holds a hyphenated name's words (`Idempotency-Key`); a query holds a dotted name's letter-only
-    // parts (`core.task` is `core` and `task`; `0.0.24` is no number alone). The index does not hold a dotted
-    // name's parts: a short row such as `webhooks.manage` would then outrank the pages about webhooks. An
-    // underscore code's parts say nothing alone.
+    // Both hold a hyphenated name's words (`Idempotency-Key`, `back-up`), except a flag, which is its own token, and a
+    // name in code. Only a query holds a dotted name's letter-only parts (`core.task` is `core` and `task`; `0.0.24`
+    // is no number alone): the index does not, because a short row such as `webhooks.manage` would then outrank the
+    // pages about webhooks. An underscore code's parts say nothing alone.
     const dotted = match.includes('.');
-    if (match.includes('_') || dotted !== forQuery || identifiers.has(match)) continue;
+    if (match.includes('_') || (dotted && !forQuery) || flagNames.has(match) || identifiers.has(match)) continue;
     for (const part of parts) {
       if (part.length < 2 || (dotted && !/^\p{L}+$/u.test(part)) || (forQuery && STOP_WORDS.has(part))) continue;
       tokens.add(stem(part));
@@ -261,9 +267,10 @@ const CANDIDATE_PAGES = 30;
 
 /** What each part of a page earns it, in places of rank, when a query's words are in it. A guide's title outranks a heading of another page. */
 const TITLE_WEIGHT = 6;
-const HEADING_WEIGHT = 3;
-/** On top of a title or a heading that holds the query's words and no others: `Make a key` for `make a key`. */
+/** On top of a title that holds the query's words and no others: `Make a key` for `make a key`. */
 const EXACT_WEIGHT = 2;
+/** What a heading that is the query's words earns its page, at most: under the smallest step between two kinds in `KIND_WEIGHT`, so a heading never lifts a page over one of a better kind. */
+const HEADING_WEIGHT = 1.2;
 const DESCRIPTION_WEIGHT = 1.5;
 
 /**
@@ -271,15 +278,24 @@ const DESCRIPTION_WEIGHT = 1.5;
  * before a Build page, before a Reference page, and a page for one API operation last. Taken from the folder
  * the page is in, so a new page needs nothing here.
  */
-const KIND_WEIGHT = { guide: 3, build: 1.5, reference: 0, operation: -3 } as const;
+const KIND_WEIGHT = { guide: 5, build: 1.5, reference: 0, operation: -3 } as const;
 type PageKind = keyof typeof KIND_WEIGHT;
+
+/** A text's words as `coverage` and `exactly` compare them, built once so a query does not rebuild them for every page. */
+interface TextProfile {
+  /** The words, each as its singular. */
+  have: Set<string>;
+  /** Each pair of neighbouring words run together: `back` and `up` make `backup`. */
+  joined: Set<string>;
+  /** How many of the words are not stop words. */
+  bare: number;
+}
 
 interface PageProfile {
   kind: PageKind;
-  /** The title's words, as the index holds them, and the same without stop words. */
-  title: string[];
-  headings: string[][];
-  description: string[];
+  title: TextProfile;
+  headings: TextProfile[];
+  description: TextProfile;
 }
 
 let profiles: Promise<Map<string, PageProfile>> | undefined;
@@ -292,6 +308,21 @@ function kindOf(page: (typeof source)['$inferPage']): PageKind {
   return folder === 'build' ? 'build' : 'reference';
 }
 
+/** The index keeps a four-letter plural (`keys`) as it is, so that `cors` stays `cors`. Here a plural meets its singular. */
+function singular(word: string): string {
+  return word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word;
+}
+
+function profileText(text: string): TextProfile {
+  const words = tokenizeSearchText(text, false);
+  const one = words.map(singular);
+  return {
+    have: new Set(one),
+    joined: new Set(one.slice(1).map((word, i) => one[i] + word)),
+    bare: words.filter((word) => !STOP_WORDS.has(word)).length,
+  };
+}
+
 function pageProfiles(): Promise<Map<string, PageProfile>> {
   profiles ??= (async () => {
     const map = new Map<string, PageProfile>();
@@ -300,32 +331,30 @@ function pageProfiles(): Promise<Map<string, PageProfile>> {
       const structured = typeof data.structuredData === 'function' ? await data.structuredData() : data.structuredData;
       map.set(page.url, {
         kind: kindOf(page),
-        title: tokenizeSearchText(data.title, false),
-        headings: (structured?.headings ?? []).map((h) => tokenizeSearchText(h.content, false)),
-        description: tokenizeSearchText(data.description ?? '', false),
+        title: profileText(data.title),
+        headings: (structured?.headings ?? []).map((h) => profileText(h.content)),
+        description: profileText(data.description ?? ''),
       });
     }
     return map;
-  })();
+  })().catch((error) => {
+    // A failed build must not be kept: every later search would fail with it.
+    profiles = undefined;
+    throw error;
+  });
   return profiles;
 }
 
 /**
  * The share of a query's words that a text holds. Two words run together meet the same two apart, in either
- * direction (`backup` and `back up`), because readers write both and a page chooses one.
+ * direction (`backup` and `back up`), because readers write both and a page chooses one. `query` holds singulars.
  */
-function coverage(queryWords: string[], textWords: string[]): number {
-  if (queryWords.length === 0 || textWords.length === 0) return 0;
-  // The index keeps a four-letter plural (`keys`) as it is, so that `cors` stays `cors`. Here a plural meets its singular.
-  const singular = (word: string) => (word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word);
-  const query = queryWords.map(singular);
-  const text = textWords.map(singular);
-  const have = new Set(text);
-  const joined = new Set(text.slice(1).map((word, i) => text[i] + word));
+function coverage(query: string[], text: TextProfile): number {
+  if (query.length === 0 || text.have.size === 0) return 0;
   const covered = new Set<number>();
   query.forEach((word, i) => {
-    if (have.has(word) || joined.has(word)) covered.add(i);
-    if (i + 1 < query.length && have.has(word + query[i + 1])) {
+    if (text.have.has(word) || text.joined.has(word)) covered.add(i);
+    if (i + 1 < query.length && text.have.has(word + query[i + 1])) {
       covered.add(i);
       covered.add(i + 1);
     }
@@ -333,27 +362,30 @@ function coverage(queryWords: string[], textWords: string[]): number {
   return covered.size / query.length;
 }
 
-/** A query that names a code, a flag, a dotted name, a number or a header, so what a page is about does not decide it. */
-const NAMES_AN_IDENTIFIER = /[_]|--|\p{L}[.-]\p{L}|\d/u;
+/**
+ * A query that names a code, a flag, a dotted name, a number or a version, so what a page is about does not decide
+ * it. A hyphen, a full stop that ends a sentence and a small number such as the 2 of "2 computers" name nothing.
+ */
+const NAMES_AN_IDENTIFIER = /_|(?<![\p{L}\p{N}-])--\p{L}|\p{L}{2,}\.\p{L}{2,}|\d{3,}|\d+\.\d+/u;
+
+export function namesAnIdentifier(query: string): boolean {
+  return NAMES_AN_IDENTIFIER.test(query);
+}
 
 /**
  * Places of rank a page gains for how well its title, headings and description answer the query's words, and,
  * for a question that is not a code or a number, for being a guide. BM25 weighs a page's rows by their length and
- * counts, so a reference page that repeats a word outranks the guide that is about it.
+ * counts, so a reference page that repeats a word outranks the guide that is about it. Headings add at most
+ * `HEADING_WEIGHT`, less than a step between two kinds, so a heading never lifts a page over one of a better kind.
  */
 function boost(profile: PageProfile, words: string[], task: boolean): number {
-  const exactly = (text: string[]) => {
-    const bare = text.filter((word) => !STOP_WORDS.has(word));
-    return coverage(words, text) === 1 && bare.length === words.length;
-  };
-  const titleCoverage = coverage(words, profile.title);
-  const headings = profile.headings.map((h) => ({ coverage: coverage(words, h), exact: exactly(h) }));
-  const heading = headings.reduce((best, h) => Math.max(best, h.coverage), 0);
+  const exactly = (text: TextProfile) => coverage(words, text) === 1 && text.bare === words.length;
+  const heading = profile.headings.reduce((best, h) => Math.max(best, coverage(words, h)), 0);
+  const headingExact = profile.headings.some(exactly);
   return (
-    TITLE_WEIGHT * titleCoverage ** 2 +
+    TITLE_WEIGHT * coverage(words, profile.title) ** 2 +
     (exactly(profile.title) ? EXACT_WEIGHT : 0) +
-    HEADING_WEIGHT * heading ** 2 +
-    (headings.some((h) => h.exact) ? EXACT_WEIGHT : 0) +
+    HEADING_WEIGHT * (headingExact ? 1 : heading ** 2) +
     DESCRIPTION_WEIGHT * coverage(words, profile.description) ** 2 +
     (task ? KIND_WEIGHT[profile.kind] : 0)
   );
@@ -367,33 +399,54 @@ export async function searchDocs(
   if (!query.trim()) return { hits: [] };
   const cap = Math.min(Math.max(Math.trunc(limit), 1), MAX_SEARCH_LIMIT);
 
+  const task = !namesAnIdentifier(query);
+  // A hyphenated word is two words for a reader asking for a task: `sign-in` is the `sign in` of the guide. Pages
+  // that write it with the hyphen still rank first for the query as typed, so both are searched.
+  const spaced = query.replace(/(?<=\p{L})-(?=\p{L})/gu, ' ');
+  const searched = task && spaced !== query ? [query, spaced] : [query];
+
   // Pages beyond those asked for: the ranking below moves a page up, and the changelog can move from first
   // to last, so the page that takes its place must already be in the results.
-  const results = await searchServer.search(query, { limit: (Math.max(cap + 1, CANDIDATE_PAGES)) * ROWS_PER_PAGE });
+  const lists = await Promise.all(
+    searched.map((q) => searchServer.search(q, { limit: Math.max(cap + 1, CANDIDATE_PAGES) * ROWS_PER_PAGE })),
+  );
 
-  // Orama returns one row per heading or text fragment. Fold the rows of a page into one candidate, in the
-  // order of its best row.
-  const rowsByPage = new Map<string, typeof results>();
-  for (const r of results) {
-    const url = r.url.split('#')[0];
-    rowsByPage.set(url, [...(rowsByPage.get(url) ?? []), r]);
+  // Orama returns one row per heading or text fragment. Fold the rows of a page into one candidate, ranked by
+  // its best row in any of the searches.
+  const rowsByPage = new Map<string, Awaited<(typeof lists)[number]>>();
+  const rankOf = new Map<string, number>();
+  for (const results of lists) {
+    const seen = new Set<string>();
+    for (const r of results) {
+      const url = r.url.split('#')[0];
+      if (!seen.has(url)) {
+        rankOf.set(url, Math.min(rankOf.get(url) ?? Infinity, seen.size));
+        seen.add(url);
+      }
+      const rows = rowsByPage.get(url) ?? [];
+      if (!rows.some((row) => row.url === r.url && row.content === r.content)) rowsByPage.set(url, [...rows, r]);
+    }
   }
 
   // BM25 puts a page in the results; the page's own words and kind then order them. A tie keeps BM25's order.
   const words = tokenizeSearchText(query, true);
-  const task = !NAMES_AN_IDENTIFIER.test(query);
+  const rankWords = tokenizeSearchText(task ? spaced : query, true).map(singular);
   const known = await pageProfiles();
-  const ranked = [...rowsByPage.keys()]
-    .map((url, rank) => {
+  const ranked = [...rankOf]
+    .map(([url, rank]) => {
       const profile = known.get(url);
-      return { url, rank, place: rank - (profile ? boost(profile, words, task) : 0) };
+      return { url, rank, place: rank - (profile ? boost(profile, rankWords, task) : 0) };
     })
     .sort((a, b) => a.place - b.place || a.rank - b.rank)
     .map((c) => c.url);
 
   // A query that is a page's name is a request for that page, however many pages repeat the word. Where a guide
-  // and a reference page share the name, the ranking above says which comes first.
-  const named = pagesNamed(words.join(' ')).map((p) => p.url);
+  // and a reference page share the name, the ranking above says which comes first, and for a task a page of a
+  // worse kind than the best-ranked page is not lifted over it: "restore a backup" is the guide, not the operation.
+  const topKind = known.get(ranked[0])?.kind;
+  const named = pagesNamed(words.join(' '))
+    .map((p) => p.url)
+    .filter((url) => !task || !topKind || KIND_WEIGHT[known.get(url)?.kind ?? 'reference'] >= KIND_WEIGHT[topKind]);
   const first = [...ranked.filter((url) => named.includes(url)), ...named.filter((url) => !ranked.includes(url))];
   const order = [...first, ...ranked.filter((url) => !named.includes(url))];
   const changelog = order.indexOf(CHANGELOG_URL);
