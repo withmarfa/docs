@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
+import { readConnectors } from './connectors';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const CONTENT = path.join(ROOT, 'content/docs');
@@ -256,7 +257,8 @@ const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
 const OTHER_PAGES = ['items', 'types', 'field-kinds', 'type-rules', 'display-hints', 'edges', 'events', 'permissions', 'connectors'];
 /** The connectors Marfa ships, one page each beneath the Connectors page. */
 const CONNECTORS_DIR = 'connectors';
-const CONNECTOR_SLUGS = ['github', 'google-calendar', 'todoist', 'readwise', 'readwise-reader', 'rss'];
+// A connector's page is named for it, and the list is marfa-connectors' (scripts/sync-from-connectors.sh).
+const CONNECTOR_SLUGS = readConnectors(ROOT).map((connector) => connector.name);
 /** The edge types Marfa ships, one page each beneath the Edges page, named by the edge type's ID. */
 const EDGES_DIR = 'edges';
 const EDGE_SLUGS = catalog.edge_types.map((edge) => edge.id);
@@ -348,7 +350,8 @@ describe('the tab', () => {
     const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, CONNECTORS_DIR, 'meta.json'), 'utf8'));
     expect(meta.title).toBe('Connectors');
     expect(meta.defaultOpen).toBe(false);
-    expect([...meta.pages].sort()).toEqual([...CONNECTOR_SLUGS].sort());
+    // The sync writes them in name order, which is how the index lists them.
+    expect(meta.pages).toEqual(CONNECTOR_SLUGS);
     expect(
       PAGES.filter((page) => page.group === CONNECTORS_DIR)
         .map((page) => page.slug)

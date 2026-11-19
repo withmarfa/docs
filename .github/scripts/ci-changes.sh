@@ -44,7 +44,7 @@ affects() {
 # Whether one changed path can affect the sync script's test.
 affects_sync() {
   case "$1" in
-    scripts/sync-from-marfa.sh | .github/scripts/sync-from-marfa.test.sh | .github/workflows/ci.yml) return 0 ;;
+    scripts/sync-from-marfa.sh | .github/scripts/sync-from-marfa.test.sh | scripts/sync-from-connectors.sh | .github/scripts/sync-from-connectors.test.sh | .github/workflows/ci.yml) return 0 ;;
     *) return 1 ;;
   esac
 }

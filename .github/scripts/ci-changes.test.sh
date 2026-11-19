@@ -70,6 +70,8 @@ syncs() {
 # What the sync script's test needs to run for.
 syncs "the sync script" true scripts/sync-from-marfa.sh
 syncs "the sync script's test" true .github/scripts/sync-from-marfa.test.sh
+syncs "the connectors' sync script" true scripts/sync-from-connectors.sh
+syncs "the connectors' sync script's test" true .github/scripts/sync-from-connectors.test.sh
 syncs "the workflow that runs it" true .github/workflows/ci.yml
 syncs "a docs page" false content/docs/build/items.mdx
 syncs "the API spec, which the test does not read" false openapi.json
@@ -85,7 +87,7 @@ check "Build and type-check reads the answer" "$(grep -cF "${gate}" "${workflow}
 check "Build and type-check keeps its name" "$(grep -cF "name: Build and type-check" "${workflow}")" 1
 check "the classifier runs in CI" "$(grep -cF "run: bash .github/scripts/ci-changes.sh" "${workflow}")" 1
 check "the classifier's own test runs in CI" "$(grep -cF "run: bash .github/scripts/ci-changes.test.sh" "${workflow}")" 1
-check "the sync test runs only when its inputs changed" "$(grep -cF "if: \${{ needs.changes.outputs.sync != 'false' }}" "${workflow}")" 1
+check "the sync tests run only when their inputs changed" "$(grep -cF "if: \${{ needs.changes.outputs.sync != 'false' }}" "${workflow}")" 2
 check "no trigger filters paths" "$(grep -cE '^\s+paths(-ignore)?:' "${workflow}")" 0
 check "a push to main gets a group of its own" "$(grep -cF "|| github.run_id }}" "${workflow}")" 1
 check "a draft and a ready pull request have groups of their own" "$(grep -cF "github.event.pull_request.draft && 'draft' || 'ready'" "${workflow}")" 1

@@ -25,6 +25,7 @@ type Rule =
   | 'banned-term'
   | 'avoided-term'
   | 'statement-number'
+  | 'connector-count'
   | 'frontmatter'
   | 'coming-soon'
   | 'callout-title'
@@ -208,6 +209,30 @@ export function checkStatementNumbers(file: string, text: string): Violation[] {
       line: lineOf(text, match.index),
       rule: 'statement-number',
       detail: `"${match[0]}" cites a contract statement number; say what the rule is instead`,
+    });
+  }
+  return out;
+}
+
+// A count of the connectors: the set grows, and its list is the Catalog's
+// (generated from marfa-connectors), so a page that says how many goes stale.
+const ONES = 'one|two|three|four|five|six|seven|eight|nine';
+const TEENS = 'ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen';
+const TENS = 'twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety';
+const CONNECTOR_COUNT = new RegExp(
+  `\\b(?:\\d[\\d,]*|zero|${ONES}|${TEENS}|(?:${TENS})(?:[- ](?:${ONES}))?|hundred)\\s+connectors?\\b`,
+  'gi',
+);
+
+export function checkConnectorCounts(file: string, text: string): Violation[] {
+  const out: Violation[] = [];
+  const prose = stripCode(text);
+  for (const match of prose.matchAll(CONNECTOR_COUNT)) {
+    out.push({
+      file,
+      line: lineOf(prose, match.index),
+      rule: 'connector-count',
+      detail: `"${match[0]}" counts the connectors; link the Catalog's list instead of saying how many there are`,
     });
   }
   return out;
@@ -578,6 +603,11 @@ describe('content lint: the corpus', () => {
     expect(lintAll(checkStatementNumbers)).toEqual([]);
   });
 
+  it('never says how many connectors there are', () => {
+    expect(lintAll(checkConnectorCounts)).toEqual([]);
+    expect(lintIncluded(checkConnectorCounts)).toEqual([]);
+  });
+
   it('gives every page a title and a description, with no em or en dash', () => {
     expect(lintAll(checkFrontmatter)).toEqual([]);
   });
@@ -694,6 +724,21 @@ describe('content lint: each rule fires on a bad sample', () => {
 
   it('statement-number leaves ordinary prose alone', () => {
     expect(checkStatementNumbers('x.mdx', 'The .md copy has 3 sections. A statement is a rule.')).toEqual([]);
+  });
+
+  it('connector-count', () => {
+    expect(rules(checkConnectorCounts('x.mdx', 'The six connectors Marfa ships.'))).toEqual(['connector-count']);
+    expect(rules(checkConnectorCounts('x.mdx', 'Run 3 connectors, or Twenty-one Connectors.'))).toEqual([
+      'connector-count',
+      'connector-count',
+    ]);
+    expect(rules(checkConnectorCounts('x.mdx', 'The two connectors share items.'))).toEqual(['connector-count']);
+  });
+
+  it('connector-count leaves other uses of the word alone', () => {
+    expect(
+      checkConnectorCounts('x.mdx', 'Each connector has a key. Every connector runs. Both are in the connectors repository.\n\n```\nsix connectors\n```\n'),
+    ).toEqual([]);
   });
 
   it('frontmatter', () => {

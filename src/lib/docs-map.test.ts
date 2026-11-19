@@ -63,7 +63,7 @@ describe('buildDocsMap', () => {
       '- Events]',
       '- Permissions]',
       '- Connectors]',
-      ...['GitHub', 'Google Calendar', 'Todoist', 'Readwise', 'Readwise Reader', 'RSS'].map((title) => `  - ${title}]`),
+      ...['GitHub', 'Google Calendar', 'Readwise', 'Readwise Reader', 'RSS', 'Todoist'].map((title) => `  - ${title}]`),
     ]);
     expect(catalog.some((line) => line.startsWith('  - [GitHub](/catalog/connectors/github)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('    - [Media](/catalog/media)'))).toBe(true);

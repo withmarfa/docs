@@ -1,0 +1,3 @@
+- **Source:** `rss`, shown as RSS
+- **Types:** `rss.entry`, `rss.picture`
+- **Carries changes back:** No
