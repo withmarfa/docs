@@ -52,7 +52,7 @@ describe('the CLI download', () => {
     const including = ALL_PAGES.filter(({ text }) =>
       text.includes('<include cwd>src/generated/cli-download.md</include>'),
     ).map(({ file }) => file);
-    expect(including.sort()).toEqual([path.join('(reference)', 'cli.mdx'), path.join('(start)', 'quickstart.mdx')]);
+    expect(including.sort()).toEqual([path.join('(reference)', 'cli.mdx')]);
   });
 
   it('names the latest release', () => {

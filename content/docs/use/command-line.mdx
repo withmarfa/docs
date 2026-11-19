@@ -1,17 +1,152 @@
 ---
 title: Work from the command line
-description: Find, add, tag, link and bin your items with the marfa command, from any computer with a key.
+description: Find, add, tag, link and bin your items with the marfa command, from any computer you sign in on.
 ---
 
-This page will show everyday use of the CLI from any machine with a key: finding, adding and changing items, tags and links, and moving items to the bin.
+The `marfa` command does everything Marfa does, from any computer that reaches your instance. This page covers the commands you use day to day. The [CLI](/cli) reference lists every command and option.
 
-## Move several items to the bin
+## Sign in
 
-`marfa items delete` takes up to 20 item IDs and moves them to the bin, **all of them or none**. Each takes the items under it, such as a task's subtasks, and every comment or attachment whose hosts all go to the bin. Run it with `--dry-run` to see what it would move and a digest, then send the digest, so nothing moves if that has changed:
+On each computer, sign the CLI in once, with your instance's address:
 
 ```bash
-marfa items delete <id> <id> --dry-run
-marfa items delete <id> <id> --digest <digest>
+marfa login --url https://marfa.example.com
 ```
 
-A changed plan is refused with `409 trash_plan_changed`. `marfa items restore <id>` brings an item back. [Preview trashing items](/api-reference/items/previewItemTrash) and [Trash items](/api-reference/items/trashItems) are the operations.
+Your browser opens with a code. Check that it matches the one in the terminal, and select **Approve**. The CLI keeps the sign-in in your keychain, so later commands need no address or key. `marfa whoami` shows which instance and sign-in a command uses.
+
+**On a computer with no browser,** such as a server you reach over SSH, add `--no-browser`: the CLI prints the page to open, and you approve it on any device. A computer with no keychain uses a profile and a key instead, as [Work from an agent](/use/from-an-agent#an-agent-that-runs-commands) shows.
+
+## Find items
+
+Search across every item you can reach, or narrow by type or tag:
+
+<Terminal>
+
+```bash
+marfa search lisbon --type core.note
+```
+
+```text
+score    id                                    type       when                      title
+  1.000  01a1f133-4be7-73bc-a964-fb9089817df9  core.note  2026-11-19T00:27:13.254Z  Lisbon packing list
+  0.431  01a1f121-6ef4-734f-978e-64d6dac60210  core.note  2026-11-19T00:07:42.580Z  Trip ideas
+```
+
+</Terminal>
+
+- `marfa items list --tag lisbon` lists every item that carries a tag, newest first.
+- `marfa items list --tier feed` lists what connectors brought in.
+- `marfa items get <id>` shows one item, with its version and properties.
+- `marfa tags` lists every tag in use, with how many items carry it.
+
+## Add items
+
+`marfa items add` saves a file from your computer. Marfa picks the type from the file, so a photo becomes a `core.file.image`:
+
+```bash
+marfa items add ~/Pictures/beach.png --title "Beach at Comporta" --tag travel
+```
+
+`marfa items create` makes any other item, with its type and properties:
+
+<Terminal>
+
+```bash
+marfa items create --type core.note --prop title="Lisbon packing list" \
+  --prop body="Sun hat, adapter" --tag lisbon
+```
+
+```text
+created core.note 01a1f133-4be7-73bc-a964-fb9089817df9 "Lisbon packing list" (version 1)
+```
+
+</Terminal>
+
+The [Catalog](/catalog/types) lists each type's properties.
+
+## Change an item
+
+**A change names the version you read,** so it never overwrites an edit made since, from your editor or an agent. Read the item, then send its version:
+
+<Terminal>
+
+```bash
+marfa items update 01a1f133-4be7-73bc-a964-fb9089817df9 --version 1 \
+  --prop body="Sun hat, adapter, sandals"
+```
+
+```text
+updated core.note 01a1f133-4be7-73bc-a964-fb9089817df9 "Lisbon packing list" (version 2)
+```
+
+</Terminal>
+
+If the item changed since you read it, nothing is written, and the command says so:
+
+```text
+marfa: the server refused (409 version_conflict): Version 1 is stale; current version is 2. Conflicting fields: body.
+```
+
+Read it again with `marfa items get`, and send your change with the new version.
+
+To keep an item that a connector brought into the feed, move it to the library: `marfa items update <id> --version <n> --tier library`.
+
+## Tag and link items
+
+- `marfa items tags add <id> packing` puts one or more tags on an item.
+- `marfa items tags remove <id> packing` takes one off.
+- `marfa items tags replace <id> lisbon travel` sets the item's tags whole.
+
+An edge links two items, and says how. This one says the note references the bookmark:
+
+<Terminal>
+
+```bash
+marfa edges create --from-id 01a1f133-4be7-73bc-a964-fb9089817df9 \
+  --to-id 01a1f133-4bd1-758e-9dac-28f73981c551 --type references
+```
+
+```text
+linked 01a1f133-4be7-73bc-a964-fb9089817df9 -> 01a1f133-4bd1-758e-9dac-28f73981c551 with references edge 01a1f133-7365-754f-89b6-dd7b4dcc0c73
+```
+
+</Terminal>
+
+`marfa items edges <id>` lists the edges leaving an item, and `marfa items backrefs <id>` the edges arriving at it. `marfa edge-types list` lists every kind of edge.
+
+## Move items to the bin
+
+`marfa items trash` moves up to 20 items to the bin, **all of them or none**. Each takes the items beneath it, such as a task's subtasks. First see what would move, then send the digest it gives you, so nothing moves if that has changed:
+
+<Terminal>
+
+```bash
+marfa items trash 01a1f133-4be7-73bc-a964-fb9089817df9 01a1f133-4bd1-758e-9dac-28f73981c551 --dry-run
+marfa items trash 01a1f133-4be7-73bc-a964-fb9089817df9 01a1f133-4bd1-758e-9dac-28f73981c551 \
+  --digest 5437a719d088ed2d7c81fd75f264301410c287341a6acbf566bfd131076593ca
+```
+
+```text
+items[0].id       01a1f133-4be7-73bc-a964-fb9089817df9
+items[0].type     core.note
+items[0].count    1
+items[1].id       01a1f133-4bd1-758e-9dac-28f73981c551
+items[1].type     core.bookmark
+items[1].count    1
+count             2
+digest            5437a719d088ed2d7c81fd75f264301410c287341a6acbf566bfd131076593ca
+moved 01a1f133-4be7-73bc-a964-fb9089817df9, 01a1f133-4bd1-758e-9dac-28f73981c551 to the bin
+```
+
+</Terminal>
+
+`marfa items bin list` shows what's in the bin and when each item can be deleted for good. `marfa items restore <id>` brings one back as it was.
+
+## Use the output in a script
+
+Add `--json` to any command for an answer a script or an agent can read. A refusal is then one JSON object on the last line of standard error, and the exit code says what kind of failure it was, as the [CLI](/cli) reference lists.
+
+```bash
+marfa --json items get 01a1f133-4bd1-758e-9dac-28f73981c551
+```

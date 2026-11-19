@@ -1,12 +1,109 @@
 ---
 title: See and cut access
-description: See every app, key and agent that can reach your data, what each did, and cut any of them off.
+description: See every browser, app and key that can reach your data, what each did, and cut any of them off.
 ---
 
-This page will show how to see what can reach an instance and what it did, and how to narrow or revoke an app, a key or an agent from any machine.
+Three kinds of thing can reach your instance, and each is a **sign-in**:
 
-## See what it did, and stop it
+- **A browser** you signed in to as the owner.
+- **An app** you approved, such as Claude, ChatGPT or the `marfa` CLI on one of your computers.
+- **A key** you made for an agent, a script or a connector, or that an app made for one.
 
-**Every write is in the [audit log](/use/audit-log)** with the credential that made it, and a write through a tool also carries `"via": "mcp"`. `marfa items list --source nightly-digest` lists what a keyed agent created.
+You can see and end any of them from any computer where the CLI is signed in as you.
 
-You can **stop an agent at once**. Revoke its key with `marfa keys revoke <key id>`, or disconnect a signed-in agent on the **Connected apps** page, as [Authenticate](/build/authenticate#revoke-access) describes. Its next request is refused.
+## See what can reach your data
+
+<Terminal>
+
+```bash
+marfa sign-ins list
+```
+
+```text
+01a1f120-71d6-76b0-8531-0ba34e91280a  browser  Chrome on macOS  last used 2026-11-19T00:06:37.782Z
+01a1f121-2e94-70d2-aefd-0f0b75bebe08  app      marfa on sams-mac  last used 2026-11-19T00:35:49.756Z
+01a1f125-52a9-76dc-8773-4da38b7d9678  key      rss  last used 2026-11-19T00:11:57.743Z
+01a1f130-37fc-7184-b4a2-3fba803cf8be  key      Reading digest  last used 2026-11-19T00:24:01.373Z
+```
+
+</Terminal>
+
+Each line gives the sign-in's ID, its kind, its name and when it was last used. A sign-in you don't recognize, or one nobody has used for months, is one to end.
+
+To see what each can do:
+
+- **A key:** `marfa keys list` shows the item types each key reads or edits, the tier it writes to, when it expires, and which app made it, if one did.
+- **An app:** `marfa apps list --json` shows each app's name, the scopes you approved, and when you approved it. Without `--json`, the list shows only each app's ID.
+
+`marfa sign-ins rename <id> <name>` gives an app or a key a name you'll recognize. A browser's name comes from the browser.
+
+## See what one did
+
+Everything a sign-in writes is in the [audit log](/use/audit-log). For a key, search the log for its ID:
+
+<Terminal>
+
+```bash
+marfa audit --query 01a1f130-37fc-7184-b4a2-3fba803cf8be
+```
+
+```text
+id                                    type         when
+01a1f130-ece7-710c-afc6-e9d9b9be1008  item.create  2026-11-19T00:24:37.862Z
+01a1f130-37fc-7184-b4a2-3fbbafb27732  key.create   2026-11-19T00:23:51.547Z
+```
+
+</Terminal>
+
+`marfa audit --json` names who made each change, app or key, in its `actor` field. To list the items a key made, filter by the source it writes under, which `marfa keys list` shows:
+
+```bash
+marfa items list --source reading-digest
+```
+
+## Cut one off
+
+`marfa sign-ins end` ends any sign-in at once. **Its next request is refused,** and an app can't renew its access:
+
+<Terminal>
+
+```bash
+marfa sign-ins end 01a1f130-37fc-7184-b4a2-3fba803cf8be
+```
+
+```text
+ended sign-in 01a1f130-37fc-7184-b4a2-3fba803cf8be
+```
+
+</Terminal>
+
+- **Ending a key** revokes it. Whoever holds it, an agent, a script or a connector, can't use it again.
+- **Ending an app** disconnects it. Keys the app made for its own agents keep working unless you add `--revoke-keys`, which revokes them too, and every key those keys made.
+- **Ending a browser** signs it out.
+
+**What it wrote stays** on your instance. To undo its changes, find them as [the previous section](#see-what-one-did) shows, and move what you don't want to the bin.
+
+To sign out every browser at once, such as after losing a laptop, run `marfa sign-ins end-all`. Add `--kind app` or `--kind key` to end every app or every key as well, and `--keep <id>` for each sign-in to leave alone, such as the CLI you're using:
+
+```bash
+marfa sign-ins end-all --kind browser --kind app --keep 01a1f121-2e94-70d2-aefd-0f0b75bebe08
+```
+
+It says how many it ended, and names any it couldn't.
+
+## Give less access instead
+
+To keep an app or a key but let it do less:
+
+- **An app:** `marfa apps narrow <app-id> --scope <scope>`, repeating `--scope` for each scope it keeps. Any access it holds beyond those scopes ends at once. [Manage apps](/run/manage-apps) lists the scopes.
+- **A key:** `marfa keys update <key-id>` with only the permissions it keeps. A key can only ever be given less. [Manage keys](/run/manage-keys) explains each option.
+
+## Turn off one thing for every app
+
+Some settings cut a kind of access for every app at once. For example, to stop chat apps from asking your instance to fetch a file from a web address:
+
+```bash
+marfa config set mcp_fetch_enabled false
+```
+
+[Change an instance's settings](/run/settings) lists the others.

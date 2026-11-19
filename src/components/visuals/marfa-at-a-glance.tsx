@@ -15,7 +15,7 @@ import { Arrow, Box, Branches, Chip, Figure, Flow, Group } from './figure';
 type Thing = { title: string; subtitle?: string; icon: LucideIcon };
 
 /** Examples of what one instance holds: one person's data, in shared types. */
-export const holds = ['Notes', 'Tasks', 'Bookmarks', 'Files'] as const;
+export const holds = ['Files', 'Notes', 'Tasks', 'Bookmarks'] as const;
 
 /**
  * The routes in, each named for the route and shown with a real example. The
@@ -26,7 +26,7 @@ export const routes: readonly { label: string; things: readonly Thing[] }[] = [
     label: 'Keep a copy on the device',
     things: [
       { title: 'Swift SDK', subtitle: 'An iPhone app that works offline', icon: Smartphone },
-      { title: 'Folder sync', subtitle: 'Markdown files on your Mac', icon: FolderSync },
+      { title: 'Synced folder', subtitle: 'Markdown files on your Mac', icon: FolderSync },
     ],
   },
   {
@@ -60,7 +60,7 @@ export const connectors: readonly (readonly [Thing, Thing])[] = [
 export function MarfaAtAGlance({ caption }: { caption?: ReactNode }) {
   return (
     <Figure
-      label="Marfa at a glance: the Swift SDK, folder sync, the MCP server, the CLI and the HTTP API above one instance, and the Todoist and GitHub connectors below it"
+      label="Marfa at a glance: the Swift SDK, a synced folder, the MCP server, the CLI and the HTTP API above one instance, and the Todoist and GitHub connectors below it"
       caption={caption}
       className="marfa-glance"
     >
