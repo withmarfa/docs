@@ -92,11 +92,11 @@ _ = try await copy.items.create(Draft(
     properties: ["title": "reading-list.txt", "blob_ref": .string(hash), "mime_type": "text/plain"]))
 ```
 
-Marfa sets the item's `size_bytes` from the stored bytes. Soon after, a housekeeping job reads the bytes and adds what it finds, such as `extracted_text` or an image's `width` and `height`, which moves the item to its next version.
+Marfa sets the item's `size_bytes` from the stored bytes. Soon after, a housekeeping job reads the bytes and adds what it finds that the item lacks, such as `extracted_text` or an image's `width` and `height`, which moves the item to its next version.
 
 `marfa items add reading-list.txt` uploads the bytes and creates the item in one command, and chooses the subtype from the media type unless you name one.
 
-**Until an item names the hash, the bytes can't be read**, even with the key that uploaded them; only the owner and a key with `blobs.manage` can. A file item may name only bytes its writer uploaded or can already read. Any other hash in `blob_ref` is refused `404 blob_not_found`, the same answer as a hash nothing holds, so the refusal never tells you whether the instance has the bytes. Upload with **the same key** that writes the item. A hash in any other property, such as an image link in a note's body, is text and lends nothing.
+**Until an item names the hash, the bytes can't be read**, even with the key that uploaded them; only the owner and a key with `blobs.manage` can. A file item may name only bytes its writer uploaded or can already read. Any other hash in `blob_ref` is refused `404 blob_not_found`, the same answer as a hash nothing holds, so the refusal never tells you whether the instance has the bytes. Upload with **the same key** that writes the item. A hash in any other property, such as an image link in a note's body, is taken as text. It lets readers of the item read the blob only if the writer uploaded the bytes or could already read them, as [Files](/build/files#who-may-read-a-blob) explains.
 
 ## Attach a file to an item
 
@@ -182,12 +182,13 @@ Marfa checks your read **when it makes the link**, not when someone fetches it. 
 
 ## Replace a file's bytes
 
-Upload the new bytes, then update the file item's `blob_ref` to the new hash, **naming the version you read**, as [Write safely](/build/write-safely) shows:
+Upload the new bytes, then update the file item's `blob_ref` to the new hash, **naming the version you read**, as [Write safely](/build/write-safely) shows. **Clear what housekeeping read from the old bytes** in the same write, here `extracted_text`, and for an image `width` and `height` too: housekeeping only fills a field the item lacks, so a value from the old bytes would stay.
 
 ```bash tab="CLI" tab-group="client"
 marfa blobs upload reading-list.txt
 marfa items update <id> --version 2 \
-  --prop blob_ref=sha256:7623dfe0bbb9b127e9d68350ac7d9168fecfb3ac404778057b116315d3205780
+  --prop blob_ref=sha256:7623dfe0bbb9b127e9d68350ac7d9168fecfb3ac404778057b116315d3205780 \
+  --clear-property extracted_text
 ```
 
 ```http tab="HTTP"
@@ -199,7 +200,8 @@ Content-Type: application/json
   "version": 2,
   "properties": {
     "blob_ref": "sha256:7623dfe0bbb9b127e9d68350ac7d9168fecfb3ac404778057b116315d3205780"
-  }
+  },
+  "clear_properties": ["extracted_text"]
 }
 ```
 
@@ -210,16 +212,22 @@ const { data: newBlob } = await marfa.POST("/blobs", {
 });
 await marfa.PATCH("/items/{id}", {
   params: { path: { id } },
-  body: { version: 2, properties: { blob_ref: newBlob!.hash } },
+  body: {
+    version: 2,
+    properties: { blob_ref: newBlob!.hash },
+    clear_properties: ["extracted_text"],
+  },
 });
 ```
 
 ```swift tab="Swift"
 let replacement = try await copy.blobs.put(file: newFileURL, mimeType: "text/plain")
 guard let newHash = replacement.blob, let item = try await copy.items.get(id) else { return }
-_ = try await copy.items.update(id, Edit(properties: ["blob_ref": .string(newHash)], baseVersion: item.version))
+_ = try await copy.items.update(id, Edit(
+    properties: ["blob_ref": .string(newHash)], clearProperties: ["extracted_text"],
+    baseVersion: item.version))
 ```
 
-Marfa sets the new `size_bytes`, and the housekeeping job replaces what it added from the old bytes. The old blob stays **as long as an earlier version** of the item names it. Once nothing names it, a housekeeping job removes it after a day.
+Marfa sets the new `size_bytes`, and the housekeeping job then reads the new bytes into `extracted_text`. The old blob stays **as long as an earlier version** of the item names it. Once nothing names it, a later housekeeping run purges it, at least `blob_cleanup_grace_seconds` after it was found unnamed, a day by default, and never while a backup still names it.
 
 The rules behind this guide are in the [blobs](https://github.com/withmarfa/marfa/blob/main/conformance/spec/blobs.md) chapter of the contract.
