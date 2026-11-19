@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { createOpenAPIPage } from 'fumadocs-openapi/ui';
+import { ResponseCodes } from './response-codes';
 
 // Non-RSC (TanStack Start) client renderer for an OpenAPI operation. Fed the
 // serializable payload from `page.data.getOpenAPIPageProps()` in the loader.
@@ -40,6 +41,7 @@ export const APIPage = createOpenAPIPage({
     },
   },
   content: {
+    renderResponseCodes: (options) => <ResponseCodes {...options} />,
     renderOperationLayout: (slots) => (
       <CentredLayout
         main={
