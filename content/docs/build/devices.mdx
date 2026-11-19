@@ -11,6 +11,8 @@ An app built on the [Swift SDK](/reference/swift-sdk) is a device, and so is the
 
 A device chooses the **slice** it keeps: the types, tier and edge types it holds. `*` alone holds every type except `system.*`. It can also **pin** an item to keep it whatever the slice says.
 
+The copy is one file, the **store**, on a file system that locks files: one on a network share or WebDAV is refused `invalid`. Reached through a symbolic link, its lock and files sit beside the file the link leads to.
+
 The device fills its copy once, by a **hydration** that reads every item in the slice, then keeps it current from the [event stream](/build/events):
 
 <Terminal>
@@ -27,28 +29,30 @@ applied 0 event(s), skipped 0; cursor 32
 
 </Terminal>
 
-Reads need no connection, [saved views](/build/read-a-view#read-a-view-from-a-working-copy) included. **While the copy fills, it answers from what has arrived**, marking a list or a search `partial`. An edge read or write, and a read or write of an item that hasn't arrived, are refused `hydration_incomplete`. A fill that stops partway resumes where it stopped.
+**A sign-in that expires during a long read is renewed,** and the read goes on from its last event. Only a key or an ended sign-in ends it `credential_ended`.
 
-Each item in the copy answers `read_only` as the server last gave it, and the device rereads it from time to time, by the [read_only rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#an-items-read_only). Other processes can open the copy to read while one writes, as [the writer and readers](/reference/swift-sdk/working-copy#the-writer-and-readers) explains.
+Reads need no connection, [saved views](/build/read-a-view#read-a-view-from-a-working-copy) included. **While the copy fills, it answers from what has arrived**, marking a list or a search `partial`. An edge read or write, and a read or write of an item that hasn't arrived, are refused `hydration_incomplete`.
+
+Each item answers `read_only` as the server last gave it, and the device rereads it by the [read_only rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#an-items-read_only). Other processes can read the copy while one writes: see [the writer and readers](/reference/swift-sdk/working-copy#the-writer-and-readers).
 
 ### Tables and files
 
-**A device holds a [table](/build/tables) only when an app asks**, with `marfa device tables hold` or the SDK: a phone can hold a step counter without ten years of its readings. A table too large to hold is read from the server, by the [table rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#tables-a-device-holds). Rows are kept current from `rows.changed`, and a follow tells the app `table.filled` once a table is whole.
+**A device holds a [table](/build/tables) only when an app asks**, so a phone can hold a step counter without ten years of its readings. A table too large to hold is read from the server, by the [table rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#tables-a-device-holds).
 
-A device keeps the files it fetched within a **file budget**, dropping the least recently read, as [Keep files on a device](/build/keep-files-on-a-device) shows.
+A device keeps fetched files within a **file budget**, dropping the least recently read: see [Keep files on a device](/build/keep-files-on-a-device).
 
 ## When the copy falls behind
 
-A copy sometimes needs filling again, and its **queued writes wait** for it.
+A copy sometimes needs filling again, and its **queued writes wait**.
 
-- **After a device was away longer than the instance keeps events**, its copy is `stale`. It answers listings, searches and reads by id, marked `stale`, and refuses edge reads `hydration_incomplete`, until a hydration refills it in place.
+- **After a device was away longer than the instance keeps events**, its copy is `stale`: it answers reads marked `stale`, and refuses edge reads, until a hydration refills it in place.
 - **When another instance answers at the address, or the credential's reach changed**, the copy has expired. The device confirms its instance before each call that sends what the copy holds. The copy refuses reads and writes until a hydration, which empties it first.
 
 [Fix a working copy that can't catch up](/build/fix-a-working-copy) says what to run for each message.
 
 ## A write made offline
 
-A write made offline shows in the copy at once, and waits in the queue with the version it was based on. Sending the queue is a **drain**. A drain that can't reach the server leaves the writes queued; one that can sends them in order. The instance recognizes a retry, and the device first reads a write it resends under another credential, so none applies twice. Each answered write gets a verdict, and the copy takes what the instance now holds.
+A write made offline shows in the copy at once, and waits in the queue with the version it was based on. **A queued write survives the app being killed.** On Linux it also survives a power cut; on a Mac, iPhone or iPad, a power cut can lose the last writes, but the store stays whole. Sending the queue is a **drain**. A drain that can't reach the server leaves the writes queued; one that can sends them in order. The instance recognizes a retry, so none applies twice. Each answered write gets a verdict, and the copy takes what the instance now holds.
 
 A device sends every update with `conflict=auto`, so the instance settles most collisions, as [Versions](/build/versions#when-two-apps-write-the-same-item) explains.
 
@@ -63,12 +67,12 @@ Each settled write gets one of six verdicts:
 | `conflicted` | The write collided, and the type's merge rule put its value in a conflicted copy. |
 | `refused` | The instance refused the write, whose content is kept to offer back. |
 | `blocked` | Something must change before the write can go. |
-| `dead` | The write failed five times, not counting lost connections, timeouts, rate limits or server errors. |
+| `dead` | The write failed five times, not counting network or server trouble. |
 
-Only the last three need an **app's attention**. A `blocked` write names its reason, and each reason has its own way to clear, as [blocked writes](/reference/swift-sdk/queue#blocked-writes) lists.
+Only the last three need an **app's attention**: [blocked writes](/reference/swift-sdk/queue#blocked-writes) lists how each reason a write is `blocked` clears.
 
-A **release** resends the write in the next drain under its idempotency key, so the instance answers an attempt that may have applied from its record. Only a write blocked `key_spent`, `conflict_unresolved` or `ancestor_unavailable` gets a fresh key, because the answer under the old one applied none of it. A **withdrawal** removes it from the queue and resets the copy to what the instance holds. `marfa device release`, `marfa device withdraw` and the Swift SDK's [queue](/reference/swift-sdk/queue) do these. [Write in a working copy](/build/write-in-a-working-copy) shows each from the CLI.
+A **release** resends the write under its idempotency key, so the instance answers an attempt that may have applied from its record. Only a write blocked `key_spent`, `conflict_unresolved` or `ancestor_unavailable` gets a fresh key, because the old one applied none of it. A **withdrawal** removes it and resets the copy to what the instance holds. [Write in a working copy](/build/write-in-a-working-copy) shows both from the CLI, and the Swift SDK's [queue](/reference/swift-sdk/queue) has them too.
 
-A working copy can also be **a folder**, where each item is a file, such as a note in Markdown. [Sync a folder](/use/sync-a-folder) explains how.
+A working copy can also be **a folder** of files: see [Sync a folder](/use/sync-a-folder).
 
 The rules behind this page are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) and [folder sync](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-sync.md) chapters of the contract.

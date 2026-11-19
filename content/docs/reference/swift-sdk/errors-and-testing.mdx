@@ -1,6 +1,6 @@
 ---
 title: Errors and testing
-description: Handle the errors a Swift app meets, test it against a fake working copy, and report handled errors to a PostHog project.
+description: Handle the errors a Swift app meets, word and report them, and test the app against a fake working copy.
 ---
 
 Every call on a working copy, `Folders`, a `Server` or `Client` throws a `MarfaError`. A sign-in throws a [`SignInError`](/reference/swift-sdk/server-calls#sign-in) instead.
@@ -12,7 +12,7 @@ Every call on a working copy, `Folders`, a `Server` or `Client` throws a `MarfaE
 | `message` | **Text fit to show a person.** It can repeat a title, an ID or an address. |
 | `code()` | The stable name shared with the core and the `marfa` command line, such as `not_found`. A case's own `code` field is the server's refusal code. |
 | `server` | `ServerAnswer?`: the `status`, refusal `code` and `details` the server sent. **`nil` for a failure the device met itself.** |
-| `fixedText` | `FixedErrorText`, the only text [an error report](#report-errors) sends. |
+| `fixedText` | `FixedErrorText`: text fixed in the SDK, **safe to send to the app's own error reporting**. The SDK sends nothing itself. |
 
 Four properties sort an error into what the app does next, so it needs no list of cases of its own:
 
@@ -25,7 +25,7 @@ Four properties sort an error into what the app does next, so it needs no list o
 
 **An error is at most one of a key refusal, transient or a need to hydrate.** Asking again can't clear a key refusal or a need to hydrate. `forbidden` is none of them: the key works but lacks a permission.
 
-`FixedErrorText` has `type`, the `code()` word; `sentence`, one sentence fixed in the SDK; and `code`, the server's refusal code where it is lowercase letters and underscores of at most 48 characters, and `type` otherwise.
+`FixedErrorText` has `type`, the `code()` word; `sentence`, one sentence fixed in the SDK; and `code`, the server's refusal code where it is lowercase letters and underscores of at most 48 characters, and `type` otherwise. **None holds a value the error carries,** such as a title, an ID or an address.
 
 ### Refusals
 
@@ -48,6 +48,7 @@ The server's codes are in [Errors](/reference/errors). `validation`'s `details` 
 | Case | Means |
 | --- | --- |
 | `signedOut(origin:message:)` | The keychain holds no sign-in for `origin`, or the server ended it. Sign in again. |
+| `renewalRefused(reason:message:)` | **The sign-in couldn't be renewed, and is kept.** `reason` is a `RenewalRefusalReason`: `.refused` by the server, `.redirected`, since a redirect isn't followed, or `.unreadable`, an answer or sign-in metadata the SDK can't read. Word it from `reason`: `message` can hold an address. Queued writes wait, and the next call renews again. |
 | `noKeychain(message:)` | The keychain can't be used. |
 | `confirmationRequired(maxAgeSeconds:message:server:)` | **The owner must confirm it's them** (401 `insufficient_user_authentication`): they signed in longer ago than `maxAgeSeconds` allows. |
 | `appSignInRequired(message:server:)` | An API key made a call only an app the owner signed in to can make (403 `app_sign_in_required`), such as restoring a backup. Its `message` is fixed. |
@@ -167,47 +168,3 @@ It knows only the types given and declared, not the built-in catalog. **A row it
 With no `refreshToken`, a refused access token ends the sign-in, and calls throw `signedOut`. With one, a renewal reaches no server and fails with `network`, keeping the sign-in.
 
 `MemoryKeyStore([URL: String])` is a `KeyStore` in memory. `makeUnreadable(_:)` makes `key(for:)` throw `MemoryKeyStore.Unreadable` for that server.
-
-## Report errors
-
-The `MarfaTelemetry` product sends **handled errors** the app passes it, and log events it chooses, to a PostHog project the app names. **It does nothing until the app gives it a destination and turns it on.** It carries no destination or token of its own.
-
-- **It measures no use.** An app may measure its own, with its own destination and switch.
-- **It captures no crash**, and marks each report handled. Where the app also runs a crash reporter or error tool, **send each handled `MarfaError` to only one**, so it isn't counted twice.
-
-```swift
-import MarfaTelemetry
-
-Telemetry.shared.configure(
-    Telemetry.Configuration(
-        destination: try Telemetry.Destination(
-            host: URL(string: "https://eu.i.posthog.com")!,
-            projectToken: projectToken),
-        serviceName: "notes",
-        serviceVersion: appVersion))
-Telemetry.shared.isEnabled = reportingIsOn
-
-Telemetry.shared.report(error, during: "drain")
-Telemetry.shared.report(
-    type: "editor_ended",
-    sentence: "The editor's web process ended.",
-    during: "editing")
-Telemetry.shared.log("drain_finished", attributes: ["pending": 3, "complete": true])
-await Telemetry.shared.flush()  // when the app quits
-```
-
-| Call | Sends |
-| --- | --- |
-| `report(_:during:)` | One PostHog exception for a `MarfaError`: its `fixedText` and the operation. |
-| `report(type:sentence:during:)` | One exception for a failure of the app's own, from text fixed in the source. |
-| `log(_:level:attributes:)` | An OTLP log record at a `LogLevel`: `.debug`, `.info`, `.warn` or `.error`. |
-| `flush(deadline:)` | What is queued, waiting up to `deadline`, 2 seconds by default. |
-
-- **`Destination` throws `ConfigurationError`:** `.hostNotAllowed` for a host other than `https`, or `http` on this machine, or one holding a user or password; `.tokenNotAllowed` for a token that is empty or holds a blank character. Pass the project token, which starts `phc_`, never a personal API key.
-- **Keep the project token in a build setting**, out of public source, so a build from the source reports nowhere.
-- **`isEnabled` starts off.** Turning it off drops every report waiting and sends nothing more.
-- **Each call returns at once.** A report that can't be sent is lost, with no retry.
-- A failure that repeats is reported at most once a minute for each type and operation, and 30 times an hour in all. Each exception counts those held back in `dropped_since_last`.
-- Log records go in batches of 50, after 30 seconds, or on `flush`. At most 500 wait; beyond that the oldest is dropped, and the next batch says how many were.
-
-**No report carries content, titles, tags, IDs, searches, credentials, file paths or addresses**, including the instance's. An operation, a type, a sentence, an event's name and its attribute names are `StaticString`s, and an attribute's value is an `Int`, `Double`, `Bool` or `StaticString`, so a `String` read at run time doesn't compile. Never get around this with an error's `message`. [What apps send](/run/client-telemetry#what-apps-send) says what a report holds.

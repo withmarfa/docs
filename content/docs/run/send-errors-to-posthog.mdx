@@ -1,0 +1,68 @@
+---
+title: Send an instance's errors to PostHog
+description: Have your instance report each error it couldn't handle to a PostHog project of your own, for PostHog's error tracking.
+job: An owner who uses PostHog has their instance report its unhandled errors to their own project.
+---
+
+PostHog is an outside service with error tracking. Marfa doesn't need it, and **an instance sends nothing to PostHog until you set both of its settings.** Most owners never do: a [notice to an address you choose](/run/telemetry#post-a-notice-when-a-request-fails) tells you of a failure without one.
+
+You need a PostHog project, on PostHog Cloud or a PostHog you host, and its project token, which PostHog shows in the project's settings.
+
+## Turn on error reports
+
+<Steps>
+
+### Send the host and the token
+
+Both are secrets, and they're set together in one change. Send them on standard input, so the token stays out of your shell history: run this, paste the body, then press Control-D.
+
+```bash
+marfa config update --file -
+```
+
+```json
+{
+  "posthog_host": "https://eu.i.posthog.com",
+  "posthog_project_token": "<project token>"
+}
+```
+
+Use your project's region: `https://eu.i.posthog.com` for EU Cloud and `https://us.i.posthog.com` for US Cloud. For a PostHog you host, use its own address.
+
+### Check that both are set
+
+Run `marfa config get`. It lists both settings in `secrets_set`, and never shows their values. **They take effect at once,** with no restart, from the next error.
+
+</Steps>
+
+## What the host must be
+
+The token travels with every report, so the server holds the host to these rules:
+
+- **An `https` address,** or an `http` address on the same machine, with no user name or password. Any other host is refused `400 validation_error`, naming `posthog_host` without repeating it.
+- **Both settings or neither.** A change that would leave one set without the other is refused, and nothing changes.
+- **A public address.** A PostHog on the same machine or a private network, such as Tailscale, needs [`allow_private_addresses`](/run/settings#let-webhooks-reach-a-private-network) turned on. While it's off, a host whose name leads to a private address receives nothing.
+
+Marfa posts each batch of reports to PostHog's [capture v1](https://posthog.com/docs/api/capture-v1) endpoint, `i/v1/analytics/events` under the host, with the token as a bearer token. **A PostHog you host receives reports only if its release serves that endpoint.**
+
+## What a report holds
+
+Marfa reports an error that no handler answered, which the request meets as a `500`. The report holds the error's kind, its message and stack, the request's ID, the method, the path and the error code. It also names the instance by `service.instance.id`, once the database has opened, and its release by `service.version`, with any attributes you set in `OTEL_RESOURCE_ATTRIBUTES`.
+
+When the instance [exports traces](/run/telemetry#send-traces-and-logs), each report carries `$trace_id` and `$span_id`, so PostHog leads you to the trace of the request that failed. A report attaches no person, and turns off PostHog's location lookup.
+
+## Pause or stop the reports
+
+**`error_reporting_enabled` set to `false` pauses error reports and failure notices at once.** Turning it back on is refused unless a receiver is set: the PostHog pair or `error_webhook_url`.
+
+```bash
+marfa config set error_reporting_enabled false
+```
+
+`OTEL_SDK_DISABLED=true` in the server's environment stops them too. To stop for good, remove both settings in one change:
+
+```bash
+marfa config update --body '{"posthog_host": null, "posthog_project_token": null}'
+```
+
+The rules behind this page are in the [telemetry](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#telemetry) section of the instance chapter of the contract.
