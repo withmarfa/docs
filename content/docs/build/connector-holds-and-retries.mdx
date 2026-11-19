@@ -3,11 +3,17 @@ title: Holds and retries
 description: Keep one process of a connector writing at a time, keep its place between runs, send a failed request again without harm, and report each run.
 ---
 
-A connector can be started twice by mistake, lose the network mid-write, or crash between two requests. [The connector kit](/build/connector) handles all three. This guide shows the operations underneath, for a connector built directly on the API.
+A connector can be started twice by mistake, lose the network mid-write, or crash between two requests.
 
-In the TypeScript examples, `marfa` is a [TypeScript SDK](/typescript-sdk) client made with the connector's own key, and `connectorId` is the registration's ID.
+## With the kit
 
-## Order a run
+[The connector kit](/build/connector) handles all three, so a connector built on it needs nothing from this page. It takes the hold under a name of its own and renews it, keeps the state document with `state.get` and `state.set`, saving it only when every write in the run landed, and reports each run. On a schedule, it waits out an instance that is busy or out of reach, at least as long as `Retry-After` asks, and tries again. The [kit's README](https://github.com/withmarfa/marfa-connectors/blob/main/template/README.md#run-it) says how to run it.
+
+## On the API
+
+The sections below are the operations underneath, for a connector built directly on the API. In the TypeScript examples, `marfa` is a [TypeScript SDK](/typescript-sdk) client made with the connector's key, and `connectorId` is the registration's ID.
+
+### Order a run
 
 This order survives a stop at any step:
 
@@ -18,7 +24,7 @@ This order survives a stop at any step:
 5. Replace the state document with the new place.
 6. [Report the run](#report-a-run), then release the hold.
 
-## Take the hold
+### Take the hold
 
 The hold lets **one process at a time** write the connector's state document and agreements. Before it writes either, a process [takes the hold](/api-reference/connector-state/takeConnectorHold) under a name of its own, such as a UUID made when it starts. Two processes that share a name look like one to Marfa.
 
@@ -57,7 +63,7 @@ The hold lasts `ttl_seconds` from each take or renewal. While another process ho
 
 Once a hold lapses, any process can take it.
 
-### Renew it while the process runs
+#### Renew it while the process runs
 
 Send the same request, under the same name, **well before `expires_at`**. The kit renews every third of `ttl_seconds`; time renewals from that, not by comparing clocks.
 
@@ -81,7 +87,7 @@ await marfa.DELETE("/connectors/{id}/hold", {
 
 A [heartbeat](/api-reference/connectors/sendConnectorHeartbeat) says the connector is alive. It neither takes nor renews the hold, so send it on its own timer. Only the key the connector is registered under may send it, and any other key is refused `403 forbidden`.
 
-## Keep your place
+### Keep your place
 
 The state document keeps a connector's place at the vendor, such as a sync token, so a restart, even on another computer, resumes instead of reading everything again. [Get the connector's state](/api-reference/connector-state/getConnectorState) on start, and [replace it](/api-reference/connector-state/replaceConnectorState) under the hold:
 
@@ -111,7 +117,7 @@ await marfa.PUT("/connectors/{id}/state", {
 
 An agreement write follows the same hold, and takes at most 500 `set` and 500 `clear` entries, with a record of at most 16 KiB each. An item ID that no item has, or whose type the key can't read, comes back in `skipped`, and the rest goes through.
 
-## Send a request again
+### Send a request again
 
 | Answer | What it means | What to do |
 | --- | --- | --- |
@@ -144,7 +150,7 @@ await marfa.POST("/items", {
 
 A write to the vendor is **yours to make safe**: send the vendor an idempotency key made from something that doesn't change between attempts, such as the item's ID. [Write safely](/build/write-safely) covers versions and idempotency keys in full.
 
-## Report a run
+### Report a run
 
 [Report each run](/api-reference/connectors/reportConnectorRun) when it ends, with the outcome `succeeded` or `failed`:
 

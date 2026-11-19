@@ -3,11 +3,67 @@ title: Pull from a vendor
 description: Write a vendor's records into Marfa as items, connect the items they relate, set aside what the vendor deleted, and say which types the connector holds read only.
 ---
 
-A pull reads the vendor and writes what it finds as items. [The connector kit](/build/connector) does everything below for you. This guide shows the operations underneath, in the order a run uses them, for a connector built directly on the API.
+A pull reads the vendor and writes what it finds as items. This guide follows a recipe box connector with a key of its own under the source `recipes`, which writes the types `recipes.recipe` and `recipes.cookbook`.
 
-The examples follow a recipe box connector with a key of its own under the source `recipes`, which writes the type `recipes.recipe`. In the TypeScript examples, `marfa` is a [TypeScript SDK](/typescript-sdk) client made with that key.
+## With the kit
 
-## Write what you read
+[The connector kit](/build/connector) runs every operation below for you. Your `run` reads the vendor and hands the kit entries:
+
+```ts title="src/main.ts"
+import { defineConnector, main, type TypeDefinition } from "@withmarfa/connector";
+import recipeType from "./recipes.recipe.json" with { type: "json" };
+import cookbookType from "./recipes.cookbook.json" with { type: "json" };
+import { readBox } from "./vendor.js";
+
+const connector = defineConnector({
+  name: "recipes",
+  source: "recipes",
+  sourceName: "Recipe box",
+  sourceMark: "lucide:chef-hat",
+  types: [
+    { type: cookbookType as TypeDefinition, fields: ["cookbook_id", "title"] },
+    { type: recipeType as TypeDefinition, fields: ["recipe_id", "title", "body"] },
+  ],
+  connections: [{
+    id: "in-collection",
+    cardinality: "many-to-many",
+    from_type_constraints: [recipeType.id],
+    to_type_constraints: [cookbookType.id],
+  }],
+  env: { RECIPES_TOKEN: "secret" },
+  async run({ env, signal, upsert }) {
+    const { account, cookbooks, recipes } = await readBox(env.RECIPES_TOKEN, signal);
+    await upsert(cookbookType.id, cookbooks.map((book) => ({
+      source_id: `${account}:${book.id}`,
+      properties: { cookbook_id: book.id, title: book.title },
+      occurred_at: book.created,
+    })));
+    await upsert(recipeType.id, recipes.map((recipe) => ({
+      source_id: `${account}:${recipe.id}`,
+      properties: { recipe_id: recipe.id, title: recipe.title, body: recipe.markdown },
+      occurred_at: recipe.created,
+      connections: {
+        "in-collection": recipe.cookbooks.map((id) => ({ type: cookbookType.id, id: `${account}:${id}` })),
+      },
+    })));
+  },
+});
+
+await main(connector);
+```
+
+- **`upsert`** writes only the fields the vendor changed since the last run, so an edit made in Marfa to another field stays.
+- **`connections`** joins the connector's own items. The cookbook type's parent is `core.collection`, since `in-collection` points at a container. A target Marfa doesn't hold yet is connected once it arrives.
+- **`held` and `archive`** set aside what the vendor deleted, as [Make a connector follow changes](/build/connector-follow-changes#archive-what-the-service-dropped) shows. Ask `held` once for each type in a run.
+- **The kit names the source** from `sourceName` and `sourceMark`, and declares the types it doesn't carry back as read only.
+
+The [kit's README](https://github.com/withmarfa/marfa-connectors/blob/main/template/README.md) is its reference: entries, `linkedEach`, files, tables, state and the run's report.
+
+## On the API
+
+The sections below are the operations underneath, in the order a run uses them, for a connector built directly on the API. In the TypeScript examples, `marfa` is a [TypeScript SDK](/typescript-sdk) client made with the connector's key.
+
+### Write what you read
 
 [Upsert items in bulk](/api-reference/items/bulkUpsertItems) writes up to 5,000 records in one request:
 
@@ -62,9 +118,9 @@ Marfa answers each record on its own:
 - **`atomic: false`** writes the records that pass and reports a refused one as `errored`. By default, one refused record rolls the whole page back.
 - **Write an item's text as Markdown.** Marfa stores the field a type's `body_field` names as it arrives, so convert a vendor's HTML first.
 
-## What a repeat write does
+### What a repeat write does
 
-A run usually sends records Marfa already holds. Marfa sorts them out, so you can send the vendor's page as it is:
+A run usually sends records Marfa already holds. Marfa sorts them out, so you can send the vendor's page as it is. Ask about many records in one request, never one for each item you hold:
 
 - **A record that changes nothing** comes back `skipped`, with `reason: "unchanged"`. Marfa writes nothing, keeps the `version` and announces no event.
 - **A record whose item is in the bin** comes back `skipped`, with `reason: "trashed"`. A person moved it there, and a pull never brings it back.
@@ -84,13 +140,7 @@ const { data } = await marfa.POST("/items/lookup", {
 });
 ```
 
-## Keep a quiet run light
-
-A run that finds nothing new should send Marfa **a few requests, however much the connector holds**. Ask about many records at once: one lookup names many `source_ids`, and one bulk page writes thousands. Never send a request for each item you hold.
-
-In the kit, call `held` once for each type in a run, and use `linkedEach` rather than `linked` in a loop. Every connector in marfa-connectors keeps the kit's quiet-run test, which fails when a run with nothing new sends more than one more request for each 200 items Marfa holds.
-
-## Connect items
+### Connect items
 
 A record that points at another, such as a recipe in a cookbook, becomes an [edge](/build/edges) between the two items. An entry's `edges` maps an edge type to the IDs of the items it now points to:
 
@@ -108,12 +158,10 @@ A record that points at another, such as a recipe in a cookbook, becomes an [edg
 ```
 
 - **The list replaces that type's edges** from the item, and an edge type left out stays as it is.
-- **Marfa's own edge types** need only `--edge-permission <type>=write` on the key: `attached-to`, `in-collection`, `in-thread`, `references`, `excerpt-of`, `about`, `comments-on` and `parent-of`. The [edges Catalog](/catalog/edges) lists each one's direction and what a trash does to it.
+- **Marfa's own edge types** need only `--edge-permission <type>=write` on the key. The [edges Catalog](/catalog/edges) lists them, with the types each one may point at and what moving an end to the bin does.
 - **An edge type of your own** is registered with its ends in `from_type_constraints` and `to_type_constraints`, which needs `--metadata-permission edge_types=write` on the key.
 
-In the kit, an entry's `connections` names targets by their link or `source_id`, and a target Marfa doesn't hold yet is connected once it arrives. To stop writing a connection, keep it in `connections` and add it to `retired`: the kit then removes only the edges it wrote, so an edge a person drew stays, and the key keeps write on that edge type.
-
-## Set aside what the vendor deleted
+### Set aside what the vendor deleted
 
 When the vendor no longer has a record, [change the item's state](/api-reference/items/transitionItem) to `archived`. Don't move it to the bin, which is for people. An archived item keeps its history. A bulk write leaves an item's state alone, so if the vendor lists the record again, change the state back to `active` the same way.
 
@@ -134,7 +182,7 @@ await marfa.POST("/items/{id}/transition", {
 
 Be **sure the vendor deleted it**. A partial listing, such as one page or open records only, says nothing about a record it leaves out, so ask about that record first.
 
-## Name the source
+### Name the source
 
 Apps show a source by its name and mark, an icon. [Read the source](/api-reference/sources/getSource) on each start, and [set](/api-reference/sources/updateSource) only what it lacks, so a name the owner chose stays:
 
@@ -153,9 +201,9 @@ await marfa.PATCH("/sources/{source}", {
 });
 ```
 
-A key may set its own source and the sources it claims. The kit does this from `sourceName` and `sourceMark`. If Marfa refuses, the kit logs a warning, runs anyway and tries again on the next start.
+A key may set its own source and the sources it claims.
 
-## Declare the types you don't carry back
+### Declare the types you don't carry back
 
 A connector that takes no edits back for a type puts back, on its next run, any edit a person makes to its items in Marfa. Name those types in `read_only_types` when you [register the connector](/api-reference/connectors/registerConnector), and their items read `read_only: true`, so an app can show them locked:
 
@@ -173,7 +221,7 @@ await marfa.POST("/connectors", {
 });
 ```
 
-- **Each registration replaces the list**, and one without it clears the list. Build it on every start from what the connector carries back with its current settings. The kit lists every type it writes and doesn't carry back.
+- **Each registration replaces the list**, and one without it clears the list. Build it on every start from what the connector carries back with its current settings.
 - **An item reads `true` only while every live connector** of its source lists its type and may write it.
 - **Marfa refuses no edit** to a read-only item. The flag says what the connector will do.
 

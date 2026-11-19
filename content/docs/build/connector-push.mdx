@@ -3,15 +3,39 @@ title: Carry changes back
 description: Notice what people change in Marfa in a connector's items, carry those changes back to the vendor, and create at the vendor what people make in Marfa.
 ---
 
-The items a connector [pulls](/build/connector-pull) are ordinary items, and people and apps edit, archive and move them to the bin. A two-way connector notices those changes and carries them back to the vendor. With [the connector kit](/build/connector), you write one handler, as the [last section](#with-the-kit) shows. The rest of this guide covers the operations underneath, for a connector built directly on the API.
+The items a connector [pulls](/build/connector-pull) are ordinary items, and people and apps edit, archive and move them to the bin. A two-way connector notices those changes and carries them back to the vendor. The examples follow an online shop connector with a key of its own under the source `shop`, which writes the type `shop.order`.
 
-The examples follow an online shop connector with a key of its own under the source `shop`, which writes the type `shop.order`. In the TypeScript examples, `marfa` is a [TypeScript SDK](/typescript-sdk) client made with that key, `connectorId` is the registration's ID, and `processName` is the name the process took the [hold](/build/connector-holds-and-retries#take-the-hold) under.
+## With the kit
 
-## Link items to the vendor
+A connector built on [the connector kit](/build/connector) names `link_field` in its type and adds `onChange`. The kit watches the event stream, keeps the agreements, and calls `onChange` once for each item with a change the vendor hasn't had:
+
+```ts title="src/main.ts"
+async onChange({ kind, item, changed }, { env, signal, setLink }) {
+  const id = item.properties["order_id"];
+  if (typeof id !== "string") {
+    const made = await createOrder(env, signal, item);
+    await setLink(item, made.id);
+    return;
+  }
+  await updateOrder(env, signal, id, kind, changed, item);
+},
+```
+
+- **`kind`** is `created`, `updated`, `restored`, `archived`, `trashed` or `purged`, and `changed` names the fields changed in Marfa and not yet carried.
+- **`setLink`** writes the vendor's ID onto an item the vendor just made.
+- **Throw `Unreachable`** for a failure that can pass, such as a rate limit, and the change is sent again next run. **Throw `Refused`** for a change the vendor will never take, and it isn't sent again until the item changes. **Throw `Declined`** for a change the vendor isn't to be asked about, and the kit puts the fields back.
+
+The [kit's README](https://github.com/withmarfa/marfa-connectors/blob/main/template/README.md#carrying-changes-back) covers `remake`, `preflight` and the rest of the rules.
+
+## On the API
+
+The sections below are the operations underneath, for a connector built directly on the API. In the TypeScript examples, `marfa` is a [TypeScript SDK](/typescript-sdk) client made with the connector's key, `connectorId` is the registration's ID, and `processName` is the name the process took the [hold](/build/connector-holds-and-retries#take-the-hold) under.
+
+### Link items to the vendor
 
 A two-way type names a `link_field` when you [register it](/api-reference/types/registerType): the property that holds the vendor's own ID for the record. Marfa keeps the value unique within the type, in every state, and refuses a second item holding it as `409 link_taken`. An item with no value there is one the vendor hasn't been told about.
 
-## Watch for changes made in Marfa
+### Watch for changes made in Marfa
 
 Follow [the event stream](/api-reference/event-stream/streamEvents) for your type. Each change arrives as an event with the item as it now stands, and `Last-Event-ID` resumes after the last event you handled, so keep that cursor in the state document. [Keep a copy in sync](/build/keep-in-sync) explains the stream.
 
@@ -55,7 +79,7 @@ When an event arrives, [look up the item's agreement](/api-reference/connector-s
 
 Record the change **before you move the cursor** past its event. A process that stops between the two then reads the event again and finds the agreement waiting; the other way round, a stop loses the change.
 
-## Carry a change back
+### Carry a change back
 
 [List the agreements](/api-reference/connector-state/listConnectorAgreements) that wait:
 
@@ -66,7 +90,7 @@ Authorization: Bearer $MARFA_API_KEY
 
 ```ts tab="TypeScript"
 const { data } = await marfa.GET("/connectors/{id}/agreements", {
-  params: { path: { id: connectorId }, query: { waiting: "true" } },
+  params: { path: { id: connectorId }, query: { waiting: true } },
 });
 ```
 
@@ -88,7 +112,7 @@ For each one, read the item, send the vendor what changed, and once the vendor h
 
 If the vendor refuses the change or doesn't answer, leave the agreement waiting, say why in the run's report, and try again on the next run. **Never clear** a waiting agreement to move on: the change would be lost.
 
-## Send a new item to the vendor
+### Send a new item to the vendor
 
 A person can make an item of your type in Marfa, and a two-way connector creates it at the vendor. For each item with no link:
 
@@ -113,31 +137,9 @@ await marfa.PATCH("/items/{id}", {
 
 Set the link **straight after the vendor answers**. A run that stops between the two sends the create again, and the vendor's idempotency key answers it with the record already made.
 
-## Rare cases
+### Rare cases
 
-- **A conflict:** a person and the vendor changed the same field, so both differ from the `record`. Marfa doesn't decide which wins: choose a rule and apply it every time. The kit takes the later change, comparing the entry's `changed_at` with when the change in Marfa was first seen, and a vendor that names no time loses.
+- **A conflict:** a person and the vendor changed the same field, so both differ from the `record`. Marfa doesn't decide which wins: choose a rule and apply it every time. The kit takes the later change, and a vendor that names no time loses.
 - **A purge at a vendor that can't delete:** change the record instead, such as by closing the order, then [settle the tombstone](/api-reference/items/settleTombstones) to the time of that change. Otherwise the next pull reads the change and brings the record back as a new item.
-
-## With the kit
-
-A connector built on the kit names `link_field` in its type and adds `onChange`. The kit watches the event stream, keeps the agreements, and calls `onChange` once for each item with a change the vendor hasn't had:
-
-```ts title="src/main.ts"
-async onChange({ kind, item, changed }, { env, signal, setLink }) {
-  const id = item.properties["order_id"];
-  if (typeof id !== "string") {
-    const made = await createOrder(env, signal, item);
-    await setLink(item, made.id);
-    return;
-  }
-  await updateOrder(env, signal, id, kind, changed, item);
-},
-```
-
-- **`kind`** is `created`, `updated`, `restored`, `archived`, `trashed` or `purged`, and `changed` names the fields changed in Marfa and not yet carried.
-- **`setLink`** writes the vendor's ID onto an item the vendor just made.
-- **Throw `Unreachable`** for a failure that can pass, such as a rate limit, and the change is sent again next run. **Throw `Refused`** for a change the vendor will never take, and it isn't sent again until the item changes. **Throw `Declined`** for a change the vendor isn't to be asked about, and the kit puts the fields back.
-
-The template's README, `template/README.md` in marfa-connectors, covers `remake`, `preflight` and the rest of the rules.
 
 The rules behind this page are in the [connectors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md#writing-agreements) and [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) chapters of the contract.
