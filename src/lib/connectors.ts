@@ -15,11 +15,15 @@ export interface Connector {
   carriedTypes: string[];
 }
 
-/** The synced copy of the list (`scripts/sync-from-connectors.sh`), by name. */
+/**
+ * The synced copy of the list (`scripts/sync-from-connectors.sh`), in the order the
+ * sidebar lists the pages: by file name, which puts `readwise-reader` before `readwise`.
+ */
 export function readConnectors(root: string = process.cwd()): Connector[] {
   const file = path.join(root, 'src/generated/connectors/connectors.json');
   const list = JSON.parse(readFileSync(file, 'utf8')) as { connectors: Connector[] };
-  return [...list.connectors].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const fileName = (connector: Connector) => `${connector.name}.mdx`;
+  return [...list.connectors].sort((a, b) => (fileName(a) < fileName(b) ? -1 : fileName(a) > fileName(b) ? 1 : 0));
 }
 
 function capitalize(word: string): string {

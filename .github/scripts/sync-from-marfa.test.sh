@@ -1335,6 +1335,29 @@ check "the housekeeping rows are copied without their markers" \
 | --- | ------------ |
 | `trash-purge` | Purges expired trash. |' "$(cat "${work}/good/docs/src/generated/housekeeping.md")"
 
+# The connector headers and the index link a type to its Catalog page, so a sync that writes the
+# catalog writes them again from the copy of the connectors' list the docs hold: and writes nothing
+# for the connectors when the docs hold no copy.
+echo "the connectors' headers after a catalog change"
+check "with no copy of the connectors' list, the sync writes nothing for the connectors" "no" \
+  "$([ -e "${work}/good/docs/src/generated/connectors" ] && echo yes || echo no)"
+fixture connectors "${work}/untagged.json"
+mkdir -p "${work}/connectors/docs/src/generated/connectors"
+cp "${here}/../../scripts/sync-from-connectors.sh" "${work}/connectors/docs/scripts/sync-from-connectors.sh"
+printf '%s\n' '{"schema":1,"connectors":[{"directory":"connectors/readwise","name":"readwise","description":"Sources.","source":"readwise","sourceName":"Readwise","types":["core.note"],"carriesBack":true,"carriesBackCanBeTurnedOff":true,"carriedTypes":["core.note"]}]}' \
+  > "${work}/connectors/docs/src/generated/connectors/connectors.json"
+printf 'stale header\n' > "${work}/connectors/docs/src/generated/connectors/readwise.md"
+sync connectors
+check "a sync with the connectors' list held succeeds" 0 "${status}"
+check "and its header links the type the new catalog has a page for" \
+'- **Source:** `readwise`, shown as Readwise
+- **Types:** [`core.note`](/catalog/note)
+- **Carries changes back:** Yes, for [`core.note`](/catalog/note)
+- **Can be turned off:** Yes' "$(cat "${work}/connectors/docs/src/generated/connectors/readwise.md")"
+check "and the list itself is as it was" \
+"$(printf '%s' '{"schema":1,"connectors":[{"directory":"connectors/readwise","name":"readwise","description":"Sources.","source":"readwise","sourceName":"Readwise","types":["core.note"],"carriesBack":true,"carriesBackCanBeTurnedOff":true,"carriedTypes":["core.note"]}]}')" \
+"$(cat "${work}/connectors/docs/src/generated/connectors/connectors.json")"
+
 echo "temporary files"
 check "no temporary file or folder is left behind, by a success or a refusal" "" "$(ls -A "${work}/tmp")"
 

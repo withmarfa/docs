@@ -64,10 +64,13 @@ MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh   # defaults to ../marfa
 
 ```bash
 MARFA_CONNECTORS_ROOT=/path/to/marfa-connectors scripts/sync-from-connectors.sh   # defaults to ../marfa-connectors
+MARFA_CONNECTORS_TAG=v0.0.9 scripts/sync-from-connectors.sh                       # a tagged release instead of main
+scripts/sync-from-connectors.sh --relink                                         # headers and index only, from the copy held
 ```
 
-- The Catalog's connectors come from the `connectors.json` committed at HEAD of a marfa-connectors checkout, which that repository's own check keeps current. Use a checkout on an up-to-date `main`, after `scripts/sync-from-marfa.sh` (the headers link the types the shipped catalog has).
-- The script writes `src/generated/connectors/`: a copy of the list, the connector index and one header for each connector. Each connector page includes its header; the index page includes the index. It also writes a page for a connector that has none, holding only its header, and sets `pages` in `content/docs/catalog/connectors/meta.json` to the connectors' names in order. A page that exists is never overwritten.
+- The Catalog's connectors come from the `connectors.json` committed at HEAD of a marfa-connectors checkout, which that repository's own check keeps current. The script fetches `origin` and stops unless the checkout is at `origin/main`, or, with `MARFA_CONNECTORS_TAG`, at that tag's commit. Run it after `scripts/sync-from-marfa.sh` (the headers link the types the shipped catalog has).
+- The script writes `src/generated/connectors/`: a copy of the list, `source.json` (the marfa-connectors commit, and the tag if one names it), the connector index and one header for each connector. Each connector page includes its header; the index page includes the index, in the order the sidebar lists the pages, which is by file name. It also writes a page for a connector that has none, holding only its header, with a `description` and a `job` line written from the list's fields so they fit the page limits. A page that exists is never overwritten. The folder's `meta.json` is hand-written and lists no `pages`, so the sidebar orders the pages by file name; the sync never touches it.
+- `scripts/sync-from-marfa.sh` runs `--relink` at its end whenever the docs hold a copy of the list, because a type links to its Catalog page only if the shipped catalog has one: a catalog change then moves the links with no second command.
 - A page under `content/docs/catalog/connectors/` must have a connector of the same `name`: `remarkIcons` fails the build for one that has none, and `src/lib/connectors.test.ts` checks both ways.
 - After changing the script, run `.github/scripts/sync-from-connectors.test.sh`.
 
@@ -85,7 +88,7 @@ node --experimental-strip-types scripts/sync-changelog.ts   # GITHUB_TOKEN is us
 
 After each Marfa release, one docs agent works the open docs issues and rewrites each page they name whole, to `STYLE.md`. Nobody else edits a page for a code change. The staleness report is the backstop: it finds the pages that cite something a release changed and that no issue named. It names pages to read again, never asks for a change, and "no change needed" is a normal answer.
 
-1. If no docs commit has synced the new release tag, run the sync and merge its pull request first. Run the changelog sync once the release's notes are written.
+1. If no docs commit has synced the new release tag, run the sync and merge its pull request first. Run the changelog sync once the release's notes are written. Run the connectors sync once marfa-connectors has followed the release (`source.json` says which commit the docs hold), and merge its pull request: the marfa sync only relinks the headers it already has.
 2. Work the open docs issues. Close each when its page is right.
 3. Find the commits that synced the previous release and the new one, and run the staleness report between them:
 
