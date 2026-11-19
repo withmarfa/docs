@@ -40,8 +40,9 @@
 #                                     one Markdown file per top-level type with
 #                                     its subtypes inside (core.media.md,
 #                                     system.folder.md), edges.md, edge-types.md
-#                                     (a table of the edge types, with a From
-#                                     types column only if one edge type
+#                                     (a table of the edge types, with their
+#                                     cascade_on_delete and written_from, and a
+#                                     From types column only if one edge type
 #                                     constrains its from end),
 #                                     the three name lists (reserved-type-roots.md,
 #                                     reserved-field-names.md, searched-field-names.md)
@@ -904,7 +905,8 @@ def constraint(edge, key, type_ids):
 def edge_table(edges, type_ids):
     """One row for each edge type. The From types column appears only when some edge type constrains its from end.
     The reverse label is the label where an edge type names none, as the API answers it.
-    Cardinality and On delete are values, so they are code: a code span keeps `many-to-many` on one line."""
+    Cardinality, cascade_on_delete and written_from are values, so they are code: a code span keeps `many-to-many`
+    on one line. The last two are headed by their field names, which a reader looks up."""
     for e in edges:
         if e.get("cardinality") not in CARDINALITIES:
             refuse(catalog_path, f"has the edge type {e['id']} with a cardinality the sync does not know")
@@ -919,9 +921,9 @@ def edge_table(edges, type_ids):
     sources = [constraint(e, "from_type_constraints", type_ids) for e in edges]
     targets = [constraint(e, "to_type_constraints", type_ids) for e in edges]
     constrained = any(source != "Any type" for source in sources)
-    header = ["Edge type", "Label", "Reverse label", "Reverse name", "Cardinality", "On delete", *(["From types"] if constrained else []), "To types"]
+    header = ["Edge type", "Label", "Reverse label", "Reverse name", "Cardinality", code("cascade_on_delete"), code("written_from"), *(["From types"] if constrained else []), "To types"]
     rows = [
-        [code(e["id"]), e["label"], e.get("reverse_label", e["label"]), code(e["reverse_name"]) if e.get("reverse_name") else "None", code(e["cardinality"]), code(e["cascade_on_delete"]),
+        [code(e["id"]), e["label"], e.get("reverse_label", e["label"]), code(e["reverse_name"]) if e.get("reverse_name") else "None", code(e["cardinality"]), code(e["cascade_on_delete"]), code(e["written_from"]),
          *([source] if constrained else []), target]
         for e, source, target in zip(edges, sources, targets)
     ]
