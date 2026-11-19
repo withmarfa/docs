@@ -14,6 +14,7 @@
 
 import { createFromSource } from 'fumadocs-core/search/server';
 import { source, getLLMText } from '@/lib/source';
+import { TOP_BAR_LINKS } from '@/lib/top-bar';
 
 /** Words a reader types around the one that matters. Dropped from a query, never from the index. */
 const STOP_WORDS = new Set([
@@ -303,6 +304,9 @@ let profiles: Promise<Map<string, PageProfile>> | undefined;
 function kindOf(page: (typeof source)['$inferPage']): PageKind {
   // A generated operation page has no written body.
   if (!('getText' in page.data)) return 'operation';
+  // A top-bar page is in no folder of a tab, so it names its own kind.
+  const topBar = TOP_BAR_LINKS.find((link) => link.href === page.url);
+  if (topBar) return topBar.kind;
   const folder = page.path.split('/')[0];
   if (folder === 'use' || folder === 'run' || folder === '(start)') return 'guide';
   return folder === 'build' ? 'build' : 'reference';
