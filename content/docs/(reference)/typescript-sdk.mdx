@@ -36,13 +36,42 @@ export const marfa = createClient({
 
 **The client sends the credential only to URLs under `baseUrl`, and never follows a redirect**, so the credential can't reach another server. `createClient` throws a `TypeError` for an empty credential, a credential that a bearer token can't hold, or a `baseUrl` it can't use. The message never repeats the credential.
 
+## Upload a file
+
+[Upload a blob](/api-reference/blobs/uploadBlob) takes a file's bytes, not JSON. Pass a `Blob`, an `ArrayBuffer`, a typed array such as a Node `Buffer`, or a `ReadableStream`, and name the file's type in `Content-Type`, which the instance keeps with the blob. Without it, the client sends a `Blob`'s own type, or the type the operation declares. The answer is the blob's hash, type and size:
+
+<Terminal>
+
+```ts
+import { readFile } from "node:fs/promises";
+
+const { data: blob, error } = await marfa.POST("/blobs", {
+  body: await readFile("tide-chart.png"),
+  headers: { "Content-Type": "image/png" },
+});
+if (error) throw new Error(error.error.message);
+console.log(blob);
+```
+
+```text
+{
+  hash: 'sha256:2bab1df2e7e3d2614e09a7dcb7f4adbf67c96cb6efaa0f1068ca19caed5610c8',
+  mime_type: 'image/png',
+  size_bytes: 69
+}
+```
+
+</Terminal>
+
+The next section makes the blob a file item, and [Handle files](/build/handle-files) covers the rest.
+
 ## Call an operation
 
-Name an operation by its method and path, as the [API reference](/api-reference) lists it. Path parameters go in `params.path`, query parameters in `params.query`, and a JSON body in `body`. Each call returns `data` on success, `error` when the server refuses, and the `response`:
+Name an operation by its method and path, as the [API reference](/api-reference) lists it. Path parameters go in `params.path`, query parameters in `params.query`, and a JSON body in `body`. Each call returns `data` on success, `error` when the server refuses, and the `response`. This one makes the blob above a file item and tags it:
 
 ```ts
 const { data, error } = await marfa.POST("/items", {
-  body: { type: "core.note", properties: { title: "Tide times", body: "High water at 06:12." } },
+  body: { type: "core.file", properties: { title: "Tide chart", blob_ref: blob.hash, mime_type: blob.mime_type } },
 });
 if (error) throw new Error(error.error.message);
 
@@ -62,53 +91,24 @@ A list or a search answers one page at a time, as `{ data, next_cursor }`. `page
 ```ts
 import { pages } from "@withmarfa/client";
 
-const notes = pages(async (cursor) => {
+const files = pages(async (cursor) => {
   const { data, error } = await marfa.GET("/items", {
-    params: { query: { type: "core.note", cursor } },
+    params: { query: { type: "core.file", cursor } },
   });
   if (error) throw new Error(error.error.message);
   return data;
 });
 
-for await (const note of notes) {
-  if ("id" in note) console.log(note.id, note.properties.title);
+for await (const file of files) {
+  if ("id" in file) console.log(file.id, file.properties.title);
 }
 ```
 
 - **`pages` follows `next_cursor` until it's `null`.** A page can be short, or empty, and still have more after it, so don't stop a walk early.
 - **It throws when a page has no `next_cursor`, or repeats a cursor it already followed**, rather than yield entries it can't trust or walk forever.
-- The `"id" in note` check is there because a listing with `include=metadata` returns each item with its metadata instead.
+- The `"id" in file` check is there because a listing with `include=metadata` returns each item with its metadata instead.
 
 The rows of a [table](/build/tables) page the same way, from `GET /items/{id}/tables/{table}/rows`.
-
-## Upload a file
-
-[Upload a blob](/api-reference/blobs/uploadBlob) takes a file's bytes, not JSON. Pass a `Blob`, an `ArrayBuffer`, a typed array such as a Node `Buffer`, or a `ReadableStream`, and name the file's type in `Content-Type`, which the instance keeps with the blob. Without it, the client sends a `Blob`'s own type, or the type the operation declares. The answer is the blob's hash, type and size:
-
-<Terminal>
-
-```ts
-import { readFile } from "node:fs/promises";
-
-const { data: blob, error } = await marfa.POST("/blobs", {
-  body: await readFile("photo.png"),
-  headers: { "Content-Type": "image/png" },
-});
-if (error) throw new Error(error.error.message);
-console.log(blob);
-```
-
-```text
-{
-  hash: 'sha256:67fe48825b9b87c5f8502a5e179ad35d8b2560a3a5370585fcf60031cdec39ea',
-  mime_type: 'image/png',
-  size_bytes: 70
-}
-```
-
-</Terminal>
-
-[Handle files](/build/handle-files) makes the blob a file item.
 
 ## Handle errors
 
@@ -148,7 +148,7 @@ Against a server on contract 1, this prints:
 import { ContractMismatchError } from "@withmarfa/client";
 
 try {
-  await marfa.GET("/items", { params: { query: { type: "core.note" } } });
+  await marfa.GET("/items", { params: { query: { type: "core.file" } } });
 } catch (thrown) {
   if (thrown instanceof ContractMismatchError) console.log(thrown.message);
   else throw thrown;
