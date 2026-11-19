@@ -59,7 +59,7 @@ function WebsiteLink() {
 export function SidebarFooter(props: ComponentProps<'div'>) {
   return (
     <>
-      <TopBarLinks className="flex-wrap px-4 pt-2 xl:hidden" />
+      <TopBarLinks className="flex-wrap px-4 pt-2 min-[1400px]:hidden" />
       <div className="flex items-center justify-between px-6 py-2.5">
         <ReleaseLabel />
         <WebsiteLink />
