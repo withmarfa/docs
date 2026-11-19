@@ -356,9 +356,9 @@ describe('the tab', () => {
     ).toEqual(['connectors', ...CONNECTOR_SLUGS].sort());
   });
 
-  it('opens the Edges folder on its own page, closed, with a page for each edge type beneath it, in the catalog\'s order', () => {
+  it('opens the Edge types folder on its own page, closed, with a page for each edge type beneath it, in the catalog\'s order', () => {
     const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, EDGES_DIR, 'meta.json'), 'utf8'));
-    expect(meta.title).toBe('Edges');
+    expect(meta.title).toBe('Edge types');
     expect(meta.defaultOpen).toBe(false);
     expect(meta.pages).toEqual(EDGE_SLUGS);
     expect(
