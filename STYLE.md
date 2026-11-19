@@ -33,10 +33,13 @@ The tabs follow what a reader comes to do, in this order:
 | Tab | What it holds | Kind of page |
 | --- | --- | --- |
 | Start | What Marfa is, at `/`; the Quickstart, from `marfa server install` or Railway to an agent connected and a first item saved and found; Connect your agent; Ideas in Marfa, the few ideas everyone meets, with no HTTP | Explanation, tutorial, how-to |
-| Use | The everyday jobs: working from an agent, Claude or ChatGPT and the CLI; a synced folder from set-up to a second computer; connectors; seeing and cutting access; Limits; Get help | How-to |
+| Use | The everyday jobs: working from an agent, Claude or ChatGPT and the CLI; a synced folder from set-up to a second computer; connectors; seeing and cutting access; Limits | How-to |
 | Run | Looking after an instance: where it runs and its address, sign-in, settings, keys and apps, backups, upgrades, telemetry and Troubleshooting | How-to |
 | Build | The concepts at full depth, then the tutorials and guides for apps, agents, working copies and connectors | Explanation, tutorial, how-to |
-| Reference | The Catalog first (items, types, edges, events, permissions, connectors), then the HTTP API and Errors, the SDKs, the CLI and MCP pages, the Glossary, the Changelog and the contract | Reference |
+| Catalog | What Marfa ships, generated from the code: items, types, edge types, events, permissions and connectors | Reference |
+| Reference | The HTTP API and Errors, the SDKs, the CLI and MCP pages and the contract | Reference |
+
+The Glossary, the Changelog and Get help are not in a tab: they are links in the top bar, and in the phone menu.
 
 **No tab has a landing page.** A tab's header link opens the first page in its sidebar, and no page is a grid of cards that repeats the sidebar.
 
@@ -195,7 +198,7 @@ The docs stay right by being rewritten whole, not by being added to.
 
 - **A code change opens a docs issue, not a docs pull request.** The issue says what a reader would now get wrong. Nobody edits a page inside the work that changed the code.
 - **Pages are rewritten from those issues after each release.** One docs agent works the open issues and rewrites each page whole, to this file. A page is never added to, and "no change needed" is a normal answer.
-- **Generated reference and the changelog are synced, never written by hand.** The API reference, the CLI's global options and exit codes, the error codes, the settings, the shipped types and edge types, the permissions, the event types and the glossary come from withmarfa/marfa through `scripts/sync-from-marfa.sh`. The Changelog comes from the GitHub release notes through `scripts/sync-changelog.ts`.
+- **Generated reference and the changelog are synced, never written by hand.** The API reference, the CLI's global options and exit codes, the error codes, the settings, the shipped types and edge types, the permissions, the event types and the glossary come from withmarfa/marfa through `scripts/sync-from-marfa.sh`. Each connector's header and the connector index come from marfa-connectors through `scripts/sync-from-connectors.sh`. The Changelog comes from the GitHub release notes through `scripts/sync-changelog.ts`.
 
 `scripts/staleness-report.ts` is the backstop that lists pages no issue named; `AGENTS.md`, "Docs pass at each release", says how to run it.
 
@@ -213,5 +216,7 @@ kind: concept
 ```
 
 A page whose title another page shares, or whose title doesn't name it well outside the site, also holds a `headTitle`: its name in browser tabs, search results and link previews, which the site name follows unless it starts with it. The landing page's is "Marfa Docs" and what Marfa is, after a colon. `pnpm test` fails when two pages would show the same name.
+
+A page whose title wraps in the sidebar can also hold a `sidebar_label`, a shorter name for the sidebar and the breadcrumb. The previous and next cards, the heading, search, `llms.txt` and the page's metadata keep the full title.
 
 Quote a `description` that starts with `@`, `:`, `>`, `|`, `*`, `&`, `?` or `%`, or YAML misreads it.

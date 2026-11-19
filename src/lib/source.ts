@@ -4,6 +4,7 @@ import { docs } from 'collections/server';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { docsRoute } from './shared';
 import { openapi } from './openapi';
+import { sidebarLabelPlugin } from './sidebar-label';
 
 export const source = loader(
   {
@@ -12,7 +13,7 @@ export const source = loader(
   },
   {
     baseUrl: docsRoute,
-    plugins: [openapi.loaderPlugin(), lucideIconsPlugin()],
+    plugins: [openapi.loaderPlugin(), lucideIconsPlugin(), sidebarLabelPlugin()],
   },
 );
 

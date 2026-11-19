@@ -26,8 +26,8 @@ The source of the public documentation site at `docs.marfa.so` and the status pa
 - `src/routes/`, `src/lib/` and `src/components/`: the docs site, including the Worker entry `src/server.ts`, the Markdown copies, `llms.txt`, the docs MCP server at `/mcp` and the JSON addresses under `/api/docs/`.
 - `src/status/`: the status page, a second Vite target built by `vite.status.config.ts` into `dist-status/` and deployed from `wrangler.status.jsonc`.
 - `src/generated/` and `openapi.json`: written only by the sync scripts. Never edit them by hand.
-- `scripts/`: the sync from marfa, the changelog sync and the staleness report. The changelog sync and the report use only Node built-ins, because CI runs the report without installing anything. Their tests are in `src/lib/`, the only place Vitest looks.
-- `.github/scripts/`: the CI change classifier and the publish checks, each with a `.test.sh` beside it, and the sync script's test.
+- `scripts/`: the sync from marfa, the sync from marfa-connectors, the changelog sync and the staleness report. The changelog sync and the report use only Node built-ins, because CI runs the report without installing anything. Their tests are in `src/lib/`, the only place Vitest looks.
+- `.github/scripts/`: the CI change classifier and the publish checks, each with a `.test.sh` beside it, and the two sync scripts' tests.
 - `public/`: static files for both targets.
 
 ## Commands
@@ -60,6 +60,20 @@ MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh   # defaults to ../marfa
 - `src/lib/glossary.test.ts` holds the Glossary page to `src/generated/GLOSSARY.md`. `src/lib/glossary-sources.json` names, for each word on the page, the row that settles it and a fingerprint of the two definitions, so a sync that changes a row fails until the page's definition is read against it again and the fingerprint renewed.
 - After changing the script, run `.github/scripts/sync-from-marfa.test.sh`. It pins what the script writes and every input it refuses.
 
+### The connectors
+
+```bash
+MARFA_CONNECTORS_ROOT=/path/to/marfa-connectors scripts/sync-from-connectors.sh   # defaults to ../marfa-connectors
+MARFA_CONNECTORS_TAG=v0.0.9 scripts/sync-from-connectors.sh                       # a tagged release instead of main
+scripts/sync-from-connectors.sh --relink                                         # headers and index only, from the copy held
+```
+
+- The Catalog's connectors come from the `connectors.json` committed at HEAD of a marfa-connectors checkout, which that repository's own check keeps current. The script fetches `origin` and stops unless the checkout is at `origin/main`, or, with `MARFA_CONNECTORS_TAG`, at that tag's commit. Run it after `scripts/sync-from-marfa.sh` (the headers link the types the shipped catalog has).
+- The script writes `src/generated/connectors/`: a copy of the list, `source.json` (the marfa-connectors commit, and the tag if one names it), the connector index and one header for each connector. Each connector page includes its header; the index page includes the index, in the order the sidebar lists the pages, which is by file name. It also writes a page for a connector that has none, holding only its header, with a `description` and a `job` line written from the list's fields so they fit the page limits. A page that exists is never overwritten. The folder's `meta.json` is hand-written and lists no `pages`, so the sidebar orders the pages by file name; the sync never touches it.
+- `scripts/sync-from-marfa.sh` runs `--relink` at its end whenever the docs hold a copy of the list, because a type links to its Catalog page only if the shipped catalog has one: a catalog change then moves the links with no second command.
+- A page under `content/docs/catalog/connectors/` must have a connector of the same `name`: `remarkIcons` fails the build for one that has none, and `src/lib/connectors.test.ts` checks both ways.
+- After changing the script, run `.github/scripts/sync-from-connectors.test.sh`.
+
 ### The changelog
 
 ```bash
@@ -74,7 +88,7 @@ node --experimental-strip-types scripts/sync-changelog.ts   # GITHUB_TOKEN is us
 
 After each Marfa release, one docs agent works the open docs issues and rewrites each page they name whole, to `STYLE.md`. Nobody else edits a page for a code change. The staleness report is the backstop: it finds the pages that cite something a release changed and that no issue named. It names pages to read again, never asks for a change, and "no change needed" is a normal answer.
 
-1. If no docs commit has synced the new release tag, run the sync and merge its pull request first. Run the changelog sync once the release's notes are written.
+1. If no docs commit has synced the new release tag, run the sync and merge its pull request first. Run the changelog sync once the release's notes are written. Run the connectors sync once marfa-connectors has followed the release (`source.json` says which commit the docs hold), and merge its pull request: the marfa sync only relinks the headers it already has.
 2. Work the open docs issues. Close each when its page is right.
 3. Find the commits that synced the previous release and the new one, and run the staleness report between them:
 
@@ -90,7 +104,7 @@ On a pull request, the `Docs reports` job writes the same report to the job summ
 
 ## CI and publishing
 
-- `CI` runs on every pull request and every push to `main`. `Full CI` (named `Draft CI` while the pull request is a draft) is a roll-up of `Build and type-check`, and with `Pull request description` it is a required check, so never add `paths` filters to `ci.yml`: a filtered-out run leaves the check pending. `.github/scripts/ci-changes.sh` skips the build only for root `AGENTS.md`, `CLAUDE.md`, `README.md` and `LICENSE`, the agent directories, `.githooks/` and the GitHub templates, and runs the sync script's test only when `scripts/sync-from-marfa.sh`, its test or `ci.yml` changed.
+- `CI` runs on every pull request and every push to `main`. `Full CI` (named `Draft CI` while the pull request is a draft) is a roll-up of `Build and type-check`, and with `Pull request description` it is a required check, so never add `paths` filters to `ci.yml`: a filtered-out run leaves the check pending. `.github/scripts/ci-changes.sh` skips the build only for root `AGENTS.md`, `CLAUDE.md`, `README.md` and `LICENSE`, the agent directories, `.githooks/` and the GitHub templates, and runs the sync scripts' tests only when `scripts/sync-from-marfa.sh`, `scripts/sync-from-connectors.sh`, either one's test or `ci.yml` changed.
 - A pull request description follows the organization's template: `Pull request description` fails it otherwise (`scripts/check-pr-description.ts`).
 - A newer push cancels a pull request's earlier run; a push to `main` is never cancelled.
 - Every workflow runs on GitHub-hosted `ubuntu-latest`. The `CodeQL` workflow owns code scanning, so GitHub's default CodeQL setup stays off.

@@ -12,6 +12,7 @@ import { Changelog } from './changelog';
 import { Card, Cards } from './cards';
 import { FoldingCodeBlock, Terminal } from './code';
 import { CodeBlockTabs } from './code-tabs';
+import { Icon } from './icon';
 import { ReferenceList } from './reference-list';
 import { Step, Steps } from './steps';
 import { visualComponents } from './visuals';
@@ -36,6 +37,7 @@ export function getMDXComponents(components?: MDXComponents) {
     File,
     Files,
     Folder,
+    Icon,
     ReferenceList,
     Step,
     Steps,

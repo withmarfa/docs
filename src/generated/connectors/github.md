@@ -1,0 +1,4 @@
+- **Source:** `github`, shown as GitHub
+- **Types:** `github.file`, `github.file.image`, `github.repository`, `github.issue`, `github.comment`, `github.discussion`, `github.pull_request`, `github.notification`, `github.repository_file`, `github.directory`
+- **Carries changes back:** Yes, for `github.issue`, `github.comment`, `github.discussion`
+- **Can be turned off:** Yes

@@ -128,7 +128,11 @@ const FIRST: [query: string, pages: string[]][] = [
   ['upgrade', ['/run/upgrade']],
   ['make a key', ['/run/manage-keys']],
   ['narrow a key', ['/run/manage-keys']],
-  ['get help', ['/use/get-help']],
+  ['get help', ['/get-help']],
+  // The top-bar page for a reader with a problem ranks as a guide, as when it sat in Use, over the pages that repeat its words.
+  ['report a bug', ['/get-help']],
+  ['report a security issue', ['/get-help']],
+  ['ask a question', ['/get-help']],
   ['limits', ['/use/limits']],
   ['errors', ['/api-reference/errors']],
   ['webhooks', ['/build/receive-webhooks']],

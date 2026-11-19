@@ -50,6 +50,11 @@
 #                                     edge-fields.md and event-fields.md. The catalog's
 #                                     em dashes become colons, as the contract's
 #                                     generator writes them.
+#   src/generated/connectors/         the connector index and each connector's header,
+#                                     written again by `sync-from-connectors.sh --relink`
+#                                     against the catalog above, when the connectors'
+#                                     list is already there, because a type links to
+#                                     its Catalog page only if the catalog has one
 #   src/generated/marfa-release.json  the latest release tag, shown in the sidebar
 #   src/generated/cli-download.md     the macOS install of that release's CLI,
 #                                     included by the Quickstart and the CLI page
@@ -1194,5 +1199,12 @@ docker run --name marfa -d --restart unless-stopped -p 127.0.0.1:8600:8600 \\
   -v marfa-data:/data --env-file marfa.env ghcr.io/withmarfa/marfa-server:${RELEASE#v}
 \`\`\`
 IMAGE
+
+# A connector's header and the connector index link a type to its Catalog page when
+# the catalog has one, so a catalog change moves those links. Rewrite them against
+# the catalog just written, from the copy of the connectors' list the docs hold.
+if [ -s "$GENERATED/connectors/connectors.json" ]; then
+  bash "$SCRIPT_DIR/sync-from-connectors.sh" --relink > /dev/null
+fi
 
 echo "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, its command tree, the error codes, the housekeeping jobs, the start-only and stored settings, the permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release ($RELEASE), its CLI download and its server image commands synced from $MARFA_ROOT"

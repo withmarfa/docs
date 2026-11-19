@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildDocsMap, buildLlmsTxt } from '@/lib/docs-map';
+import { TOP_BAR_LINKS } from '@/lib/top-bar';
 import { getLLMText, getLlmsFullText, inLlmsFull, source } from '@/lib/source';
 import spec from '../../openapi.json';
 
@@ -21,8 +22,8 @@ describe('buildDocsMap', () => {
   const map = buildDocsMap();
   const lines = map.split('\n');
 
-  it('lists the five tabs in order, as H2 headings', () => {
-    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Start', '## Use', '## Run', '## Build', '## Reference']);
+  it('lists the six tabs in order, then the top-bar pages, as H2 headings', () => {
+    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Start', '## Use', '## Run', '## Build', '## Catalog', '## Reference', '## Also in the top bar']);
   });
 
   it('groups each tab as the sidebar does', () => {
@@ -40,13 +41,13 @@ describe('buildDocsMap', () => {
     expect(run.filter((line) => line.startsWith('### '))).toEqual(['### Set up', '### Keys and apps', '### Look after it']);
     expect(run.some((line) => line.startsWith('- [Troubleshooting](/run/troubleshooting)'))).toBe(true);
 
-    const build = lines.slice(lines.indexOf('## Build'), lines.indexOf('## Reference'));
+    const build = lines.slice(lines.indexOf('## Build'), lines.indexOf('## Catalog'));
     expect(build.filter((line) => line.startsWith('### '))).toEqual(['### Concepts', '### Tutorials', '### Build apps and agents', '### Build on a working copy', '### Build connectors']);
     expect(build.some((line) => line.startsWith('- [How Marfa works](/build/how-marfa-works)'))).toBe(true);
 
-    // The Catalog opens Reference; the Types and Connectors pages are folders, so their pages nest under them.
-    const reference = lines.slice(lines.indexOf('## Reference'));
-    const catalog = reference.slice(reference.indexOf('### Catalog'), reference.indexOf('### HTTP API'));
+    // The Types and Connectors pages are folders, so their pages nest under them.
+    const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Reference'));
+    const reference = lines.slice(lines.indexOf('## Reference'), lines.indexOf('## Also in the top bar'));
     expect(catalog.filter((line) => /^(- |  - |    - )/.test(line)).map((line) => line.replace(/\]\(.*$/, ']').replace(/^( *- )\[/, '$1'))).toEqual([
       '- Items]',
       '- Types]',
@@ -62,19 +63,42 @@ describe('buildDocsMap', () => {
       '- Events]',
       '- Permissions]',
       '- Connectors]',
-      ...['GitHub', 'Google Calendar', 'Todoist', 'Readwise', 'Readwise Reader', 'RSS'].map((title) => `  - ${title}]`),
+      // File-name order, as the sidebar lists them: `readwise-reader` sorts before `readwise`.
+      ...['GitHub', 'Google Calendar', 'Readwise Reader', 'Readwise', 'RSS', 'Todoist'].map((title) => `  - ${title}]`),
     ]);
     expect(catalog.some((line) => line.startsWith('  - [GitHub](/catalog/connectors/github)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('    - [Media](/catalog/media)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('- [Types](/catalog/types)'))).toBe(true);
 
     const groups = reference.filter((line) => line.startsWith('### '));
-    expect(groups.slice(0, 2)).toEqual(['### Catalog', '### HTTP API']);
+    expect(groups[0]).toBe('### HTTP API');
     expect(groups.slice(-3)).toEqual(['### SDKs', '### CLI and MCP', '### Resources']);
     expect(reference.some((line) => line.startsWith('- [TypeScript SDK](/typescript-sdk)'))).toBe(true);
     expect(reference.some((line) => line.startsWith('- [Marfa MCP server](/marfa-mcp-server)'))).toBe(true);
     expect(reference.some((line) => line.startsWith('- [Docs MCP server](/docs-mcp-server)'))).toBe(true);
     expect(reference.some((line) => line.startsWith('- [The contract](https://github.com/'))).toBe(true);
+  });
+
+  it('lists the pages the top bar links to last, and in no tab', () => {
+    const topBar = lines.slice(lines.indexOf('## Also in the top bar'));
+    expect(topBar.filter((line) => line.startsWith('- ')).map((line) => line.replace(/\].*$/, ']'))).toEqual(['- [Glossary]', '- [Changelog]', '- [Get help]']);
+    expect(lines.slice(0, lines.indexOf('## Also in the top bar')).filter((line) => /\]\(\/(glossary|changelog|get-help)\)/.test(line))).toEqual([]);
+  });
+
+  it('has a page for every top-bar link, and the page tree holds none of them', () => {
+    const inTree = new Set<string>();
+    const walk = (nodes: { type: string; url?: string; index?: { url: string }; children?: unknown[] }[]) => {
+      for (const node of nodes) {
+        if (node.url) inTree.add(node.url);
+        if (node.index) inTree.add(node.index.url);
+        if (node.children) walk(node.children as typeof nodes);
+      }
+    };
+    walk(source.getPageTree().children as Parameters<typeof walk>[0]);
+    for (const { href } of TOP_BAR_LINKS) {
+      expect(source.getPage(href.split('/').filter(Boolean)), href).toBeDefined();
+      expect(inTree.has(href), href).toBe(false);
+    }
   });
 
   it('lists the CLI as one page, with nothing nested under it', () => {

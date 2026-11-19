@@ -39,7 +39,7 @@ describe('the lists the Catalog holds', () => {
   it('are included on Catalog pages only', () => {
     const outside = ALL_PAGES.filter(
       ({ file, text }) =>
-        !file.startsWith(path.join('(reference)', `catalog${path.sep}`)) && LISTS.some((list) => text.includes(`src/generated/${list}`)),
+        !file.startsWith(`catalog${path.sep}`) && LISTS.some((list) => text.includes(`src/generated/${list}`)),
     ).map(({ file }) => file);
     expect(outside).toEqual([]);
   });
