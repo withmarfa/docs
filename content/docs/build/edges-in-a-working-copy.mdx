@@ -5,7 +5,7 @@ description: Link items, move an edge's end and check a write first with marfa d
 
 An [edge](/build/edges) points from one item to another. In a working copy, an edge write is judged against what the copy holds before it's queued, so a script offline learns of a refusal when it writes, not at the next drain. The commands here assume a copy that [Write in a working copy](/build/write-in-a-working-copy) has filled, named by `--db` or `MARFA_DB`.
 
-**An edge write waits until the copy is whole**: while it fills, every edge write is refused `hydration_incomplete`.
+**An edge write waits until the copy is whole and current**: while it fills, or once it's `stale`, every edge write is refused `hydration_incomplete` and nothing is queued.
 
 ## Link two items
 
@@ -33,13 +33,13 @@ The first ID is the from item's and the second the queued write's. `marfa device
 marfa device edges update <edge-id> --version 1 --from-id <other-series-id>
 ```
 
-**A move changes one end, and only an end that holds one edge of the type.** A `parent-of` edge is one-to-many: a series has many books, and a book has one series. So a book moves to another series by its from end, and moving its to end is refused `validation_error`, because there is no edge at the series to replace. Create the edge you want and delete the old one instead. A move of both ends is always refused.
+**A move changes one end, and only while the end that stays holds one edge of the type.** A `parent-of` edge is one-to-many: a series has many books, and a book has one series. Moving the from end keeps the book, which holds one `parent-of` edge, so a book moves to another series that way. Moving the to end keeps the series, which holds many, so it's refused `validation_error` ([`edges/move-many`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/edges.md#edgesmove-many)). Create the edge you want and delete the old one instead. A move of both ends is always refused.
 
 **After a drain sends a move of an edge's from item, the copy expires.** The move can change what the key reaches, so the drain sends every write queued behind it and then ends `copy_expired` once. Run `marfa device hydrate` again to rebuild the copy ([`queue-and-verdicts/edge-from-move-one-expiry`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsedge-from-move-one-expiry)).
 
 ## What the copy refuses
 
-**The copy refuses an edge write the instance would refuse, before it queues anything.** It judges an edge create, a move and the edges of an item create in the order the instance does, and gives the first refusal it finds:
+**The copy refuses an edge write the instance would refuse, before it queues anything.** An edge from an item to itself is refused `edge_cycle` first, whatever the copy holds. Then it judges an edge create, a move and the edges of an item create in the order the instance does, and gives the first refusal it finds:
 
 | Order | Refusal | Code |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ marfa device edges update <edge-id> --version 1 --from-id <other-series-id>
 | 2 | An end's type isn't one the edge type admits, or the edge would nest under a flat edge type | `edge_constraint_violation` |
 | 3 | A second edge of the type between the same two items | `edge_constraint_violation`, with `details.constraint` `duplicate` |
 | 4 | A second edge at an end that holds one edge of the type: either end of a one-to-one type, the to end of a one-to-many type, the from end of a many-to-one type | `edge_constraint_violation`, with `details.constraint` `cardinality` |
-| 5 | A cycle, or an edge from an item to itself | `edge_cycle` |
+| 5 | A cycle through other items | `edge_cycle` |
 
 The [Edges catalog](/catalog/edges) lists each edge type's cardinality. The refusal carries the instance's code and `details`, such as `edge_type`, `from_id`, `to_id` and `constraint`, so a script handles it as it would the instance's answer. Under `--json`, the error on standard error holds them under `local`, and the command exits `1`:
 
@@ -87,6 +87,6 @@ marfa device edges check-move <edge-id> --from-id <other-series-id> --json
 
 </Terminal>
 
-A check that finds a refusal exits as the write would, with the same code and details. **Finding nothing isn't the instance's verdict**: it judges the write once it's sent. An app on the [Swift SDK](/swift-sdk/items#edges-tags-and-extensions) checks an edge with `edges.check(from:to:type:)` and a move with `edges.check(_:moving:)`, and reads the same `details`.
+A check that finds a refusal exits as the write would, with the same code and details. **Finding nothing isn't the instance's verdict**: it judges the write once it's sent. An app on the [Swift SDK](/swift-sdk/items#edges) checks an edge with `edges.check(from:to:type:)` and a move with `edges.check(_:moving:)`, and reads the same `details`.
 
-The rules behind this guide are in the section on [an edge the server would refuse](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#an-edge-the-server-would-refuse) in the queue and verdicts chapter of the contract, and the order is [`queue-and-verdicts/edge-refusal-order`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsedge-refusal-order).
+The rules behind this guide are in the section on [an edge the server would refuse](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#an-edge-the-server-would-refuse) in the queue and verdicts chapter of the contract, and the order is [`queue-and-verdicts/edge-self-loop`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsedge-self-loop) and [`queue-and-verdicts/edge-refusal-order`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#queue-and-verdictsedge-refusal-order).

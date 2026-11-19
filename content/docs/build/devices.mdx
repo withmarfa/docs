@@ -29,13 +29,11 @@ applied 0 event(s), skipped 0; cursor 32
 
 Reads need no connection, [saved views](/build/read-a-view#read-a-view-from-a-working-copy) included. **While the copy fills, it answers from what has arrived**, marking a list or a search `partial`. An edge read or write, and a read or write of an item that hasn't arrived, are refused `hydration_incomplete`. A fill that stops partway resumes where it stopped.
 
-Each item in the copy answers `read_only` as the server last gave it. Nothing announces a change to it, so once 15 minutes have passed the device asks again after a catch-up or while following, and reports the items whose value moved as `read_only_held`.
-
-A second process can open the copy to read, with `--reader`: it's told each time the writer saves, and never writes.
+Each item in the copy answers `read_only` as the server last gave it, and the device reads it again from time to time, by the [read_only rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#an-items-read_only). Other processes can open the copy to read while one writes, as [the writer and readers](/swift-sdk/working-copy#the-writer-and-readers) explains.
 
 ### Tables and files
 
-**A device holds a [table](/build/tables) only when an app asks**, with `marfa device tables hold` or the SDK: a phone can hold a step counter without ten years of its readings. A held table is kept whole up to 100,000 rows and 64 MiB, and past that its reads go to the server. Rows are kept current from `rows.changed`, and a follow tells the app `table.filled` once a table is whole.
+**A device holds a [table](/build/tables) only when an app asks**, with `marfa device tables hold` or the SDK: a phone can hold a step counter without ten years of its readings. A table too large to hold is read from the server, by the [table rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#tables-a-device-holds). Rows are kept current from `rows.changed`, and a follow tells the app `table.filled` once a table is whole.
 
 A device keeps the files it fetched within a **file budget**, removing the ones read longest ago, as [Keep files on a device](/build/keep-files-on-a-device) shows.
 
@@ -43,7 +41,7 @@ A device keeps the files it fetched within a **file budget**, removing the ones 
 
 A copy sometimes needs filling again, and its **queued writes wait** for the fill.
 
-- **After a device was away longer than the instance keeps events**, its copy is `stale`. It answers reads, marking lists and searches `stale`, until a hydration refills it in place.
+- **After a device was away longer than the instance keeps events**, its copy is `stale`. It answers listings, searches and reads by id, marked `stale`, and refuses edge reads `hydration_incomplete`, until a hydration refills it in place.
 - **When another instance answers at the address, or the credential's reach changed**, the copy has expired. It refuses reads and writes until a hydration, which empties it first.
 
 ## A write made offline
@@ -65,19 +63,9 @@ Each settled write gets one of six verdicts:
 | `blocked` | Something must change before the write can go. |
 | `dead` | The write failed five times, not counting lost connections, timeouts, rate limits or server errors. |
 
-Only the last three need an **app's attention**. A `blocked` write says why:
+Only the last three need an **app's attention**. A `blocked` write names its reason, and each reason has its own way to clear, as [blocked writes](/swift-sdk/queue#blocked-writes) lists.
 
-| Reason | What clears it |
-| --- | --- |
-| `credential_refused` | A credential with the access it needs |
-| `key_spent` | A release |
-| `ancestor_unavailable` | A withdrawal, or a release once the credential can read the write's base version |
-| `conflict_unresolved` | A withdrawal |
-| `failing_alone` | A release or a withdrawal |
-| `instance_changed` | A release, to the new instance, or a withdrawal |
-| `awaiting_dependency` | Nothing: the answer to the write it waits for |
-
-A **release** sends the write again in the next drain, under a fresh idempotency key. A **withdrawal** takes it out of the queue and puts the copy back to what the instance holds. `marfa device release`, `marfa device withdraw` and the Swift SDK's [queue](/swift-sdk/queue) do these. [Write in a working copy](/build/write-in-a-working-copy) shows each from the CLI.
+A **release** sends the write again in the next drain, under the idempotency key it went under, so the instance answers an attempt that may already have applied from its record. Only a write blocked `key_spent`, `conflict_unresolved` or `ancestor_unavailable` gets a fresh key, because the instance's answer under the old one applied none of it. A **withdrawal** takes it out of the queue and puts the copy back to what the instance holds. `marfa device release`, `marfa device withdraw` and the Swift SDK's [queue](/swift-sdk/queue) do these. [Write in a working copy](/build/write-in-a-working-copy) shows each from the CLI.
 
 A working copy can also be **a folder**, where each item is a file, such as a note in Markdown. [Sync a folder](/use/sync-a-folder) explains how.
 
