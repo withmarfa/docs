@@ -35,18 +35,7 @@ Content-Type: application/json
 }
 ```
 
-```ts tab="TypeScript"
-const { data: webhook, error } = await marfa.POST("/webhooks", {
-  body: {
-    url: "https://example.com/marfa",
-    events: ["item.created", "item.updated"],
-    type_filter: "core.note",
-  },
-});
-if (error) throw new Error(error.error.message);
-```
-
-In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows. Marfa answers with the webhook, its `secret` included:
+Marfa answers with the webhook, its `secret` included:
 
 ```json title="Response" status="201"
 {
@@ -61,7 +50,7 @@ In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/ty
 }
 ```
 
-Marfa shows the secret **only this once**; every later read shows `****` and its last four characters. Keep it where only your receiver can read it, as you would a password. The CLI prints it alone on the first line. To use a secret of your own, send `secret` with at least 32 characters.
+Marfa shows the secret **only this once**, and the CLI prints it alone on the first line; later reads show only its last four characters. Keep it as you would a password. To choose your own, send `secret` with at least 32 characters.
 
 The webhook receives events written after you registered it, and nothing earlier. A `url` at an address that isn't public is refused unless [the instance allows it](#receive-deliveries-on-a-private-network).
 
@@ -93,7 +82,7 @@ X-Marfa-Signature: t=1795047415,v1=02cf60cdfab91dc4c0b59be82d09af59ef11b124d2b3a
 
 The request above is shortened. Anyone can post to your URL, so check `X-Marfa-Signature` before you trust a delivery. It reads `t=<unix seconds>,v1=<hex>`, where `v1` is the HMAC-SHA-256, under your secret, of `t`, a period, and the raw body. Compute it over the bytes **exactly as they arrived**: parsing the JSON and serializing it again changes them.
 
-The receiver uses only Node.js's built-in modules, on Node.js 22.18 or later. The first file checks the signature and refuses one older than five minutes, so a captured delivery can't be replayed:
+The receiver uses only Node.js's built-in modules, on Node.js 22.18 or later. The first file checks the signature. It refuses a header without a `t` and a `v1` of 64 hex digits, and one signed more than five minutes away from now, so a captured delivery can't be replayed. It compares the two signatures as bytes, in constant time:
 
 ```ts title="verify-signature.mts"
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -105,42 +94,56 @@ export function verifySignature(
   toleranceSeconds = 300,
 ): boolean {
   if (header === undefined) return false;
-  const parts = Object.fromEntries(header.split(",").map((part) => part.trim().split("=", 2)));
-  const { t, v1 } = parts;
-  if (!/^\d+$/.test(t ?? "") || typeof v1 !== "string") return false;
+  const fields = new Map<string, string>();
+  for (const part of header.split(",")) {
+    const at = part.indexOf("=");
+    if (at > 0) fields.set(part.slice(0, at).trim(), part.slice(at + 1).trim());
+  }
+  const t = fields.get("t");
+  const v1 = fields.get("v1");
+  if (t === undefined || !/^\d+$/.test(t)) return false;
+  if (v1 === undefined || !/^[0-9a-f]{64}$/i.test(v1)) return false;
   if (Math.abs(Date.now() / 1000 - Number(t)) > toleranceSeconds) return false;
 
-  const expected = createHmac("sha256", secret).update(`${t}.`).update(rawBody).digest("hex");
-  return v1.length === expected.length && timingSafeEqual(Buffer.from(v1), Buffer.from(expected));
+  const expected = createHmac("sha256", secret).update(`${t}.`).update(rawBody).digest();
+  const received = Buffer.from(v1, "hex");
+  return received.length === expected.length && timingSafeEqual(received, expected);
 }
 ```
 
-The second answers before it does any work, and skips a delivery it has handled:
+The second answers before it does any work and skips a delivery it has handled. A body it can't read gets `400` rather than stopping the receiver:
 
 ```ts title="receiver.mts"
 import { createServer } from "node:http";
 import { verifySignature } from "./verify-signature.mts";
 
-const secret = process.env.MARFA_WEBHOOK_SECRET!;
+const secret = process.env.MARFA_WEBHOOK_SECRET;
+if (!secret) throw new Error("Set MARFA_WEBHOOK_SECRET to the webhook's secret.");
 const handled = new Set<string>(); // keep this in your database
 
 createServer((request, response) => {
   const chunks: Buffer[] = [];
   request.on("data", (chunk: Buffer) => chunks.push(chunk));
+  request.on("error", () => response.destroy());
   request.on("end", () => {
-    const rawBody = Buffer.concat(chunks);
-    const signature = request.headers["x-marfa-signature"];
-    if (!verifySignature(rawBody, typeof signature === "string" ? signature : undefined, secret)) {
-      response.writeHead(401).end();
-      return;
+    try {
+      const rawBody = Buffer.concat(chunks);
+      const signature = request.headers["x-marfa-signature"];
+      if (!verifySignature(rawBody, typeof signature === "string" ? signature : undefined, secret)) {
+        response.writeHead(401).end();
+        return;
+      }
+
+      const delivery = JSON.parse(rawBody.toString("utf8"));
+      response.writeHead(204).end();
+      if (handled.has(delivery.delivery_id)) return; // a repeat
+      handled.add(delivery.delivery_id);
+
+      console.log(delivery.event_type, delivery.event_id, delivery.item?.id);
+    } catch (error) {
+      console.error(error);
+      if (!response.headersSent) response.writeHead(400).end();
     }
-
-    const delivery = JSON.parse(rawBody.toString("utf8"));
-    response.writeHead(204).end();
-    if (handled.has(delivery.delivery_id)) return; // a repeat
-    handled.add(delivery.delivery_id);
-
-    console.log(delivery.event_type, delivery.event_id, delivery.item?.id);
   });
 }).listen(3000);
 ```
@@ -153,7 +156,7 @@ Marfa signs every attempt afresh, with its own `t`, so a retry of an old event s
 
 ## Answer, and recognize a repeat
 
-Answer with a `2xx` status **within 10 seconds**, or the attempt counts as not answered: do slow work after you've answered, or in a queue. Marfa can deliver the same event more than once, such as when your answer was lost, and every attempt carries the same `delivery_id`. Record the IDs you've handled, as the receiver above does.
+Answer with a `2xx` status **within 10 seconds**, or the attempt counts as not answered: do slow work after you've answered, or in a queue. Marfa can deliver an event more than once, such as when your answer was lost, and every attempt carries the same `delivery_id`. Record the IDs you've handled, as the receiver above does.
 
 ## Expect deliveries out of order
 
@@ -165,7 +168,7 @@ Marfa sends one delivery at a time to each webhook, but not always in the order 
 
 Marfa tries a delivery again when your receiver can't be reached, doesn't answer in time, or answers `5xx`, `408` or `429`. It makes eight attempts, waiting 1, 5, 25, 125, 625, 3,125 and 15,625 seconds between them. A `Retry-After` header asks it to wait longer, up to five minutes. Any other `4xx`, or a redirect, ends the delivery at once: Marfa never follows a redirect.
 
-A delivery Marfa gives up on is `failed`. The receiver above answers `401` for a bad signature, so a wrong secret ends the delivery at once instead of being retried for hours. Once you've fixed it, you can send the delivery again.
+A delivery Marfa gives up on is `failed`. The receiver above answers `401` for a bad signature, so a wrong secret fails the delivery at once instead of retrying it for hours. Once you've fixed it, send the delivery again.
 
 [List webhook deliveries](/api-reference/webhooks/listWebhookDeliveries) shows each delivery, newest first, with its `status` and the last answer your receiver gave:
 
@@ -188,6 +191,7 @@ Authorization: Bearer $MARFA_API_KEY
       "event_type": "item.updated",
       "status_code": 401,
       "attempt": 1,
+      "succeeded": false,
       "error": "HTTP 401",
       "created_at": "2026-11-19T00:16:31.777Z"
     }
@@ -196,7 +200,7 @@ Authorization: Bearer $MARFA_API_KEY
 }
 ```
 
-A delivery's `status` is `pending`, `succeeded`, `failed` or `canceled`. [Redeliver a webhook delivery](/api-reference/webhooks/redeliverWebhookDelivery) sends a `failed` delivery again, to the webhook's current URL and signed with its current secret, with the same `delivery_id`. It answers `202` with the delivery as `pending`, and Marfa sends it shortly after, with eight attempts of its own:
+A delivery's `status` is `pending`, `succeeded`, `failed` or `canceled`, and `succeeded` is `true` only for the second. `attempt` counts attempts across every redelivery. [Redeliver a webhook delivery](/api-reference/webhooks/redeliverWebhookDelivery) sends a `failed` delivery again, to the webhook's current URL and signed with its current secret, with the same `delivery_id`. It answers `202` with the delivery as `pending`, and Marfa sends it shortly after, with eight attempts of its own:
 
 ```bash tab="CLI" tab-group="client"
 marfa webhooks redeliver 01a1f129-39f3-759b-84ea-b791ecb64764 01a1f129-8222-708f-9ddc-1483d55cd7ee
@@ -210,25 +214,18 @@ Authorization: Bearer $MARFA_API_KEY
 A refusal is `409 conflict`, with the reason in `details.reason`:
 
 - **`webhook_inactive`:** the webhook is turned off.
-- **`credential_unavailable`:** the key or app that registered it is no longer valid, or no longer holds `webhooks.manage`.
-- **`delivery_not_failed`:** the delivery is `pending`, `succeeded` or `canceled`.
-- **`delivery_expired`:** the delivery is older than the instance keeps its audit log, 90 days by default (`audit_retention_days`).
+- **`credential_unavailable`:** the key or app that registered it is no longer valid, or lacks `webhooks.manage`.
+- **`delivery_not_failed`:** the delivery isn't `failed`.
+- **`delivery_expired`:** the delivery is older than the audit log keeps, 90 days by default (`audit_retention_days`).
 
 ## Change what a webhook sends
 
-[Update a webhook](/api-reference/webhooks/updateWebhook) changes its `url`, its `events`, its `type_filter` or whether it is `active`. A change ends the pending deliveries it no longer allows, so a receiver is never sent an event it has since excluded:
-
-- **Narrowing `events` or `type_filter`** settles each pending delivery they no longer select as `canceled` before the update answers.
-- **Changing the `url` or setting `active` to `false`** settles every pending delivery as `canceled`, so none goes to the old address.
-
-Deleting a webhook sends none of its pending deliveries.
+[Update a webhook](/api-reference/webhooks/updateWebhook) changes its `url`, its `events`, its `type_filter` or whether it is `active`. **A change cancels the pending deliveries it no longer allows**: narrowing `events` or `type_filter` cancels those they no longer select, and changing the `url` or turning the webhook off cancels them all, so none goes to the old address. Deleting a webhook sends none of its pending deliveries.
 
 ## Receive deliveries on a private network
 
-By default, Marfa posts only to public addresses. It refuses `400 validation_error` a `url` whose host isn't public, such as `localhost` or a home network, or whose name leads to such an address.
+By default, Marfa posts only to public addresses. It refuses `400 validation_error` a `url` whose host, or the address its name leads to, isn't public, such as `localhost` or a home network. It looks the name up again at each delivery, and fails one that now leads somewhere private, with the error "The receiver's address is not public."
 
-The configuration's **`allow_private_addresses`** lets Marfa post to them, and to a receiver on your own machine, such as `http://localhost:3000/marfa`. A key can't change it: a person does, on the server's own computer or from an app they signed in to within the last five minutes, as [Settings](/run/settings) shows.
-
-Marfa looks a name up again at each delivery, and one that now finds an address that isn't public is `failed`, with the error "The receiver's address is not public." Once that's fixed, [redeliver it](#when-a-delivery-fails).
+The setting **`allow_private_addresses`** lets Marfa post there, including to a receiver on your own machine, such as `http://localhost:3000/marfa`. A key can't change it: a person does, on the server's own computer or after a recent sign-in, as [Settings](/run/settings) shows.
 
 The rules behind this guide are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) chapter of the contract.
