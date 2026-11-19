@@ -421,7 +421,9 @@ function includedPart(content: string, section: string | undefined): string | un
  * fumadocs-mdx resolves it: the path is relative to the including file, or to
  * `cwd` with the `cwd` attribute, and `#id` picks one section. An include of
  * anything other than Markdown, or with `lang`, becomes a code block and holds
- * no prose. One that cannot be resolved is a violation, as it fails the build.
+ * no prose. One that cannot be resolved is a violation, as it fails the build,
+ * and so is one of a file outside `src/generated/`: the page's word count skips
+ * every include, so only text the sync writes may arrive that way.
  */
 export function resolveIncludes(
   page: string,
@@ -443,9 +445,14 @@ export function resolveIncludes(
     const file = hash === -1 ? specifier : specifier.slice(0, hash);
     const section = hash === -1 ? undefined : specifier.slice(hash + 1);
     const extension = path.extname(file);
+    const target = path.resolve(/\bcwd\b/.test(match[1]) ? cwd : path.dirname(pagePath), file);
+    const name = path.relative(cwd, target).split(path.sep).join('/');
+    if (!name.startsWith('src/generated/')) {
+      fail(match.index, `<include> of ${specifier} is not a file under src/generated/, so the words it brings would not count toward the page's limit`);
+      continue;
+    }
     if (/\blang=/.test(match[1]) || (extension !== '.md' && extension !== '.mdx')) continue;
 
-    const target = path.resolve(/\bcwd\b/.test(match[1]) ? cwd : path.dirname(pagePath), file);
     if (chain.includes(target)) {
       fail(match.index, `<include> of ${specifier} includes itself`);
       continue;
@@ -461,7 +468,6 @@ export function resolveIncludes(
       continue;
     }
 
-    const name = path.relative(cwd, target).split(path.sep).join('/');
     included.push({ file: `${name} (included by ${page})`, text: part });
     const nested = resolveIncludes(`${name} (included by ${page})`, target, part, cwd, read, [...chain, target]);
     included.push(...nested.included);
@@ -790,6 +796,7 @@ describe('content lint: each rule fires on a bad sample', () => {
     const files = new Map<string, string>([
       ['/repo/src/generated/rules.md', '# Rules\n\nIntro.\n\n## One\nFirst — dash.\n### Two\nSecond.\n## One\nThird.\n'],
       ['/repo/content/docs/build/local.md', 'Local — text.\n'],
+      ['/repo/src/other/not-generated.md', 'Not generated.\n'],
       ['/repo/src/generated/fenced.md', '## A\n```\n## B\n```\nIn A.\n## C\nIn C.\n'],
       ['/repo/src/generated/custom.md', '## Words [#custom-id]\nBody.\n## `Code` and [a link](/x)\nMore.\n'],
       ['/repo/src/generated/front.md', '---\ntitle: T — U\n---\nBody.\n'],
@@ -807,10 +814,30 @@ describe('content lint: each rule fires on a bad sample', () => {
       const root = resolve('<include cwd>src/generated/rules.md</include>');
       expect(root.violations).toEqual([]);
       expect(root.included.map((i) => i.file)).toEqual(['src/generated/rules.md (included by build/page.mdx)']);
-      const local = resolve('<include>./local.md</include>');
-      expect(local.violations).toEqual([]);
-      expect(local.included[0].text).toBe('Local — text.\n');
+      const generated = resolve('<include>../../../src/generated/rules.md</include>');
+      expect(generated.violations).toEqual([]);
+      expect(generated.included[0].text).toContain('Intro.');
       expect(rules(resolve('<include>src/generated/rules.md</include>').violations)).toEqual(['include']);
+    });
+
+    it('fails an include of any file outside src/generated/, whatever its kind', () => {
+      const refused = [
+        '<include>./local.md</include>',
+        '<include cwd>content/docs/build/local.md</include>',
+        '<include cwd>src/other/not-generated.md</include>',
+        '<include cwd>src/generated/../other/not-generated.md</include>',
+        '<include cwd>src/generated/../../content/docs/build/local.md</include>',
+        '<include cwd lang="md">src/other/not-generated.md</include>',
+        '<include cwd>src/other/code.ts</include>',
+        '<include cwd>src/generated-not/x.md</include>',
+      ];
+      for (const text of refused) {
+        const { included, violations } = resolve(`Ok.\n${text}`);
+        expect(rules(violations), text).toEqual(['include']);
+        expect(violations[0].detail, text).toContain('not a file under src/generated/');
+        expect(violations[0].line).toBe(2);
+        expect(included, text).toEqual([]);
+      }
     });
 
     it('takes one section, to the next heading of any level, and keeps the file\'s line numbers', () => {
