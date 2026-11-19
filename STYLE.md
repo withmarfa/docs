@@ -44,23 +44,23 @@ Each thing is said once, with links between. Use and Run say what to do; Build e
 
 ## Page types
 
-Each page is one type, and the type sets what it holds and how long it may be. **A ceiling is not a target:** `pnpm test` fails a page over it. Words are prose words: code, sample output, frontmatter, MDX markup and generated tables don't count (`src/lib/page-limits.ts` says exactly how).
+Each page is one type, and the type sets what it holds and how long it may be. **A ceiling is not a target:** `pnpm test` fails a page over it. Words are prose words: what a reader reads, including the text in a component's attributes, such as a `Card` `description` or a `Callout` `title`. Code, frontmatter, MDX markup and generated tables don't count, so code has caps of its own (below). `src/lib/page-limits.ts` says exactly how a page is measured.
 
 | Type | What goes in | What goes out, and where it goes instead | Ceiling |
 | --- | --- | --- | --- |
 | Tutorial | Three opening lines in a list (**You'll build**, **You need**, **You'll have**), each true of the page, then at most seven steps, the code each step adds and one check that each step worked | Alternatives and options go to a how-to. A refusal goes to a fix page, unless showing it is the lesson. Output is cut to the lines that prove a step worked | 800 words, 12 code blocks |
 | How-to | One job, what the reader needs in one line, then the everyday steps | Explanation goes to a concept page. Every option goes to the reference. Error cases go to a fix page. Another vendor's plan rules become a link to that vendor's help | 600 words, 6 code blocks, 6 H2 headings |
-| Fix page | Entries headed by the exact text the reader sees, each with the cause in one sentence and the fix in one step | Rare messages, and codes the Errors page explains, stay on Errors and get a link | 600 words, 8 entries, 80 words an entry |
-| Concept | One idea: what it is, why it works this way, the rules a reader meets in normal use, and one example | Lists go to the Catalog. Numbers and codes go to the reference. Steps go to a how-to | 500 words, 5 H2 headings |
+| Fix page | Entries headed by the exact text the reader sees, each with the cause in one sentence and the fix in one step | Rare messages, and codes the Errors page explains, stay on Errors and get a link | 600 words, 8 entries, 80 words and one code block an entry |
+| Concept | One idea: what it is, why it works this way, the rules a reader meets in normal use, and one example | Lists go to the Catalog. Numbers and codes go to the reference. Steps go to a how-to | 500 words, 5 H2 headings, 2 code blocks |
 | Reference | Tables, generated where Marfa generates them, with at most one line of prose for each entry | Teaching and order go to a how-to or a concept page | Its own, in `page-limits.json` |
-| Catalog | Generated tables, and for a core type one example item. A connector page adds only "What goes back" and "What to know" | Everything that explains | 150 words for a type page, 200 for an edge page, 500 for a connector page |
+| Catalog | Generated tables, and for a core type one example item. A connector page adds only "What goes back" and "What to know" | Everything that explains | 150 words for a type page, 200 for an edge page, 500 words and 4 code blocks for a connector page |
 
-- **Sample output:** at most 12 lines in each `Terminal`, and 5 on a Start page. The command's own `--help` or the reference holds the full output.
-- **A fix page's entries** are its H2 and H3 headings, each the text the reader sees. A file named `fix-*` is a fix page.
+- **Terminals and code:** a `Terminal` holds at most 12 lines, its command and its output together, and 5 on a Start page. The command's own `--help` or the reference holds the full output. Except on a reference page, no code block runs past 25 lines, and a block with no language, or `text` or `md`, runs past 12 at most, because prose in a block is prose nobody counts. A concept page holds at most 2 code blocks.
+- **A fix page's entries** are its H2 and H3 headings, each the text the reader sees; a deeper heading and its text belong to the entry above. A file named `fix-*` is a fix page.
 - **Each page has a `job` line** in its frontmatter (see "Frontmatter").
 - **A page that needs more than its ceiling is listed in `src/lib/page-limits.json`** under `pages`, with its budget and its reason. Add no entry for a page that you can split.
-- **A page that is over a rule today is listed under `pending`** with its current numbers, until it is rewritten. It may not grow, and the test fails when the page no longer needs its entry. A rewritten page leaves `pending`: it comes in within its ceiling, or is split or cut, never given a new entry.
-- **The kind comes from the page.** A file named `fix-*` is a fix page; otherwise `kind` in the frontmatter (`concept`, `how-to`, `tutorial`, `fix`, `connector` or `reference`); otherwise the page's entry, or its folder's, in `page-limits.json`. A rewritten page names its own `kind`.
+- **A page that is over a rule today is listed under `pending`** with its current numbers, until it is rewritten. It may not grow, and the test fails when the page falls below a ceiling, with the number to lower it to, or no longer needs its entry. A rewritten page leaves `pending`: it comes in within its ceiling, or is split or cut, never given a new entry.
+- **The kind comes from the page.** A file named `fix-*` is a fix page; otherwise `kind` in the frontmatter (`concept`, `how-to`, `tutorial`, `fix`, `connector` or `reference`); otherwise the page's entry, or its folder's, in `page-limits.json`. A folder lists the kinds its pages may name (`kinds`), and a kind outside the list fails the page, a `fix-*` file included, so a page cannot name its way to a bigger budget. A rewritten page names its own `kind`.
 
 `content/AGENTS.md` says how to add a page to its tab and wire it into the site.
 
@@ -201,7 +201,7 @@ The docs stay right by being rewritten whole, not by being added to.
 
 ## Frontmatter
 
-Every page starts with a `title` and a one-sentence `description`. Both are required. The description says what the page gives the reader, not what it contains. Every page also has a `job`: one sentence, at most 30 words, saying who the reader is and what they leave able to do. `pnpm test` checks it (a page in `pending` may lack one until it is rewritten). A page may also name its `kind` (see "Page types").
+Every page starts with a `title` and a one-sentence `description`. Both are required. The title is at most 12 words and the description at most 40, because a reader reads both as the page's first lines. The description says what the page gives the reader, not what it contains. Every page also has a `job`: one sentence, at most 30 words, saying who the reader is and what they leave able to do. `pnpm test` checks it (a page in `pending` may lack one until it is rewritten). A page may also name its `kind` (see "Page types").
 
 ```mdx
 ---
