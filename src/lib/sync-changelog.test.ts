@@ -15,50 +15,50 @@ const release = (tag: string, extra: Record<string, unknown> = {}) => ({
 
 describe('parseVersion', () => {
   it('reads the three numbers of a version tag, and nothing else', () => {
-    expect(parseVersion('v0.0.51')).toEqual([0, 0, 51]);
+    expect(parseVersion('v0.0.81')).toEqual([0, 0, 81]);
     expect(parseVersion('v1.20.3')).toEqual([1, 20, 3]);
-    for (const tag of ['0.0.51', 'v0.0', 'v0.0.51-rc1', 'swift-v0.0.51', 'latest']) expect(parseVersion(tag), tag).toBeNull();
+    for (const tag of ['0.0.81', 'v0.0', 'v0.0.81-rc1', 'swift-v0.0.81', 'latest']) expect(parseVersion(tag), tag).toBeNull();
   });
 });
 
 describe('selectReleases', () => {
   it('starts at the first version the page shows', () => {
-    expect(FIRST_VERSION).toBe('v0.0.51');
-    const tags = selectReleases([release('v0.0.50'), release('v0.0.51'), release('v0.0.52')]).map((r) => r.tag);
-    expect(tags).toEqual(['v0.0.52', 'v0.0.51']);
+    expect(FIRST_VERSION).toBe('v0.0.81');
+    const tags = selectReleases([release('v0.0.80'), release('v0.0.81'), release('v0.0.82')]).map((r) => r.tag);
+    expect(tags).toEqual(['v0.0.82', 'v0.0.81']);
   });
 
   it('puts the newest version first by its numbers, not its text or its date', () => {
-    const raw = [release('v0.0.99'), release('v0.0.100', { published_at: '2026-11-01T00:00:00Z' }), release('v0.1.0'), release('v0.0.51')];
-    expect(selectReleases(raw).map((r) => r.tag)).toEqual(['v0.1.0', 'v0.0.100', 'v0.0.99', 'v0.0.51']);
+    const raw = [release('v0.0.99'), release('v0.0.100', { published_at: '2026-11-01T00:00:00Z' }), release('v0.1.0'), release('v0.0.81')];
+    expect(selectReleases(raw).map((r) => r.tag)).toEqual(['v0.1.0', 'v0.0.100', 'v0.0.99', 'v0.0.81']);
   });
 
   it('leaves out drafts, pre-releases, tags that are not versions and releases with no date', () => {
     const raw = [
-      release('v0.0.60', { draft: true }),
-      release('v0.0.59', { prerelease: true }),
+      release('v0.0.86', { draft: true }),
+      release('v0.0.85', { prerelease: true }),
       release('nightly'),
-      release('swift-v0.0.58'),
-      release('v0.0.57', { published_at: null }),
-      release('v0.0.56'),
+      release('swift-v0.0.84'),
+      release('v0.0.83', { published_at: null }),
+      release('v0.0.82'),
     ];
-    expect(selectReleases(raw).map((r) => r.tag)).toEqual(['v0.0.56']);
+    expect(selectReleases(raw).map((r) => r.tag)).toEqual(['v0.0.82']);
   });
 
   it('keeps the tag, date, address and notes, with Unix line endings and no padding', () => {
-    expect(selectReleases([release('v0.0.51', { body: '\r\nOne sentence.\r\n\r\n### Server\r\n- **Added:** a thing.\r\n' })])).toEqual([
+    expect(selectReleases([release('v0.0.81', { body: '\r\nOne sentence.\r\n\r\n### Server\r\n- **Added:** a thing.\r\n' })])).toEqual([
       {
-        tag: 'v0.0.51',
+        tag: 'v0.0.81',
         publishedAt: '2026-11-02T09:30:00Z',
-        url: 'https://github.com/withmarfa/marfa/releases/tag/v0.0.51',
+        url: 'https://github.com/withmarfa/marfa/releases/tag/v0.0.81',
         body: 'One sentence.\n\n### Server\n- **Added:** a thing.',
       },
     ]);
   });
 
   it('keeps a release with no notes, and answers an empty list when none qualifies', () => {
-    expect(selectReleases([release('v0.0.51', { body: null })])[0].body).toBe('');
-    expect(selectReleases([release('v0.0.50')])).toEqual([]);
+    expect(selectReleases([release('v0.0.81', { body: null })])[0].body).toBe('');
+    expect(selectReleases([release('v0.0.80')])).toEqual([]);
     expect(selectReleases([])).toEqual([]);
   });
 
@@ -67,7 +67,7 @@ describe('selectReleases', () => {
   });
 
   it('takes the first version as a parameter and refuses one that is not a version', () => {
-    expect(selectReleases([release('v0.0.49'), release('v0.0.50')], 'v0.0.49')).toHaveLength(2);
+    expect(selectReleases([release('v0.0.79'), release('v0.0.80')], 'v0.0.79')).toHaveLength(2);
     expect(() => selectReleases([], 'main')).toThrow('not a vMAJOR.MINOR.PATCH');
   });
 });
