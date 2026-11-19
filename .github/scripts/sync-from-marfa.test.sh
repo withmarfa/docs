@@ -440,11 +440,11 @@ folder_expected="$(cat <<'EOF'
 EOF
 )"
 edge_table_expected="$(cat <<'EOF'
-| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | On delete | To types                           |
-| --------------- | ------------- | --------------- | ------------ | -------------- | --------- | ---------------------------------- |
-| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`  | Any type with the role `container` |
-| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade` | Any type                           |
-| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`  | `system.folder`                    |
+| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | `cascade_on_delete` | `written_from` | To types                           |
+| --------------- | ------------- | --------------- | ------------ | -------------- | ------------------- | -------------- | ---------------------------------- |
+| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`            | `from`         | Any type with the role `container` |
+| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade`           | `to`           | Any type                           |
+| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`            | `none`         | `system.folder`                    |
 EOF
 )"
 catalog_edges_expected="$(cat <<'EOF'
@@ -1227,7 +1227,7 @@ check "a default of both copies and a subtype with no field to add: the script s
 check "a default of both copies names the fields that do not keep both, as values" 1 \
   "$(grep -cF '| [`merge_policy`](/catalog/type-rules#merge-policy) | `last_writer_wins` for `title` and `language`; `keep_both_copies` for every other field |' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
 check "an edge type that constrains its source adds a From types column, and several types are joined with or" \
-  "$(printf '%s\n%s\n%s\n%s\n%s' '| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | On delete | From types                      | To types                           |' '| --------------- | ------------- | --------------- | ------------ | -------------- | --------- | ------------------------------- | ---------------------------------- |' '| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`  | Any type                        | Any type with the role `container` |' '| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade` | Any type                        | Any type                           |' '| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`  | `core.note` or `core.note.memo` | `system.folder`                    |')" \
+  "$(printf '%s\n%s\n%s\n%s\n%s' '| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | `cascade_on_delete` | `written_from` | From types                      | To types                           |' '| --------------- | ------------- | --------------- | ------------ | -------------- | ------------------- | -------------- | ------------------------------- | ---------------------------------- |' '| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`            | `from`         | Any type                        | Any type with the role `container` |' '| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade`           | `to`           | Any type                        | Any type                           |' '| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`            | `none`         | `core.note` or `core.note.memo` | `system.folder`                    |')" \
   "$(cat "${work}/shapes/docs/src/generated/catalog/edge-types.md")"
 check "a subtype with nothing to add is a heading and its description" \
   "$(printf '### core.note.bare [#core-note-bare]\n\nA note.')" "$(sed -n '/^### core.note.bare \[#core-note-bare\]$/,$p' "${work}/shapes/docs/src/generated/catalog/core.note.md")"

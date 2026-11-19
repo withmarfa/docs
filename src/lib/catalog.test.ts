@@ -67,6 +67,10 @@ const contractIndex: { chapters: Record<string, Record<string, string>> } = JSON
 const CREATE_KEYS = new Set<string>(
   Object.keys(spec.paths['/items'].post.requestBody.content['application/json'].schema.properties),
 );
+/** What the request that creates an edge may carry. */
+const EDGE_CREATE_KEYS = new Set<string>(
+  Object.keys(spec.paths['/edges'].post.requestBody.content['application/json'].schema.properties),
+);
 
 // ── The example check ────────────────────────────────────────────────────
 
@@ -228,7 +232,7 @@ function plain(text: string): string {
 }
 
 // The Types folder and the two families inside it are folder groups, which add nothing to a page's address.
-// The Connectors folder is a real one: its index page is the folder's, and the six connectors sit beneath it.
+// The Edges and Connectors folders are real ones: each index page is the folder's, with a page for each edge type or connector beneath it.
 const PAGES = (readdirSync(CATALOG_PAGES, { recursive: true }) as string[])
   .filter((file) => file.endsWith('.mdx'))
   .map((file) => ({
@@ -253,6 +257,9 @@ const OTHER_PAGES = ['items', 'types', 'field-kinds', 'type-rules', 'display-hin
 /** The connectors Marfa ships, one page each beneath the Connectors page. */
 const CONNECTORS_DIR = 'connectors';
 const CONNECTOR_SLUGS = ['github', 'google-calendar', 'todoist', 'readwise', 'readwise-reader', 'rss'];
+/** The edge types Marfa ships, one page each beneath the Edges page, named by the edge type's ID. */
+const EDGES_DIR = 'edges';
+const EDGE_SLUGS = catalog.edge_types.map((edge) => edge.id);
 /** Where the pages about types sit: in the Types folder, with the two families of types inside it. */
 const TYPES_DIR = '(types)';
 const TYPES_PAGES = ['types', 'type-rules', 'display-hints', 'field-kinds'];
@@ -272,7 +279,7 @@ describe('the catalog the pages follow', () => {
 describe('the tab', () => {
   it('has one page for each top-level type and the other pages, and no other', () => {
     expect(TOP_LEVEL.every((type) => type.id.startsWith('core.') || type.id.startsWith('system.'))).toBe(true);
-    expect(PAGES.map((page) => page.slug).sort()).toEqual([...CORE_SLUGS, ...SYSTEM_SLUGS, ...OTHER_PAGES, ...CONNECTOR_SLUGS].sort());
+    expect(PAGES.map((page) => page.slug).sort()).toEqual([...CORE_SLUGS, ...SYSTEM_SLUGS, ...OTHER_PAGES, ...CONNECTOR_SLUGS, ...EDGE_SLUGS].sort());
   });
 
   it('names an identifier only on the page of a type', () => {
@@ -301,8 +308,10 @@ describe('the tab', () => {
     const inTypes = [typesMeta.pagesIndex, ...typesMeta.pages.filter((entry: string) => !entry.startsWith('('))];
     const inFamilies = families.flatMap((family: string) => readMeta(`${TYPES_DIR}/${family}`).pages as string[]);
     const connectorsMeta = readMeta(CONNECTORS_DIR);
+    const edgesMeta = readMeta(EDGES_DIR);
     expect(direct).toContain(CONNECTORS_DIR);
-    const all = [...direct, ...inTypes, ...inFamilies, ...connectorsMeta.pages];
+    expect(direct).toContain(EDGES_DIR);
+    const all = [...direct, ...inTypes, ...inFamilies, ...connectorsMeta.pages, ...edgesMeta.pages];
     expect(all.sort()).toEqual(PAGES.map((page) => page.slug).sort());
     expect(all.length).toBe(new Set(all).size);
   });
@@ -331,7 +340,7 @@ describe('the tab', () => {
   it('keeps the pages about types in the Types folder and the others directly in the tab', () => {
     expect(PAGES.filter((page) => page.group === TYPES_DIR).map((page) => page.slug).sort()).toEqual([...TYPES_PAGES].sort());
     expect(PAGES.filter((page) => page.group === '.').map((page) => page.slug).sort()).toEqual(
-      OTHER_PAGES.filter((slug) => !TYPES_PAGES.includes(slug) && slug !== CONNECTORS_DIR).sort(),
+      OTHER_PAGES.filter((slug) => !TYPES_PAGES.includes(slug) && slug !== CONNECTORS_DIR && slug !== EDGES_DIR).sort(),
     );
   });
 
@@ -347,11 +356,27 @@ describe('the tab', () => {
     ).toEqual(['connectors', ...CONNECTOR_SLUGS].sort());
   });
 
-  it('shows each generated file on exactly one page', () => {
+  it('opens the Edge types folder on its own page, closed, with a page for each edge type beneath it, in the catalog\'s order', () => {
+    const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, EDGES_DIR, 'meta.json'), 'utf8'));
+    expect(meta.title).toBe('Edge types');
+    expect(meta.defaultOpen).toBe(false);
+    expect(meta.pages).toEqual(EDGE_SLUGS);
+    expect(
+      PAGES.filter((page) => page.group === EDGES_DIR)
+        .map((page) => page.slug)
+        .sort(),
+    ).toEqual([EDGES_DIR, ...EDGE_SLUGS].sort());
+  });
+
+  it('shows each generated file on exactly one page, and edges.md a section on each edge type\'s page', () => {
     const shown = PAGES.flatMap(({ text }) =>
       [...text.matchAll(/<include cwd>src\/generated\/catalog\/([^<#]+)<\/include>/g)].map((match) => match[1]),
     );
-    const written = readdirSync(GENERATED).filter((file) => file.endsWith('.md'));
+    const sections = PAGES.flatMap(({ text }) =>
+      [...text.matchAll(/<include cwd>src\/generated\/catalog\/edges\.md#([^<]+)<\/include>/g)].map((match) => match[1]),
+    );
+    expect(sections.sort()).toEqual([...EDGE_SLUGS].sort());
+    const written = readdirSync(GENERATED).filter((file) => file.endsWith('.md') && file !== 'edges.md');
     expect(shown.sort()).toEqual(written.sort());
   });
 });
@@ -499,7 +524,8 @@ describe('the edge type table', () => {
       'Reverse label',
       'Reverse name',
       'Cardinality',
-      'On delete',
+      '`cascade_on_delete`',
+      '`written_from`',
       ...(constrained ? ['From types'] : []),
       'To types',
     ]);
@@ -511,6 +537,7 @@ describe('the edge type table', () => {
         edge.reverse_name ? `\`${edge.reverse_name}\`` : 'None',
         `\`${edge.cardinality}\``,
         `\`${edge.cascade_on_delete}\``,
+        `\`${edge.written_from}\``,
         ...(constrained ? [wording(edge.from_type_constraints)] : []),
         wording(edge.to_type_constraints),
       ]),
@@ -523,7 +550,7 @@ describe('the edge type table', () => {
 
   it('is included by the Edges page, which says that any type is a source exactly when the table has no column for it', () => {
     expect(edgesPage).toContain('<include cwd>src/generated/catalog/edge-types.md</include>');
-    const sentence = 'Every shipped edge type takes any type as its source';
+    const sentence = 'Every shipped edge type takes any type as its from item';
     expect(edgesPage.includes(sentence)).toBe(!header.includes('From types'));
   });
 });
@@ -556,6 +583,47 @@ describe('the edge sections', () => {
       expect(shown, edge.id).toEqual(Object.keys(edge.property_schema));
     }
   });
+});
+
+describe('an edge type page', () => {
+  for (const edge of catalog.edge_types) {
+    const page = PAGES.find((candidate) => candidate.group === EDGES_DIR && candidate.slug === edge.id);
+
+    if (!page) {
+      it(`${edge.id} has a page`, () => {
+        expect.fail(
+          `The catalog ships the edge type ${edge.id} and no page covers it. Expected content/docs/(reference)/catalog/${EDGES_DIR}/${edge.id}.mdx, titled ${edge.id}, listed in that folder's meta.json and including src/generated/catalog/edges.md#${edge.id}.`,
+        );
+      });
+      continue;
+    }
+
+    describe(page.file, () => {
+      it('is titled with the edge type\'s ID and includes its section of edges.md', () => {
+        const data = frontmatter(page.text);
+        expect(data.title).toBe(edge.id);
+        expect(data.identifier).toBeUndefined();
+        expect(page.text).toContain(`<include cwd>src/generated/catalog/edges.md#${edge.id}</include>`);
+      });
+
+      it('gives an example a create request for the edge type would take', () => {
+        const block = exampleBlock(page.text);
+        expect(block, 'has no JSON block under "## Example"').toBeDefined();
+        const example = JSON.parse(block!) as Record<string, unknown>;
+        for (const key of Object.keys(example)) expect(EDGE_CREATE_KEYS.has(key), `${key} is not a field of a create request`).toBe(true);
+        expect(example.edge_type).toBe(edge.id);
+        expect(typeof example.from_id).toBe('string');
+        expect(typeof example.to_id).toBe('string');
+        expect(example.from_id).not.toBe(example.to_id);
+        const properties = (example.properties ?? {}) as Record<string, unknown>;
+        for (const [name, value] of Object.entries(properties)) {
+          const field = edge.property_schema[name];
+          expect(field, `${name} is not a property of ${edge.id}`).toBeDefined();
+          expect(valueError(field, value), name).toBeUndefined();
+        }
+      });
+    });
+  }
 });
 
 describe('the example check', () => {
