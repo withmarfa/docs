@@ -4,7 +4,7 @@ import { answers, initial, itemTypes, keys, messages, reasonFor } from './key-re
 const key = (id: string) => keys.find((candidate) => candidate.id === id)!;
 
 describe('key reach figure', () => {
-  it('starts on a key that reads and writes the note', () => {
+  it('starts on a key that reads and writes the image', () => {
     expect(reasonFor(key(initial.key), initial.type)).toBe('write');
   });
 
@@ -22,21 +22,21 @@ describe('key reach figure', () => {
   });
 
   it('answers a type outside the key’s map as an item that does not exist, for a read and a write', () => {
-    expect(answers(reasonFor(key('notes'), 'core.task'))).toEqual({
+    expect(answers(reasonFor(key('photos'), 'core.event'))).toEqual({
       read: { status: 404, code: 'item_not_found' },
       change: { status: 404, code: 'item_not_found' },
     });
   });
 
   it('lets a read-only grant read and refuses it a change with 403', () => {
-    expect(answers(reasonFor(key('tasks'), 'core.task'))).toEqual({
+    expect(answers(reasonFor(key('calendar'), 'core.event'))).toEqual({
       read: { status: 200 },
       change: { status: 403, code: 'type_not_permitted' },
     });
   });
 
   it('lets a write grant read and change', () => {
-    expect(answers(reasonFor(key('both'), 'core.note'))).toEqual({ read: { status: 200 }, change: { status: 200 } });
+    expect(answers(reasonFor(key('both'), 'core.file.image'))).toEqual({ read: { status: 200 }, change: { status: 200 } });
   });
 
   it('never answers a read with 403 to a key that has a type map', () => {

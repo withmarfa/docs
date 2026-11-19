@@ -5,9 +5,9 @@ import { Choices, Controls, Menu, Result, Swap } from './interactive';
 
 export type Level = 'read' | 'write';
 
-export type KeyId = 'notes' | 'tasks' | 'both' | 'audit';
+export type KeyId = 'photos' | 'calendar' | 'both' | 'audit';
 
-export type ItemType = 'core.note' | 'core.task' | 'core.media.book';
+export type ItemType = 'core.file.image' | 'core.event' | 'core.media.book';
 
 export type Key = {
   id: KeyId;
@@ -19,13 +19,13 @@ export type Key = {
 };
 
 export const keys: readonly Key[] = [
-  { id: 'notes', label: 'Notes app', types: { 'core.note': 'write' } },
-  { id: 'tasks', label: 'Task viewer', types: { 'core.task': 'read' } },
-  { id: 'both', label: 'Notes and tasks', types: { 'core.note': 'write', 'core.task': 'read' } },
+  { id: 'photos', label: 'Photo app', types: { 'core.file.image': 'write' } },
+  { id: 'calendar', label: 'Calendar viewer', types: { 'core.event': 'read' } },
+  { id: 'both', label: 'Photos and calendar', types: { 'core.file.image': 'write', 'core.event': 'read' } },
   { id: 'audit', label: 'Audit reader', types: null, permission: 'audit.read' },
 ];
 
-export const itemTypes: readonly ItemType[] = ['core.note', 'core.task', 'core.media.book'];
+export const itemTypes: readonly ItemType[] = ['core.file.image', 'core.event', 'core.media.book'];
 
 /** Why the answer is what it is, which also says which rule decided it. */
 export type Reason = 'no-map' | 'out-of-reach' | 'read-only' | 'write';
@@ -89,7 +89,7 @@ function Status({ answer }: { answer: Answer }) {
   return <Swap values={statuses} current={answer.status === 200 ? 'allowed' : answer.status === 403 ? 'forbidden' : 'missing'} />;
 }
 
-export const initial = { key: 'notes' as KeyId, type: 'core.note' as ItemType };
+export const initial = { key: 'photos' as KeyId, type: 'core.file.image' as ItemType };
 
 /**
  * One key, one kind of item, and the answer Marfa gives to reading it and to
