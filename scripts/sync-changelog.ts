@@ -18,8 +18,8 @@
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-/** The first release the page shows. Earlier releases have notes in an older shape and stay on GitHub. */
-export const FIRST_VERSION = 'v0.0.51';
+/** The first release the page shows. Earlier releases were not written in the release notes shape and stay on GitHub. */
+export const FIRST_VERSION = 'v0.0.81';
 
 const REPOSITORY = 'withmarfa/marfa';
 const PAGE_SIZE = 100;

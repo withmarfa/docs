@@ -26,6 +26,12 @@ const releases: Release[] = [
   },
 ];
 
+describe('the changelog before any release is synced', () => {
+  it('draws nothing, and leaves the page introduction to say where earlier releases are', () => {
+    expect(renderToStaticMarkup(<ChangelogView releases={[]} />)).toBe('');
+  });
+});
+
 describe('the changelog on the server', () => {
   const html = renderToStaticMarkup(<ChangelogView releases={releases} />);
 

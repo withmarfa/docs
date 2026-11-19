@@ -50,12 +50,12 @@ const EXPECTED: [query: string, pages: string[]][] = [
 
   // Sign-in, keys and the command line.
   ['oauth device flow', ['/build/authenticate']],
-  ['marfa login', ['/cli']],
+  ['marfa login', ['/cli', '/run/sign-in-as-the-owner']],
   ['create type scaffold', ['/cli', '/build/define-a-type']],
   ['MARFA_API_KEY', ['/cli', '/run/manage-keys']],
   ['rotate a key', ['/run/manage-keys']],
   ['passkey', ['/run/sign-in-as-the-owner']],
-  ['json output', ['/cli']],
+  ['json output', ['/cli', '/use/command-line']],
   ['exit code 5', ['/cli']],
   ['print-token', ['/cli']],
   ['--print-token', ['/cli']],
