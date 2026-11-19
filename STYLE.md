@@ -12,7 +12,7 @@ How every page on this site is written. This file is the one place the writing r
 
 Write for a reader who is new to Marfa. Most know software; some don't, and more of them will as apps built on Marfa reach people. Start and Use must make sense to both. Three readers come, and each has a front door:
 
-1. **Someone working out what Marfa is, or starting it,** reads Start: what Marfa is, the Quickstart, Connect your agent and Ideas in Marfa.
+1. **Someone working out what Marfa is, or starting it,** reads Start: what Marfa is, the Quickstart, Connect your agent and How Marfa works.
 2. **Someone using Marfa every day** reads Use, and Run when they look after their own instance.
 3. **Someone building on Marfa** reads Build, then looks things up in Reference. A **connector author** is one of them.
 
@@ -32,7 +32,7 @@ The tabs follow what a reader comes to do, in this order:
 
 | Tab | What it holds | Kind of page |
 | --- | --- | --- |
-| Start | What Marfa is, at `/`; the Quickstart, from `marfa server install` or Railway to an agent connected and a first item saved and found; Connect your agent; Ideas in Marfa, the few ideas everyone meets, with no HTTP | Explanation, tutorial, how-to |
+| Start | What Marfa is, at `/`; the Quickstart, from `marfa server install` or Railway to an agent connected and a first item saved and found; Connect your agent; How Marfa works, the few ideas everyone meets, with no HTTP | Explanation, tutorial, how-to |
 | Use | The everyday jobs: working from an agent, Claude or ChatGPT and the CLI; a synced folder from set-up to a second computer; connectors; seeing and cutting access; Limits | How-to |
 | Run | Looking after an instance: where it runs and its address, sign-in, settings, keys and apps, backups, upgrades, telemetry and Troubleshooting | How-to |
 | Build | The concepts at full depth, then the tutorials and guides for apps, agents, working copies and connectors | Explanation, tutorial, how-to |

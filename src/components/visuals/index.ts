@@ -5,6 +5,7 @@ import { Arrow, Box, Branch, Branches, Chip, Figure, Flow, Group } from './figur
 import { ItemLifecycle } from './item-lifecycle';
 import { KeyReach } from './key-reach';
 import { MarfaAtAGlance } from './marfa-at-a-glance';
+import { MarfaModel } from './marfa-model';
 import { Sequence } from './sequence';
 import { TypeInheritance } from './type-inheritance';
 import { VersionOutcome } from './version-outcome';
@@ -26,6 +27,7 @@ export const visualComponents = {
   ItemLifecycle,
   KeyReach,
   MarfaAtAGlance,
+  MarfaModel,
   Sequence,
   TypeInheritance,
   VersionOutcome,

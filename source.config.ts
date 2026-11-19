@@ -196,6 +196,8 @@ export const docs = defineDocs({
       identifier: z.string().optional(),
       headTitle: z.string().optional(),
       sidebar_label: z.string().min(1).optional(),
+      // The page's kind where neither its name nor page-limits.json says it (`src/lib/page-limits.ts`), which search reads.
+      kind: z.string().optional(),
     }),
     postprocess: {
       includeProcessedMarkdown: llms,

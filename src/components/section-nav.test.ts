@@ -6,7 +6,7 @@ describe('sectionFor', () => {
     expect(sectionFor('/')).toBe('Start');
     expect(sectionFor('/connect-your-agent')).toBe('Start');
     expect(sectionFor('/quickstart')).toBe('Start');
-    expect(sectionFor('/ideas-in-marfa')).toBe('Start');
+    expect(sectionFor('/how-marfa-works')).toBe('Start');
     expect(sectionFor('/use/from-an-agent')).toBe('Use');
     expect(sectionFor('/use/sync-a-folder')).toBe('Use');
     expect(sectionFor('/build/files')).toBe('Build');

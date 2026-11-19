@@ -30,7 +30,7 @@ export const SECTIONS: { label: string; href: string; matches: ((pathname: strin
   { label: 'Start', href: '/', matches: null },
   { label: 'Use', href: '/use/from-an-agent', matches: (pathname) => isUnder(pathname, '/use') },
   { label: 'Run', href: '/run/memory-cpu-and-disk', matches: (pathname) => isUnder(pathname, '/run') },
-  { label: 'Build', href: '/build/how-marfa-works', matches: (pathname) => isUnder(pathname, '/build') },
+  { label: 'Build', href: '/build/architecture', matches: (pathname) => isUnder(pathname, '/build') },
   { label: 'Catalog', href: '/catalog/items', matches: (pathname) => isUnder(pathname, '/catalog') },
   {
     label: 'Reference',

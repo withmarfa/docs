@@ -43,7 +43,7 @@ describe('buildDocsMap', () => {
 
     const build = lines.slice(lines.indexOf('## Build'), lines.indexOf('## Catalog'));
     expect(build.filter((line) => line.startsWith('### '))).toEqual(['### Concepts', '### Tutorials', '### Build apps and agents', '### Build on a working copy', '### Build connectors']);
-    expect(build.some((line) => line.startsWith('- [How Marfa works](/build/how-marfa-works)'))).toBe(true);
+    expect(build.some((line) => line.startsWith("- [Marfa's architecture](/build/architecture)"))).toBe(true);
 
     // The Types and Connectors pages are folders, so their pages nest under them.
     const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Reference'));
@@ -186,7 +186,7 @@ describe('getLlmsFullText', () => {
   it('holds the pages in sidebar order', async () => {
     const full = await getLlmsFullText();
     const at = (url: string) => full.indexOf(`(${url})\n`);
-    const urls = ['/', '/quickstart', '/connect-your-agent', '/use/from-an-agent', '/run/install', '/build/how-marfa-works', '/build/access', '/catalog/items'];
+    const urls = ['/', '/quickstart', '/connect-your-agent', '/use/from-an-agent', '/run/install', '/build/architecture', '/build/access', '/catalog/items'];
     for (const url of urls) expect(at(url), url).toBeGreaterThanOrEqual(0);
     for (let i = 1; i < urls.length; i += 1) expect(at(urls[i - 1]), urls[i]).toBeLessThan(at(urls[i]));
   });
