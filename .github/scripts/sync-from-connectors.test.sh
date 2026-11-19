@@ -51,7 +51,7 @@ fixture() {
   printf 'hand-written readwise\n' > "${dir}/docs/content/docs/catalog/connectors/readwise.mdx"
   printf '{\n  "title": "Connectors",\n  "defaultOpen": false\n}\n' > "${dir}/docs/content/docs/catalog/connectors/meta.json"
   printf '%s\n' "$2" > "${dir}/connectors/connectors.json"
-  git init -q --bare "${dir}/origin.git"
+  git init -q --bare -b main "${dir}/origin.git"
   git -C "${dir}/connectors" init -q -b main
   git -C "${dir}/connectors" remote add origin "${dir}/origin.git"
   git -C "${dir}/connectors" add -A
