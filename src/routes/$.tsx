@@ -2,6 +2,7 @@ import { createFileRoute, notFound } from '@tanstack/react-router';
 import { DocsLayout } from 'fumadocs-ui/layouts/notebook';
 import { createServerFn } from '@tanstack/react-start';
 import { slugsToMarkdownPath, source } from '@/lib/source';
+import { fullTitles } from '@/lib/sidebar-label';
 import { regroupApiReference } from '@/lib/api-reference-tree';
 import browserCollections from 'collections/browser';
 import {
@@ -72,6 +73,7 @@ const serverLoader = createServerFn({
     const page = source.getPage(slugs);
     if (!page) throw notFound();
 
+    const titles = fullTitles(source.getPages());
     const pageTree = await source.serializePageTree(
       regroupApiReference(source.getPageTree()),
     );
@@ -84,6 +86,7 @@ const serverLoader = createServerFn({
         url: page.url,
         markdownUrl: slugsToMarkdownPath(page.slugs).url,
         apiProps: await page.data.getOpenAPIPageProps(),
+        titles,
         pageTree,
       };
     }
@@ -96,6 +99,7 @@ const serverLoader = createServerFn({
       url: page.url,
       path: page.path,
       markdownUrl: slugsToMarkdownPath(page.slugs).url,
+      titles,
       pageTree,
     };
   });
@@ -106,10 +110,12 @@ const clientLoader = browserCollections.docs.createClientLoader({
     {
       markdownUrl,
       path,
+      titles,
       url,
     }: {
       markdownUrl: string;
       path: string;
+      titles: Record<string, string>;
       url: string;
     },
   ) {
@@ -137,7 +143,7 @@ const clientLoader = browserCollections.docs.createClientLoader({
           enabled: entries.length > 1,
           component: <PageTableOfContentsPopover />,
         }}
-        footer={{ component: <PageFooter className="mt-12" /> }}
+        footer={{ component: <PageFooter className="mt-12" titles={titles} /> }}
       >
         {/* Title and the Copy button share the top row; the description spans the
             full content width on its own line below, like a lead paragraph. */}
@@ -189,6 +195,7 @@ function OpenAPIView({
     description: string;
     markdownUrl: string;
     apiProps: Parameters<typeof APIPage>[0];
+    titles: Record<string, string>;
     pageTree: SerializedPageTree;
   };
 }) {
@@ -211,7 +218,7 @@ function OpenAPIView({
         // centred body and extends into this reserved space.
         tableOfContent={{ enabled: true }}
         toc={[]}
-        footer={{ component: <PageFooter className="mt-12" /> }}
+        footer={{ component: <PageFooter className="mt-12" titles={data.titles} /> }}
       >
         {/* The breadcrumb, title, body, and footer are each centred at 680px (in
             app.css) so they sit screen-centred like a narrative page; the code
@@ -247,10 +254,11 @@ function DocsView({
     path: string;
     url: string;
     markdownUrl: string;
+    titles: Record<string, string>;
     pageTree: SerializedPageTree;
   };
 }) {
-  const { path, url, pageTree, markdownUrl } = useFumadocsLoader(data);
+  const { path, url, pageTree, markdownUrl, titles } = useFumadocsLoader(data);
 
   return (
     <DocsLayout
@@ -261,7 +269,7 @@ function DocsView({
       tabMode="navbar"
       sidebar={sidebarOptions}
     >
-      <Suspense>{clientLoader.useContent(path, { markdownUrl, path, url })}</Suspense>
+      <Suspense>{clientLoader.useContent(path, { markdownUrl, path, titles, url })}</Suspense>
     </DocsLayout>
   );
 }

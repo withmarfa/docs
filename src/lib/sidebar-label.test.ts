@@ -1,7 +1,7 @@
 import { loader } from 'fumadocs-core/source';
 import type * as PageTree from 'fumadocs-core/page-tree';
 import { describe, expect, it } from 'vitest';
-import { sidebarLabelPlugin } from './sidebar-label';
+import { fullTitles, sidebarLabelPlugin } from './sidebar-label';
 
 // A fixture source: one page with a label, one without, and a folder that
 // opens on a labelled page.
@@ -38,5 +38,12 @@ describe('sidebar_label', () => {
   it('keeps the full title on the page, which the heading, search, llms.txt and metadata read', () => {
     expect(fixture.getPage(['long'])?.data.title).toBe('A page with a long and tiring title');
     expect(fixture.getPage(['folder'])?.data.title).toBe('A folder that opens on a long page');
+  });
+
+  it('lists the full title of each labelled page, for the previous and next cards', () => {
+    expect(fullTitles(fixture.getPages())).toEqual({
+      '/long': 'A page with a long and tiring title',
+      '/folder': 'A folder that opens on a long page',
+    });
   });
 });
