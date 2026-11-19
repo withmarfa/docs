@@ -42,11 +42,25 @@ The tabs follow what a reader comes to do, in this order:
 
 Each thing is said once, with links between. Use and Run say what to do; Build explains why it works that way. **The Catalog lists exactly what Marfa ships and explains nothing:** a page that needs a list it holds, such as the types, edge types, permissions, events, field kinds or reserved names, links to the Catalog page instead of restating it.
 
-- A **concept** page explains one idea: what it is, why it works the way it does, and the rules a reader meets in normal use.
-- A **tutorial** takes a newcomer through one complete piece of work, start to finish, and every step works.
-  A tutorial has at most seven steps; a longer piece of work becomes two tutorials, split where the first one already leaves something that works. It opens with three short lines, in a list: **You'll build** (what the reader makes), **You need** (what must be in place) and **You'll have** (what works at the end). Each line is true of the page, and a short paragraph of background may follow. Keep sentences short, put the point first, and explain a Marfa term before using it.
-- A **how-to guide** does one task for a reader who already knows the concepts.
-- A **reference** page states facts and never teaches. Generated reference is shown as tables, never as raw help text.
+## Page types
+
+Each page is one type, and the type sets what it holds and how long it may be. **A ceiling is not a target:** `pnpm test` fails a page over it. Words are prose words: code, sample output, frontmatter, MDX markup and generated tables don't count (`src/lib/page-limits.ts` says exactly how).
+
+| Type | What goes in | What goes out, and where it goes instead | Ceiling |
+| --- | --- | --- | --- |
+| Tutorial | Three opening lines, at most seven steps, the code each step adds and one check that each step worked | Alternatives and options go to a how-to. A refusal goes to a fix page, unless showing it is the lesson. Output is cut to the lines that prove a step worked | 800 words, 12 code blocks |
+| How-to | One job, what the reader needs in one line, then the everyday steps | Explanation goes to a concept page. Every option goes to the reference. Error cases go to a fix page. Another vendor's plan rules become a link to that vendor's help | 600 words, 6 code blocks, 6 H2 headings |
+| Fix page | Entries headed by the exact text the reader sees, each with the cause in one sentence and the fix in one step | Rare messages, and codes the Errors page explains, stay on Errors and get a link | 600 words, 8 entries, 80 words an entry |
+| Concept | One idea: what it is, why it works this way, the rules a reader meets in normal use, and one example | Lists go to the Catalog. Numbers and codes go to the reference. Steps go to a how-to | 500 words, 5 H2 headings |
+| Reference | Tables, generated where Marfa generates them, with at most one line of prose for each entry | Teaching and order go to a how-to or a concept page | Its own, in `page-limits.json` |
+| Catalog | Generated tables, and for a core type one example item. A connector page adds only "What goes back" and "What to know" | Everything that explains | 150 words for a type page, 200 for an edge page, 500 for a connector page |
+
+- **Sample output:** at most 12 lines in each `Terminal`, and 5 on a Start page. The command's own `--help` or the reference holds the full output.
+- **A fix page's entries** are its H2 and H3 headings, and each is headed by the text the reader sees. It is a how-to, and a file named `fix-*` is one.
+- **Each page has a `job` line** in its frontmatter (see "Frontmatter").
+- **A page that needs more than its ceiling is listed in `src/lib/page-limits.json`** under `pages`, with its budget and its reason. Only the page map's agreed budgets qualify. If a page cannot do its job within its ceiling, split it.
+- **A page that is over a rule today is listed under `pending`** with its current numbers, until it is rewritten. It may not grow, and the test fails when the page no longer needs its entry. A rewritten page leaves `pending`: it comes in within its ceiling, or is split or cut, never given a new entry.
+- **The kind comes from the page.** A file named `fix-*` is a fix page; otherwise `kind` in the frontmatter (`concept`, `how-to`, `tutorial`, `fix`, `connector` or `reference`); otherwise the page's entry, or its folder's, in `page-limits.json`. A rewritten page names its own `kind`.
 
 `content/AGENTS.md` says how to add a page to its tab and wire it into the site.
 
@@ -54,7 +68,9 @@ Each thing is said once, with links between. Use and Run say what to do; Build e
 
 **Clear, short and direct.** A reader should get the point of a page from its first screen, and the point of a section from its first sentence. Prose carries reasons and order; lists, tables and bold make a page easy to scan. Use each where it helps.
 
-- **Title a page by the reader's task,** such as "Sync a folder on a second computer" or "Upgrade an instance". A concept page or a reference page takes the name of its subject.
+- **A title is the task in the words a reader would type,** such as "Upgrade an instance" or "Upload and download files". A concept or reference page takes the name of its subject.
+- **A title stands alone in search,** where an agent's results show it without its tab or group. Name the object: "Manage keys for scripts and agents", not "Manage keys".
+- **A sidebar label may lean on its group heading, but must be true on its own.** "Second computer" fails: the page is about another directory too. "Read and write" fails: it is true and says nothing. Read a page's steps, not its first sentence, before naming it.
 - **The everyday path comes first.** Steps show what works when nothing goes wrong. Error cases, rare choices and recovery go in their own section or page, linked from the step, never written into it.
 - **Answer first.** The `description` shows as the lead under the title. The first paragraph adds what the description can't: the idea, the reason it matters, or what the reader will have at the end. Never restate the description, and never open with "This page explains" or "This guide shows".
 - **Short paragraphs.** One to three sentences, about 20 to 30 words each on average. One idea per paragraph.
@@ -63,7 +79,8 @@ Each thing is said once, with links between. Use and Run say what to do; Build e
 - **A list carries items that are parallel**: steps, options, things to check. A page never opens with a list, except the three opening lines of a tutorial, and a list never stands in for an explanation of why.
 - **A table compares things or holds what a reader looks up**: fields, settings, commands, options, a choice between two ways. Keep cells short. **Tables stay tables**: never turn one into a list to fit a phone. At phone width every table stacks each row, and a table of three or more columns puts each cell after the first under its column's name, so give each column a header that reads as a label.
 - **Explain, then point.** A concept page explains the idea and the rules a reader meets in normal use, with one small example. Rare cases, limits, exact numbers and error codes go in a guide, the API reference or the contract, with a link.
-- **A page is as long as its one job,** and no longer: the limits are ceilings, not targets. If a page is hard going, cut before you add. A page past its limit is usually two pages, or holds detail that belongs in the reference: a guide that covers two jobs done at different times is two guides. `pnpm test` enforces the limits, counting the words after the frontmatter, code included: **900 for a concept page, 1,500 for a guide, a tutorial or a Catalog connector page.** The folder decides the kind, and a Build concept page names its own. A lookup page (Settings, the CLI, SDK and MCP pages, How a folder treats files, the Glossary, the API reference, the Catalog pages and the Changelog) has a limit of its own. Those exceptions, each with its reason, are in `src/lib/page-limits.json`, and no page is exempt. When a page is over, the failure names it and the way out: split it, move detail to the reference, or cut. A page over its limit while it waits for a rewrite can be listed there under `pending`, with its current count as a ceiling; the test fails once the page is back within its limit.
+- **A page is as long as its one job,** and no longer. Ceilings are limits, not targets: cut before you add. A page past a ceiling is usually two pages, or holds detail that belongs in the reference. A guide that covers two jobs done at different times is two guides.
+- **Ask of each section: "Which part of this page's job is this section for?"** A section that serves no part of the `job` line is cut, or moved to the page whose job it serves. Review asks this as well as "is it true and complete?".
 - **Describe the present.** No history, no "now", no "new", nothing about what changed.
 - **Replace, don't append.** When something changes, rewrite the sentence or section it changes. Never add a paragraph that qualifies an older one.
 
@@ -184,12 +201,14 @@ The docs stay right by being rewritten whole, not by being added to.
 
 ## Frontmatter
 
-Every page starts with a `title` and a one-sentence `description`. Both are required. The description says what the page gives the reader, not what it contains.
+Every page starts with a `title` and a one-sentence `description`. Both are required. The description says what the page gives the reader, not what it contains. Every page also has a `job`: one sentence, at most 30 words, saying who the reader is and what they leave able to do. `pnpm test` checks it (a page in `pending` may lack one until it is rewritten). A page may also name its `kind` (see "Page types").
 
 ```mdx
 ---
 title: Files
 description: How Marfa keeps a file's bytes once, however many items name them, and who may read them.
+job: A builder learns how Marfa stores a file once and who may read it.
+kind: concept
 ---
 ```
 
