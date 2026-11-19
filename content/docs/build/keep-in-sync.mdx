@@ -34,7 +34,7 @@ marfa events --type core.file --edges none --cursor 21
 
 </Terminal>
 
-Over HTTP, the [stream](/api-reference/event-stream/streamEvents) takes your cursor in the `Last-Event-ID` header and answers server-sent events. This is the same stream from cursor `24`, with the item cut short:
+Over HTTP, the [stream](/api-reference/event-stream/streamEvents) takes your cursor in the `Last-Event-ID` header and answers server-sent events. Here it is from cursor `24`, with the item cut short:
 
 ```http title="Request"
 GET /events?type=core.file&edges=none
@@ -54,13 +54,11 @@ event: stream_live
 data: {"event_type":"stream_live","cursor":"25"}
 ```
 
-The stream opens with `stream_cursor`, which names the **head of the log**, the latest event. It replays every event after your cursor, sends `stream_live` once caught up, then sends each new event.
-
-Only events carry an `id:` line, so **the last `id:` you received is always a cursor you can resume from**. Lines that start with `:` are comments: Marfa sends `:ping` every 30 seconds while the stream is quiet. The Catalog's [Events](/catalog/events) page lists every event and its fields.
+The stream opens with `stream_cursor`, which names the **head of the log**, the latest event, then replays every event after your cursor, sends `stream_live` once caught up, and sends each new event. Only events carry an `id:` line, so **the last `id:` you received is always a cursor you can resume from**. While the stream is quiet, Marfa sends a `:ping` comment every 30 seconds.
 
 ## Build the sync
 
-`sync.ts` keeps a copy of every file item in a JSON file. On its first run, it takes the head of the log, reads the files, then follows the stream from that head, so every change made while it reads waits in the log.
+`sync.ts` keeps a copy of every file item in a JSON file.
 
 <Steps>
 <Step>
@@ -122,7 +120,7 @@ Take each frame as it arrives: Marfa closes a reader that takes nothing for 30 s
 
 ### Keep the copy and its cursor together
 
-Save the cursor **in the same place as the copy, in step with what you apply**: here, one file written after each event. An item event carries the item as it stands after the change, so `apply` replaces what the copy holds, or removes it for `item.purged`. `item.trashed` keeps the item, now in the bin. `metadata.changed` carries the item too, and its tags in `metadata`.
+Save the cursor **in the same place as the copy, in step with what you apply**: here, one file written after each event. An item event carries the item as it stands after the change, so `apply` replaces what the copy holds, or removes it for `item.purged`; `item.trashed` keeps it, in the bin. `metadata.changed` carries the item too.
 
 ```ts title="sync.ts"
 type Item = components["schemas"]["Item"];
@@ -150,7 +148,7 @@ async function saveCursor(cursor: string) {
 
 ### Follow the stream
 
-`follow` applies each event and saves its ID, and returns the frame that ended the stream, or `closed`.
+`follow` applies each event, saves its ID, and returns the frame that ended the stream, or `closed`:
 
 ```ts title="sync.ts"
 async function follow(cursor: string): Promise<string> {
@@ -175,14 +173,14 @@ async function follow(cursor: string): Promise<string> {
 }
 ```
 
-Save the `cursor` of `stream_live` too: on a narrow stream, the last event can be far behind the head. Marfa sends each event after your cursor exactly once, even across a server restart.
+It saves the `cursor` of `stream_live` too, because on a narrow stream the last event can be far behind the head. Marfa sends each event after your cursor exactly once, even across a server restart.
 
 </Step>
 <Step>
 
 ### Start from the head of the log
 
-`rebuild` takes the head from the first frame, lists every file in every state, and saves the head as the cursor. The listing and the stream ask for the same items, so the copy holds exactly what the stream keeps current.
+`rebuild` takes the head from the first frame, lists every file in every state, then saves the head as the cursor, so every change made while it lists waits in the log. The listing and the stream ask for the same items, so the copy holds exactly what the stream keeps current.
 
 ```ts title="sync.ts"
 async function rebuild(): Promise<string> {
@@ -206,7 +204,7 @@ async function rebuild(): Promise<string> {
 }
 ```
 
-When Marfa can't read the head, the first frame is `stream_incomplete` with the reason `read_failed`, so `rebuild` throws.
+When Marfa can't read the head, the first frame is `stream_incomplete` with the reason `read_failed`, and `rebuild` throws.
 
 </Step>
 <Step>
@@ -235,18 +233,18 @@ Run it as an ES module. Add a file with `marfa items add`, move it to the bin, a
 | You see | It means | What to do |
 | --- | --- | --- |
 | The connection closes with no frame | A network fault, or your reader took nothing for 30 seconds. | Wait a moment, then resume from your saved cursor. |
-| `stream_incomplete` | The stream couldn't go on, for its `reason`: `server_stopping`, `read_failed` or `credential_ended`. | Resume from your saved cursor. For `credential_ended`, use a valid key. |
-| `catchup_too_old` | The log no longer holds the events after your cursor. It keeps them for 30 days by default (`event_log_retention_days`). | Rebuild from the head of the log. |
-| `cursor_ahead` | Your cursor is past the log's head, as after the instance was restored from a backup. | Discard the cursor and rebuild from the head of the log. |
+| `stream_incomplete` | The stream couldn't go on, for its `reason`: `server_stopping`, `read_failed` or `credential_ended`. | Resume from your saved cursor; for `credential_ended`, with a valid key. |
+| `catchup_too_old` | The log no longer holds the events after your cursor. It keeps them 30 days by default (`event_log_retention_days`). | Rebuild from the head of the log. |
+| `cursor_ahead` | Your cursor is past the log's head, as after a restore from a backup. | Discard the cursor and rebuild from the head of the log. |
 
 `marfa events` exits `1` for `cursor_ahead` and `catchup_too_old`, `3` for a `stream_incomplete` a new stream can mend, and `5` for `credential_ended` ([Exit codes](/cli#exit-codes)).
 
-A stream can also be refused before it opens, and then `open` throws. After `429 rate_limited`, wait the seconds `Retry-After` names; after `503 stream_capacity_exhausted`, the instance is serving all the streams it allows, so try again later. Anything else, such as `403 type_not_permitted` or `400 validation_error` for a cursor the log didn't write, is a fault in the key or the request: fix it rather than retry. [Stream change events](/api-reference/event-stream/streamEvents) lists every answer.
+If the stream is refused before it opens, `open` throws. After `429 rate_limited`, wait the seconds `Retry-After` names. After `503 stream_capacity_exhausted`, the instance is serving all the streams it allows: try again later. Any other refusal, such as `403 type_not_permitted` or `400 validation_error` for a cursor the log didn't write, is a fault in the key or the request to fix, not retry. [Stream change events](/api-reference/event-stream/streamEvents) lists every answer.
 
 ## Narrow the stream
 
-`type` limits item events to a type and its subtypes. It takes up to ten types or patterns, such as `app.*`: repeat `--type` in the CLI, as in `--type core.file --type core.note`, and separate them with commas over HTTP, as in `type=core.file,core.note`. Edge events come whatever `type` says, so send `edges=none` to leave them out, as `sync.ts` does.
+`type` takes up to ten types or patterns, such as `app.*`, each with its subtypes: repeat `--type` in the CLI, or separate them with commas over HTTP. Edge events come whatever `type` says, so `sync.ts` sends `edges=none`. A stream that names a `type` never carries `attention.raised`.
 
-A cursor works under any filter, so you can change it between connections. A stream that names a `type` never carries `attention.raised`.
+A cursor works under any filter, so you can change filters between connections.
 
 The rules behind this guide are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) chapter of the contract.
