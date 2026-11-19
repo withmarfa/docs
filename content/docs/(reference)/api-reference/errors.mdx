@@ -3,49 +3,54 @@ title: Errors
 description: The shape of a refusal, what it tells you, which refusals to retry, and every code Marfa answers.
 ---
 
-When Marfa refuses a request, it says why in a form a program can act on: a stable code, a message for people, and details that name what went wrong. Your program branches on the code, never the message, and sends a request again only when the refusal says it can succeed later. Each operation's page lists the codes that operation can return.
-
-A tool on the [Marfa MCP server](/marfa-mcp-server) answers the same codes inside a tool error, as [Tool errors](/marfa-mcp-server#tool-errors) shows.
+When Marfa refuses a request, it says why in a form a program can act on: a stable code, a message for people, and details that name what went wrong. Branch on the code, never the message. Each operation's page lists the codes that operation can return, and a tool on the [Marfa MCP server](/marfa-mcp-server#tool-errors) answers the same codes.
 
 ## The shape of a refusal
 
-A refusal is a JSON body holding one `error` object. Here a key that may read `core.note` but not write it tries to update a note:
+A refusal is a JSON body holding one `error` object. Here a key that may read `core.note` but not write it tries to create a note:
 
 ```http title="Response"
 HTTP/1.1 403 Forbidden
 Content-Type: application/json
 X-Error-Code: type_not_permitted
-X-Request-ID: 01a1231c-f6ce-711f-af73-58881f6de58c
+X-Request-ID: 01a1f14d-e3b6-7626-aab1-d8ee63685943
 
 { "error": { "code": "type_not_permitted", "message": "Write access to type \"core.note\" denied", "details": { "grant": { "kind": "type", "name": "core.note", "level": "write" } } } }
 ```
 
-The `code` is one of the codes below, and it's what your program should branch on. The `message` is for people and can change. `details`, when it's there, is an object whose members depend on the refusal. The `X-Error-Code` header repeats the code, so a client or a proxy can read it without parsing the body.
+- **`code`:** one of the codes below, and the value to branch on.
+- **`message`:** a sentence for people. It can change.
+- **`details`:** an object whose members depend on the refusal, when there is one.
+- **`X-Error-Code`:** the code again, so a client or a proxy can read it without parsing the body.
+- **`X-Request-ID`:** on every answer. Quote it when you report a problem. Send your own of 1 to 128 letters, digits, underscores and hyphens and Marfa answers with it, except under `/inbound/`.
 
-Almost every answer carries `X-Request-ID`, which identifies the request. Quote it when you report a problem. To match a request with the server's logs, send your own `X-Request-ID` of 1 to 128 letters, digits, underscores and hyphens, and Marfa answers with it.
+A few answers differ from this shape:
 
-A few answers differ from this shape. A `HEAD` request gets the status and headers with no body. `409 version_conflict` and `409 ancestor_unavailable` also carry the item as it is now, in `current` beside `error`; [Update an item](/api-reference/items/updateItem) shows both. Some answers under `/auth/` come from the sign-in library in its own shapes. A browser that asks for HTML gets an HTML page of the refusal's status, still with `X-Error-Code`; the [`errors/html-page`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/errors.md#errorshtml-page) rule says when.
+- A `HEAD` request gets the status and headers with no body.
+- `409 version_conflict` and `409 ancestor_unavailable` also carry the item as it is now, in `current` beside `error`, as [Update an item](/api-reference/items/updateItem) shows.
+- Some answers under `/auth/` come from the sign-in library in its own shapes.
+- A request whose `Accept` names `text/html` before `application/json` gets an HTML page of the refusal's status, still with `X-Error-Code` ([`errors/html-page`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/errors.md#errorshtml-page)).
 
 ## What a refusal tells you
 
-A `403` caused by a grant the credential lacks names that grant in `details.grant`: its `kind` (`type`, `edge_type` or `extension`), its `name`, and the `level` the operation needed, `read` or `write`. That tells you what to add to the key. A `403` that no grant could lift, such as a write to a `system.*` type through the item operations, names none.
-
-A refusal never tells a credential about data it can't read. An item whose type the credential can't read answers `404 item_not_found`, exactly as an item that doesn't exist does. A credential learns its own reach from [Get an overview](/api-reference/instance/getOverview), and a key from [Get the current API key](/api-reference/api-keys/getCurrentKey), never from a refusal. [Access](/build/access) explains why.
-
-A change to an item in the bin also answers `404 item_not_found`, but with `"details": { "trashed": true }` when the credential may read the item's type, so you can tell an item someone moved to the bin from one that never existed. Restore it before you change it.
-
-An edge write refused `400 edge_constraint_violation` says which rule it broke in `details.constraint` where one applies, such as `duplicate` for a second edge of the type between the same two items and `cardinality` for a second edge at an end that holds one. A writer that sends an edge again after an uncertain answer can treat `duplicate` as success. A working copy gives the same code and details before it queues the write, as [Write edges in a working copy](/build/edges-in-a-working-copy) explains.
+- **A missing grant:** a `403` that a grant could lift names it in `details.grant`, with its `kind` (`type`, `edge_type` or `extension`), its `name`, and the `level` the operation needed, `read` or `write`. That's what to add to the key. A `403` that no grant could lift, such as a write to a `system.*` type through the item operations, names none.
+- **Data the credential can't read:** never described. An item of a type the credential can't read answers `404 item_not_found`, exactly as an item that doesn't exist does. A credential learns its reach from [Get an overview](/api-reference/instance/getOverview), and a key from [Get the current API key](/api-reference/api-keys/getCurrentKey). [Access](/build/access) explains why.
+- **An item in the bin:** a read or a change answers `404 item_not_found` with `"details": { "trashed": true }` when the credential may read the item's type. Read it with `state=trashed`, or restore it before you change it.
+- **An edge rule:** `400 edge_constraint_violation` names the rule in `details.constraint`, such as `duplicate` for a second edge of the type between the same two items, or `cardinality` for a second edge at an end that holds one. A writer that sends an edge again after an uncertain answer can treat `duplicate` as success. A working copy gives the same code before it queues the write ([Write edges in a working copy](/build/edges-in-a-working-copy)).
 
 ## Retrying
 
 These codes mean the same request can succeed later:
 
-- `write_contention` (`503`): another write held the store's lock for longer than the instance waits, `SQLITE_BUSY_BUDGET_MS`. Send the same request again. A write behind an atomic bulk page that keeps writing isn't refused: it waits until the page ends, so allow for a long page in its timeout.
-- `idempotency_key_in_flight` (`409`): the first request with this `Idempotency-Key` hasn't answered yet. Send the same request with the same key again.
-- `rate_limited` (`429`): the credential is past its request limit. Wait the seconds that `Retry-After` names, then send it again.
-- `housekeeping_job_running` (`409`): the job is in the middle of a run. Run it again once that run has ended.
+- `write_contention` (`503`): the write waited the five seconds that `details.budget_ms` names for the store's lock, or a restore is running (`details.reason` is `restore_running`, with a `Retry-After`). Send it again unchanged. A write behind a bulk page that keeps writing waits for the page instead, so allow for a long page in its timeout.
+- `idempotency_key_in_flight` (`409`): the first request with this `Idempotency-Key` hasn't answered yet. Send it again with the same key.
+- `rate_limited` (`429`): past a limit for the current window. Wait the seconds that `Retry-After` and `details.retry_after_seconds` name.
+- `housekeeping_job_running` (`409`): the job is in the middle of a run. Run it again once that run ends.
 - `stream_capacity_exhausted` (`503`): the instance is serving as many live event streams as it allows. Open the stream again later.
+- `blob_store_unavailable` (`503`): a blob store failed or didn't answer in time. Nothing was written.
+- `too_many_connections` (`503`): the instance, or your address, holds as many open connections as it allows.
 - `inbound_unavailable` (`503`): an inbound endpoint can't take a delivery now. The sender sends it again after `Retry-After`.
+- `insufficient_storage` (`507`): the volume has no room. Send it again once the volume has room, after reading what it changed if `details.write_outcome` is `unknown`.
 
 With `Idempotency-Key`, a retried write is safe: Marfa answers a repeat with the first answer and doesn't write again. Without one, read what the first request changed before you send a write again.
 
