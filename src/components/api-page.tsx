@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { createOpenAPIPage } from 'fumadocs-openapi/ui';
-import { ResponseCodes } from './response-codes';
+import { ResponseBody, ResponseExamples } from './response-codes';
 
 // Non-RSC (TanStack Start) client renderer for an OpenAPI operation. Fed the
 // serializable payload from `page.data.getOpenAPIPageProps()` in the loader.
@@ -40,8 +40,11 @@ export const APIPage = createOpenAPIPage({
       generateExample: () => undefined,
     },
   },
+  // The package draws no "Response body" section: `ResponseBody` takes its place
+  // in both layouts, with the success codes as tabs and the errors in one select.
+  showResponseSchema: false,
   content: {
-    renderResponseCodes: (options) => <ResponseCodes {...options} />,
+    renderResponseTabs: ({ tabs }) => <ResponseExamples tabs={tabs} />,
     renderOperationLayout: (slots) => (
       <CentredLayout
         main={
@@ -52,7 +55,7 @@ export const APIPage = createOpenAPIPage({
             {slots.authSchemes}
             {slots.parameters}
             {slots.body}
-            {slots.responses}
+            <ResponseBody />
             {slots.callbacks}
           </>
         }
@@ -68,7 +71,7 @@ export const APIPage = createOpenAPIPage({
             {slots.authSchemes}
             {slots.parameters}
             {slots.body}
-            {slots.responses}
+            <ResponseBody />
             {slots.callbacks}
           </>
         }
