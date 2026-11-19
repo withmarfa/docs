@@ -198,7 +198,7 @@ The docs stay right by being rewritten whole, not by being added to.
 
 - **A code change opens a docs issue, not a docs pull request.** The issue says what a reader would now get wrong. Nobody edits a page inside the work that changed the code.
 - **Pages are rewritten from those issues after each release.** One docs agent works the open issues and rewrites each page whole, to this file. A page is never added to, and "no change needed" is a normal answer.
-- **Generated reference and the changelog are synced, never written by hand.** The API reference, the CLI's global options and exit codes, the error codes, the settings, the shipped types and edge types, the permissions, the event types and the glossary come from withmarfa/marfa through `scripts/sync-from-marfa.sh`. The Changelog comes from the GitHub release notes through `scripts/sync-changelog.ts`.
+- **Generated reference and the changelog are synced, never written by hand.** The API reference, the CLI's global options and exit codes, the error codes, the settings, the shipped types and edge types, the permissions, the event types and the glossary come from withmarfa/marfa through `scripts/sync-from-marfa.sh`. Each connector's header and the connector index come from marfa-connectors through `scripts/sync-from-connectors.sh`. The Changelog comes from the GitHub release notes through `scripts/sync-changelog.ts`.
 
 `scripts/staleness-report.ts` is the backstop that lists pages no issue named; `AGENTS.md`, "Docs pass at each release", says how to run it.
 

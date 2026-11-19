@@ -60,6 +60,17 @@ MARFA_ROOT=/path/to/marfa scripts/sync-from-marfa.sh   # defaults to ../marfa
 - `src/lib/glossary.test.ts` holds the Glossary page to `src/generated/GLOSSARY.md`. `src/lib/glossary-sources.json` names, for each word on the page, the row that settles it and a fingerprint of the two definitions, so a sync that changes a row fails until the page's definition is read against it again and the fingerprint renewed.
 - After changing the script, run `.github/scripts/sync-from-marfa.test.sh`. It pins what the script writes and every input it refuses.
 
+### The connectors
+
+```bash
+MARFA_CONNECTORS_ROOT=/path/to/marfa-connectors scripts/sync-from-connectors.sh   # defaults to ../marfa-connectors
+```
+
+- The Catalog's connectors come from the `connectors.json` committed at HEAD of a marfa-connectors checkout, which that repository's own check keeps current. Use a checkout on an up-to-date `main`, after `scripts/sync-from-marfa.sh` (the headers link the types the shipped catalog has).
+- The script writes `src/generated/connectors/`: a copy of the list, the connector index and one header for each connector. Each connector page includes its header; the index page includes the index. It also writes a page for a connector that has none, holding only its header, and sets `pages` in `content/docs/catalog/connectors/meta.json` to the connectors' names in order. A page that exists is never overwritten.
+- A page under `content/docs/catalog/connectors/` must have a connector of the same `name`: `remarkIcons` fails the build for one that has none, and `src/lib/connectors.test.ts` checks both ways.
+- After changing the script, run `.github/scripts/sync-from-connectors.test.sh`.
+
 ### The changelog
 
 ```bash
