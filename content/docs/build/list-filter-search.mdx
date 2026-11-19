@@ -3,24 +3,24 @@ title: List, filter and search
 description: Read the items you need from an instance, a page at a time, narrowed by type, tags and properties, or found by the words they hold.
 ---
 
-An app reads most of what it shows as a listing, and a listing holds only what its credential can read. The examples read a small library of books. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows. To keep a listing for every app, [save it as a view](/build/save-a-view); to list events by day, [read a calendar](/build/read-a-calendar); to turn typed names into items, [look them up by title](/build/look-up-items-by-title).
+An app reads most of what it shows as a listing, and a listing holds only what its credential can read. The examples read a household's tasks and notes. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows. To keep a listing for every app, [save it as a view](/build/save-a-view); to list events by day, [read a calendar](/build/read-a-calendar); to turn typed names into items, [look them up by title](/build/look-up-items-by-title).
 
 ## List a page at a time
 
-[List items](/api-reference/items/listItems) answers one page, 50 items unless you ask for up to 500. This lists the books with the `fiction` tag, 20 items at a time:
+[List items](/api-reference/items/listItems) answers one page, 50 items unless you ask for up to 500. This lists the tasks with the `home` tag, 20 items at a time:
 
 ```bash tab="CLI" tab-group="client"
-marfa items list --type core.media.book --tag fiction --limit 20
+marfa items list --type core.task --tag home --limit 20
 ```
 
 ```http tab="HTTP"
-GET /items?type=core.media.book&tags=fiction&limit=20
+GET /items?type=core.task&tags=home&limit=20
 Authorization: Bearer <key>
 ```
 
 ```ts tab="TypeScript"
 const { data } = await marfa.GET("/items", {
-  params: { query: { type: "core.media.book", tags: "fiction", limit: 20 } },
+  params: { query: { type: "core.task", tags: "home", limit: 20 } },
 });
 ```
 
@@ -31,15 +31,18 @@ The answer holds the page in `data` and a cursor in `next_cursor`. Send `next_cu
 ```ts
 import { pages } from "@withmarfa/client";
 
-const books = pages(async (cursor) => {
+const tasks = pages(async (cursor) => {
   const { data, error } = await marfa.GET("/items", {
-    params: { query: { type: "core.media.book", cursor } },
+    params: { query: { type: "core.task", cursor } },
   });
   if (error) throw new Error(error.error.message);
   return data;
 });
 
-for await (const book of books) console.log(book.properties.title);
+for await (const entry of tasks) {
+  const task = "item" in entry ? entry.item : entry;
+  console.log(task.properties.title);
+}
 ```
 
 ## Narrow a listing
@@ -49,22 +52,22 @@ With no parameters, a listing holds the **active items** of every type you can r
 | Parameter | Keeps |
 | --- | --- |
 | `type` | Up to 10 types, each with every type beneath it. A pattern such as `core.*` matches every type under the prefix. |
-| `tags` | Items that carry every tag named: `tags=fiction,signed` lists the items with both tags. |
+| `tags` | Items that carry every tag named: `tags=home,outdoor` lists the items with both tags. |
 | `state` | One or more states, such as `active` and `archived`, or `any` on its own. |
 | `tier` | `library` or `feed` items. |
 | `source` | Items one writer created. |
-| `occurred_after`, `occurred_before` | Items whose `occurred_at` falls between two times. |
+| `occurred_after`, `occurred_before` | Items whose own time falls strictly between two times: `occurred_at`, or `created_at` for an item without one. An item exactly on a bound is left out. |
 | `backref[<edge type>]` | The items a given item points to by that edge: `backref[parent-of]=<id>` lists a task's subtasks. |
 | `beneath` | An item and everything under it by `parent-of`. Needs read on `parent-of`. |
 
 Over HTTP, a parameter that takes several values takes a comma-separated list. In the CLI, repeat the option:
 
 ```bash tab="CLI" tab-group="client"
-marfa items list --type core.media.book --type core.bookmark --state active --state archived
+marfa items list --type core.task --type core.note --state active --state archived
 ```
 
 ```http tab="HTTP"
-GET /items?type=core.media.book,core.bookmark&state=active,archived
+GET /items?type=core.task,core.note&state=active,archived
 Authorization: Bearer <key>
 ```
 
@@ -72,25 +75,25 @@ Authorization: Bearer <key>
 
 ## Filter by properties
 
-A `filter` narrows by the values items hold. It is one or more conditions of the form `<field> <operator> <value>`, **joined by `AND` or by `OR`, not both**. A property is `properties.<name>`. This finds the books rated 4 or more that carry the `fiction` tag:
+A `filter` narrows by the values items hold. It is one or more conditions of the form `<field> <operator> <value>`, **joined by `AND` or by `OR`, not both**. A property is `properties.<name>`. This finds the high-priority tasks that carry the `home` tag:
 
 ```bash tab="CLI" tab-group="client"
-marfa items list --type core.media.book \
-  --filter 'properties.rating gte 4 AND tags contains "fiction"'
+marfa items list --type core.task \
+  --filter 'properties.priority eq "high" AND tags contains "home"'
 ```
 
 ```bash tab="HTTP"
 curl -G "$MARFA_API_URL/items" -H "Authorization: Bearer $MARFA_API_KEY" \
-  --data-urlencode "type=core.media.book" \
-  --data-urlencode 'filter=properties.rating gte 4 AND tags contains "fiction"'
+  --data-urlencode "type=core.task" \
+  --data-urlencode 'filter=properties.priority eq "high" AND tags contains "home"'
 ```
 
 ```ts tab="TypeScript"
 const { data } = await marfa.GET("/items", {
   params: {
     query: {
-      type: "core.media.book",
-      filter: 'properties.rating gte 4 AND tags contains "fiction"',
+      type: "core.task",
+      filter: 'properties.priority eq "high" AND tags contains "home"',
     },
   },
 });
@@ -100,7 +103,7 @@ The operators are `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `starts_wit
 
 A few fields reach further:
 
-- **`status_group`** tests the group of an item's [status word](/catalog/field-kinds), so one filter spans types whose words differ. `status_group eq "completed"` finds the books finished and the tasks done. It takes `not_started`, `in_progress`, `completed` or `canceled`.
+- **`status_group`** tests the group of an item's [status word](/catalog/field-kinds), so one filter spans types whose words differ. `status_group eq "completed"` finds the tasks done and the books finished. It takes `not_started`, `in_progress`, `completed` or `canceled`.
 - **`edge[<edge type>]`** finds the items with that edge to a given item: `edge[in-collection] eq "<collection id>"` lists a collection's members.
 - **`properties.<field>.<member>`** finds an item by any entry of a list, such as `properties.emails.value eq "priya@example.com"`. It takes `eq` only.
 - **`part`** tests whether an item is a [part](/build/edges) of another, such as an attached file. `part eq false` leaves parts out.
@@ -112,11 +115,11 @@ A filter holds at most 10 conditions in 2,048 characters. The same filters work 
 A listing comes **newest first**, by `created_at`. `sort` orders it by `created_at`, `updated_at`, `occurred_at`, `last_activity_at`, the last time the item or one of its rows changed, or a property as `properties.<name>`. `direction` takes `asc` or `desc`. Items that lack a sorted property come last, in either direction.
 
 ```bash tab="CLI" tab-group="client"
-marfa items list --type core.media.book --sort properties.rating --direction desc
+marfa items list --type core.task --sort properties.due_at --direction asc
 ```
 
 ```http tab="HTTP"
-GET /items?type=core.media.book&sort=properties.rating&direction=desc
+GET /items?type=core.task&sort=properties.due_at&direction=asc
 Authorization: Bearer <key>
 ```
 
@@ -133,36 +136,32 @@ GET /items?updated_after=2026-11-19T00:11:32.554Z
 Authorization: Bearer <key>
 ```
 
-The bound includes items changed at that instant, so **skip the ones you already hold by `id`**. This listing is always oldest change first, so it refuses any other `sort`. A listing can't report a purged item; the event stream can, as [Keep a copy in sync](/build/keep-in-sync) shows.
+The bound includes items changed at that instant, so **skip the ones you already hold by `id`**. This listing is always oldest change first: it takes `sort=updated_at` with `direction=asc`, and refuses any other `sort` or `direction`. A listing can't report a purged item; the event stream can, as [Keep a copy in sync](/build/keep-in-sync) shows.
 
 ## Search
 
 [Search items](/api-reference/search/searchItems) finds items by the words they hold, best match first:
 
 ```bash tab="CLI" tab-group="client"
-marfa search "le guin" --type core.media.book
+marfa search "boiler" --type core.task --type core.note
 ```
 
 ```http tab="HTTP"
-GET /search?q=le%20guin&type=core.media.book
+GET /search?q=boiler&type=core.task,core.note
 Authorization: Bearer <key>
 ```
 
 ```ts tab="TypeScript"
 const { data } = await marfa.GET("/search", {
-  params: { query: { q: "le guin", type: "core.media.book" } },
+  params: { query: { q: "boiler", type: "core.task,core.note" } },
 });
 ```
 
-Each entry in `data` holds the `item`, its `metadata`, a `relevance_score` and a `snippet_html`, such as `Ursula K. <mark>Le</mark> <mark>Guin</mark>`. The snippet escapes the item's text and marks each match, so **it's safe to show as HTML**.
+Each entry holds the `item`, its `metadata`, a `relevance_score` and a `snippet_html`, such as `Service the <mark>boiler</mark>`. The snippet escapes the item's text and marks each match, so **it's safe to show as HTML**.
 
-**Every word** in `q` must match, in any order, in the item's [searched fields](/catalog/items#searched-fields) or its tags. Words match by their stem, and the last word matches as a prefix, so `le gui` finds results as someone types. Put words in double quotes to match a phrase. A search takes a listing's narrowing parameters and `filter`, answers 20 entries unless you ask for up to 100, and never matches an item in the bin.
+**Every word** in `q` must match, in any order, in the item's [searched fields](/catalog/items#searched-fields) or its tags. Words match by their stem, and the last word matches as a prefix, so `servic boi` finds results as someone types. Put words in double quotes to match a phrase. A search takes a listing's narrowing parameters and `filter`, except `beneath` and `backref[]`, which it refuses with `400 validation_error`; an `edge[]` term in `filter` still works. It answers 20 entries unless you ask for up to 100, and never matches an item in the bin.
 
-`sort` orders a search by `relevance`, the default, or by any field a listing sorts by. In the CLI, a field's underscores become hyphens, as in `--sort updated-at`:
-
-```bash
-marfa search "le guin" --type core.media.book --sort properties.rating --direction desc
-```
+`sort` orders a search by `relevance`, the default, or by any field a listing sorts by. In the CLI, a field's underscores become hyphens, as in `--sort updated-at`.
 
 ## Count items
 
@@ -175,10 +174,10 @@ marfa items stats --by type
 ```
 
 ```text
-core.bookmark    2
-core.collection  1
-core.event       3
-core.media.book  4
+core.bookmark      1
+core.media.book    3
+core.note          7
+core.task          4
 ```
 
 </Terminal>
