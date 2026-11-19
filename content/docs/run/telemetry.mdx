@@ -1,6 +1,7 @@
 ---
 title: Send an instance's telemetry
-description: Send an instance's traces and logs to an OpenTelemetry endpoint, its errors to PostHog, and a notice or a heartbeat to an address you choose.
+description: Send an instance's traces and logs to an OpenTelemetry endpoint, and a notice or a heartbeat to an address you choose.
+job: An owner who watches their instance from outside sends its reports to the services they choose.
 ---
 
 An instance can report on itself in four ways, and **each is off until you give it a destination**, so an instance that sets none sends nothing. The CLI, connectors and apps report apart from the instance: see [what they send](/run/client-telemetry).
@@ -8,13 +9,13 @@ An instance can report on itself in four ways, and **each is off until you give 
 | To send | Set | Where it's set |
 | --- | --- | --- |
 | Traces and logs over OTLP | `OTEL_EXPORTER_OTLP_ENDPOINT` | The environment, with a restart |
-| Errors to PostHog | `MARFA_POSTHOG_HOST` and `MARFA_POSTHOG_PROJECT_TOKEN` | The environment, with a restart |
+| [Errors to PostHog](/run/send-errors-to-posthog) | `posthog_host` and `posthog_project_token` | Stored settings, at once |
 | A notice when a request fails | `error_webhook_url` | A stored setting, at once |
 | A heartbeat | `heartbeat_url` | A stored setting, at once |
 
-[Set an environment setting](/run/settings#set-an-environment-setting) shows where the environment is on each kind of install, and [Every environment setting](/run/settings#every-environment-setting) lists each with its default and limits.
+[Set an environment setting](/run/settings#set-an-environment-setting) shows where the environment is on each kind of install.
 
-**`OTEL_SDK_DISABLED=true` turns off traces, logs and error reports** whatever the other settings say. Any other value, `1` included, leaves them on. The notice and the heartbeat still go, since they aren't telemetry.
+**`OTEL_SDK_DISABLED=true` turns off traces, logs and error reports** whatever the other settings say. Any other value, `1` included, leaves them on. The notice and the heartbeat still go.
 
 ## Send traces and logs
 
@@ -26,42 +27,23 @@ OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20<token>
 MARFA_OTEL_SAMPLE_RATIO=0.1
 ```
 
-`MARFA_OTEL_SAMPLE_RATIO` is `0.05` unless you set it, and **a trace that holds an error is always exported**. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` send each to an address of its own, and need the shared address set too. A setting that's malformed, or needs another that's missing, stops the server from starting, and the message names the setting without its value.
+`MARFA_OTEL_SAMPLE_RATIO` is `0.05` unless you set it, and **a trace that holds an error is always exported**. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` send each to an address of its own, and need the shared address set too. A malformed setting stops the server, naming the setting without its value.
 
 **A log record carries its message and a fixed list of fields, and a span names the route,** never the path a request used, so neither holds what you wrote, a file's name or a credential.
 
+**A quick read that went well has no log record:** a `GET` or `HEAD` answered `2xx` or `304` in under a second, a healthy health check among them. Its line in the request log on standard output stays, and a failed read, a failed health check and every write are exported.
+
 ### Tell instances apart
 
-**Every log record and span names its instance by `service.instance.id`**, the `instance_id` that `GET /` answers, so several instances can share one project. Every error report does too, once the database has opened. The instance's name isn't sent, because it can change and can be personal.
+**Everything an instance exports names it by `service.instance.id`**, the `instance_id` that `GET /` answers, so several instances can share one project, and **its release by `service.version`**. The instance's name isn't sent, because it can change and can be personal.
 
-`OTEL_RESOURCE_ATTRIBUTES` adds attributes of your own, and **one named there replaces the server's own of the same name**. Mark a test or demo instance with `deployment.environment`, which is `production` unless you set it:
+`OTEL_RESOURCE_ATTRIBUTES` adds attributes of your own, and **one named there replaces the server's own of the same name**. The server names no environment of its own, so mark a test or demo instance with `deployment.environment`:
 
 ```bash
 OTEL_RESOURCE_ATTRIBUTES=deployment.environment=staging
 ```
 
 `OTEL_SERVICE_NAME` sets the service name, `marfa-server` by default.
-
-## Report errors to PostHog
-
-PostHog's error tracking reads exception events, which OTLP doesn't carry, so Marfa sends them on a path of its own. **Error reports need only the two PostHog settings**, with or without an OTLP endpoint:
-
-```bash
-MARFA_POSTHOG_HOST=https://eu.i.posthog.com
-MARFA_POSTHOG_PROJECT_TOKEN=<project token>
-```
-
-Use your project's region: `https://eu.i.posthog.com` for EU Cloud and `https://us.i.posthog.com` for US Cloud. One setting without the other stops the server from starting.
-
-**The host must be an `https` address,** or an `http` address on the same machine, with no user name or password, because the token travels with every report. Any other host turns off error reports alone, and the server warns at start without repeating the host.
-
-Marfa reports an error that no handler answered, which the request meets as a `500`. The report holds the error's kind, its message and stack, the request's ID, the method, the path and the error code. It attaches no person, and turns off PostHog's location lookup.
-
-**`error_reporting_enabled` set to `false` stops error reports and failure notices at once,** with no restart:
-
-```bash
-marfa config set error_reporting_enabled false
-```
 
 ## Post a notice when a request fails
 
@@ -71,11 +53,11 @@ Set `error_webhook_url`, and the server posts a JSON notice to it when a request
 marfa config set error_webhook_url
 ```
 
-The notice holds `timestamp`, `request_id`, `error`, `path`, `method` and `environment`, which takes `deployment.environment.name` or `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`. The server sends the same error on the same path at most once a minute, gives a post five seconds, and doesn't retry one that fails.
+The notice holds `timestamp`, `request_id`, `error`, `path`, `method` and `environment`, which takes `deployment.environment.name` or `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`, and is `null` when neither is named. The server sends the same error on the same path at most once a minute, gives a post five seconds, and doesn't retry one that fails. `error_reporting_enabled` set to `false` stops notices and error reports at once.
 
 ## Send a heartbeat
 
-An instance can't report its own death. Set `heartbeat_url` the same way, and the `heartbeat` [housekeeping job](/run/housekeeping) requests it with a `GET`, no body and no identity, every minute. Give it to an uptime monitor that alarms when the requests stop. The job's result records the answer's `status`, and the heartbeat goes on during a restore. `heartbeat_enabled` set to `false` pauses it, and `marfa config unset heartbeat_url` ends it.
+An instance can't report its own death. Set `heartbeat_url` the same way, and the `heartbeat` [housekeeping job](/run/housekeeping) requests it with a `GET`, no body and no identity, every minute. Give it to an uptime monitor that alarms when the requests stop. `heartbeat_enabled` set to `false` pauses it, and `marfa config unset heartbeat_url` ends it.
 
 **`marfa config get` never shows either address,** only that it's set, in `secrets_set`. Each must be public: an address on a private network is refused `400 validation_error` unless [`allow_private_addresses`](/run/settings#let-webhooks-reach-a-private-network) is on.
 
