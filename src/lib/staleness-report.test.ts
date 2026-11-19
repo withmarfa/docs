@@ -140,8 +140,8 @@ describe('scanCitations', () => {
       `A rule: [\`blobs/lend-earlier-version\`](${SPEC}/blobs.md#blobslend-earlier-version).`,
       `The chapter: [blobs](${SPEC}/blobs.md) and again [blobs](${SPEC}/blobs.md).`,
       `<Card href="${SPEC}/items.md#a-section" title="Items" />`,
-      'See [List items](/api-reference/items/listItems) and [Create](/api-reference/items/createItem#body).',
-      'Not a link into the reference: /api-reference/items and /api-reference.',
+      'See [List items](/reference/api/items/listItems) and [Create](/reference/api/items/createItem#body).',
+      'Not a link into the reference: /reference/api/items and /reference/api.',
       `Not a chapter: ${SPEC}/README.md.`,
     ].join('\n');
     expect(scanCitations(mdx)).toEqual({
@@ -181,10 +181,10 @@ describe('findStale', () => {
   const pages = {
     'content/docs/build/files.mdx': [
       `[a](${SPEC}/blobs.md#blobslend-earlier-version) [b](${SPEC}/blobs.md#blobsgone)`,
-      `[c](${SPEC}/blobs.md#blobsupload-hash) [d](/api-reference/items/listItems) [e](/api-reference/types/listTypes)`,
+      `[c](${SPEC}/blobs.md#blobsupload-hash) [d](/reference/api/items/listItems) [e](/reference/api/types/listTypes)`,
     ].join('\n'),
     'content/docs/build/chapter.mdx': `[blobs](${SPEC}/blobs.md) [items](${SPEC}/items.md) [x](${SPEC}/blobs.md#uploading)`,
-    'content/docs/build/quiet.mdx': `[c](${SPEC}/blobs.md#blobsupload-hash) [items](${SPEC}/items.md) [op](/api-reference/items/createItem)`,
+    'content/docs/build/quiet.mdx': `[c](${SPEC}/blobs.md#blobsupload-hash) [items](${SPEC}/items.md) [op](/reference/api/items/createItem)`,
   };
 
   it('lists a page under each rule or operation it cites that changed or went away', () => {
@@ -288,7 +288,7 @@ describe('the command', () => {
 
   it('reads the two commits and the pages at the head', () => {
     git('init', '-q', '-b', 'main');
-    write('content/docs/files.mdx', `[r](${SPEC}/blobs.md#blobsupload-hash) [o](/api-reference/items/listItems)\n`);
+    write('content/docs/files.mdx', `[r](${SPEC}/blobs.md#blobsupload-hash) [o](/reference/api/items/listItems)\n`);
     write('content/docs/other.mdx', 'No citations.\n');
     write('src/generated/contract-index.json', JSON.stringify({ chapters: { blobs: { 'blobs/upload-hash': 'a' } } }));
     write('openapi.json', JSON.stringify(spec()));

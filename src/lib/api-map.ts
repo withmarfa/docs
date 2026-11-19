@@ -1,5 +1,5 @@
 /**
- * The API map on /api-reference: every operation in the API description,
+ * The API map on /reference/api: every operation in the API description,
  * grouped by tag and the tags gathered into a few areas. The component draws
  * it and `source.config.ts` writes the same map into the page's Markdown copy,
  * so both come from `openapi.json` and neither is written by hand.
@@ -38,7 +38,7 @@ export type MapArea = { name: string; groups: MapGroup[]; count: number };
 export const tagSlug = (name: string) => name.replace(/\s+/g, '-').toLowerCase();
 
 /** The address of an operation's page. */
-export const operationHref = (tag: string, operationId: string) => `/api-reference/${tagSlug(tag)}/${operationId}`;
+export const operationHref = (tag: string, operationId: string) => `/reference/api/${tagSlug(tag)}/${operationId}`;
 
 /** Every operation in the description, paths first and then webhooks, with the tag it is filed under. */
 function operations(spec: Spec): (MapOperation & { tag: string; id: string })[] {
@@ -96,7 +96,7 @@ export function buildApiMap(spec: Spec, areas: Areas): MapArea[] {
       return {
         name,
         description: tags.get(name)?.description ?? '',
-        href: ops[0]?.href ?? '/api-reference',
+        href: ops[0]?.href ?? '/reference/api',
         operations: ops.map(({ method, path, title, href, webhook }) => ({ method, path, title, href, webhook })),
       };
     });

@@ -28,7 +28,13 @@ describe('the page profiles that search ranks by', () => {
       getLLMText: async () => '',
     }));
     vi.doMock('fumadocs-core/search/server', () => ({
-      createFromSource: () => ({ search: async () => [{ url: '/a', type: 'page', content: 'A page', breadcrumbs: [] }] }),
+      // The index reports each page's score through the plugin `docs-tools` passes it, as Orama does after a search.
+      createFromSource: (_loader: unknown, options: { plugins: { afterSearch: (...args: unknown[]) => void }[] }) => ({
+        search: async (query: string) => {
+          options.plugins[0].afterSearch(null, { term: query }, undefined, { hits: [{ score: 1, document: { page_id: '/a' } }] });
+          return [{ url: '/a', type: 'page', content: 'A page', breadcrumbs: [] }];
+        },
+      }),
     }));
     const { searchDocs } = await import('./docs-tools');
     await expect(searchDocs('page')).rejects.toThrow('not ready');

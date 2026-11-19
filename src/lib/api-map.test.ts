@@ -55,10 +55,10 @@ describe('unmappedTags', () => {
 
 describe('the Markdown copy of the API reference overview', () => {
   it('writes every operation as its method, path and a link to its page', async () => {
-    const page = source.getPage(['api-reference'])!;
+    const page = source.getPage(['reference', 'api'])!;
     const text = await getLLMText(page);
     expect(text).toContain(apiMapMarkdown(map));
     for (const row of rows) expect(text).toContain(`\`${row.method} ${row.path}\`: [`);
-    expect(text).toContain('- `POST /items`: [Create an item](/api-reference/items/createItem)');
+    expect(text).toContain('- `POST /items`: [Create an item](/reference/api/items/createItem)');
   });
 });

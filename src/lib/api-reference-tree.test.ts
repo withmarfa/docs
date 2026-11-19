@@ -13,12 +13,12 @@ describe('regroupApiReference', () => {
     name: 'docs',
     children: [
       folder('Reference', [
-        page('/typescript-sdk'),
+        page('/reference/typescript-sdk'),
         folder('Examples', [page('/examples/b'), page('/examples/a')]),
-        folder('Api keys', [page('/api-reference/api-keys/updateKey'), page('/api-reference/api-keys/createKey')]),
-        folder('Bulk actions', [page('/api-reference/bulk-actions/bulkGetItems')]),
-        folder('Search', [page('/api-reference/search/zzUnlisted'), page('/api-reference/search/searchItems')]),
-        folder('Items', [page('/api-reference/items/listItems'), page('/api-reference/items/createItem')]),
+        folder('Api keys', [page('/reference/api/api-keys/updateKey'), page('/reference/api/api-keys/createKey')]),
+        folder('Bulk actions', [page('/reference/api/bulk-actions/bulkGetItems')]),
+        folder('Search', [page('/reference/api/search/zzUnlisted'), page('/reference/api/search/searchItems')]),
+        folder('Items', [page('/reference/api/items/listItems'), page('/reference/api/items/createItem')]),
         page('/changelog'),
       ]),
     ],
@@ -52,7 +52,7 @@ describe('regroupApiReference', () => {
     expect(examples.name).toBe('Examples');
     expect(examples.defaultOpen).toBeUndefined();
     expect(examples.children.map((node) => (node as PageTree.Item).url)).toEqual(['/examples/b', '/examples/a']);
-    expect(reference.children[0]).toEqual(page('/typescript-sdk'));
+    expect(reference.children[0]).toEqual(page('/reference/typescript-sdk'));
     expect(reference.children.at(-1)).toEqual(page('/changelog'));
   });
 });

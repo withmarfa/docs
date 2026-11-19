@@ -16,7 +16,7 @@ const REFERENCE_TITLE = 'reference';
 
 // The description's tags: the groups in the order it lists them, each with the
 // order of its operations. An operation page lives at
-// /api-reference/<tag-slug>/<operationId>, with the slug fumadocs-openapi
+// /reference/api/<tag-slug>/<operationId>, with the slug fumadocs-openapi
 // makes from the tag's name, so a folder is matched to its tag by that slug and
 // not by the folder's display name, which the loader derives from the slug
 // ("Api keys" for the tag "API keys").
@@ -31,8 +31,8 @@ const TAGS = new Map(
 
 function folderTag(folder: PageTree.Folder) {
   for (const child of folder.children) {
-    if (child.type !== 'page' || !child.url.startsWith('/api-reference/')) continue;
-    return TAGS.get(child.url.split('/')[2] ?? '');
+    if (child.type !== 'page' || !child.url.startsWith('/reference/api/')) continue;
+    return TAGS.get(child.url.split('/')[3] ?? '');
   }
   return undefined;
 }
@@ -56,7 +56,7 @@ function orderOperations(folder: PageTree.Folder): PageTree.Node[] {
 export function isTagFolder(node: PageTree.Node): node is PageTree.Folder {
   return (
     node.type === 'folder' &&
-    node.children.some((child) => child.type === 'page' && child.url.startsWith('/api-reference/'))
+    node.children.some((child) => child.type === 'page' && child.url.startsWith('/reference/api/'))
   );
 }
 

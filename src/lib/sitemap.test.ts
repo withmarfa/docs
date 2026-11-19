@@ -24,12 +24,13 @@ describe('buildSitemap', () => {
     expect(urls).toContain('https://docs.marfa.so/');
     expect(urls).toContain('https://docs.marfa.so/quickstart');
     expect(urls).toContain('https://docs.marfa.so/run/run-on-a-server');
-    expect(urls.some((url) => url.startsWith('https://docs.marfa.so/api-reference/'))).toBe(true);
+    expect(urls.some((url) => url.startsWith('https://docs.marfa.so/reference/api/'))).toBe(true);
   });
 
   it('lists only page addresses', () => {
     for (const url of urls.filter((url) => url !== 'https://docs.marfa.so/')) {
-      expect(url).not.toMatch(/\/$|\.md$|\.txt$|\/mcp$|\/api\/|version\.json/);
+      expect(url).not.toMatch(/\/$|\.md$|\.txt$|\/mcp$|version\.json/);
+      expect(url.startsWith('https://docs.marfa.so/api/')).toBe(false);
     }
   });
 });

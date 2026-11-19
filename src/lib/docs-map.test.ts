@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { buildDocsMap, buildLlmsTxt } from '@/lib/docs-map';
-import { TOP_BAR_LINKS } from '@/lib/top-bar';
 import { getLLMText, getLlmsFullText, inLlmsFull, source } from '@/lib/source';
 import spec from '../../openapi.json';
 
@@ -11,7 +10,7 @@ function operationsUnder(text: string, heading: string): string[] {
   const end = lines.findIndex((line, index) => index > start && line.startsWith('#'));
   return lines
     .slice(start + 1, end === -1 ? undefined : end)
-    .flatMap((line) => /\]\((?:https:\/\/docs\.marfa\.so)?\/api-reference\/[^/]+\/([^/)]+)\)/.exec(line)?.[1] ?? []);
+    .flatMap((line) => /\]\((?:https:\/\/docs\.marfa\.so)?\/reference\/api\/[^/]+\/([^/)]+)\)/.exec(line)?.[1] ?? []);
 }
 
 const orders = (spec.tags as { name: string; 'x-operation-order'?: string[] }[]).map(
@@ -22,15 +21,25 @@ describe('buildDocsMap', () => {
   const map = buildDocsMap();
   const lines = map.split('\n');
 
-  it('lists the six tabs in order, then the top-bar pages, as H2 headings', () => {
-    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Start', '## Use', '## Run', '## Build', '## Catalog', '## Reference', '## Also in the top bar']);
+  it('lists the six tabs in order as H2 headings', () => {
+    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Home', '## Use', '## Run', '## Build', '## Catalog', '## Reference']);
   });
 
   it('groups each tab as the sidebar does', () => {
-    const start = lines.slice(lines.indexOf('## Start'), lines.indexOf('## Use'));
-    expect(start.filter((line) => line.startsWith('### '))).toEqual([]);
-    expect(start.some((line) => line.startsWith('- [What Marfa is](/)'))).toBe(true);
-    expect(start.some((line) => line.startsWith('- [Connect your agent](/connect-your-agent)'))).toBe(true);
+    const home = lines.slice(lines.indexOf('## Home'), lines.indexOf('## Use'));
+    expect(home.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Resources']);
+    expect(home.filter((line) => line.startsWith('- ')).map((line) => line.replace(/\].*$/, ']'))).toEqual([
+      '- [What Marfa is]',
+      '- [Quickstart]',
+      '- [Connect your agent]',
+      '- [How Marfa works]',
+      '- [Glossary]',
+      '- [Changelog]',
+      '- [Get help]',
+    ]);
+    expect(home.some((line) => line.startsWith('- [What Marfa is](/)'))).toBe(true);
+    expect(home.some((line) => line.startsWith('- [Glossary](/glossary)'))).toBe(true);
+    expect(home.some((line) => line.startsWith('- [Connect your agent](/connect-your-agent)'))).toBe(true);
 
     const use = lines.slice(lines.indexOf('## Use'), lines.indexOf('## Run'));
     expect(use.filter((line) => line.startsWith('### '))).toEqual(['### Day to day', '### A synced folder', '### Connectors', '### Access', '### When you need more']);
@@ -47,7 +56,7 @@ describe('buildDocsMap', () => {
 
     // The Types and Connectors pages are folders, so their pages nest under them.
     const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Reference'));
-    const reference = lines.slice(lines.indexOf('## Reference'), lines.indexOf('## Also in the top bar'));
+    const reference = lines.slice(lines.indexOf('## Reference'));
     expect(catalog.filter((line) => /^(- |  - |    - )/.test(line)).map((line) => line.replace(/\]\(.*$/, ']').replace(/^( *- )\[/, '$1'))).toEqual([
       '- Items]',
       '- Types]',
@@ -73,39 +82,17 @@ describe('buildDocsMap', () => {
     const groups = reference.filter((line) => line.startsWith('### '));
     expect(groups[0]).toBe('### HTTP API');
     expect(groups.slice(-3)).toEqual(['### SDKs', '### CLI and MCP', '### Resources']);
-    expect(reference.some((line) => line.startsWith('- [TypeScript SDK](/typescript-sdk)'))).toBe(true);
-    expect(reference.some((line) => line.startsWith('- [Marfa MCP server](/marfa-mcp-server)'))).toBe(true);
-    expect(reference.some((line) => line.startsWith('- [Docs MCP server](/docs-mcp-server)'))).toBe(true);
+    expect(reference.some((line) => line.startsWith('- [TypeScript SDK](/reference/typescript-sdk)'))).toBe(true);
+    expect(reference.some((line) => line.startsWith('- [Marfa MCP server](/reference/marfa-mcp-server)'))).toBe(true);
+    expect(reference.some((line) => line.startsWith('- [Docs MCP server](/reference/docs-mcp-server)'))).toBe(true);
     expect(reference.some((line) => line.startsWith('- [The contract](https://github.com/'))).toBe(true);
   });
 
-  it('lists the pages the top bar links to last, and in no tab', () => {
-    const topBar = lines.slice(lines.indexOf('## Also in the top bar'));
-    expect(topBar.filter((line) => line.startsWith('- ')).map((line) => line.replace(/\].*$/, ']'))).toEqual(['- [Glossary]', '- [Changelog]', '- [Get help]']);
-    expect(lines.slice(0, lines.indexOf('## Also in the top bar')).filter((line) => /\]\(\/(glossary|changelog|get-help)\)/.test(line))).toEqual([]);
-  });
-
-  it('has a page for every top-bar link, and the page tree holds none of them', () => {
-    const inTree = new Set<string>();
-    const walk = (nodes: { type: string; url?: string; index?: { url: string }; children?: unknown[] }[]) => {
-      for (const node of nodes) {
-        if (node.url) inTree.add(node.url);
-        if (node.index) inTree.add(node.index.url);
-        if (node.children) walk(node.children as typeof nodes);
-      }
-    };
-    walk(source.getPageTree().children as Parameters<typeof walk>[0]);
-    for (const { href } of TOP_BAR_LINKS) {
-      expect(source.getPage(href.split('/').filter(Boolean)), href).toBeDefined();
-      expect(inTree.has(href), href).toBe(false);
-    }
-  });
-
   it('lists the CLI as one page, with nothing nested under it', () => {
-    const cli = lines.findIndex((line) => line.startsWith('- [CLI](/cli)'));
+    const cli = lines.findIndex((line) => line.startsWith('- [CLI](/reference/cli)'));
     expect(cli).toBeGreaterThan(-1);
     expect(lines[cli + 1]).not.toMatch(/^ {2}- /);
-    expect(map).not.toContain('](/cli/');
+    expect(map).not.toContain('](/reference/cli/');
   });
 
   it('names no page under a path prefix the site does not use', () => {
@@ -115,7 +102,7 @@ describe('buildDocsMap', () => {
   it('lists every API reference operation under its tag', () => {
     const api = lines.slice(lines.indexOf('## Reference'));
     expect(api.some((line) => line.startsWith('### Items'))).toBe(true);
-    expect(api.some((line) => line.startsWith('- [Create an item](/api-reference/items/createItem)'))).toBe(true);
+    expect(api.some((line) => line.startsWith('- [Create an item](/reference/api/items/createItem)'))).toBe(true);
   });
 
   it("lists each group's operations in the order its tag gives", () => {
@@ -135,12 +122,12 @@ describe('buildLlmsTxt', () => {
 
   it('links each written page to its Markdown copy at a full address', () => {
     expect(text).toContain('- [What Marfa is](https://docs.marfa.so/index.md)');
-    expect(text).toContain('(https://docs.marfa.so/cli.md)');
+    expect(text).toContain('(https://docs.marfa.so/reference/cli.md)');
     expect(text).not.toMatch(/\]\(\/[a-z]/);
   });
 
   it('links an API operation to its HTML page, which holds the request and answers', () => {
-    expect(text).toContain('(https://docs.marfa.so/api-reference/items/createItem)');
+    expect(text).toContain('(https://docs.marfa.so/reference/api/items/createItem)');
     expect(text).not.toContain('createItem.md');
   });
 
@@ -149,7 +136,7 @@ describe('buildLlmsTxt', () => {
   });
 
   it('says what llms-full.txt holds and where the operations and the changelog are', () => {
-    const intro = text.slice(0, text.indexOf('## Start'));
+    const intro = text.slice(0, text.indexOf('## Home'));
     expect(intro).toContain('`https://docs.marfa.so/llms-full.txt` holds the written pages');
     expect(intro).toContain('leaves out the API operations and the changelog');
     expect(intro).toContain('`openapi.json`');
@@ -179,8 +166,8 @@ describe('getLlmsFullText', () => {
       expect(full.includes(heading), page.url).toBe(inLlmsFull(page));
     }
     expect(full).toContain(await getLLMText(source.getPage([])!));
-    expect(full).toContain('# Errors (/api-reference/errors)');
-    expect(full).not.toContain('# Create an item (/api-reference/items/createItem)');
+    expect(full).toContain('# Errors (/reference/errors)');
+    expect(full).not.toContain('# Create an item (/reference/api/items/createItem)');
   });
 
   it('holds the pages in sidebar order', async () => {

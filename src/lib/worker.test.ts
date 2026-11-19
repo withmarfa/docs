@@ -111,7 +111,7 @@ describe('a page address that prefers Markdown', () => {
   });
 
   it('answers an API operation page with its copy', async () => {
-    const res = await get('/api-reference/apps/revokeAppGrant', 'text/markdown, text/html, */*');
+    const res = await get('/reference/api/apps/revokeAppGrant', 'text/markdown, text/html, */*');
     expect(res.headers.get('Content-Type')).toBe('text/markdown');
     expect(await res.text()).toContain('# ');
   });

@@ -1,7 +1,7 @@
 import { POSTHOG_API_HOST } from '@/lib/analytics';
 import { DOCS_TOOL_NAMES } from '@/lib/mcp/tools';
 import type { Limiter } from '@/lib/rate-limit';
-import { markdownPathToSlugs, pageForPath, source } from '@/lib/source';
+import { findPage, markdownPathToSlugs, pageForPath } from '@/lib/source';
 import type { Stage } from '@/lib/worker';
 
 /**
@@ -113,7 +113,7 @@ export function describeRead(request: Request): Read | null {
   if (pathname.endsWith('.md')) {
     // The same lookup the `.md` route makes, so a path counts exactly when the
     // route finds a page. Anything else is a miss, and its text is not kept.
-    const page = source.getPage(markdownPathToSlugs(pathname.replace(/^\//, '').split('/')));
+    const page = findPage(markdownPathToSlugs(pathname.replace(/^\//, '').split('/')));
     return { surface: 'markdown', via: 'path', ...(page ? { path: page.url } : {}) };
   }
 

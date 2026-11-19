@@ -23,7 +23,7 @@ globalThis.ResizeObserver ??= class {
 // success codes and thirteen errors. The package draws a row of fifteen tabs
 // unless the page's own response controls are in use, so this renders the
 // real page and reads the controls it draws.
-const WIDEST = '/api-reference/items/createItem';
+const WIDEST = '/reference/api/items/createItem';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -73,7 +73,7 @@ describe('the response codes of an API page', () => {
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="Errors"]');
     const codes = [...(select?.options ?? [])].filter((option) => option.value).map((option) => option.value);
     expect(codes).toEqual(['400', '401', '403', '404', '408', '409', '412', '413', '422', '429', '500', '503', '507']);
-    expect(container.querySelector('a[href="/api-reference/errors"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/reference/errors"]')).not.toBeNull();
   });
 
   it('shows the panel of an error code when it is chosen', async () => {

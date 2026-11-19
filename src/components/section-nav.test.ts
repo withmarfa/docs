@@ -3,10 +3,10 @@ import { sectionFor } from './section-nav';
 
 describe('sectionFor', () => {
   it('puts each page in the tab its folder belongs to', () => {
-    expect(sectionFor('/')).toBe('Start');
-    expect(sectionFor('/connect-your-agent')).toBe('Start');
-    expect(sectionFor('/quickstart')).toBe('Start');
-    expect(sectionFor('/how-marfa-works')).toBe('Start');
+    expect(sectionFor('/')).toBe('Home');
+    expect(sectionFor('/connect-your-agent')).toBe('Home');
+    expect(sectionFor('/quickstart')).toBe('Home');
+    expect(sectionFor('/how-marfa-works')).toBe('Home');
     expect(sectionFor('/use/from-an-agent')).toBe('Use');
     expect(sectionFor('/use/sync-a-folder')).toBe('Use');
     expect(sectionFor('/build/files')).toBe('Build');
@@ -16,28 +16,28 @@ describe('sectionFor', () => {
     expect(sectionFor('/catalog/items')).toBe('Catalog');
     expect(sectionFor('/catalog/media')).toBe('Catalog');
     expect(sectionFor('/catalog/connectors/github')).toBe('Catalog');
-    expect(sectionFor('/cli')).toBe('Reference');
-    expect(sectionFor('/marfa-mcp-server')).toBe('Reference');
-    expect(sectionFor('/docs-mcp-server')).toBe('Reference');
-    expect(sectionFor('/folder-rules')).toBe('Reference');
-    expect(sectionFor('/folder-sync-status')).toBe('Reference');
-    expect(sectionFor('/typescript-sdk')).toBe('Reference');
-    expect(sectionFor('/api-reference')).toBe('Reference');
-    expect(sectionFor('/api-reference/items/getItem')).toBe('Reference');
+    expect(sectionFor('/reference/cli')).toBe('Reference');
+    expect(sectionFor('/reference/marfa-mcp-server')).toBe('Reference');
+    expect(sectionFor('/reference/docs-mcp-server')).toBe('Reference');
+    expect(sectionFor('/reference/folder-rules')).toBe('Reference');
+    expect(sectionFor('/reference/folder-sync-status')).toBe('Reference');
+    expect(sectionFor('/reference/typescript-sdk')).toBe('Reference');
+    expect(sectionFor('/reference/api')).toBe('Reference');
+    expect(sectionFor('/reference/api/items/getItem')).toBe('Reference');
   });
 
-  it('puts the pages the top bar links to in no tab', () => {
-    expect(sectionFor('/glossary')).toBeNull();
-    expect(sectionFor('/changelog')).toBeNull();
-    expect(sectionFor('/get-help')).toBeNull();
+  it('puts the Glossary, the Changelog and Get help in Home', () => {
+    expect(sectionFor('/glossary')).toBe('Home');
+    expect(sectionFor('/changelog')).toBe('Home');
+    expect(sectionFor('/get-help')).toBe('Home');
   });
 
-  it('leaves a path that only starts like a Reference page in Start', () => {
-    expect(sectionFor('/client')).toBe('Start');
-    expect(sectionFor('/clix')).toBe('Start');
-    expect(sectionFor('/buildx')).toBe('Start');
-    expect(sectionFor('/running')).toBe('Start');
-    expect(sectionFor('/catalogx')).toBe('Start');
-    expect(sectionFor('/user')).toBe('Start');
+  it('leaves a path that only starts like another tab\'s segment in Home', () => {
+    expect(sectionFor('/client')).toBe('Home');
+    expect(sectionFor('/clix')).toBe('Home');
+    expect(sectionFor('/buildx')).toBe('Home');
+    expect(sectionFor('/running')).toBe('Home');
+    expect(sectionFor('/catalogx')).toBe('Home');
+    expect(sectionFor('/user')).toBe('Home');
   });
 });
