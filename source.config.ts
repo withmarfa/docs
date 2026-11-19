@@ -185,7 +185,12 @@ export const docs = defineDocs({
     // A Catalog type page names its type's identifier, which the header shows
     // under the description and the Markdown copy under the title. `headTitle`
     // names a page in browser tabs and search results (`src/lib/page-head.ts`).
-    schema: pageSchema.extend({ identifier: z.string().optional(), headTitle: z.string().optional() }),
+    // `sidebar_label` is a shorter name for the sidebar only (`src/lib/sidebar-label.ts`).
+    schema: pageSchema.extend({
+      identifier: z.string().optional(),
+      headTitle: z.string().optional(),
+      sidebar_label: z.string().min(1).optional(),
+    }),
     postprocess: {
       includeProcessedMarkdown: llms,
     },

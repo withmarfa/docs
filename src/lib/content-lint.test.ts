@@ -244,6 +244,12 @@ export function checkFrontmatter(file: string, text: string): Violation[] {
   } else if (typeof head === 'string' && TITLE_DASH.test(head)) {
     out.push(...fail('headTitle has an em or en dash, which search results and link previews show; use a comma or a colon'));
   }
+  const label = fields.sidebar_label;
+  if (label !== undefined && (typeof label !== 'string' || label.trim() === '')) {
+    out.push(...fail('sidebar_label is empty; leave it out to use the title'));
+  } else if (typeof label === 'string' && TITLE_DASH.test(label)) {
+    out.push(...fail('sidebar_label has an em or en dash; use a comma or a colon'));
+  }
   return out;
 }
 
@@ -703,6 +709,9 @@ describe('content lint: each rule fires on a bad sample', () => {
     expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\nheadTitle: A \u2014 B\ndescription: C\n---\n'))).toEqual(['frontmatter']);
     expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\nheadTitle: ""\ndescription: C\n---\n'))).toEqual(['frontmatter']);
     expect(checkFrontmatter('x.mdx', '---\ntitle: A\nheadTitle: "Marfa Docs: B"\ndescription: C\n---\n')).toEqual([]);
+    expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\nsidebar_label: ""\ndescription: C\n---\n'))).toEqual(['frontmatter']);
+    expect(rules(checkFrontmatter('x.mdx', '---\ntitle: A\nsidebar_label: A \u2014 B\ndescription: C\n---\n'))).toEqual(['frontmatter']);
+    expect(checkFrontmatter('x.mdx', '---\ntitle: A long title\nsidebar_label: Short\ndescription: C\n---\n')).toEqual([]);
   });
 
   it('coming-soon', () => {

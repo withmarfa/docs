@@ -8,8 +8,9 @@ import { TOP_BAR_LINKS } from '@/lib/top-bar';
  * A hierarchical index of the docs (Anthropic claude_code_docs_map.md pattern),
  * read from the page tree so it has the same tabs, groups and order as the
  * sidebar: each tab is an H2, each sidebar group or API tag an H3, and each
- * page a Markdown link. The pages the top bar links to come last, under one H2. Served at `/docs-map.md` for agents that want one fetch
- * with every page and its address.
+ * page a Markdown link. The pages the top bar links to come last, under one
+ * H2. Served at `/docs-map.md` for agents that want one fetch with every page
+ * and its address.
  */
 export function buildDocsMap(): string {
   return buildIndex(
