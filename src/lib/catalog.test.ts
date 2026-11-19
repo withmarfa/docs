@@ -524,7 +524,8 @@ describe('the edge type table', () => {
       'Reverse label',
       'Reverse name',
       'Cardinality',
-      'On delete',
+      '`cascade_on_delete`',
+      '`written_from`',
       ...(constrained ? ['From types'] : []),
       'To types',
     ]);
@@ -536,6 +537,7 @@ describe('the edge type table', () => {
         edge.reverse_name ? `\`${edge.reverse_name}\`` : 'None',
         `\`${edge.cardinality}\``,
         `\`${edge.cascade_on_delete}\``,
+        `\`${edge.written_from}\``,
         ...(constrained ? [wording(edge.from_type_constraints)] : []),
         wording(edge.to_type_constraints),
       ]),
