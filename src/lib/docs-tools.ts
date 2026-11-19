@@ -6,7 +6,8 @@
  * (`src/lib/mcp/tools.ts`), the JSON routes under `/api/docs/`
  * (`src/lib/docs-api.ts`) and the site's search box (`/api/search`). Search is
  * Fumadocs's Orama BM25, with the tokenizer below, over the same `source` that
- * powers `/llms.txt` and the `<path>.md` copy of each page. Dense embeddings
+ * powers `/llms.txt` and the `<path>.md` copy of each page, and `searchDocs`
+ * reorders its pages by their titles, headings and kind. Dense embeddings
  * are deferred: BM25 alone needs no API key from self-hosters, and its recall
  * is good enough here.
  */
@@ -252,7 +253,113 @@ async function passageUnder(url: string, headingId: string): Promise<string | nu
   return passage ? trimPassage(passage.content) : null;
 }
 
-/** Full-text search, one hit per page, ranked by the page's best row. */
+/**
+ * Pages the ranking considers for a search, however few are asked for: a guide that BM25 puts tenth must be
+ * able to come first once its title and headings are weighed.
+ */
+const CANDIDATE_PAGES = 30;
+
+/** What each part of a page earns it, in places of rank, when a query's words are in it. A guide's title outranks a heading of another page. */
+const TITLE_WEIGHT = 6;
+const HEADING_WEIGHT = 3;
+/** On top of a title or a heading that holds the query's words and no others: `Make a key` for `make a key`. */
+const EXACT_WEIGHT = 2;
+const DESCRIPTION_WEIGHT = 1.5;
+
+/**
+ * Where a page sits decides which of two equally matching pages a reader wants for a task: a Use or Run guide
+ * before a Build page, before a Reference page, and a page for one API operation last. Taken from the folder
+ * the page is in, so a new page needs nothing here.
+ */
+const KIND_WEIGHT = { guide: 3, build: 1.5, reference: 0, operation: -3 } as const;
+type PageKind = keyof typeof KIND_WEIGHT;
+
+interface PageProfile {
+  kind: PageKind;
+  /** The title's words, as the index holds them, and the same without stop words. */
+  title: string[];
+  headings: string[][];
+  description: string[];
+}
+
+let profiles: Promise<Map<string, PageProfile>> | undefined;
+
+function kindOf(page: (typeof source)['$inferPage']): PageKind {
+  // A generated operation page has no written body.
+  if (!('getText' in page.data)) return 'operation';
+  const folder = page.path.split('/')[0];
+  if (folder === 'use' || folder === 'run' || folder === '(start)') return 'guide';
+  return folder === 'build' ? 'build' : 'reference';
+}
+
+function pageProfiles(): Promise<Map<string, PageProfile>> {
+  profiles ??= (async () => {
+    const map = new Map<string, PageProfile>();
+    for (const page of source.getPages()) {
+      const data = page.data as { title: string; description?: string; structuredData?: StructuredPage | (() => Promise<StructuredPage>) };
+      const structured = typeof data.structuredData === 'function' ? await data.structuredData() : data.structuredData;
+      map.set(page.url, {
+        kind: kindOf(page),
+        title: tokenizeSearchText(data.title, false),
+        headings: (structured?.headings ?? []).map((h) => tokenizeSearchText(h.content, false)),
+        description: tokenizeSearchText(data.description ?? '', false),
+      });
+    }
+    return map;
+  })();
+  return profiles;
+}
+
+/**
+ * The share of a query's words that a text holds. Two words run together meet the same two apart, in either
+ * direction (`backup` and `back up`), because readers write both and a page chooses one.
+ */
+function coverage(queryWords: string[], textWords: string[]): number {
+  if (queryWords.length === 0 || textWords.length === 0) return 0;
+  // The index keeps a four-letter plural (`keys`) as it is, so that `cors` stays `cors`. Here a plural meets its singular.
+  const singular = (word: string) => (word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word);
+  const query = queryWords.map(singular);
+  const text = textWords.map(singular);
+  const have = new Set(text);
+  const joined = new Set(text.slice(1).map((word, i) => text[i] + word));
+  const covered = new Set<number>();
+  query.forEach((word, i) => {
+    if (have.has(word) || joined.has(word)) covered.add(i);
+    if (i + 1 < query.length && have.has(word + query[i + 1])) {
+      covered.add(i);
+      covered.add(i + 1);
+    }
+  });
+  return covered.size / query.length;
+}
+
+/** A query that names a code, a flag, a dotted name, a number or a header, so what a page is about does not decide it. */
+const NAMES_AN_IDENTIFIER = /[_]|--|\p{L}[.-]\p{L}|\d/u;
+
+/**
+ * Places of rank a page gains for how well its title, headings and description answer the query's words, and,
+ * for a question that is not a code or a number, for being a guide. BM25 weighs a page's rows by their length and
+ * counts, so a reference page that repeats a word outranks the guide that is about it.
+ */
+function boost(profile: PageProfile, words: string[], task: boolean): number {
+  const exactly = (text: string[]) => {
+    const bare = text.filter((word) => !STOP_WORDS.has(word));
+    return coverage(words, text) === 1 && bare.length === words.length;
+  };
+  const titleCoverage = coverage(words, profile.title);
+  const headings = profile.headings.map((h) => ({ coverage: coverage(words, h), exact: exactly(h) }));
+  const heading = headings.reduce((best, h) => Math.max(best, h.coverage), 0);
+  return (
+    TITLE_WEIGHT * titleCoverage ** 2 +
+    (exactly(profile.title) ? EXACT_WEIGHT : 0) +
+    HEADING_WEIGHT * heading ** 2 +
+    (headings.some((h) => h.exact) ? EXACT_WEIGHT : 0) +
+    DESCRIPTION_WEIGHT * coverage(words, profile.description) ** 2 +
+    (task ? KIND_WEIGHT[profile.kind] : 0)
+  );
+}
+
+/** Full-text search, one hit per page. BM25 finds the pages, and the page's title, headings and place in the docs order them. */
 export async function searchDocs(
   query: string,
   limit: number = DEFAULT_SEARCH_LIMIT,
@@ -260,54 +367,73 @@ export async function searchDocs(
   if (!query.trim()) return { hits: [] };
   const cap = Math.min(Math.max(Math.trunc(limit), 1), MAX_SEARCH_LIMIT);
 
-  // One page more than asked for: the changelog can move from first to last,
-  // and the page that takes its place must already be in the results.
-  const results = await searchServer.search(query, { limit: (cap + 1) * ROWS_PER_PAGE });
+  // Pages beyond those asked for: the ranking below moves a page up, and the changelog can move from first
+  // to last, so the page that takes its place must already be in the results.
+  const results = await searchServer.search(query, { limit: (Math.max(cap + 1, CANDIDATE_PAGES)) * ROWS_PER_PAGE });
 
-  // Orama returns one row per heading or text fragment. Fold the rows of a page
-  // into one hit, keeping each fragment's text as a snippet.
-  const byPage = new Map<string, SearchHit>();
+  // Orama returns one row per heading or text fragment. Fold the rows of a page into one candidate, in the
+  // order of its best row.
+  const rowsByPage = new Map<string, typeof results>();
   for (const r of results) {
     const url = r.url.split('#')[0];
-    let entry = byPage.get(url);
-    if (!entry) {
-      const page = source.getPage(pathToSlugs(url));
-      const title =
-        page?.data.title ??
-        toPlainText(
-          r.type === 'page' || !Array.isArray(r.breadcrumbs) || r.breadcrumbs.length === 0
-            ? r.content
-            : r.breadcrumbs[0],
-        );
-      entry = { title, url, snippets: [] };
-      byPage.set(url, entry);
-    }
-    if (r.type === 'page' || !r.content || entry.snippets.length >= MAX_SNIPPETS_PER_PAGE) continue;
-    // A heading row matched by its words; show the passage under it, which says more than the heading does.
-    const hash = r.url.split('#')[1];
-    const snippet =
-      r.type === 'heading' && hash
-        ? ((await passageUnder(url, hash)) ?? toPlainText(r.content))
-        : toPlainText(r.content);
-    // A table repeats the same cell text on every row, and each row is a hit.
-    if (!entry.snippets.includes(snippet)) entry.snippets.push(snippet);
+    rowsByPage.set(url, [...(rowsByPage.get(url) ?? []), r]);
   }
 
-  // BM25 weighs a page's rows by length and counts, so a page named `Note` can rank below pages that mention
-  // notes more densely. A query that is a page's name is a request for that page.
-  const wanted = tokenizeSearchText(query, true).join(' ');
-  const named = pagesNamed(wanted).map((p) => byPage.get(p.url) ?? { title: p.title, url: p.url, snippets: [] });
-  const hits = [...named, ...Array.from(byPage.values()).filter((h) => !named.includes(h))];
-  const changelog = hits.findIndex((h) => h.url === CHANGELOG_URL);
+  // BM25 puts a page in the results; the page's own words and kind then order them. A tie keeps BM25's order.
+  const words = tokenizeSearchText(query, true);
+  const task = !NAMES_AN_IDENTIFIER.test(query);
+  const known = await pageProfiles();
+  const ranked = [...rowsByPage.keys()]
+    .map((url, rank) => {
+      const profile = known.get(url);
+      return { url, rank, place: rank - (profile ? boost(profile, words, task) : 0) };
+    })
+    .sort((a, b) => a.place - b.place || a.rank - b.rank)
+    .map((c) => c.url);
+
+  // A query that is a page's name is a request for that page, however many pages repeat the word. Where a guide
+  // and a reference page share the name, the ranking above says which comes first.
+  const named = pagesNamed(words.join(' ')).map((p) => p.url);
+  const first = [...ranked.filter((url) => named.includes(url)), ...named.filter((url) => !ranked.includes(url))];
+  const order = [...first, ...ranked.filter((url) => !named.includes(url))];
+  const changelog = order.indexOf(CHANGELOG_URL);
   if (changelog !== -1) {
     // The changelog repeats every term, so it goes after every other page, unless the reader asked about a
     // release: then it goes first, ahead of a page that only uses the word.
-    const [page] = hits.splice(changelog, 1);
-    if (asksAboutARelease(query)) hits.unshift(page);
-    else hits.push(page);
+    const [page] = order.splice(changelog, 1);
+    if (asksAboutARelease(query)) order.unshift(page);
+    else order.push(page);
   }
 
-  return { hits: hits.slice(0, cap) };
+  const hits: SearchHit[] = [];
+  for (const url of order.slice(0, cap)) {
+    const page = source.getPage(pathToSlugs(url));
+    const rows = rowsByPage.get(url) ?? [];
+    const entry: SearchHit = {
+      url,
+      title:
+        page?.data.title ??
+        toPlainText(
+          rows[0]?.type === 'page' || !Array.isArray(rows[0]?.breadcrumbs) || rows[0].breadcrumbs.length === 0
+            ? (rows[0]?.content ?? '')
+            : rows[0].breadcrumbs[0],
+        ),
+      snippets: [],
+    };
+    for (const r of rows) {
+      if (r.type === 'page' || !r.content || entry.snippets.length >= MAX_SNIPPETS_PER_PAGE) continue;
+      // A heading row matched by its words; show the passage under it, which says more than the heading does.
+      const hash = r.url.split('#')[1];
+      const snippet =
+        r.type === 'heading' && hash
+          ? ((await passageUnder(url, hash)) ?? toPlainText(r.content))
+          : toPlainText(r.content);
+      // A table repeats the same cell text on every row, and each row is a hit.
+      if (!entry.snippets.includes(snippet)) entry.snippets.push(snippet);
+    }
+    hits.push(entry);
+  }
+  return { hits };
 }
 
 /** The page's Markdown, the same text its `<path>.md` copy serves, or `null` when there is no such page. */

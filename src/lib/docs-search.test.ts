@@ -92,7 +92,37 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['audit', ['/use/audit-log']],
 
   // An apostrophe is part of a word, not a break in it.
-  ["can't overwrite", ['/use/from-an-agent', '/run/export-and-restore']],
+  // `/use/from-an-agent` says an agent reads before it writes but never says "overwrite", so the pages that do answer come first.
+  ["can't overwrite", ['/build/write-safely', '/build/versions', '/use/from-an-agent', '/run/export-and-restore']],
+
+  // A question in a reader's own words, answered by one of the pages that explains it.
+  ['install the cli', ['/cli', '/quickstart']],
+  ['tables', ['/build/tables', '/catalog/table']],
+  ['edge types', ['/build/edges', '/catalog/edges']],
+  ['permissions', ['/catalog/permissions', '/build/access']],
+];
+
+/**
+ * Queries a reader brings as a task or a name, and the page that must come first: the guide for the task, not a
+ * reference page, an SDK page or the page for one API operation that repeats the word. A query passes when its
+ * first hit is one of its pages.
+ */
+const FIRST: [query: string, pages: string[]][] = [
+  ['backup', ['/run/back-up-and-restore']],
+  ['back up', ['/run/back-up-and-restore']],
+  ['install', ['/run/install']],
+  ['sync a folder', ['/use/sync-a-folder']],
+  ['second computer', ['/use/second-computer']],
+  ['conflicted copy', ['/use/conflicts']],
+  ['connect claude', ['/connect-your-agent', '/use/claude-and-chatgpt']],
+  ['chatgpt', ['/use/claude-and-chatgpt']],
+  ['upgrade', ['/run/upgrade']],
+  ['make a key', ['/run/manage-keys']],
+  ['narrow a key', ['/run/manage-keys']],
+  ['get help', ['/use/get-help']],
+  ['limits', ['/use/limits']],
+  ['errors', ['/api-reference/errors']],
+  ['webhooks', ['/build/receive-webhooks']],
 ];
 
 /**
@@ -118,6 +148,11 @@ describe('search finds the page that answers a query', () => {
       top.some((url) => pages.includes(url)),
       `${query}: wanted one of ${pages.join(', ')}; got ${top.join(', ') || 'nothing'}`,
     ).toBe(true);
+  });
+
+  it.each(FIRST)('%s comes first', async (query, pages) => {
+    const top = (await searchDocs(query)).hits.slice(0, 3).map((h) => h.url);
+    expect(pages, `${query}: wanted ${pages.join(' or ')} first; got ${top.join(', ') || 'nothing'}`).toContain(top[0]);
   });
 
   it('finds nothing for a code no page uses, instead of every page with "no" or "color"', async () => {
@@ -259,7 +294,7 @@ describe('trimmed passages', () => {
 
 describe('ranking', () => {
   it('puts the changelog after every other page, unless the query asks about a release', async () => {
-    for (const [query] of EXPECTED) {
+    for (const [query] of [...EXPECTED, ...FIRST]) {
       const { hits } = await searchDocs(query, 20);
       const at = hits.findIndex((h) => h.url === '/changelog');
       if (at !== -1) expect(at, `${query}: the changelog is not last`).toBe(hits.length - 1);
