@@ -1,195 +1,205 @@
 ---
-title: Edit and find notes in a Swift app
-description: Rename notes offline and see how Marfa merges two changes, check a note's links as you type, and find notes by title with a filter the core writes.
+title: Edit and find books in a Swift app
+description: Add editing to the Shelf app, see how the instance merges a change made offline, link books in their notes, and find books by title.
 ---
 
-- **You'll build** three features of Reading List: renaming a note, writing a note's text with links to other notes, and finding notes by their title.
-- **You need** Reading List as [Build an app with Swift](/build/swift-app) leaves it, with its notes Bleak House and Middlemarch, and the Quickstart terminal.
-- **You'll have** an app that edits notes offline, shows how Marfa settled two changes to one note, says what each link names, and keeps a search between launches.
-
-Marfa's core does the work an app would otherwise write itself: it reads the links in a text and writes and reads filters, offline, by the same rules as the server.
+- **You'll build** a book page for Shelf, where you change a book, write notes that link to other books, and find books by title.
+- **You need** the Shelf app from [Build an app with Swift](/build/swift-app), and your own Marfa instance, with the CLI signed in to it, as the [Quickstart](/quickstart) leaves you.
+- **You'll have** an app that edits offline, shows how the instance answered each change, and makes an [edge](/build/edges) for each link in a book's notes.
 
 <Steps paged>
 <Step>
 
-### Rename a note
+### Open a book
 
-Add this function inside `Library`:
+Add an update to `Library`. It names the version of the book the change was based on:
 
 ```swift title="Library.swift"
-    func rename(_ note: Item, to title: String) async {
+    func update(_ book: Item, _ properties: JSONObject) async {
         await write { copy in
-            try await copy.items.update(
-                note.id, Edit(properties: ["title": .string(title)], baseVersion: note.version))
+            try await copy.items.update(book.id, Edit(properties: properties, baseVersion: book.version))
         }
     }
 ```
 
-The `Edit` carries the version of the note the app read, so the instance can tell whether someone else changed it since. [Write safely](/build/write-safely) explains versions from the API's side.
+**Send only the fields the person changed.** The instance merges a change made against an older version field by field, so a field sent unchanged can overwrite a newer value.
 
-Add an editable row at the end of `ContentView.swift`, and replace `Text(note.title ?? "Untitled")` in `ContentView` with `NoteRow(library: library, note: note)`:
+Add a page for one book at the end of `ContentView.swift`:
 
 ```swift title="ContentView.swift"
-struct NoteRow: View {
+struct BookView: View {
     let library: Library
-    let note: Item
+    let book: Item
     @State private var title = ""
+    @State private var progress = "planned"
+    @State private var text = ""
 
     var body: some View {
-        TextField("Title", text: $title)
-            .onSubmit { Task { await library.rename(note, to: title) } }
-            .onAppear { title = note.title ?? "" }
-            .onChange(of: note.version) { title = note.title ?? "" }
+        Form {
+            TextField("Title", text: $title)
+                .onSubmit { save(["title": .string(title)]) }
+            Picker("Progress", selection: $progress) {
+                ForEach(["planned", "started", "finished", "abandoned"], id: \.self) { Text($0.capitalized) }
+            }
+            .onChange(of: progress) { if progress != book.properties["progress"]?.string { save(["progress": .string(progress)]) } }
+            Section("About the book") {
+                TextField("Notes, with links such as [[Middlemarch]]", text: $text, axis: .vertical)
+                Button("Save Notes") { save(["body": .string(text)]) }
+            }
+        }
+        .disabled(book.readOnly)
+        .navigationTitle(book.title ?? "Untitled")
+        .onAppear {
+            title = book.title ?? ""
+            progress = book.properties["progress"]?.string ?? "planned"
+            text = book.body ?? ""
+        }
+    }
+
+    private func save(_ properties: JSONObject) {
+        Task { await library.update(book, properties) }
     }
 }
 ```
 
-The row takes the title again whenever the note's version moves, so a change from elsewhere shows. Run the app, change Middlemarch to `Middlemarch, by George Eliot`, and press Return. **Changes** shows Sent.
+`progress` is a status field, whose values the [Media](/catalog/media) type lists, and the notes go in the book's `body`. **`readOnly` is the instance's advice** that a connector keeps the item, so the page offers no editing. It's advice only: the copy takes the write either way.
+
+In `ContentView`, make each row a link to its book, and add the destination after `.navigationTitle("Shelf")`. The destination finds the book in the list each time, so the page always holds its current version:
+
+```swift title="ContentView.swift"
+                ForEach(library.books?.value ?? []) { book in
+                    NavigationLink(value: book.id) {
+                        LabeledContent(book.title ?? "Untitled", value: book.properties["author"]?.string ?? "")
+                    }
+                }
+```
+
+```swift title="ContentView.swift"
+            .navigationDestination(for: String.self) { id in
+                if let book = library.books?.value.first(where: { $0.id == id }) {
+                    BookView(library: library, book: book)
+                }
+            }
+```
+
+Run the app, open Bleak House and set **Progress** to Started. **Changes** shows Sent.
 
 </Step>
 <Step>
 
-### See a verdict
+### See a merge
 
-Now two devices change one note. Stop the server, rename Bleak House to `Bleak House, by Dickens`, and quit the app. The rename waits in the queue, which **survives the app quitting**.
+Change the same book in two places, and the instance combines the changes by the type's rules.
 
-Start the server. In the Quickstart terminal, change the same note's title as another device would, with its ID from `marfa items list --type core.note`. The note is still at version 1 on the instance:
+1. Stop the server with `marfa server stop`.
+2. In Shelf, change the title to `Bleak House (Penguin Classics)` and press Return. **Changes** shows Waiting to send.
+3. Quit Shelf, so it can't send the change, and start the server with `marfa server start`.
+4. Change the title on the server. Use the book's ID from `marfa items list --type core.media.book`. The book is at version 2: the create, then the progress.
 
 <Terminal>
 
 ```bash
-marfa items update <id> --version 1 --prop title="Changed elsewhere"
+marfa items update <book-id> --version 2 --prop "title=Bleak House: A Novel"
 ```
 
 ```text
-01a15f23-f2a4-7440-aeaa-46498e1819ac  core.note  2026-10-21T15:45:53.842Z  Changed elsewhere
-{
-  "body": "",
-  "title": "Changed elsewhere"
-}
+marfa: writing to http://localhost:8600
+updated core.media.book 01a1f134-05b9-70a9-ae2b-43825493170b "Bleak House: A Novel" (version 3)
 ```
 
 </Terminal>
 
-Press Command-R. The app catches up and sends the rename, and **Changes** shows **Merged title with a newer change**. The note keeps your title, because a note **keeps the last writer's title**. Had both changed the text, the instance would have kept both, yours in a conflicted copy, as [Versions](/versions) explains.
+Run Shelf again. It sends the rename, based on version 2, and **Changes** shows Merged title with a newer change. **The title is Bleak House (Penguin Classics)**: a book's `title` keeps the last change to reach the instance. A book's `body` and `notes` keep both instead, so two edits to the notes end `conflicted`, with yours in a conflicted copy. [Versions](/build/versions#when-two-apps-write-the-same-item) explains the rules.
 
 </Step>
 <Step>
 
-### Check links as you type
+### Link books
 
-A note's text is Markdown, and `[[Persuasion]]` in it links to the note titled Persuasion. **When you save the text, the working copy makes a `references` edge** from the note to each note a link names. Add two functions inside `Library`, one to save a note's text and one to say what each link in a text names:
+Marfa reads links only from the field a type names as its body, which for a book is `body`, where Shelf keeps the notes. A link names another item in double brackets, such as `[[Middlemarch]]`, and **saving the `body` makes a `references` edge** to the item the link names, which is why Shelf asks for `edge.references:write`. A link in another field, such as a book's `notes`, makes none. Show what each link names as the person types. Add these inside `Library`:
 
 ```swift title="Library.swift"
-    func setText(of note: Item, to text: String) async {
-        await write { copy in
-            try await copy.items.update(
-                note.id, Edit(properties: ["body": .string(text)], baseVersion: note.version))
-        }
-    }
-
-    func links(in text: String, of note: Item) async -> [LinkCandidates] {
+    func links(in text: String, of book: Item) async -> [LinkCandidates] {
         let targets = linkParts(in: text).map(\.target)
         guard let copy, !targets.isEmpty else { return [] }
-        return (try? await copy.items.linkCandidates(of: targets, in: note.id)) ?? []
+        return (try? await copy.items.linkCandidates(of: targets, in: book.id)) ?? []
     }
 ```
 
-`linkParts(in:)` finds each link and splits it into its name, heading and alias, needing no copy, so an editor can call it on every change. `linkCandidates(of:in:)` reads the copy, with no request. A link is `bound` only where saving it would make its edge without asking the instance: by an ID the copy holds, or by a name the note already has an edge for. A copy holds a slice of your library, so it can't tell alone that one title names one note; a new link by title stays `unresolved`, with the note it found among its `candidates`, until the instance's lookup answers on save. [Links in a body](/swift-sdk/items#links-in-a-body) has the rest.
-
-Add a sheet at the end of `ContentView.swift` that edits the text and lists its links:
+`linkParts(in:)` finds the links in a text, and `linkCandidates(of:in:)` answers what each could name, from the copy alone. In `BookView`, add `@State private var links: [LinkCandidates] = []`, put a row for each link before the **Save Notes** button, and read the links again when the text or the book changes:
 
 ```swift title="ContentView.swift"
-struct TextEditorSheet: View {
-    let library: Library
-    let note: Item
-    @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    @State private var links: [LinkCandidates] = []
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextEditor(text: $text).frame(minHeight: 160)
-                Section("Links") {
-                    ForEach(links.indices, id: \.self) { index in
-                        LabeledContent(links[index].target, value: describe(links[index]))
-                    }
+                ForEach(links, id: \.target) { link in
+                    LabeledContent(link.target, value: describe(link))
                 }
-            }
-            .navigationTitle(note.title ?? "Untitled")
-            .toolbar {
-                Button("Save") { Task { await library.setText(of: note, to: text); dismiss() } }
-            }
-            .onAppear { text = note.body ?? "" }
-            .task(id: text) { links = await library.links(in: text, of: note) }
-        }
-    }
+```
 
+```swift title="ContentView.swift"
+        .task(id: "\(text)\(book.version)") { links = await library.links(in: text, of: book) }
+```
+
+```swift title="ContentView.swift"
     private func describe(_ link: LinkCandidates) -> String {
         switch link.state {
-        case .bound: "Links to a note"
-        case .ambiguous: "Names \(link.candidates.count) notes"
-        case .unresolved: link.candidates.isEmpty ? "Names no note" : "The instance checks it on Save"
+        case .bound: "Linked"
+        case .ambiguous: "\(link.candidates.count) books have this title"
+        case .unresolved: link.candidates.isEmpty ? "No book has this title" : "Links when you save"
         }
     }
-}
 ```
 
-In `NoteRow`, add `@State private var editing = false`, and wrap the `TextField` in an `HStack` with a button that opens the sheet:
+A link is `bound` only once the copy knows its edge. One book with the title is `unresolved` until you save, because the copy holds only part of the instance and the instance decides.
 
-```swift title="ContentView.swift"
-        HStack {
-            TextField("Title", text: $title)
-                .onSubmit { Task { await library.rename(note, to: title) } }
-            Button("Edit Text", systemImage: "text.alignleft") { editing = true }
-                .buttonStyle(.borderless)
-        }
-        .onAppear { title = note.title ?? "" }
-        .onChange(of: note.version) { title = note.title ?? "" }
-        .sheet(isPresented: $editing) { TextEditorSheet(library: library, note: note) }
+Run the app, open Bleak House, and type `Read after [[Middlemarch]], and compare [[Persuasion]].` Middlemarch shows Links when you save, and Persuasion shows No book has this title. Choose **Save Notes**. Middlemarch shows Linked, and the edge is on the instance:
+
+<Terminal>
+
+```bash
+marfa edges list --type references --limit 1
 ```
 
-Run the app, choose **Edit Text** on Bleak House, and type `Compare [[Middlemarch, by George Eliot]] and [[Persuasion]].` The first link says **The instance checks it on Save**, and the second **Names no note**. Choose **Save**. Once the instance answers that one note has that title, the copy makes the edge from Bleak House to Middlemarch. Choose **Edit Text** again: the first link now says **Links to a note**.
+```text
+id                                    type        created                   link
+01a1f134-c861-76e3-9ce7-3622fd2b9922  references  2026-11-19T00:29:36.640Z  01a1f134-05b9-70a9-ae2b-43825493170b -> 01a1f134-0e1a-74d3-bcb6-c4446c4e3aea
+```
+
+</Terminal>
+
+Persuasion gets no edge.
 
 </Step>
 <Step>
 
-### Find notes by title
+### Find books by title
 
-A listing's `filter` is text in [Marfa's filter grammar](/build/list-filter-search#filter-by-properties). Rather than write that text, build the filter from typed values and let the core write it. Add these inside `Library`:
+Add a filter to `Library`. Assigning `reading` makes the query read again:
 
 ```swift title="Library.swift"
     func find(_ text: String) {
-        var filters = ListFilters(types: ["core.note"])
+        var filters = ListFilters(types: ["core.media.book"])
         if !text.isEmpty {
             let title = FilterCondition(field: .property("title"), operator: .contains, value: .text(text))
             filters.filter = try? FilterExpression(conditions: [title]).encoded()
         }
-        notes?.reading = .list(filters)
-        UserDefaults.standard.set(filters.filter, forKey: "filter")
-    }
-
-    var savedSearch: String {
-        guard let saved = UserDefaults.standard.string(forKey: "filter"),
-              let expression = try? FilterExpression(decoding: saved),
-              case .text(let text)? = expression.conditions.first?.value
-        else { return "" }
-        return text
+        books?.reading = .list(filters)
     }
 ```
 
-`encoded()` writes the filter text, quoting the title, so a title with a quote in it can't break the filter. `FilterExpression(decoding:)` reads saved text back into conditions, the way an app edits a saved view's filter. Assigning `reading` makes the `LiveQuery` read again.
-
-In `open()`, add `find(savedSearch)` after the line that makes `notes`, so the app opens on the last search. In `ContentView`, add `@State private var search = ""`, and these after `.navigationTitle("Reading List")`:
+In `ContentView`, keep the search text with `@AppStorage("search") private var search = ""`, add a search field after the destination, and apply the saved search once the copy opens:
 
 ```swift title="ContentView.swift"
-            .searchable(text: $search)
-            .onAppear { search = library.savedSearch }
+            .searchable(text: $search, prompt: "Find by title")
             .onChange(of: search) { library.find(search) }
 ```
 
-Run the app and type `Bleak` in the search field. The list holds Bleak House alone. Quit the app and run it again: the search and its result are still there.
+```swift title="ContentView.swift"
+        .task {
+            await library.open(signingInWith: session)
+            library.find(search)
+        }
+```
+
+Run the app and search for `Bleak`. The list shows Bleak House (Penguin Classics), read from the copy with no request. Quit and run the app again: the search stays. [List, filter and search](/build/list-filter-search) lists the other conditions and fields.
 
 </Step>
 </Steps>
@@ -197,8 +207,7 @@ Run the app and type `Bleak` in the search field. The list holds Bleak House alo
 ## Next steps
 
 <Cards>
-  <Card title="List, filter and search" href="/build/list-filter-search">Every filter term, and full-text search.</Card>
-  <Card title="Swift SDK: Items" href="/swift-sdk/items">Build a filter, read links, and name and preview items.</Card>
-  <Card title="Save a view" href="/build/save-a-view">Keep a listing on the instance, so every app shows the same one.</Card>
-  <Card title="Versions" href="/versions">How Marfa settles two changes to one item.</Card>
+  <Card title="Swift SDK" href="/swift-sdk">Every call on a working copy, with its errors.</Card>
+  <Card title="Edges" href="/build/edges">What a link makes, and the rules an edge keeps.</Card>
+  <Card title="Write edges in a working copy" href="/build/edges-in-a-working-copy">Check an edge before you write it, and move one.</Card>
 </Cards>

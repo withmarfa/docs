@@ -1,190 +1,110 @@
 ---
-title: Export and restore an archive
-description: Export your items, edges, types and files to an archive, and restore it into the same instance or another, such as a new build.
+title: Move your data with an archive
+description: Export your items, links, types and files to one archive file, and restore it into the same instance or another.
 ---
 
-An archive carries your content to another instance: items with their tags, extensions and earlier versions, edges, the types and edge types you registered, the icons you chose for types, the names and marks given to sources, and file bytes. It leaves the instance's own setup behind, so it holds no keys, webhooks, configuration, audit log or owner's picture. An [upgrade](/run/upgrade) doesn't need one, because a new build updates the database in place. A different build may refuse an archive, so **test a restore on fresh storage first** when you move data to another build.
+An archive is one file that carries your data to another instance: items with their history, the bin included, links, tables, the types and icons you registered, the names of sources, the settings you chose and the bytes of your files. It carries **no key, app, sign-in, webhook, audit log or secret**, so it opens nothing on its own.
 
-An archive isn't a long-term backup, because only the build that wrote it is sure to read it. To recover an instance from a failed disk, [back up the data directory](/run/back-up-and-restore) instead.
+The server [backs itself up](/run/back-up-and-restore) to another disk or a bucket, with no archive to keep. Export one to keep a copy of your own, or to move to an instance with no shared backup place.
 
 ## Export an archive
 
-An archive holds what its caller can read. The owner can export everything from a browser, without a key, on the **Export and restore** page at `/auth/owner/export`: choose everything or one type in **What to export**, then select **Export**. That page always leaves out the bin.
-
-<Steps>
-<Step>
-
-### Make an export key
-
-On the instance's machine, under the account that runs the server, make a key that reads every type, edge type and extension:
-
-```bash
-marfa --socket /srv/marfa/data/control/marfa.sock keys create --label backup --source backup \
-  --type-permission '*=read' --edge-permission '*=read' --extension-permission '*=read' \
-  --permission blobs.manage
-```
-
-The CLI shows the key once. Set it as `MARFA_API_KEY` where you export. Without `blobs.manage`, the archive lacks the bytes of files that only an earlier version of an item names ([below](#when-an-archive-lacks-a-files-bytes)).
-
-</Step>
-<Step>
-
-### Export
-
-`state=any` includes the bin, which an export leaves out otherwise:
-
-```bash tab="CLI" tab-group="client"
-marfa export --format archive --state any --output marfa-archive.tar.gz
-```
-
-```http tab="HTTP"
-GET /export?format=archive&state=any
-Authorization: Bearer <key>
-```
-
-On a large instance **the first byte takes minutes**, since Marfa [checks the archive](#what-an-export-checks) first: about two minutes at 250,000 items. The CLI waits up to 30 minutes, printing `still preparing the archive` to standard error every 15 seconds.
-
-The CLI moves the file to the path only once the export finished whole, so the path always holds the last complete archive. Any other ending leaves the path as it was and exits with a nonzero [exit code](/cli#exit-codes).
-
-</Step>
-<Step>
-
-### Check the file
-
-An archive holds four files, plus one file for each blob it carries:
+An archive holds what its credential can read. With the CLI signed in as the owner, it holds everything:
 
 <Terminal>
 
 ```bash
-tar -tzf marfa-archive.tar.gz
+marfa export --output family-archive.tar
+```
+
+```text
+8704 byte(s) of application/x-tar into family-archive.tar
+```
+
+</Terminal>
+
+The CLI writes the path only once the export ended whole, so the path always holds the last complete archive. `--type`, `--state`, `--source`, `--occurred-after` and `--occurred-before` narrow what it carries. Over HTTP, `GET /export?format=archive` leaves out the bin unless you name `state=any`, which the CLI names for you.
+
+A key exports only what it reaches. A key that reads every type still lacks the bytes of a file only an earlier version names, unless it holds `blobs.manage`.
+
+### What the file holds
+
+<Terminal>
+
+```bash
+tar -tf family-archive.tar
 ```
 
 ```text
 manifest.json
-items.ndjson
-edges.ndjson
-types.ndjson
-blobs/sha256:f1062b81e1771fa1b881c035d40485418ecb4c74fa1b427c1155506a26382c46
+files.ndjson.gz
+instance.ndjson.gz
+items.ndjson.gz
+versions.ndjson.gz
+edges.ndjson.gz
+rows.ndjson.gz
 ```
 
 </Terminal>
 
-An export that was cut short doesn't unpack.
-
-</Step>
-</Steps>
-
-## Leave out the files
-
-An archive without file bytes is smaller. Add `files=false` to the request, or turn off **Include files** on the **Export and restore** page. The CLI has no option for it.
-
-```http title="Request"
-GET /export?format=archive&files=false
-Authorization: Bearer <key>
-```
-
-The manifest then names every file under `missing_blobs`, and a restore reports in `blobs_missing` each one the target doesn't hold.
-
-## When an archive lacks a file's bytes
-
-An export leaves out a blob its items name in two cases: no store holds a whole copy of it, as after a disk lost the file, or the key that exports may not read it. A key without `blobs.manage` may not read the bytes of a file that only an earlier version of an item names.
-
-Either way, the export names the blob under `missing_blobs` in the manifest and carries everything else. Over HTTP the answer is still `200`. The CLI keeps the archive as `<path>.incomplete`, leaves the file at the path as it was, and exits with code 1 and `blobs_missing`.
-
-The manifest's blob fields show what the archive lacks:
-
-<Terminal>
-
-```bash
-tar -xzOf marfa-archive.tar.gz.incomplete manifest.json | jq '{blob_count, blobs, missing_blobs}'
-```
-
-```json
-{
-  "blob_count": 0,
-  "blobs": {},
-  "missing_blobs": {
-    "sha256:f1062b81e1771fa1b881c035d40485418ecb4c74fa1b427c1155506a26382c46": {
-      "mime_type": "image/png",
-      "size_bytes": 73
-    }
-  }
-}
-```
-
-</Terminal>
-
-**A blob the key may not read needs no upload.** Export again with a key that holds `blobs.manage`, or as the owner in a browser, and the archive carries the bytes. **A blob that no store holds stays named in every later export** until you upload its bytes again:
-
-```bash
-marfa blobs upload <file>
-```
-
-If a store fails and no other holds the blob whole, the export is refused with `503 blob_store_unavailable` before it begins: try again once the store answers.
+`manifest.json` names the build that wrote the archive in `written_by`, the instance in `instance_id` and counts every kind of line. `files.ndjson.gz` lists each file with its `state`, and each file the archive carries follows as a `blobs/<hex>` entry, named for its SHA-256. **An archive whose end is cut short doesn't unpack,** so a failed export never passes for a whole one.
 
 ## What an export checks
 
-- **It isn't taken at one instant.** An item created while it runs may not be in it, so stop your apps first if the archive must hold every write.
-- **It ends when its credential does.** If the key or app that started it is revoked, expires, is disconnected or loses access to what is left to send, the response ends with an error and the file doesn't unpack. Export again.
-- **It's checked against a restore.** Before it sends a byte, Marfa checks that the archive restores into an empty instance of the same build, and reads the selection again if a row fails. A row that fails twice refuses the export with `409 export_rows_unrestorable` and is named in `details.row`: correct the row or its type, then export again. If writes changed the row between the reads, the answer is `503 export_unrestorable`: export again once the writes stop.
-- **It needs room.** The server builds the archive in the blob folder first, so leave that disk room for about the archive's uncompressed text. An export that would take the disk below `MARFA_DISK_RESERVE_BYTES` is refused `507 insufficient_storage`.
-- **A source filter hides items.** A [source filter](/run/settings#what-the-enforcement-levers-do) on the instance or the key leaves items out of an export, the owner's too.
+- **It's one moment of the instance.** The server reads everything from one snapshot before it sends the first byte, so the items and links agree with each other. A large instance takes a while to answer, and the CLI waits for it.
+- **It restores.** Before it sends anything, the server checks that each item and link it carries passes a restore into an empty instance of the same build.
+- **It needs room.** The server writes what it read to temporary files on the volume of its data first. An export that would take the volume below `disk_reserve_bytes` is refused `507 insufficient_storage`.
+- **It ends when its credential does.** A key revoked before the export begins is refused `401 unauthorized`.
+- **A [source filter](/run/settings#what-the-enforcement-levers-do)** on the instance or the key leaves those items out.
 
 [Export an archive](/api-reference/export-and-restore/exportArchive) lists every answer.
 
+## When an archive lacks a file
+
+An archive leaves out the bytes of a file no store holds whole, as after a disk lost it, and of a file the key may not read. It names each in `files.ndjson.gz`, as `lost` or `not_carried`, and carries everything else.
+
+With `--output`, the CLI then keeps the archive beside the path as `<path>.incomplete`, leaves the path as it was, and exits `1`. Export again with a credential that holds `blobs.manage`, or upload a lost file again with `marfa blobs upload <file>`.
+
+**An archive without files is smaller:** `GET /export?format=archive&files=false` names every file as `not_carried`. If a store fails to answer and no other holds a file whole, the export is refused `503 blob_store_unavailable` before it begins: try again once the store answers.
+
 ## Restore an archive
 
-A restore adds what the instance lacks and replaces nothing. An item the instance already holds is counted in `duplicates` and left as it is, so replaying an archive never overwrites work done since.
-
-Only the owner can restore: through the [private socket](/cli#use-the-private-socket), or signed in to the instance within the five minutes before the restore starts. A key is refused `403 forbidden`, whatever it holds. In a browser, on the **Export and restore** page, select **Choose file...**, choose the archive, then select **Restore**. An older sign-in is asked to confirm in a **Confirm it's you** dialog first.
-
-The answer counts what the restore did. Through the socket, into a fresh instance:
-
-<Terminal>
+A restore writes into whichever instance the CLI reaches, so **check that `marfa status` names the one you mean.** It needs `backups.manage` and [a sign-in from the last five minutes](/run/sign-in-as-the-owner#confirm-its-you):
 
 ```bash
-marfa --socket /srv/marfa/data/control/marfa.sock restore marfa-archive.tar.gz
+marfa login --fresh-sign-in
+marfa restore family-archive.tar
 ```
 
-```json
-{
-  "imported": 6,
-  "duplicates": 0,
-  "edges_imported": 1,
-  "edges_skipped": 0,
-  "edges_skipped_reasons": {},
-  "blobs_imported": 1,
-  "blobs_missing": [],
-  "types_registered": 0,
-  "types_skipped": 0,
-  "edge_types_registered": 0,
-  "edge_types_skipped": 0,
-  "type_icons_added": 0,
-  "type_icons_skipped": 0,
-  "type_icons_skipped_reasons": {},
-  "sources_added": 0,
-  "sources_skipped": 0,
-  "sources_skipped_reasons": {}
-}
-```
+On the server's machine, the [private socket](/run/run-on-a-server#the-private-socket) reaches that instance alone and needs no sign-in: `marfa --socket <install folder>/data/control/marfa.sock restore family-archive.tar`, run with that install's own `marfa`.
 
-</Terminal>
+**Before Marfa 0.1, a release doesn't promise to restore an archive another release wrote,** so restore with the release that exported it where you can. [Upgrade an instance](/run/upgrade#move-to-a-newer-release) says how to move to a newer release.
 
-The same archive restored again answers `"imported": 0`, `"duplicates": 6` and `"edges_skipped_reasons": { "already_present": 1 }`. Check these fields:
+### What a restore changes
 
-- **`blobs_missing`** lists the blobs the archive carries no bytes for and no store of the instance holds. Their items are restored, without bytes until you [upload them again](#when-an-archive-lacks-a-files-bytes), and the CLI exits with code 1 and `blobs_missing`.
-- **`edges_skipped_reasons`** counts why edges were skipped, such as `already_present` or `endpoint_missing`. An edge to an item in the bin is restored.
-- **`type_icons_added`, `type_icons_skipped` and `type_icons_skipped_reasons`** count [the icons you chose](/catalog/display-hints#the-owners-icon). It never replaces an icon you chose since the export, and counts that skip as `already_set`. An icon the [icon rule](/catalog/display-hints#the-hints) refuses is skipped as `unknown_icon`. A damaged icon line, or one naming a type neither the archive nor the instance registers, refuses the whole archive.
-- **`sources_added`, `sources_skipped` and `sources_skipped_reasons`** count the names and marks of [sources](/items-and-types#where-an-item-came-from). A restore sets them only where the instance has neither, and counts each source it skips by reason.
+**A restore adds what the instance lacks, and changes nothing it holds.** An item it already holds counts in `duplicates` and stays as it is, and each item it adds keeps its ID, dates, tags, extensions and history. Restoring one archive twice changes nothing the second time. It can still bring back what you deleted, and change how the instance behaves:
 
-A restore writes in one transaction: refused, failed or interrupted, it leaves nothing behind, so you can run it again. Other writes wait while it runs, so let it answer before you start your apps.
+- **Something you deleted can come back.** A link, a natural key or a type that the archive holds and the instance deleted is restored, and the record of its deletion is gone for good.
+- **A setting the instance hasn't set is taken from the archive,** and one it has set stays. A short `trash_retention_days` from the archive makes the next bin purge delete for good items the instance would have kept, so set it before you restore, or check it afterward in what `marfa config get` prints.
+- **Settings that describe a machine aren't carried:** `backup_path`, the `object_store_` settings, the addresses, `sign_in_address` and `allow_private_addresses`. Set them on the new instance, starting with [its backups](/run/back-up-and-restore#turn-on-backups).
 
-A restore refuses the whole archive when the file isn't a valid archive, lacks one of its four files, names another format version, or conflicts with what the instance registers. [Restore from an archive](/api-reference/export-and-restore/restoreArchive) lists each refusal. If a newer build refuses your archive, nothing was written, and the old build still holds your data: keep running it.
+The answer counts what it restored, then says what it didn't restore and what to do about each: sign in again, make keys, webhooks and inbound endpoints again, connect each app again, give each connector [a new key](/run/manage-keys#a-key-for-a-connector), and set the instance's name and addresses. [On each device](/run/back-up-and-restore#on-each-device) says how to connect your devices again. Check these fields:
 
-## What a restore leaves for you
+- **`blobs_missing`** lists files the archive lacks and the instance doesn't hold. Their items are restored, and uploading each file again restores it. The CLI exits `1` with `blobs_missing`.
+- **`secrets_to_set`** names each secret setting to set again, since no archive holds a secret's value. The object store's secret isn't named, since the store isn't carried. Give an instance that runs beside another a `heartbeat_url` of its own, so one monitor never hears from both.
+- **`edges_skipped_reasons`** counts why links were skipped, such as `already_present` or `endpoint_missing`.
+- **`previous_instance`** names the instance that wrote the archive, when it's another, and the folders it kept in the backup folder.
 
-- **Keys, webhooks and configuration.** Make keys, register webhooks and set the configuration again.
-- **Connected apps.** A restored `system.connection` item has `status: revoked`: it records past access rather than reconnecting the app, so sign the app in again. An item an app wrote gets `restored:` in front of its source, which keeps the source's name, so a later sign-in can't overwrite it.
-- **Items as archived.** A restore takes an item exactly as archived, even when its type is no longer registered or has changed its fields. An item of a `core` or `system` type that the build ships is still held to its shape.
+A restore is one write: refused, failed or stopped, it leaves nothing behind, so you can run it again. While it runs, other writes are answered `503 write_contention`, so let it finish before you start your apps.
 
-The rules behind this page are in the [export](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#export) and [restore](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#restore) sections of the search and filters chapter of the contract, with [`search-and-filters/archive-missing-unreadable`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md#search-and-filtersarchive-missing-unreadable) for a blob the key may not read.
+## When a restore refuses the archive
+
+A restore refuses the whole archive, and writes nothing, when:
+
+- **The file isn't an archive,** or its manifest names another `format`.
+- **Its archive `version` is later than this build reads.** A build reads every archive version up to its own, and the message names the archive's `version`, the build that wrote it and the latest version this build reads. Restore it with a build that reads that version.
+- **A type conflicts.** The archive registers a type the instance holds differently, refused `409 conflict` with each in `details.conflicting_ids`.
+
+An entry a build doesn't know, such as one a tar tool adds, is skipped and named in `entries_skipped`. [Restore from an archive](/api-reference/export-and-restore/restoreArchive) lists every refusal.
+
+The rules behind this page are in the [archive](https://github.com/withmarfa/marfa/blob/main/conformance/spec/archive.md) chapter of the contract.

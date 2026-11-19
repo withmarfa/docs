@@ -1,16 +1,35 @@
 ---
-title: Install with the CLI
-description: Take a Mac or Linux machine with Docker to an instance ready to claim, with one command.
+title: Install on a Mac or Linux machine
+description: Run Marfa as a service of your own Mac or Linux machine with one command, then claim it in the browser.
 ---
 
-`marfa server install` makes the secrets, sets the proxy setting for the way you reach the instance, starts **the release that matches your CLI** and prints **the link that claims the instance**. You need [the CLI](/cli#install) on your `PATH` and Docker with Compose: Docker Desktop or OrbStack on a Mac, Docker Engine on Linux. **On Linux, your user must reach Docker without `sudo`**, such as through the `docker` group, or the command can't start the container.
+`marfa server install` sets up the server as a service of the machine it runs on: a launchd agent on a Mac, and a systemd service on Linux. It makes the server's two secrets, sets how devices reach it, starts it, and prints **a link that claims the instance**. You need a Mac with Apple silicon, or a Linux machine on x86_64 or arm64.
 
 <Steps>
 <Step>
 
+### Install the programs
+
+Marfa is two programs of the same release, side by side: `marfa`, the CLI, and `marfa-server`. Install both with Homebrew:
+
+```bash
+brew install withmarfa/tap/marfa
+```
+
+Or with the install script, which puts both in `~/.local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/withmarfa/marfa/main/scripts/install.sh | sh
+```
+
+[The CLI's install](/cli#install) gives the script's options and shows how to check a download. `marfa` uses only the `marfa-server` beside it, never one elsewhere on your `PATH`.
+
+</Step>
+<Step>
+
 ### Run the install
 
-The command asks how your devices reach the instance, whether to keep a copy of the data in a bucket and, on a Mac, whether to start the instance when you log in. Each question has a flag. With `--yes`, or when a script runs the command, it asks nothing and uses the flags or the defaults.
+Run the command as the person who uses the server, not with `sudo`. It asks how your devices reach the server. Choose `local` to start on this machine alone; [Give your instance an address](/run/address) explains the other choices, and you can change it later.
 
 <Terminal>
 
@@ -19,35 +38,21 @@ marfa server install
 ```
 
 ```text
-Options, all optional: --dir <folder> to install somewhere else, --port <port> for the port on this machine, --name <name> to run more than one, --external-settings when a secrets manager writes marfa.env. `marfa server install --help` lists them all.
-
-Checking Docker...
 How will your devices reach this server?
   1. local: only this machine, at http://localhost
   2. tailscale: your devices, over Tailscale, at an https address of your tailnet
   3. cloudflare: anywhere, through a Cloudflare Tunnel on this machine, at your own address
   4. proxy: anywhere, through another proxy on this machine (Caddy, nginx...), at your own address
 Choose 1-4 [1]: 1
-
-A copy of your data in an S3-compatible bucket (Amazon S3, Cloudflare R2, Backblaze B2, Railway) lets you rebuild the instance if this machine is lost. Without one, no copy leaves this machine, and you back up the volume yourself.
-Keep a copy in a bucket? [y/N] n
-Start Marfa when you log in, even if Docker is not running yet? [Y/n] y
-Making the Docker network marfa-net...
-  $ docker network create marfa-net
-Pulling ghcr.io/withmarfa/marfa-server:<release>...
-  $ docker compose pull --quiet   (in /Users/you/marfa-server)
- Image ghcr.io/withmarfa/marfa-server:<release> Pulling
- Image ghcr.io/withmarfa/marfa-server:<release> Pulled
+Checking the server program...
 Starting marfa...
-  $ docker compose up -d   (in /Users/you/marfa-server)
-Setting the server to start when you log in...
   $ launchctl bootstrap gui/501 /Users/you/Library/LaunchAgents/so.marfa.server.marfa.plist
 
 Marfa <release> is running.
 
   Address   http://localhost:8600
   Folder    /Users/you/marfa-server on your-mac
-  Backup    none: no copy leaves this machine
+  Service   the launchd agent so.marfa.server.marfa
 
 Keep a copy of /Users/you/marfa-server/marfa.env somewhere safe, outside this folder. It holds the two secrets the data needs, and they are not stored anywhere else.
 
@@ -55,83 +60,87 @@ Open this link to choose the owner's email and password. It works once, for five
 
   http://localhost:8600/setup#handoff=…
 
-It starts when you log in, starting Docker first if it is not running, and again after a failure. `marfa server status` shows it.
+It starts when you log in, and again after a failure. `marfa server status` shows it.
 
-To give an AI agent access to this server, run `marfa docs build/ai-agents`.
+No backups are kept: this server has nowhere to put them. Set backup_path to a folder on another disk, or object_store_bucket with its access key and secret to an object store, with `marfa --socket /Users/you/marfa-server/data/control/marfa.sock config update`.
 ```
 
 </Terminal>
 
-The command shows each command that changes something as it runs, and never prints a secret. Your output shows your own release, folder, address and link.
+The command shows each command that changes something as it runs, and never prints a secret. It ends by saying that **the server keeps no backups yet**: [Back up and restore](/run/back-up-and-restore#turn-on-backups) sets them up. If the server doesn't start, `marfa server status` shows the end of its log, and [Fix a server that won't start](/run/troubleshooting/start-and-claim) explains each message.
 
 </Step>
 <Step>
 
 ### Claim the instance
 
-Open the link in a browser and choose the owner's email and password. **Keep a copy of `marfa.env` outside the folder.** It holds the two secrets, and a server started on the data without them refuses every key. Run the command again for a new link until the instance has an owner.
+Open the link and choose the owner's email and password. The link works once, for five minutes; run `marfa server install` again for a new one until the instance has an owner. [Sign in as the owner](/run/sign-in-as-the-owner) covers passkeys and what to do after.
+
+</Step>
+<Step>
+
+### Keep a copy of the secrets
+
+Copy `marfa.env` from the install folder to a password manager or another safe place. The file is stored nowhere else, and you need it to bring the instance back from [a copy of its data directory](/run/back-up-and-restore#copy-the-data-directory-instead). **With another `MARFA_KEY_SALT`, the server starts but refuses every key and access token,** and you sign in as the owner again to make new ones. A restore from a backup needs neither secret.
 
 </Step>
 </Steps>
 
-## Choose how it's reached
-
-The way you reach the instance decides which caller address the server believes, so the command asks, and sets [the address](/run/deploy#the-address) and the proxy setting to match.
-
-| `--access` | Reached | Address | Proxy setting |
-| --- | --- | --- | --- |
-| `local` | Only from this machine. | `http://localhost` and the port. | None. |
-| `tailscale` | From your tailnet, through Tailscale Serve. | This machine's `ts.net` name, served with `tailscale serve` on port 443 unless you pass `--https-port`. The tailnet needs MagicDNS and HTTPS certificates. | `TRUSTED_PROXY_CIDRS` set to the range of the instance's Docker network. |
-| `cloudflare` | Through a Cloudflare Tunnel on this machine. | The `https` address you give with `--address`. | `TRUSTED_PROXY_HEADER` set to `CF-Connecting-IP`. |
-| `proxy` | Through another proxy on this machine, such as Caddy or nginx. | The `https` address you give with `--address`. | `TRUSTED_PROXY_CIDRS` set to the range of the instance's Docker network. |
-
-**To use Marfa from Claude or ChatGPT in a chat, choose `cloudflare`, or `proxy` with a public address.** Their servers connect over the internet, which a tailnet address doesn't reach. `tailscale` suits your own devices and agents on your computer, such as Claude Code. [Connect Claude and ChatGPT](/build/connect-claude-and-chatgpt) shows the rest.
-
-The instance gets a Docker network of its own, named for the install (`marfa-net` unless you pass `--name`), and the command reads its range from Docker. The network is made once and kept when the container is replaced, so the range stays the one the setting names. The port is 8600, or the next free one, unless you pass `--port`. It is published on the loopback address only, so only a proxy or tunnel on the same machine reaches it.
-
-**For `cloudflare` and `proxy`, point the tunnel or proxy at `http://localhost:` and the port, on the machine that holds the folder.** The summary repeats this as **Point at**, beside the machine's name. A tunnel aimed at another port, or running on another machine, makes the address answer `502`.
-
-For `cloudflare`, also turn off Cloudflare's Email Address Obfuscation, or the instance's pages show email addresses as `[email protected]`. [The address](/run/deploy#the-address) says where.
-
 ## What the command writes
 
-The command keeps everything in one folder, `marfa-server` in your home directory unless you pass `--dir`:
+The install lives in one folder: `marfa-server` in your home directory, or the folder you name with `--dir`. The folder's path, followed by `/data/control/marfa.sock`, must be 100 characters or fewer.
 
 <Files>
   <Folder name="marfa-server" defaultOpen>
-    <File name="compose.yaml" />
-    <File name=".env" />
     <File name="marfa.env" />
-    <File name=".secrets-unconfirmed" />
+    <File name=".env" />
+    <Folder name="data" defaultOpen>
+      <File name="marfa.db" />
+      <Folder name="blobs" />
+      <Folder name="control" />
+      <File name="marfa.settings.key" />
+    </Folder>
   </Folder>
 </Files>
 
-- **`compose.yaml`** is the same for every install. It runs the release image with `restart: unless-stopped` and one volume.
-- **`.env`** holds what Docker Compose reads and what the command remembers between runs: the install's name, release and port, how you reach the instance and whether it starts at login. It holds no secret.
-- **`marfa.env`** holds the server's [settings](/run/settings), including the two secrets. Only you can read it. The command makes the secrets once and keeps them on every later run. If the data volume exists and `marfa.env` doesn't, it stops, since new secrets would stop every key working.
-- **`.secrets-unconfirmed`** marks secrets that no install has succeeded with yet, such as after a failed first run. **Until one succeeds, every run repeats the warning to keep `marfa.env`.** It holds no secret, and the first install that succeeds removes it.
+| Path | What it holds |
+| --- | --- |
+| `marfa.env` | The server's [start-only settings](/run/settings#set-an-environment-setting), including its two secrets, `MARFA_KEY_SALT` and `MARFA_AUTH_SECRET`. Only you can read it. |
+| `.env` | What the `marfa server` commands record about the install: its name, release, port and how it's reached. The server doesn't read it. |
+| `data/marfa.db` | The database. |
+| `data/blobs/` | The bytes of your files. |
+| `data/control/marfa.sock` | [The private socket](/run/run-on-a-server#the-private-socket), for claiming the instance, recovering the owner's password and making a connector's key. |
+| `data/marfa.settings.key` | The key that seals secret settings, such as an object store's secret key. Without it the server starts and asks you to set those settings again. |
 
-The folder works without the CLI: `docker network create marfa-net` once, then `docker compose up -d` in the folder.
+The folder decides the port, the address the server listens on (`127.0.0.1`) and the paths of the data and the socket, so the command refuses a `marfa.env` that sets any of them.
+
+## Where the service runs
+
+- **On a Mac,** the service is a launchd agent named `so.marfa.server.<name>`, which starts when you log in and again after a failure. Its log is `~/Library/Logs/Marfa/<name>.log`.
+- **On Linux,** it's a systemd user service named `marfa-<name>.service`, and the command turns on lingering for your account so the service starts at boot. Its log is in the journal: `journalctl --user -u marfa-marfa.service`.
+- **As root on Linux,** the command installs a system service that runs under a `marfa` account it makes, with the install in `/var/lib/marfa-server`. The programs must be where every account can run them, such as `/usr/local/bin`.
+
+`--name` names the install, which lets one machine run more than one, each in its own folder and on its own port. `--no-autostart` leaves the service off at login or boot, for `marfa server start` to start.
 
 ## Change, upgrade or remove it
 
-Run `marfa server install` again with a flag to change a setting, such as `--access` or `--address`. It changes only what isn't already as asked. The other commands take the same `--dir`.
+Run `marfa server install` again with a flag to change what it set, such as `--access`, `--address` or `--port`. It changes only what isn't already as you asked, and **never a secret or the runtime**. Every command below takes the same `--dir`.
 
 | Command | What it does |
 | --- | --- |
-| `marfa server status` | Shows whether the container runs and answers, the release, the address and whether the instance has an owner. |
-| `marfa server upgrade` | Moves to the release of your CLI, or to `--release`. A release with a newer schema copies the database beside it and updates it in place, and the command prints where the copy is. It refuses a release older than the one installed. See [Upgrade](/run/upgrade). |
-| `marfa server start` | Starts Docker's engine on a Mac if it's down, then the container. |
-| `marfa server uninstall` | Removes the container and keeps the data. `--delete-data` removes the volume, network and settings too, after you type the install's name (`--yes` skips the question). |
+| `marfa server status` | Whether the server runs and answers, its release and address, and whether it has an owner. When it isn't answering, the end of its log. |
+| `marfa server stop` | Stops the server, and keeps the service, the data and the settings. |
+| `marfa server start` | Starts it again, on the programs beside the `marfa` you run it with, so run it with the install's own `marfa`. |
+| `marfa server restart` | Stops and starts it, so it reads `marfa.env` again after you change a setting there. |
+| `marfa server upgrade` | Moves the install to the release of the programs installed beside `marfa`. Read [Upgrade an instance](/run/upgrade) first. |
+| `marfa server uninstall` | Removes the service, and keeps the data and the settings, so `marfa server install` brings the same instance back. `--delete-data` also removes the data and `marfa.env`, after you type the install's name. |
 
-## Start at login or boot
+## Run it in Docker
 
-The restart policy brings the container back whenever Docker's engine starts. **On Linux, `sudo systemctl enable docker` makes the engine start at boot.** On a Mac, the command writes a launchd agent, `so.marfa.server.marfa`, that runs `marfa server start` when you log in. It opens OrbStack or Docker Desktop first if the engine is down, and tries again after a failure. `--no-autostart` skips it.
+`marfa server install --docker` runs the release image `ghcr.io/withmarfa/marfa-server` with Docker Compose instead, for the same release as your `marfa` unless you name one with `--release`. You need Docker with Compose: Docker Desktop or OrbStack on a Mac, Docker Engine on Linux, reached without `sudo`.
+
+The folder then holds a `compose.yaml`, and the data lives in the Docker volume `<name>-data`. The container publishes its port on `127.0.0.1` only. **An install keeps its runtime:** to move between Docker and a service, make a second install with its own `--name`, `--dir` and `--port`, and restore your data into it, as [Move to a newer release](/run/upgrade#move-to-a-newer-release) shows.
 
 ## Keep the settings elsewhere
 
-If a secrets manager writes `marfa.env`, pass `--external-settings`. The command then never makes or changes the file. It checks that the file holds both secrets, an address the server accepts and a proxy setting that fits the way you reach the instance, and names what's missing without printing a value. It reads a quoted value, such as `'https://marfa.example.com'`, as Docker Compose does. Run the command again after the file changes: Docker Compose replaces the container when the file's content changes.
-
-## Keep a copy in a bucket
-
-Answer yes to the bucket question, or pass `--s3-bucket` and `--s3-access-key-id`. The secret key comes from `S3_SECRET_ACCESS_KEY` in the environment or a hidden prompt, never from an option. The command writes the [`S3_` settings](/run/deploy#an-object-store), with the install's name as `S3_PREFIX` unless you pass `--s3-prefix`.
+If a secrets manager writes `marfa.env`, pass `--external-settings`. The command then never makes or changes the file. It checks that the file holds both secrets and a proxy setting that fits how the server is reached, and names what's missing without printing a value. Run the command again after the file changes.

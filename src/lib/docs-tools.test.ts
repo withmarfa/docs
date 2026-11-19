@@ -26,7 +26,7 @@ describe('searchDocs', () => {
     }
 
     const page = hits.find((h) => h.url === '/run/housekeeping')!;
-    expect(page.title).toBe('Housekeeping');
+    expect(page.title).toBe('Check on an instance and empty its bin');
     expect(page.snippets.length).toBeGreaterThan(0);
   });
 
@@ -88,7 +88,7 @@ describe('fetchDocsPage', () => {
   it('returns the Markdown of a page, whichever way the path is written', async () => {
     const page = await fetchDocsPage('/run/housekeeping');
     expect(page).not.toBeNull();
-    expect(page).toMatch(/^# Housekeeping \(\/run\/housekeeping\)\n/);
+    expect(page).toMatch(/^# Check on an instance and empty its bin \(\/run\/housekeeping\)\n/);
     expect(page).toContain('housekeeping jobs');
 
     for (const form of ['run/housekeeping', '/run/housekeeping.md', '/run/housekeeping/']) {
@@ -101,17 +101,17 @@ describe('fetchDocsPage', () => {
   });
 
   it('serves the Start and Reference pages at the site root, and nothing at the old paths', async () => {
-    const page = await fetchDocsPage('/files');
-    expect(page).toMatch(/^# Files \(\/files\)\n/);
-    expect(await fetchDocsPage('/')).toMatch(/^# Overview \(\/\)\n/);
-    expect(await fetchDocsPage('/index.md')).toMatch(/^# Overview \(\/\)\n/);
+    const page = await fetchDocsPage('/build/files');
+    expect(page).toMatch(/^# Files \(\/build\/files\)\n/);
+    expect(await fetchDocsPage('/')).toMatch(/^# What Marfa is \(\/\)\n/);
+    expect(await fetchDocsPage('/index.md')).toMatch(/^# What Marfa is \(\/\)\n/);
     expect(await fetchDocsPage('/overview')).toBeNull();
     expect(await fetchDocsPage('/introduction')).toBeNull();
     expect(await fetchDocsPage('/cli')).toContain('marfa items list');
     expect(await fetchDocsPage('/typescript-sdk')).toMatch(/^# TypeScript SDK \(\/typescript-sdk\)\n/);
     // A command keeps its output, and code tabs keep their examples under each tab's label.
     const quickstart = await fetchDocsPage('/quickstart');
-    expect(quickstart).toContain('marfa items create --type core.note');
+    expect(quickstart).toContain('marfa items add ~/Downloads/receipt.pdf');
     expect(quickstart).toContain('Output:');
     expect(await fetchDocsPage('/build/write-safely')).toContain('**TypeScript**');
     expect(await fetchDocsPage('/cli-reference')).toBeNull();
@@ -124,7 +124,7 @@ describe('fetchDocsPage', () => {
 
   it('returns every page the topics list, including ones whose names start with docs', async () => {
     const { pages } = listTopics();
-    expect(pages.map((p) => p.url)).toContain('/docs-for-agents');
+    expect(pages.map((p) => p.url)).toContain('/docs-mcp-server');
     expect(pages.map((p) => p.url)).toContain('/marfa-mcp-server');
     for (const { url } of pages) {
       expect(await fetchDocsPage(url), url).not.toBeNull();
@@ -138,7 +138,7 @@ describe('listTopics', () => {
     expect(pages.length).toBeGreaterThan(0);
     const housekeeping = pages.find((p) => p.url === '/run/housekeeping');
     expect(housekeeping).toEqual({
-      title: 'Housekeeping',
+      title: 'Check on an instance and empty its bin',
       url: '/run/housekeeping',
       description: expect.any(String),
       breadcrumbs: ['run', 'housekeeping'],
@@ -228,15 +228,15 @@ describe('extractSection', () => {
 
 describe('fetchDocsSection', () => {
   it('returns the section of a real page', async () => {
-    const result = await fetchDocsSection('/files', 'Who may read a blob');
+    const result = await fetchDocsSection('/build/files', 'Who may read a blob');
     expect(result.status).toBe('ok');
     if (result.status !== 'ok') return;
     expect(result.markdown.startsWith('## Who may read a blob')).toBe(true);
-    expect(await fetchDocsPage('/files')).toContain(result.markdown);
+    expect(await fetchDocsPage('/build/files')).toContain(result.markdown);
   });
 
   it('lists the page headings when the section is unknown', async () => {
-    const result = await fetchDocsSection('/files', 'Nope');
+    const result = await fetchDocsSection('/build/files', 'Nope');
     expect(result.status).toBe('section_not_found');
     if (result.status !== 'section_not_found') return;
     expect(result.headings.map((h) => h.text)).toContain('Who may read a blob');

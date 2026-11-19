@@ -1,0 +1,62 @@
+---
+title: Events and webhooks
+description: How an app learns what changed in an instance, by reading the event stream or by receiving webhooks.
+---
+
+An app that shows someone's data needs to know when another app changes it. Marfa records each change to an item or an edge as an **event** in one log, in order. An event here is a record of a change, not a `core.event` item, which holds a calendar event.
+
+There are two ways to follow the log: your app pulls events from the event stream, or Marfa pushes them to your service as webhooks.
+
+<EventFlow />
+
+## The event log
+
+Each event is named by its **event type**, such as `item.created`, `edge.deleted` or `rows.changed`, sent once for each batch a [table](/build/tables) takes. Changes to items, their tags and extensions, their rows and edges add events, and Marfa adds `attention.raised`, for a credential holding `instance.read`, when it finds something new that needs the owner's attention. The Catalog's [Events](/catalog/events) page lists every event type, exactly when each is sent, and its fields.
+
+**Other writes add none:** a change to a type, a key, a webhook or a setting, a blob upload, and a write that changes nothing. A refused write adds none either. An item event carries the item as it stands after the change.
+
+Event IDs rise with every event, so the last ID an app handled, its **cursor**, says exactly where it stopped. The log keeps events for `event_log_retention_days`, 30 days by default.
+
+A credential sees only the events about what it can read: an item event needs the item's type in its [type map](/build/access#what-a-credential-reaches), and an edge event the edge type and the item it points from.
+
+## The event stream
+
+The [event stream](/api-reference/event-stream/streamEvents) is a long-lived connection your app opens. Here the CLI follows it for bookmarks while another app saves one and tags it:
+
+<Terminal>
+
+```bash
+marfa events --type core.bookmark
+```
+
+```text
+-  stream_cursor  30
+-  stream_live  30
+31  item.created  01a1f14d-c8b1-705b-b50e-f4d2b04bcccf
+32  metadata.changed  01a1f14d-c8b1-705b-b50e-f4d2b04bcccf
+```
+
+</Terminal>
+
+The stream starts by saying where the log stands. Send your cursor, and Marfa replays every event after it, sends `stream_live` when you've caught up, and then sends each new event as it happens. Resume from your cursor after a break, and you get every later event **exactly once**. A stream can name up to ten types, each with its subtypes, and leave out edge events with `edges=none`.
+
+If you've been away longer than the log keeps events, the stream ends with `catchup_too_old`, and your app reads its data again from the start. [Keep a copy in sync](/build/keep-in-sync) shows how to follow the stream and handle each way it ends. The Swift SDK and a [device](/build/devices) follow it for you.
+
+## Webhooks
+
+A webhook works the other way round: Marfa posts each new event to your service. You register a URL and the event types you want, with a credential that holds `webhooks.manage`. A key or an app's grant holds at most 100 subscriptions.
+
+Each delivery is signed in `X-Marfa-Signature`, so your service can check it came from your instance. A delivery your service fails, times out, or answers `408` or `429` is tried again, eight times in all over a little more than five hours. Any other `4xx` ends it at once. Its record then says `succeeded` or `failed`, and a failed one can be sent again.
+
+**A webhook has no cursor and no replay:** it delivers only events written after you registered it. Deliveries can arrive **out of order**, so a receiver keeps the highest event ID it has applied for each item and ignores an older one. A bulk write reaches webhooks only when it asks to, with `enable_fanout: true`, and a webhook delivers only what its credential may read.
+
+By default a webhook can only post to a public address, so the instance can't be turned against its own network. When receivers are on a private network, the owner allows them with the `allow_private_addresses` [setting](/run/settings), which takes a recent sign-in.
+
+| Use | When |
+| --- | --- |
+| The event stream | An app needs every change, including what it missed while away |
+| A webhook | A service reacts to changes as they happen, such as sending a message when a document is signed |
+
+[Receive webhooks](/build/receive-webhooks) shows how to register one and check each delivery.
+
+The rules behind this page are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) and [reach](https://github.com/withmarfa/marfa/blob/main/conformance/spec/reach.md) chapters of the contract.

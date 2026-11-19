@@ -36,7 +36,7 @@ Says that an item is a member of a container, such as a collection, a series or 
 
 Says where an item's file sits in a synced folder.
 
-**written_at:** `none`
+**written_from:** `none`
 
 | Property | Kind     | Description                             |
 | -------- | -------- | --------------------------------------- |
@@ -54,7 +54,7 @@ Says that an item is a message in a thread, such as a reply in a conversation.
 
 Says that an item is the parent of another item, so that items form a hierarchy.
 
-**written_at:** `target`
+**written_from:** `to`
 
 **acyclic:** `true`
 

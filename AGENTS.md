@@ -18,7 +18,7 @@ The source of the public documentation site at `docs.marfa.so` and the status pa
 - This repository is public. Commit no internal hostname, private IP address, personal path, key or token, in a page or anywhere else.
 - A comment says only what the code cannot: the reason, the constraint or the trade-off. It never names a tracker, ticket number or project phase.
 - A code change in another repository opens a docs issue here, not a docs pull request. Pages are rewritten whole from those issues after each Marfa release ("Docs pass at each release").
-- Pages have word limits that fail `pnpm test`: 900 words for a concept, 1,500 for a guide, a tutorial or a Catalog connector page, and a limit of its own for each lookup page. `src/lib/page-limits.json` holds the exceptions, each with a reason, and a ceiling for each page that is over its limit until it is rewritten (`STYLE.md`, "Less is clearer"). Remove a ceiling when a rewrite brings its page under the limit.
+- Pages have word limits that fail `pnpm test`: 900 words for a concept, 1,500 for a guide, a tutorial or a Catalog connector page, and a limit of its own for each lookup page. The limits are ceilings; a page is as long as its one job. `src/lib/page-limits.json` holds the exceptions, each with a reason, and a ceiling for each page that is over its limit until it is rewritten (`STYLE.md`, "Writing"). Remove a ceiling when a rewrite brings its page under the limit.
 
 ## Layout
 

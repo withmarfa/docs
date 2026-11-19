@@ -4,7 +4,7 @@ import { edges, messages, trashed } from './bin-cascade';
 
 describe('bin cascade figure', () => {
   // withmarfa/marfa: `edges/cascade-parent-of` and `items/trash-cascade` (a
-  // cascade follows outbound edges to their targets), `edges/orphan-shipped`
+  // cascade follows outbound edges to their to items), `edges/orphan-shipped`
   // (an orphan leaves the other end active, whichever end is trashed).
   it('takes the child with its parent and leaves the book', () => {
     expect(trashed('note')).toEqual(['note', 'child']);
@@ -22,7 +22,7 @@ describe('bin cascade figure', () => {
     expect(Object.keys(messages).sort()).toEqual(['book', 'child', 'note']);
   });
 
-  // `edges/types-shipped-cascade`: parent-of cascades and the other eight shipped types orphan.
+  // `edges/types-shipped-cascade`: parent-of cascades and the shipped types other than with-hosts ones orphan.
   it('draws the on-delete behavior the synced edge type table gives each edge type', () => {
     const table = readFileSync(new URL('../../generated/catalog/edge-types.md', import.meta.url), 'utf8');
     for (const edge of edges) {

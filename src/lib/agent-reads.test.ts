@@ -80,7 +80,7 @@ describe('the event for each agent address', () => {
     ['/llms.txt', 'llms_txt'],
     ['/llms-full.txt', 'llms_full_txt'],
     ['/docs-map.md', 'docs_map'],
-    ['/files.md', 'markdown'],
+    ['/build/files.md', 'markdown'],
   ])('sends one event for %s with the surface %s', async (path, surface) => {
     const capture = fakeCapture();
     await handlerWith(capture)(get(path));
@@ -103,7 +103,7 @@ describe('the event for each agent address', () => {
 
   it('records the page path of a Markdown copy, and the status and method', async () => {
     const capture = fakeCapture();
-    await handlerWith(capture)(get('/files.md', { 'User-Agent': 'codex_cli_rs/0.1' }));
+    await handlerWith(capture)(get('/build/files.md', { 'User-Agent': 'codex_cli_rs/0.1' }));
     await capture.settled();
     expect(capture.sent[0].event.properties).toEqual({
       $process_person_profile: false,
@@ -113,7 +113,7 @@ describe('the event for each agent address', () => {
       method: 'GET',
       status: 200,
       client: 'codex',
-      path: '/files',
+      path: '/build/files',
       via: 'path',
     });
   });
@@ -165,7 +165,7 @@ describe('an MCP request', () => {
         method: 'tools/call',
         params: {
           name: 'docs_fetch',
-          arguments: { path: '/files' },
+          arguments: { path: '/build/files' },
           _meta: { 'io.modelcontextprotocol/clientInfo': { name: 'claude-code', version: '9.9.9' } },
         },
       }),
@@ -284,7 +284,7 @@ describe('what an event never holds', () => {
     Accept: 'text/markdown',
   };
 
-  it.each(['/files.md', '/llms.txt', '/api/docs/search?q=needle', '/api/docs/topics', '/mcp'])(
+  it.each(['/build/files.md', '/llms.txt', '/api/docs/search?q=needle', '/api/docs/topics', '/mcp'])(
     'sends only allowed properties for %s and none of the request',
     async (path) => {
       const capture = fakeCapture();
@@ -510,7 +510,7 @@ describe('the limit on counting', () => {
     expect(capture.sent).toHaveLength(2);
   });
 
-  it.each(['/files.md', '/llms.txt', '/llms-full.txt', '/docs-map.md', '/api/docs/topics', '/api/docs/search?q=files', '/mcp'])(
+  it.each(['/build/files.md', '/llms.txt', '/llms-full.txt', '/docs-map.md', '/api/docs/topics', '/api/docs/search?q=files', '/mcp'])(
     'covers %s',
     async (path) => {
       const capture = fakeCapture();

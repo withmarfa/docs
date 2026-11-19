@@ -3,7 +3,7 @@
  *
  * Three read-only tools, each an adapter over `src/lib/docs-tools.ts`:
  *
- *   - docs_search(query, limit?)  full-text BM25 against the docs corpus
+ *   - docs_search(query, limit?)  full-text search of the docs corpus
  *   - docs_fetch(path, section?)  the Markdown body of a docs page, or one section of it
  *   - docs_list_topics()          every page as a flat list
  *
@@ -62,7 +62,7 @@ const searchOutput = z.object({
     .array(
       z.object({
         title: z.string().describe('Page title.'),
-        url: z.string().describe('Page path, such as "/files". Pass it to docs_fetch.'),
+        url: z.string().describe('Page path, such as "/build/files". Pass it to docs_fetch.'),
         snippets: z.array(z.string()).describe('Passages of the page that match the query, as plain text.'),
       }),
     )
@@ -74,7 +74,7 @@ const topicsOutput = z.object({
     .array(
       z.object({
         title: z.string().describe('Page title.'),
-        url: z.string().describe('Page path, such as "/files". Pass it to docs_fetch.'),
+        url: z.string().describe('Page path, such as "/build/files". Pass it to docs_fetch.'),
         description: z.string().nullable().describe('The page\'s one-sentence description, or null when it has none.'),
         breadcrumbs: z.array(z.string()).describe('The path segments of the page\'s url.'),
       }),
@@ -98,7 +98,7 @@ export function createDocsServer(): McpServer {
     DOCS_TOOL_NAMES[0],
     {
       description:
-        'Full-text search over the Marfa docs corpus. Returns up to `limit` hits ranked by BM25 relevance, each with a title, canonical URL, and snippets of matching content. It finds passages and links; it does not write an answer. Pass a hit\'s url to docs_fetch to read the page.',
+        'Full-text search over the Marfa docs corpus. Returns up to `limit` hits, the best match first, each with a title, canonical URL, and snippets of matching content. It finds passages and links; it does not write an answer. Pass a hit\'s url to docs_fetch to read the page.',
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.object({
         query: z.string().describe('Search query.'),

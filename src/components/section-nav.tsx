@@ -3,14 +3,14 @@ import { useRouterState } from '@tanstack/react-router';
 import referenceMeta from '../../content/docs/(reference)/meta.json';
 
 // The Start and Reference folders are groups, so their pages share the site
-// root (`/files`, `/cli`). A Reference page is told apart by its first path
-// segment, read from the folder's own list so a new page can't be missed; the
-// API's pages sit under `/api-reference`. Start is every path that belongs to
-// no other section, `/` included.
-const REFERENCE_SEGMENTS = new Set([
-  ...referenceMeta.pages.filter((entry) => /^[a-z0-9-]+$/.test(entry)),
-  'api-reference',
-]);
+// root (`/quickstart`, `/cli`). A Reference page is told apart by its first
+// path segment, read from the folder's own list so a new page can't be missed;
+// the Catalog and the API's pages sit under `/catalog` and `/api-reference`,
+// the two folders the list lifts in with `...`. Start is every path that
+// belongs to no other section, `/` included.
+const REFERENCE_SEGMENTS = new Set(
+  referenceMeta.pages.map((entry) => entry.replace(/^\.\.\./, '')).filter((entry) => /^[a-z0-9-]+$/.test(entry)),
+);
 
 function firstSegment(pathname: string) {
   return pathname.split('/').filter(Boolean)[0] ?? '';
@@ -21,17 +21,17 @@ function isUnder(pathname: string, prefix: string) {
 }
 
 // The top-level sections, drawn as pills in the middle of the top bar
-// (DocsHeader). `href` is the section's landing page. The notebook layout's own
+// (DocsHeader). `href` is the first page in the section's sidebar. The notebook layout's own
 // tabs aren't drawn, since the header slot replaces them, but they still scope
 // the sidebar by URL; these pills are the visible switcher.
 export const SECTIONS: { label: string; href: string; matches: ((pathname: string) => boolean) | null }[] = [
   { label: 'Start', href: '/', matches: null },
-  { label: 'Run', href: '/run', matches: (pathname) => isUnder(pathname, '/run') },
-  { label: 'Catalog', href: '/catalog', matches: (pathname) => isUnder(pathname, '/catalog') },
-  { label: 'Build', href: '/build', matches: (pathname) => isUnder(pathname, '/build') },
+  { label: 'Use', href: '/use/from-an-agent', matches: (pathname) => isUnder(pathname, '/use') },
+  { label: 'Run', href: '/run/memory-cpu-and-disk', matches: (pathname) => isUnder(pathname, '/run') },
+  { label: 'Build', href: '/build/how-marfa-works', matches: (pathname) => isUnder(pathname, '/build') },
   {
     label: 'Reference',
-    href: '/reference',
+    href: '/catalog/items',
     matches: (pathname) => REFERENCE_SEGMENTS.has(firstSegment(pathname)),
   },
 ];

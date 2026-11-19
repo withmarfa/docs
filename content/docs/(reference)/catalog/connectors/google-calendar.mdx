@@ -1,0 +1,97 @@
+---
+title: Google Calendar
+description: The calendars and events of a Google account, with changes to events carried back and no invitations sent.
+---
+
+The Google Calendar connector keeps the calendars and events of one Google account in the feed, and carries changes you make to events in Marfa back to Google Calendar. **It never invites anyone** and never has Google email anyone.
+
+| Source code | Shown as | Mark |
+| --- | --- | --- |
+| `google-calendar` | Google Calendar | `simple-icons:googlecalendar` |
+
+## What it brings in
+
+- **Calendars.** Every calendar in the account's calendar list that the account owns or can write to, hidden ones included. It skips the Birthdays calendar, and a calendar the account can only read unless `GOOGLE_CALENDAR_READ_ONLY_CALENDARS` names it.
+- **Events.** Every event of those calendars, past and canceled included, because Google reports a deletion as a canceled event. A canceled event archives its item. Working-location events are skipped.
+
+After the first read, it asks Google only for what changed since the last run.
+
+## Types it writes
+
+| Type | Parent type | Holds |
+| --- | --- | --- |
+| `google.calendar.calendar` | None | A calendar, read only. `access_role` says what the account may do on it. |
+| `google.calendar.event` | [Event](/catalog/event) | An event. |
+
+A recurring event is one item whose `recurrence` holds Google's rules, and Marfa expands the occurrences. A moved or edited occurrence is its own item, with `original_starts_at` set to the time it replaces. A canceled occurrence is added to the series as an `EXDATE` line.
+
+An event item holds its guests twice, both read only. **`attendees`**, the core event's field, has each guest's `name`, `email` and `response` where Google gives them. **`guests`** keeps Google's own list, with the `optional`, `self`, `organizer` and `resource` flags. It also holds `calendar_id`, `organizer`, and `editable`, which says whether Marfa may change the event, with `uneditable_reason` when it may not. A change in Marfa to a field Google holds is put back.
+
+## Edges it writes
+
+| Edge type | From | To |
+| --- | --- | --- |
+| `google.calendar.in-calendar` | An event | Its calendar |
+| [`parent-of`](/catalog/edges/parent-of) | A series | Each occurrence moved or edited on its own |
+
+`google.calendar.in-calendar` is the connector's own edge type, and it registers it on its first start.
+
+## What goes back
+
+- **A new event item.** It becomes an event on the calendar its `google.calendar.in-calendar` edge names, or on the primary calendar. The connector refuses one on a calendar the account can only read.
+- **Edits.** The `title`, `description`, `place`, `status` (`confirmed` or `tentative`) and times, and a series' `recurrence`. Pointing the `google.calendar.in-calendar` edge at another calendar moves the event.
+- **The bin.** Moving an event to the bin deletes it in Google Calendar, and restoring it brings it back.
+
+**Every write sets `sendUpdates=none`, and none names guests.**
+
+Google holds a description as HTML. The connector reads it as Markdown and sends it back as HTML, with bold, italic, links, lists, quotes, code and line breaks. A heading becomes bold text and a table becomes a line for each row; the item shows Google's form after the next read. A description in Marfa longer than 100,000 characters, nested too deep or too costly to convert is refused: nothing is sent, the run names the event, and the run carries on. A description Google holds that is longer than 600,000 characters, has more than 25,000 elements or nests more than 200 levels deep is left out of the item.
+
+## Settings
+
+The Google settings are those of every Google connector. [Create a Google Cloud project for Google connectors](/use/google-project) shows how to get them.
+
+| Setting | What it holds |
+| --- | --- |
+| `GOOGLE_CLIENT_ID` | The ID of your Desktop app OAuth client. |
+| `GOOGLE_CLIENT_SECRET` | That client's secret. A secret. |
+| `GOOGLE_REFRESH_TOKEN` | The grant the setup step writes. A secret. |
+| `GOOGLE_CALENDAR_READ_ONLY_CALENDARS` | IDs of read-only calendars to read, such as a shared holidays calendar, separated by commas or whitespace. Optional. |
+| `GOOGLE_CALENDAR_CONFIRM_DELETES` | Lets one held batch of deletions through. Optional. |
+
+## What to know
+
+- **Marfa does not change an event with other guests.** `editable` is `false` when the account can only read the calendar, someone else organizes the event, Google reserves its kind, or it has guests besides the account, since a change would reach their calendars. A change to such an item is put back, and the run raises `declined:<item ID>`.
+- **A safety stop holds a large removal.** If one run would remove more than 10 events and more than a quarter of a calendar, nothing is sent and the run fails. Restore the items to keep the events, or set `GOOGLE_CALENDAR_CONFIRM_DELETES` to the value the run names, for one run.
+- **Times keep their zone.** A timed event stores UTC instants with its `timezone`. An all-day event stores local midnights in the event's zone, or else the calendar's.
+- **A series cannot stop repeating from Marfa.** A `recurrence` with no rules left is refused.
+- **One Google account for each instance.** A grant for another account fails the run.
+- **It needs the Google Calendar API and two scopes.** Turn the API on in your project. Setup asks for `calendar.events` and `calendar.calendarlist.readonly`; leave both ticked, because without the second the connector reads nothing.
+
+## Make its key
+
+```bash
+marfa keys create --label google-calendar --source google-calendar \
+  --type-permission google.calendar.calendar=write \
+  --type-permission google.calendar.event=write \
+  --edge-permission google.calendar.in-calendar=write \
+  --edge-permission parent-of=write \
+  --metadata-permission types=write --metadata-permission edge_types=write \
+  --default-tier feed
+```
+
+`edge_types=write` registers `google.calendar.in-calendar`.
+
+## Run it
+
+[Bring in records from another service](/use/connect-a-service) builds and runs any connector, and [Connectors](/build/connectors) explains how they work. Sign in to Google once, with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` set, naming a file outside any Git checkout for the grant:
+
+```bash
+node connectors/google-calendar/dist/main.js --setup <file>
+```
+
+Put the token it writes in `GOOGLE_REFRESH_TOKEN` in your secret store, and delete the file. Then run it once, or keep it running:
+
+```bash
+node connectors/google-calendar/dist/main.js --once
+node connectors/google-calendar/dist/main.js --every 15m
+```

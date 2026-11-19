@@ -22,42 +22,43 @@ describe('buildDocsMap', () => {
   const lines = map.split('\n');
 
   it('lists the five tabs in order, as H2 headings', () => {
-    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Start', '## Run', '## Catalog', '## Build', '## Reference']);
+    expect(lines.filter((line) => line.startsWith('## '))).toEqual(['## Start', '## Use', '## Run', '## Build', '## Reference']);
   });
 
   it('groups each tab as the sidebar does', () => {
-    const start = lines.slice(lines.indexOf('## Start'), lines.indexOf('## Run'));
-    expect(start.filter((line) => line.startsWith('### '))).toEqual(['### Get started', '### Concepts']);
-    expect(start.findIndex((line) => line.startsWith('- [Overview](/)'))).toBeLessThan(start.indexOf('### Get started'));
+    const start = lines.slice(lines.indexOf('## Start'), lines.indexOf('## Use'));
+    expect(start.filter((line) => line.startsWith('### '))).toEqual([]);
+    expect(start.some((line) => line.startsWith('- [What Marfa is](/)'))).toBe(true);
     expect(start.some((line) => line.startsWith('- [Connect your agent](/connect-your-agent)'))).toBe(true);
-    expect(start.some((line) => line.startsWith('- [Agents, the CLI and MCP](/agents-cli-and-mcp)'))).toBe(true);
-    expect(start.some((line) => line.startsWith('- [Glossary](/glossary)'))).toBe(true);
 
-    const build = lines.slice(lines.indexOf('## Build'), lines.indexOf('## Reference'));
-    expect(build.filter((line) => line.startsWith('### '))).toEqual(['### Tutorials', '### Build apps and agents', '### Build connectors']);
-    expect(build.some((line) => line.startsWith('- [Use Marfa with AI agents](/build/ai-agents)'))).toBe(true);
-    expect(build.some((line) => line.startsWith('- [Connect Claude and ChatGPT](/build/connect-claude-and-chatgpt)'))).toBe(true);
-    expect(build.some((line) => line.startsWith('- [Overview](/build)'))).toBe(true);
+    const use = lines.slice(lines.indexOf('## Use'), lines.indexOf('## Run'));
+    expect(use.filter((line) => line.startsWith('### '))).toEqual(['### Day to day', '### A synced folder', '### Connectors', '### Access', '### When you need more']);
+    expect(use.some((line) => line.startsWith('- [Work from an agent](/use/from-an-agent)'))).toBe(true);
+    expect(use.some((line) => line.startsWith('- [Sync a folder](/use/sync-a-folder)'))).toBe(true);
 
-    const run = lines.slice(lines.indexOf('## Run'), lines.indexOf('## Catalog'));
-    expect(run.filter((line) => line.startsWith('### '))).toEqual(['### Set up', '### Keys and access', '### Folders', '### Connectors', '### Look after it']);
+    const run = lines.slice(lines.indexOf('## Run'), lines.indexOf('## Build'));
+    expect(run.filter((line) => line.startsWith('### '))).toEqual(['### Set up', '### Keys and apps', '### Look after it']);
     expect(run.some((line) => line.startsWith('- [Troubleshooting](/run/troubleshooting)'))).toBe(true);
 
-    // The Catalog has three sections; the Types and Connectors pages are folders, so their pages nest under them.
-    const catalog = lines.slice(lines.indexOf('## Catalog'), lines.indexOf('## Build'));
-    expect(catalog.filter((line) => line.startsWith('### '))).toEqual(['### Data', '### Events and access', '### Integrations']);
+    const build = lines.slice(lines.indexOf('## Build'), lines.indexOf('## Reference'));
+    expect(build.filter((line) => line.startsWith('### '))).toEqual(['### Concepts', '### Tutorials', '### Build apps and agents', '### Build on a working copy', '### Build connectors']);
+    expect(build.some((line) => line.startsWith('- [How Marfa works](/build/how-marfa-works)'))).toBe(true);
+
+    // The Catalog opens Reference; the Types and Connectors pages are folders, so their pages nest under them.
+    const reference = lines.slice(lines.indexOf('## Reference'));
+    const catalog = reference.slice(reference.indexOf('### Catalog'), reference.indexOf('### HTTP API'));
     expect(catalog.filter((line) => /^(- |  - |    - )/.test(line)).map((line) => line.replace(/\]\(.*$/, ']').replace(/^( *- )\[/, '$1'))).toEqual([
-      '- Overview]',
       '- Items]',
       '- Types]',
       '  - Core types',
-      ...['Bookmark', 'Collection', 'Entity', 'Event', 'File', 'Highlight', 'Media', 'Message', 'Note', 'Task'].map((title) => `    - ${title}]`),
+      ...['Bookmark', 'Collection', 'Conversation', 'Entity', 'Event', 'File', 'Highlight', 'Media', 'Message', 'Note', 'Table', 'Task'].map((title) => `    - ${title}]`),
       '  - System types',
       ...['Connection', 'Folder', 'View'].map((title) => `    - ${title}]`),
       '  - Type rules]',
       '  - Display hints]',
       '  - Field kinds]',
-      '- Edges]',
+      '- Edge types]',
+      ...['about', 'attached-to', 'comments-on', 'derived-from', 'excerpt-of', 'in-collection', 'in-folder', 'in-thread', 'parent-of', 'references', 'supersedes'].map((title) => `  - ${title}]`),
       '- Events]',
       '- Permissions]',
       '- Connectors]',
@@ -66,16 +67,13 @@ describe('buildDocsMap', () => {
     expect(catalog.some((line) => line.startsWith('  - [GitHub](/catalog/connectors/github)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('    - [Media](/catalog/media)'))).toBe(true);
     expect(catalog.some((line) => line.startsWith('- [Types](/catalog/types)'))).toBe(true);
-    expect(catalog.some((line) => line.startsWith('- [Overview](/catalog)'))).toBe(true);
 
-    const reference = lines.slice(lines.indexOf('## Reference'));
     const groups = reference.filter((line) => line.startsWith('### '));
-    expect(reference[2]).toMatch(/^- \[Overview\]\(\/reference\)/);
-    expect(groups.slice(0, 2)).toEqual(['### SDKs, CLI and MCP', '### HTTP API']);
-    expect(groups.at(-1)).toBe('### Resources');
+    expect(groups.slice(0, 2)).toEqual(['### Catalog', '### HTTP API']);
+    expect(groups.slice(-3)).toEqual(['### SDKs', '### CLI and MCP', '### Resources']);
     expect(reference.some((line) => line.startsWith('- [TypeScript SDK](/typescript-sdk)'))).toBe(true);
     expect(reference.some((line) => line.startsWith('- [Marfa MCP server](/marfa-mcp-server)'))).toBe(true);
-    expect(reference.some((line) => line.startsWith('- [Docs for agents](/docs-for-agents)'))).toBe(true);
+    expect(reference.some((line) => line.startsWith('- [Docs MCP server](/docs-mcp-server)'))).toBe(true);
     expect(reference.some((line) => line.startsWith('- [The contract](https://github.com/'))).toBe(true);
   });
 
@@ -112,7 +110,7 @@ describe('buildLlmsTxt', () => {
   });
 
   it('links each written page to its Markdown copy at a full address', () => {
-    expect(text).toContain('- [Overview](https://docs.marfa.so/index.md)');
+    expect(text).toContain('- [What Marfa is](https://docs.marfa.so/index.md)');
     expect(text).toContain('(https://docs.marfa.so/cli.md)');
     expect(text).not.toMatch(/\]\(\/[a-z]/);
   });
@@ -164,7 +162,7 @@ describe('getLlmsFullText', () => {
   it('holds the pages in sidebar order', async () => {
     const full = await getLlmsFullText();
     const at = (url: string) => full.indexOf(`(${url})\n`);
-    const urls = ['/', '/quickstart', '/connect-your-agent', '/how-marfa-works', '/access', '/run', '/catalog', '/build'];
+    const urls = ['/', '/quickstart', '/connect-your-agent', '/use/from-an-agent', '/run/install', '/build/how-marfa-works', '/build/access', '/catalog/items'];
     for (const url of urls) expect(at(url), url).toBeGreaterThanOrEqual(0);
     for (let i = 1; i < urls.length; i += 1) expect(at(urls[i - 1]), urls[i]).toBeLessThan(at(urls[i]));
   });

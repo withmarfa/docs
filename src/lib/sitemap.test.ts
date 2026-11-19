@@ -23,7 +23,7 @@ describe('buildSitemap', () => {
     expect(urls).toHaveLength(source.getPages().length);
     expect(urls).toContain('https://docs.marfa.so/');
     expect(urls).toContain('https://docs.marfa.so/quickstart');
-    expect(urls).toContain('https://docs.marfa.so/run/deploy');
+    expect(urls).toContain('https://docs.marfa.so/run/run-on-a-server');
     expect(urls.some((url) => url.startsWith('https://docs.marfa.so/api-reference/'))).toBe(true);
   });
 

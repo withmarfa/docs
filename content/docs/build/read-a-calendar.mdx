@@ -3,47 +3,93 @@ title: Read a calendar
 description: List the events that fall in a window of time, with each recurring event unfolded into one entry for each time it happens.
 ---
 
-A recurring [event](/catalog/event) is one item with a `recurrence` rule, so a listing of items can't say what happens on a given day. [List event occurrences](/api-reference/items/listOccurrences) can: Marfa works out each time an event happens when you ask, and stores none of them. A [task](/catalog/task) can carry the same rule, which Marfa checks on a write and stores, but **never unfolds**: the listing answers events only. In the TypeScript example, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows.
+A recurring [event](/catalog/event) is one item with a `recurrence` rule, so a listing of items can't say what happens on a given day. [List event occurrences](/api-reference/items/listOccurrences) can: Marfa works out each time an event happens when you ask, and stores none of them. In the TypeScript example, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows.
 
 ## List a window
 
 Name the start and end of the window:
 
-```bash tab="CLI" tab-group="client"
-marfa items occurrences --from 2026-10-12 --to 2026-10-26
+<Terminal>
+
+```bash
+marfa items occurrences --from 2026-12-01 --to 2026-12-15
 ```
 
-```http tab="HTTP"
-GET /occurrences?from=2026-10-12&to=2026-10-26
+```text
+when                                                  id                                    type        when                      title
+2026-12-01T18:30:00.000Z to 2026-12-01T20:00:00.000Z  01a1f124-f48d-73f1-a84d-b7527db6ea0a  core.event  2026-11-19T00:11:33.389Z  Pottery class
+2026-12-09T18:30:00.000Z to 2026-12-09T20:00:00.000Z  01a1f126-ead3-7610-8d07-cc4ac430281d  core.event  2026-11-19T00:13:41.971Z  Pottery class
+2026-12-10T07:15:00.000Z to 2026-12-10T09:55:00.000Z  01a1f124-f49b-74cf-86ed-90b2d7242c86  core.event  2026-11-19T00:11:33.403Z  Flight to Lisbon
+```
+
+</Terminal>
+
+```http tab="HTTP" tab-group="client"
+GET /occurrences?from=2026-12-01&to=2026-12-15
 Authorization: Bearer <key>
 ```
 
 ```ts tab="TypeScript"
 const { data } = await marfa.GET("/occurrences", {
-  params: { query: { from: "2026-10-12", to: "2026-10-26" } },
+  params: { query: { from: "2026-12-01", to: "2026-12-15" } },
 });
 ```
 
-Each entry has a `starts_at`, an `ends_at` where the event has one, and the `item`. An occurrence of a recurring event also carries a `series_id`, the `id` of the `core.event` whose `recurrence` rule made it:
-
-```json
+```json title="Response" status="200"
 {
-  "starts_at": "2026-10-13T07:00:00.000Z",
-  "ends_at": "2026-10-13T08:00:00.000Z",
-  "series_id": "01a12313-ad0e-71cd-99b4-7a176c5a9f18"
+  "data": [
+    {
+      "starts_at": "2026-12-01T18:30:00.000Z",
+      "ends_at": "2026-12-01T20:00:00.000Z",
+      "item": { "id": "01a1f124-f48d-…", "type": "core.event", "properties": { "title": "Pottery class", … } },
+      "series_id": "01a1f124-f48d-…"
+    },
+    {
+      "starts_at": "2026-12-09T18:30:00.000Z",
+      "ends_at": "2026-12-09T20:00:00.000Z",
+      "item": { "id": "01a1f126-ead3-…", "type": "core.event", "properties": { "title": "Pottery class", … } },
+      "series_id": "01a1f124-f48d-…",
+      "replaces": "2026-12-08T18:30:00.000Z"
+    },
+    {
+      "starts_at": "2026-12-10T07:15:00.000Z",
+      "ends_at": "2026-12-10T09:55:00.000Z",
+      "item": { "id": "01a1f124-f49b-…", "type": "core.event", "properties": { "title": "Flight to Lisbon", … } }
+    }
+  ],
+  "next_cursor": null,
+  "window": { "from": "2026-12-01T00:00:00.000Z", "to": "2026-12-15T00:00:00.000Z" },
+  "scan": { "series_errors": 0, "series_unexpanded": 0 }
 }
 ```
 
-The whole window comes in one page, in order of `starts_at`.
+Each entry has a `starts_at`, an `ends_at` where the event has a length, and the whole `item`. An occurrence of a recurring event carries a `series_id`, the `id` of the event whose rule made it. **The whole window comes in one page**, in order of `starts_at`, and `window` says what was read, in UTC.
+
+What the window holds:
+
+- **Every active event that overlaps it**, including one already running when the window opens. Archived events and events in the bin are left out.
+- **Events only.** A [task](/catalog/task) can carry a `recurrence` rule too, but the listing never answers tasks.
+- **Only the types the credential can read.** `type` narrows the listing to one event type and the types under it.
+- **A recurring event at its local hour.** A series with a `timezone` keeps its hour across a clock change, so its occurrences sit at a different UTC hour on either side of one.
+
+## Show a moved occurrence
+
+When one occurrence of a series moves, such as a class pushed back a day, the move is its own event: it holds `original_starts_at`, the start of the occurrence it replaces, and the series points to it by a `parent-of` [edge](/build/edges). The listing shows the moved event at its own times and nothing at the old slot. When the credential can read the series and the edge, the moved occurrence carries the `series_id` and, in `replaces`, the start it took over, as the second entry above does. Use them to show the occurrence as part of its series.
 
 ## Write the bounds
 
-Marfa reads a bound as it reads any other time you send: a time with no zone, such as `2026-10-12T09:00:00`, is UTC, a date with no time is its midnight in UTC, and an offset or `Z` is honored. A bound that isn't an ISO 8601 time, or names a date that doesn't exist such as `2026-02-30`, is refused with `400 validation_error`, and `details.field` says whether it was `from` or `to`.
+`from` and `to` are each a date-time with a zone, such as `2026-12-01T09:00:00Z` or `2026-12-01T09:00:00+01:00`, or a date with no time, which is its midnight in UTC. Marfa refuses these with `400 validation_error`, naming the bound in `details.field`:
 
-A window spans at most **400 days**, and Marfa refuses one with too many occurrences rather than trim it, so narrow the window.
+- a date-time with no zone, such as `2026-12-01T09:00:00`, or any other text that isn't one of the two forms
+- a date that doesn't exist, such as `2026-02-30`
+- a `to` that isn't after its `from`
+
+It also refuses a window longer than 400 days, with the limit in `details.max_days`, and a window that holds more than 5,000 occurrences, with `details.max_occurrences`, rather than send a trimmed answer: narrow the window.
+
+A request with no `from` or no `to` answers `400 missing_required_field`.
 
 ## Check the calendar is whole
 
-If the answer carries `expansion_incomplete: true`, **the calendar is missing something**: `series_errors` names the series that couldn't be unfolded. Show the person that the calendar is incomplete rather than present it as whole.
+A series that takes too long to unfold, or has more than 2,000 occurrences in the window, is left out, and the rest of the window still answers. `scan.series_unexpanded` counts the series left out. When it is above 0, the answer also carries **`expansion_incomplete: true`**, and `series_errors` names the series it can. Show the person that the calendar is incomplete rather than present it as whole.
 
 The rules behind this guide are in the [occurrences](https://github.com/withmarfa/marfa/blob/main/conformance/spec/occurrences.md) chapter of the contract.

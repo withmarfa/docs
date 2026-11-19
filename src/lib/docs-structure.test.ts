@@ -39,7 +39,7 @@ describe('the lists the Catalog holds', () => {
   it('are included on Catalog pages only', () => {
     const outside = ALL_PAGES.filter(
       ({ file, text }) =>
-        !file.startsWith(`catalog${path.sep}`) && LISTS.some((list) => text.includes(`src/generated/${list}`)),
+        !file.startsWith(path.join('(reference)', `catalog${path.sep}`)) && LISTS.some((list) => text.includes(`src/generated/${list}`)),
     ).map(({ file }) => file);
     expect(outside).toEqual([]);
   });
@@ -52,7 +52,7 @@ describe('the CLI download', () => {
     const including = ALL_PAGES.filter(({ text }) =>
       text.includes('<include cwd>src/generated/cli-download.md</include>'),
     ).map(({ file }) => file);
-    expect(including.sort()).toEqual([path.join('(reference)', 'cli.mdx'), path.join('(start)', 'quickstart.mdx')]);
+    expect(including.sort()).toEqual([path.join('(reference)', 'cli.mdx')]);
   });
 
   it('names the latest release', () => {
@@ -69,7 +69,7 @@ describe('the server image commands', () => {
     const including = ALL_PAGES.filter(({ text }) =>
       text.includes('<include cwd>src/generated/server-image.md</include>'),
     ).map(({ file }) => file);
-    expect(including).toEqual([path.join('run', 'deploy.mdx')]);
+    expect(including).toEqual([path.join('run', 'run-on-a-server.mdx')]);
   });
 
   it('name the latest release and publish the port on loopback only', () => {
@@ -89,7 +89,7 @@ describe('the Glossary page', () => {
       .flatMap((rules) => Object.keys(rules))
       .join(' ')
       .replace(/[-/]/g, ' ');
-    const page = ALL_PAGES.find(({ file }) => file === path.join('(start)', 'glossary.mdx'))!;
+    const page = ALL_PAGES.find(({ file }) => file === path.join('(reference)', 'glossary.mdx'))!;
     // A row whose word lost its link is still checked.
     const words = [...page.text.matchAll(/^\| \[?\*\*([^*]+)\*\*/gm)].map((match) => match[1].replace(/`/g, ''));
     expect(words.length).toBeGreaterThan(20);

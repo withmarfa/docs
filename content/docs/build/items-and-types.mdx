@@ -1,0 +1,81 @@
+---
+title: Items and types
+description: An item is one thing a person keeps, such as a photo, a note or a contact, and its type says what the item holds. Everything else in Marfa builds on these two ideas.
+---
+
+Everything in an instance is an item: a PDF, a photo, a bookmark, a contact, a conversation. Every item has a type, and **Marfa holds every item to its type**: every app that reads a `core.file.image` knows it will find a `blob_ref` and a `mime_type`, because Marfa refused any image without them.
+
+Every item also has the same fixed fields, such as `id`, `state`, `version` and its three timestamps, `occurred_at`, `created_at` and `updated_at`. The Catalog's [Items](/catalog/items) page lists them.
+
+## What a type does
+
+A type is the schema for an item's properties. It names each property, gives its kind, and says which ones are required. Marfa **checks every write** against it, so this image, which names no bytes, is refused with `400 invalid_properties`:
+
+```http title="Request"
+POST /items
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "type": "core.file.image", "properties": { "title": "Kitchen before the move" } }
+```
+
+**A property the type doesn't declare is kept**, so an app can carry a little more than the type names. An owner who wants a type held to exactly its properties turns on `strict_mode` for it in [Settings](/run/settings#what-the-enforcement-levers-do).
+
+Marfa ships types for files, images, notes, bookmarks, contacts, events, conversations and more, which the Catalog's [Types](/catalog/types) page lists. When none fits, [define a type](/build/define-a-type) of your own.
+
+A type's ID is two or more lowercase segments separated by dots. The first segment, its **namespace**, says who adds types there:
+
+| Namespace | Example | Who adds types |
+| --- | --- | --- |
+| `core` and `system` | `core.note`, `system.view` | Marfa. No one can change them. |
+| `app` | `app.readinglist.entry` | An app, for its own types. Always three segments. |
+| `user` | `user.recipe` | You, for your own types. |
+| A publisher's name | `acme.deal` | Anyone publishing types for others, such as a connector. |
+
+## Building on another type
+
+A type can name a **parent**. It then has every property the parent has, and adds its own. `core.file.image` is a child of `core.file`: it has a file's `blob_ref` and `mime_type`, and adds `width` and `height`.
+
+**A listing of a type includes every type beneath it.** Inherit only when every property of the parent fits your type, because a child can't reshape what it inherits.
+
+When your type should be readable as another type without inheriting from it, name the other type in `compatible_with`. **It's a promise about shape:** Marfa takes it only when your type requires everything the other requires, in a form an app that reads the other type can read. It changes no listing: a listing of `core.note` leaves out a `user.recipe` that names it only in `compatible_with`.
+
+<TypeInheritance />
+
+[Type rules](/catalog/type-rules) has the details.
+
+## How a type is shown
+
+A type also tells an app how to show its items, through **display hints**: the field that names an item, the field that holds its text, and an icon. **The text is Markdown**, and a device reads the links in it to make [edges](/build/edges). The icon is an ID such as `lucide:calendar`, and the owner can choose another for any type. [Display hints](/catalog/display-hints) has the rules.
+
+## Where an item came from
+
+Every item records its **source**, a code for what wrote it, which never changes. A key writes under its own source or one it claims; an app writes under `oauth:` and its `client_id`.
+
+An item can also carry a `source_id`, its own ID at that source, such as an event's ID in Google Calendar. **Together they are its natural key**: a connector that writes the record again updates the item instead of making a second one.
+
+An app shows a source by its **name** and an optional **mark**, an icon, which `marfa sources update` sets.
+
+## Library and feed
+
+Items sit in one of two **tiers**. The **library** holds what a person chose to keep. The **feed** holds what arrives in volume from elsewhere, such as the posts an RSS connector brings in. A listing returns both unless it names one.
+
+A feed item stays until someone acts on it, or until its type's feed window runs out and [housekeeping](/run/housekeeping) moves it to the bin. To keep one, change its `tier` to `library`.
+
+## An item's life
+
+An item starts `active`. It can be **archived**, which sets it aside: it stays readable by its `id`, and listings leave it out unless asked. Or it can be moved to the **bin**, which the API calls the trash, where its state is `trashed`.
+
+<ItemLifecycle />
+
+### Delete and purge
+
+**A delete is a soft delete:** `DELETE /items/{id}` moves the item to the bin, taking its children by `parent-of` and its [parts](/build/edges#parts), such as comments. A restore brings them all back.
+
+**Purging** an item in the bin deletes it and its history for good. The bin empties itself after `trash_retention_days`, 60 days by default.
+
+## Items a connector keeps
+
+Every item answers `read_only`. It's `true` when a connector keeps the item in step with another service and would put a change back, such as a GitHub issue. **It's advice, not a lock:** Marfa refuses no write for it, and an app uses it to show the item as read-only or to warn before an edit.
+
+The rules behind this page are in the [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) and [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) chapters of the contract.

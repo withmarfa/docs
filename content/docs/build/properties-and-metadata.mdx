@@ -1,0 +1,70 @@
+---
+title: Properties and metadata
+description: Where an item keeps its content, its tags and an app's own data, and which to use for each kind of information.
+---
+
+An item keeps what it holds in three places: its **properties**, its **tags** and its **extensions**. [Edges](/build/edges) link it to other items, and [tables](/build/tables) hold its rows. They differ in who decides their shape and in whether a write moves the item's [version](/build/versions):
+
+| Kind | Holds | Shape set by | Moves the version |
+| --- | --- | --- | --- |
+| Properties | What the item is, such as a bookmark's `url` | The item's type | Yes |
+| Tags | A person's labels, such as `paperwork` | Nothing: a tag is a word | No |
+| Extensions | An app's own data, under a namespace | The app that writes it | No |
+
+Tags and extensions together are the item's **metadata**, the `metadata` object an item read answers beside the item. Here metadata means data about one item, not the metadata map of a key that [Access](/build/access) describes.
+
+## Properties
+
+Use a property when the information is part of what the item is, and every app reading the type should understand it: an event's start, a contact's email address. The item's type declares its properties, as [Items and types](/build/items-and-types) explains.
+
+An update sends only the properties it changes, and names the version it read:
+
+```http title="Request"
+PATCH /items/01a1f144-e0da-77a3-a1c4-ead9c1e9d53c
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "version": 3, "properties": { "title": "Lease renewal 2027" } }
+```
+
+The item comes back at version 4, with its other properties as they were. **A `null` removes nothing.** To remove a property, name it in `clear_properties`. Naming one the item doesn't hold isn't an error, so a retry is safe. To send the whole set instead, add `"properties_mode": "replace"`, and every property left out is removed.
+
+## Tags
+
+Use a tag when a person groups or marks items in their own way: `paperwork`, `to-read`, `favorite`. A tag is a word with no schema and no hierarchy. An item's tags are a set, kept in the order they were first written.
+
+<Terminal>
+
+```bash
+marfa items tags add 01a1f144-e0da-77a3-a1c4-ead9c1e9d53c flat paperwork
+```
+
+```text
+tagged 01a1f144-e0da-77a3-a1c4-ead9c1e9d53c; it now has flat, paperwork
+```
+
+</Terminal>
+
+`marfa items tags remove` takes one tag off, and `marfa items tags replace` writes the whole set. Over HTTP, `POST /items/{id}/tags` adds, `PUT` replaces, and `DELETE /items/{id}/tags/{tag}` removes one; each answers the item's `tags`.
+
+A tag write leaves the version alone and moves `updated_at`, so an add or a remove that should land only on the item as you read it names `version` in its query: Marfa answers `409 version_conflict` if the item changed since. `GET /tags`, or `marfa tags`, lists the tags on active items you can read, with how many carry each. A listing or a search that names tags returns only the items that carry all of them. [Limits](/use/limits) gives how long a tag can be and how many an item holds.
+
+## Extensions
+
+Use an extension when your app keeps something about an item that only it needs, especially on an item another app wrote: a reminder date on a lease a connector brought in, or your place in a long article.
+
+An extension is a JSON object stored on an item under a namespace, such as `app.ledger.reminders`. Whoever writes a namespace decides what goes in it, and a write replaces the namespace whole and leaves the others alone. One app's extension **stays out of another's way**: a key reads and writes only the namespaces its [extension map](/build/access#what-a-credential-reaches) names.
+
+```http title="Request"
+PUT /items/01a1f144-e0da-77a3-a1c4-ead9c1e9d53c/extensions/app.ledger.reminders
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "remind_on": "2027-01-15" }
+```
+
+From the CLI, `marfa extensions write` does the same. Reading a namespace the item doesn't hold answers `document: null`.
+
+Writing a tag or an extension still needs write access to the item's type. Both announce a `metadata.changed` [event](/build/events), so an app that follows the stream sees them.
+
+The rules behind this page are in the [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#tags-metadata-and-extensions) chapter of the contract.

@@ -1,0 +1,58 @@
+---
+title: Connectors
+description: How a connector brings records from another service into Marfa, and what the instance keeps so it can stop and resume safely.
+---
+
+Much of what a person keeps starts somewhere else: events in Google Calendar, issues on GitHub, highlights in Readwise. A **connector** is a program outside the server that **registers with the instance**, most often to read such a service, its vendor, and write what it finds as items. It can also carry changes made in Marfa back to the vendor.
+
+The registration is what makes a program a connector. An app or a script that reads and writes with a key, or through a sign-in, but never registers isn't one, and needs nothing on this page.
+
+A Todoist connector, for example, runs where you choose, and Todoist can post webhooks to the instance:
+
+<ConnectorParts />
+
+## A program you run
+
+The server never runs a connector or calls a vendor. A connector is an ordinary program you run wherever suits you, on a schedule or all the time, and it uses the same API as any app. That keeps the server small, and your vendor credentials out of it.
+
+Most connectors are built on **the connector kit**, `@withmarfa/connector`, a TypeScript library in [withmarfa/marfa-connectors](https://github.com/withmarfa/marfa-connectors). It registers the connector, writes only what changed and reports each run, so your code only talks to the vendor.
+
+## What every connector shares
+
+- **A key of its own.** A connector registers under a key made for it alone, and a key holds one registration; an app's sign-in can't register one. The key holds exactly what the connector writes: write on its types and on each edge type it writes, and nothing more, which the kit checks on start. [Build a connector](/build/connector#make-its-key-and-run-it) makes it through the server's private socket.
+- **A source.** The key's [source](/build/items-and-types#where-an-item-came-from) labels everything the connector writes. It names the system the records come from, such as `github`, never an account. With each record's `source_id`, its ID at the vendor, it lets a connector update a record rather than duplicate it. An account goes into `source_id` only for what it owns, such as a calendar.
+- **A name and a mark**, so an app shows "GitHub" with its logo rather than the code. A connector sets only what the source lacks, so a name the owner chose stays, as [Name the source](/build/connector-pull#name-the-source) shows.
+- **The feed.** What a connector brings in belongs in the [feed](/build/items-and-types#library-and-feed). It names `feed` on each write, or its key makes `feed` its default; otherwise its records land in the library.
+- **Links that mean something.** It links records with the [edge type](/build/edges#edge-types) that fits: a GitHub comment `comments-on` its issue, a Readwise highlight is an `excerpt-of` its book. An edge type it stops writing is **retired**: the kit removes the edges of that type it wrote itself, never one a person drew, so the key keeps write on it.
+- **Nothing kept on its own computer.** What it resumes from [lives on the instance](#what-the-instance-keeps-for-a-connector), so it can stop, restart or move without losing its place.
+- **One process at a time.** A hold lets one copy write, so two started by mistake don't overwrite each other.
+
+## Edits a connector puts back
+
+A connector that takes no edits back for a type, such as an RSS entry, puts back any edit a person makes there on its next run. **It says so in its registration**, and the type's items read `read_only: true`, so an app can show them locked. Marfa refuses no write for it. [Pull from a vendor](/build/connector-pull#declare-the-types-you-dont-carry-back) shows how.
+
+## What the instance keeps for a connector
+
+The instance keeps what a connector needs to resume:
+
+| What | What it's for |
+| --- | --- |
+| A registration | Names the connector and the types it holds read only, and shows its last heartbeat and how its recent runs went. |
+| A state document | A JSON object the connector resumes from, such as the vendor's sync token. |
+| Current problems | Messages about unresolved trouble, such as a record the vendor refused, until the connector clears them. |
+| Agreements | One record per item of what the connector and the vendor last agreed about it, so a two-way connector can tell a change a person made from its own. |
+| A hold | Lets one process at a time write, so two copies started by mistake don't overwrite each other. |
+
+The state document, current problems and agreements belong to the key's **source**, not to one key. Replace a connector's key with one under the same source, and the connector picks up where it stopped.
+
+## Webhooks from the vendor
+
+A vendor's webhooks let a connector act on a change at once. The instance can give a connector an **inbound endpoint**, a private address the vendor posts to.
+
+The instance stores each delivery as it arrived, and **the connector does the rest**: it reads the deliveries, checks each came from the vendor, and marks them handled. [Receive vendor webhooks](/build/connector-webhooks) shows how.
+
+## Building one
+
+[Build a connector](/build/connector) walks through one from the kit's template, and [Make a connector follow changes](/build/connector-follow-changes) teaches it to archive what the vendor drops and report a failed run. The six connectors Marfa ships, listed in the [Catalog](/catalog/connectors), are working examples in the same repository, and [Run a connector](/use/connect-a-service) runs any of them.
+
+The rules behind this page are in the [connectors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md) and [inbound webhooks](https://github.com/withmarfa/marfa/blob/main/conformance/spec/inbound-webhooks.md) chapters of the contract.

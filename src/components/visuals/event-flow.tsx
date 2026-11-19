@@ -37,7 +37,7 @@ export function EventFlow({ caption }: { caption?: ReactNode }) {
   return (
     <Figure label="How changes reach your app: the event stream and webhooks" caption={caption} className="marfa-ef">
       <Flow axis="down" className="marfa-ef-flow">
-        <Box icon={PenLine} title="Changes" subtitle="To items, edges, tags, extensions" />
+        <Box icon={PenLine} title="Changes" subtitle="To items, edges, tags, rows" />
         <Arrow axis="down" label="each one appends" />
         <Branches
           stack="never"

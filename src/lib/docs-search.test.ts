@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksAboutARelease, MAX_SEARCH_LIMIT, searchDocs, tokenizeSearchText, trimPassage } from './docs-tools';
+import { asksAboutARelease, MAX_SEARCH_LIMIT, namesAnIdentifier, searchDocs, tokenizeSearchText, trimPassage } from './docs-tools';
 import changelog from '@/generated/changelog.json';
 import { source } from '@/lib/source';
 
@@ -16,13 +16,13 @@ import { source } from '@/lib/source';
  */
 const EXPECTED: [query: string, pages: string[]][] = [
   // Ideas an outside reader names differently from the docs.
-  ['optimistic concurrency', ['/versions']],
-  ['etag', ['/versions']],
-  ['If-Match header', ['/versions']],
-  ['412 precondition', ['/versions']],
-  ['timestamps', ['/items-and-types']],
-  ['delete vs purge', ['/items-and-types']],
-  ['soft delete trash', ['/items-and-types']],
+  ['optimistic concurrency', ['/build/versions']],
+  ['etag', ['/build/versions']],
+  ['If-Match header', ['/build/versions']],
+  ['412 precondition', ['/build/versions']],
+  ['timestamps', ['/build/items-and-types']],
+  ['delete vs purge', ['/build/items-and-types']],
+  ['soft delete trash', ['/build/items-and-types']],
 
   // Errors, headers and writes.
   ['409', ['/api-reference/errors']],
@@ -33,7 +33,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['retry a write safely', ['/build/write-safely']],
   [
     'rate limit 429',
-    ['/run/troubleshooting/credentials-and-access', '/run/folder-safeguards', '/build/connector-holds-and-retries', '/run/settings'],
+    ['/run/troubleshooting/credentials-and-access', '/folder-rules', '/build/connector-holds-and-retries', '/run/settings'],
   ],
   ['retry-after', ['/build/connector-webhooks', '/build/connector-holds-and-retries', '/build/keep-in-sync']],
   ['CORS', ['/run/settings']],
@@ -60,17 +60,17 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['print-token', ['/cli']],
   ['--print-token', ['/cli']],
 
-  ['edge type', ['/edges', '/catalog/edges']],
-  ['edge_cycle', ['/edges']],
+  ['edge type', ['/build/edges', '/catalog/edges']],
+  ['edge_cycle', ['/build/edges', '/api-reference/errors']],
 
   // Running an instance.
   ['environment variables', ['/run/settings']],
-  ['docker compose', ['/run/install', '/run/deploy']],
-  ['litestream', ['/run/deploy', '/run/back-up-and-restore']],
-  ['s3 bucket', ['/run/settings', '/run/deploy', '/run/install', '/run/back-up-and-restore']],
+  ['docker compose', ['/run/install', '/run/run-on-a-server']],
+  ['back up to a bucket', ['/run/back-up-and-restore']],
+  ['s3 bucket', ['/run/settings', '/run/run-on-a-server', '/run/install', '/run/back-up-and-restore']],
   ['upgrade server', ['/run/upgrade']],
-  ['folders autostart', ['/run/sync-from-login']],
-  ['watch key file', ['/run/sync-from-login']],
+  ['folders autostart', ['/use/keep-folders-syncing']],
+  ['watch key file', ['/use/keep-folders-syncing']],
   ['change instance name', ['/run/settings']],
   ['install marfa on linux', ['/cli', '/run/install', '/quickstart']],
   ['how do I back up my data', ['/run/back-up-and-restore', '/run/export-and-restore']],
@@ -87,12 +87,51 @@ const EXPECTED: [query: string, pages: string[]][] = [
 
   // A flag that is also an ordinary word, and a word that starts a permission scope (`webhooks.manage`).
   ['--force', ['/build/change-a-type']],
-  ['--scope', ['/docs-for-agents']],
-  ['webhooks', ['/events', '/build/receive-webhooks']],
-  ['audit', ['/run/audit-log']],
+  ['--scope', ['/docs-mcp-server']],
+  ['webhooks', ['/build/events', '/build/receive-webhooks']],
+  ['audit', ['/use/audit-log']],
 
   // An apostrophe is part of a word, not a break in it.
-  ["can't overwrite", ['/agents-cli-and-mcp', '/run/export-and-restore']],
+  // `/use/from-an-agent` says an agent reads before it writes but never says "overwrite", so the pages that do answer come first.
+  ["can't overwrite", ['/build/versions', '/build/write-safely']],
+
+  // A question in a reader's own words, answered by one of the pages that explains it.
+  ['install the cli', ['/cli', '/quickstart']],
+  ['tables', ['/build/tables', '/catalog/table']],
+  ['edge types', ['/build/edges', '/catalog/edges']],
+  ['permissions', ['/catalog/permissions', '/build/access']],
+];
+
+/**
+ * Queries a reader brings as a task or a name, and the page that must come first: the guide for the task, not a
+ * reference page, an SDK page or the page for one API operation that repeats the word. A query passes when its
+ * first hit is one of its pages.
+ */
+const FIRST: [query: string, pages: string[]][] = [
+  ['backup', ['/run/back-up-and-restore']],
+  ['back up', ['/run/back-up-and-restore']],
+  // A hyphen or a small number is not a code, so the guide still comes first; `/swift-sdk/server-calls` has a heading "Sign in" and the
+  // `restoreBackup` operation answers "restore from backup", but a reader asking for a task wants the guide.
+  ['back-up', ['/run/back-up-and-restore']],
+  ['restore from backup', ['/run/back-up-and-restore']],
+  ['sign in', ['/run/sign-in-as-the-owner']],
+  ['how do I sign in', ['/run/sign-in-as-the-owner']],
+  ['sign-in', ['/run/sign-in-as-the-owner']],
+  ['set-up', ['/quickstart', '/run/address', '/run/upgrade', '/use/google-project']],
+  ['sync a folder on 2 computers', ['/use/sync-a-folder', '/use/second-computer']],
+  ['install', ['/run/install']],
+  ['sync a folder', ['/use/sync-a-folder']],
+  ['second computer', ['/use/second-computer']],
+  ['conflicted copy', ['/use/conflicts']],
+  ['connect claude', ['/connect-your-agent', '/use/claude-and-chatgpt']],
+  ['chatgpt', ['/use/claude-and-chatgpt']],
+  ['upgrade', ['/run/upgrade']],
+  ['make a key', ['/run/manage-keys']],
+  ['narrow a key', ['/run/manage-keys']],
+  ['get help', ['/use/get-help']],
+  ['limits', ['/use/limits']],
+  ['errors', ['/api-reference/errors']],
+  ['webhooks', ['/build/receive-webhooks']],
 ];
 
 /**
@@ -118,6 +157,11 @@ describe('search finds the page that answers a query', () => {
       top.some((url) => pages.includes(url)),
       `${query}: wanted one of ${pages.join(', ')}; got ${top.join(', ') || 'nothing'}`,
     ).toBe(true);
+  });
+
+  it.each(FIRST)('%s comes first', async (query, pages) => {
+    const top = (await searchDocs(query)).hits.slice(0, 3).map((h) => h.url);
+    expect(pages, `${query}: wanted ${pages.join(' or ')} first; got ${top.join(', ') || 'nothing'}`).toContain(top[0]);
   });
 
   it('finds nothing for a code no page uses, instead of every page with "no" or "color"', async () => {
@@ -149,11 +193,42 @@ describe('asksAboutARelease', () => {
   });
 });
 
+describe('namesAnIdentifier', () => {
+  it('is true for a code, a flag, a dotted name and a number of three digits or a version', () => {
+    for (const query of ['MARFA_API_KEY', 'type_not_permitted', 'next_cursor', '--force', 'marfa export --scope', 'core.task', 'webhooks.manage', '429', 'exit code 404', '0.0.24', 'v0.0.24']) {
+      expect(namesAnIdentifier(query), query).toBe(true);
+    }
+  });
+
+  it('is false for words, whatever hyphen, one-digit number or full stop is among them', () => {
+    for (const query of ['sign-in', 'set-up', 'read-only', 'self-hosted', 'sync a folder on 2 computers', 'exit code 5', 'back-up', 'e.g. a note', 'install.', 'a well-known --- dash', 'Idempotency-Key']) {
+      expect(namesAnIdentifier(query), query).toBe(false);
+    }
+  });
+});
+
+describe('a hyphenated word finds what the same two words do', () => {
+  it.each([['sign-in', 'sign in'], ['back-up', 'back up'], ['set-up', 'set up']])('%s is %s', async (hyphenated, spaced) => {
+    const a = (await searchDocs(hyphenated)).hits.slice(0, 3).map((h) => h.url);
+    const b = (await searchDocs(spaced)).hits.slice(0, 3).map((h) => h.url);
+    expect(a.length, hyphenated).toBeGreaterThan(0);
+    expect(a[0], `${hyphenated}: ${a.join(', ')}; ${spaced}: ${b.join(', ')}`).toBe(b[0]);
+  });
+
+  it('still finds a hyphenated name in code by the name', async () => {
+    for (const [query, page] of [['`parent-of`', '/catalog/edges/parent-of'], ['`trash-purge`', undefined], ['parent-of', '/catalog/edges/parent-of']] as const) {
+      const top = (await searchDocs(query)).hits.slice(0, 3).map((h) => h.url);
+      if (page) expect(top, query).toContain(page);
+      else expect(top.length, query).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('a query that names a page', () => {
   it('shows that page first, by its title or its identifier', async () => {
     expect((await searchDocs('note')).hits[0].url).toBe('/catalog/note');
     expect((await searchDocs('core.task')).hits[0].url).toBe('/catalog/task');
-    expect((await searchDocs('versions')).hits[0].url).toBe('/versions');
+    expect((await searchDocs('versions')).hits[0].url).toBe('/build/versions');
   });
 });
 
@@ -161,7 +236,6 @@ describe('tokenizeSearchText', () => {
   it('reads a flag, a hyphenated name and a code as the same token however it is written', () => {
     expect(tokenizeSearchText('`--print-token`', false)).toContain('print_token');
     expect(tokenizeSearchText('--print-token', true)).toEqual(['--print_token', 'print_token']);
-    expect(tokenizeSearchText('Print-Token', true)).toEqual(['print_token']);
     expect(tokenizeSearchText('next_cursor', true)).toEqual(['next_cursor']);
     expect(tokenizeSearchText('core.note', true)).toEqual(['core_note', 'core', 'note']);
   });
@@ -176,6 +250,15 @@ describe('tokenizeSearchText', () => {
   it('indexes a hyphenated name and its words, and a code only whole', () => {
     expect(tokenizeSearchText('Idempotency-Key', false)).toEqual(expect.arrayContaining(['idempotency_key', 'idempotency', 'key']));
     expect(tokenizeSearchText('type_not_permitted', false)).toEqual(['type_not_permitted']);
+  });
+
+  it('queries a hyphenated word whole and as its words, unless it is in code', () => {
+    expect(tokenizeSearchText('back-up', true)).toEqual(['back_up', 'back', 'up']);
+    expect(tokenizeSearchText('Print-Token', true)).toEqual(['print_token', 'print', 'token']);
+    expect(tokenizeSearchText('webhook-poll', true)).toEqual(['webhook_poll', 'webhook', 'poll']);
+    expect(tokenizeSearchText('`webhook-poll`', true)).toEqual(['webhook_poll']);
+    // A stop word among the parts is dropped, as it is from a query of separate words.
+    expect(tokenizeSearchText('parent-of', true)).toEqual(['parent_of', 'parent']);
   });
 
   it('queries a code whole, so one that no page uses matches nothing', () => {
@@ -259,7 +342,7 @@ describe('trimmed passages', () => {
 
 describe('ranking', () => {
   it('puts the changelog after every other page, unless the query asks about a release', async () => {
-    for (const [query] of EXPECTED) {
+    for (const [query] of [...EXPECTED, ...FIRST]) {
       const { hits } = await searchDocs(query, 20);
       const at = hits.findIndex((h) => h.url === '/changelog');
       if (at !== -1) expect(at, `${query}: the changelog is not last`).toBe(hits.length - 1);

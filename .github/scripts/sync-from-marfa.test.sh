@@ -8,8 +8,9 @@
 # command reference's global options and exit codes, each without its heading,
 # into src/generated/cli/global-options.md and exit-codes.md, writes every command
 # with its options into src/generated/cli-commands.json, and it takes the code table from the errors chapter into
-# src/generated/error-codes.md and the settings table from the instance chapter
-# into src/generated/settings.md, the tables of the permissions and event types
+# src/generated/error-codes.md and the stored and start-only settings tables from
+# the instance chapter, each the first table under its heading, into
+# src/generated/stored-settings.md and settings.md, the tables of the permissions and event types
 # from their chapters into src/generated/permissions.md and event-types.md, and it hashes every rule of
 # the contract's chapters into src/generated/contract-index.json. It writes the
 # Catalog's files into src/generated/catalog, replaced whole: a Markdown file per
@@ -20,7 +21,8 @@
 # that is missing, blank or the wrong type, a spec whose top level or `info` is
 # not an object, or a command reference that is missing, empty, not UTF-8, with a
 # comment that never closes, without its global options or exit codes, or with
-# either repeated or empty, or a chapter with no table between its markers, or a
+# either repeated or empty, or a chapter with no table between its markers or
+# under its heading, or a
 # contract with no rules, a repeated rule ID or an ID under another chapter, must
 # stop the script before it changes anything, with one line saying so, never a
 # Python traceback, and so must a type catalog that is missing, not JSON, or of a
@@ -185,30 +187,20 @@ errors_expected="$(cat <<'EOF'
 EOF
 )"
 
-# The instance chapter every fixture holds, and the table the script takes from it.
-instance="$(cat <<'EOF'
-# The instance
-
-| Not | This |
-| --- | ---- |
-
-## Settings
-
-<!-- settings-table:start -->
-
-| Setting | Default | Allowed values | What it sets |
+# The instance chapter every fixture holds, and the two tables the script takes from it.
+# Each table is the first one under its own heading, and rules after it are not the table.
+instance_chapter() { # instance_chapter <stored table> <start-only table>
+  printf '# The instance\n\n| Not | This |\n| --- | ---- |\n\n## Settings\n\nProse.\n\n## Stored settings\n\nA bound.\n\n%s\n\n### After the table\n\n| Not | Either |\n| --- | ------ |\n| `x` | y |\n\n## Start-only settings\n\nRead once.\n\n%s\n' "$1" "$2"
+}
+stored_table='| Key     | Default | Allowed values | What it sets |
 | ------- | ------- | -------------- | ------------ |
-| `PORT`  | `8600`  | Whole number   | The port.    |
-
-<!-- settings-table:end -->
-EOF
-)"
-instance_expected="$(cat <<'EOF'
-| Setting | Default | Allowed values | What it sets |
+| `quota` | `10`    | Whole number   | The quota.   |'
+start_only_table='| Setting | Default | Allowed values | What it sets |
 | ------- | ------- | -------------- | ------------ |
-| `PORT`  | `8600`  | Whole number   | The port.    |
-EOF
-)"
+| `PORT`  | `8600`  | Whole number   | The port.    |'
+instance="$(instance_chapter "${stored_table}" "${start_only_table}")"
+instance_expected="${start_only_table}"
+stored_expected="${stored_table}"
 
 # The catalogue chapters every fixture holds, and the table the script
 # takes from the two it reads tables from. The types chapter only feeds the
@@ -360,10 +352,10 @@ catalog_json="$(cat <<'EOF'
       "label": "In collection",
       "description": "Member of a container.",
       "cardinality": "many-to-many",
-      "source_type_constraints": ["*"],
-      "target_type_constraints": ["role:container"],
+      "from_type_constraints": ["*"],
+      "to_type_constraints": ["role:container"],
       "cascade_on_delete": "orphan",
-      "written_at": "source",
+      "written_from": "from",
       "property_schema": { "position": { "type": "number", "description": "Ordering." } },
       "shipped": true
     },
@@ -373,11 +365,11 @@ catalog_json="$(cat <<'EOF'
       "reverse_label": "Parent",
       "description": "Source is the parent of the target — once.",
       "cardinality": "one-to-many",
-      "source_type_constraints": ["*"],
-      "target_type_constraints": ["*"],
+      "from_type_constraints": ["*"],
+      "to_type_constraints": ["*"],
       "cascade_on_delete": "cascade",
       "reverse_name": "child-of",
-      "written_at": "target",
+      "written_from": "to",
       "property_schema": {},
       "shipped": true
     },
@@ -387,10 +379,10 @@ catalog_json="$(cat <<'EOF'
       "reverse_label": "Folder contents",
       "description": "Placement of an item in a folder.",
       "cardinality": "many-to-many",
-      "source_type_constraints": ["*"],
-      "target_type_constraints": ["system.folder"],
+      "from_type_constraints": ["*"],
+      "to_type_constraints": ["system.folder"],
       "cascade_on_delete": "orphan",
-      "written_at": "none",
+      "written_from": "none",
       "property_schema": {},
       "shipped": true
     }
@@ -448,11 +440,11 @@ folder_expected="$(cat <<'EOF'
 EOF
 )"
 edge_table_expected="$(cat <<'EOF'
-| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | On delete | Target types                       |
-| --------------- | ------------- | --------------- | ------------ | -------------- | --------- | ---------------------------------- |
-| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`  | Any type with the role `container` |
-| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade` | Any type                           |
-| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`  | `system.folder`                    |
+| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | `cascade_on_delete` | `written_from` | To types                           |
+| --------------- | ------------- | --------------- | ------------ | -------------- | ------------------- | -------------- | ---------------------------------- |
+| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`            | `from`         | Any type with the role `container` |
+| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade`           | `to`           | Any type                           |
+| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`            | `none`         | `system.folder`                    |
 EOF
 )"
 catalog_edges_expected="$(cat <<'EOF'
@@ -468,13 +460,13 @@ Member of a container.
 
 Source is the parent of the target: once.
 
-**written_at:** `target`
+**written_from:** `to`
 
 ## in-folder
 
 Placement of an item in a folder.
 
-**written_at:** `none`
+**written_from:** `none`
 EOF
 )"
 
@@ -529,12 +521,26 @@ event_fields_expected="$(cat <<'EOF'
 | `item`       | [`Item`](/catalog/items#fields-every-item-has) | The item after the change. |
 | `metadata`   | `object` or `null`                             | Tags and extensions.       |
 
+## Rows event fields
+
+| Field        | Kind     | Description             |
+| ------------ | -------- | ----------------------- |
+| `event_type` | `string` | The event.              |
+| `table`      | `string` | The table that changed. |
+
 ## Edge event fields
 
 | Field        | Kind                                           | Description                |
 | ------------ | ---------------------------------------------- | -------------------------- |
 | `event_type` | `string`                                       | The event.                 |
 | `edge`       | [`Edge`](/catalog/edges#fields-every-edge-has) | The edge after the change. |
+
+## Attention event fields
+
+| Field        | Kind     | Description    |
+| ------------ | -------- | -------------- |
+| `event_type` | `string` | The event.     |
+| `attention`  | `string` | The new entry. |
 
 ## Webhook delivery fields
 
@@ -591,6 +597,7 @@ fixture() {
   printf 'stale codes\n' > "${dir}/docs/src/generated/error-codes.md"
   printf 'stale housekeeping\n' > "${dir}/docs/src/generated/housekeeping.md"
   printf 'stale settings\n' > "${dir}/docs/src/generated/settings.md"
+  printf 'stale stored settings\n' > "${dir}/docs/src/generated/stored-settings.md"
   printf 'stale permissions\n' > "${dir}/docs/src/generated/permissions.md"
   printf 'stale events\n' > "${dir}/docs/src/generated/event-types.md"
   printf 'stale index\n' > "${dir}/docs/src/generated/contract-index.json"
@@ -601,8 +608,8 @@ fixture() {
 
   cp "$2" "${dir}/marfa/openapi.json"
   printf '%s\n' "${glossary}" > "${dir}/marfa/GLOSSARY.md"
-  mkdir -p "${dir}/marfa/core/marfa-cli" "${dir}/marfa/core/marfa-core/src"
-  printf '%s\n' "${catalog_json}" > "${dir}/marfa/core/marfa-core/src/builtin_catalog.json"
+  mkdir -p "${dir}/marfa/core/marfa-cli" "${dir}/marfa/core/marfa-rules/src"
+  printf '%s\n' "${catalog_json}" > "${dir}/marfa/core/marfa-rules/src/builtin_catalog.json"
   printf '%s\n' "${commands}" > "${dir}/marfa/core/marfa-cli/COMMANDS.md"
   mkdir -p "${dir}/marfa/conformance/spec"
   printf '%s\n' "${errors}" > "${dir}/marfa/conformance/spec/errors.md"
@@ -699,8 +706,9 @@ EOF
 )"
 
 # spec_with_schemas <description>: a spec whose info.description is the argument and whose
-# schemas hold what the Catalog reads: an item, an edge, the item and edge events, a
-# webhook body for each, and the six frames of a stream that are not events.
+# schemas hold what the Catalog reads: an item, an edge, the item, rows, edge and attention
+# events, a webhook body for each (the item's with its own delivery fields, the others with a
+# shared schema), and the six frames of a stream that are not events.
 spec_with_schemas() {
 python3 - "$1" <<'PY'
 import json, sys
@@ -726,8 +734,19 @@ schemas = {
         "event_type": {"type": "string", "enum": ["edge.created"], "description": "The event."},
         "edge": {"allOf": [ref("Edge"), {"description": "The edge after the change."}]},
     }},
+    "RowsChangedFrame": {"type": "object", "properties": {
+        "event_type": {"type": "string", "enum": ["rows.changed"], "description": "The event."},
+        "table": {"type": "string", "description": "The table that changed."},
+    }},
+    "AttentionEventFrame": {"type": "object", "properties": {
+        "event_type": {"type": "string", "enum": ["attention.new"], "description": "The event."},
+        "attention": {"type": "string", "description": "The new entry."},
+    }},
+    "WebhookDeliveryAttempt": {**delivery, "description": "What a delivery adds."},
     "WebhookItemEvent": {"allOf": [ref("ItemEventFrame"), delivery]},
-    "WebhookEdgeEvent": {"allOf": [ref("EdgeEventFrame"), delivery]},
+    "WebhookRowsEvent": {"allOf": [ref("RowsChangedFrame"), ref("WebhookDeliveryAttempt")]},
+    "WebhookEdgeEvent": {"allOf": [ref("EdgeEventFrame"), ref("WebhookDeliveryAttempt")]},
+    "WebhookAttentionEvent": {"allOf": [ref("AttentionEventFrame"), ref("WebhookDeliveryAttempt")]},
     "StreamCursorFrame": frame("stream_cursor", {"cursor": {"type": "string", "description": "The latest event."}}),
     "StreamLiveFrame": frame("stream_live", {"cursor": {"type": ["string", "null"], "description": "Where to resume."}}),
     "StreamIncompleteFrame": frame("stream_incomplete", {"reason": {"type": "string", "enum": ["reader_behind"], "description": "Why."}}),
@@ -744,7 +763,7 @@ sync good
 echo "a good description"
 check "the script succeeds" 0 "${status}"
 check "it names what it synced and the release" \
-  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, its command tree, the error codes, the housekeeping jobs, the settings, the permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3), its CLI download and its server image commands synced from ${work}/good/marfa" "${out}"
+  "openapi.json, the API overview, GLOSSARY.md, the CLI's global options and exit codes in src/generated/cli, its command tree, the error codes, the housekeeping jobs, the start-only and stored settings, the permission and event type catalogues, the Catalog in src/generated/catalog, the contract index, the release (v1.2.3), its CLI download and its server image commands synced from ${work}/good/marfa" "${out}"
 check "the overview is the description with each heading one level lower" \
   "${expected}" "$(cat "${work}/good/docs/src/generated/api-overview.md")"
 check "the overview ends with one newline" "" "$(tail -c 1 "${work}/good/docs/src/generated/api-overview.md" | tr -d '\n')"
@@ -771,8 +790,10 @@ check "the command tree ends with exactly one newline" True \
   "$(python3 -c 'import sys; t = open(sys.argv[1]).read(); print(t.endswith("}\n") and not t.endswith("\n\n"))' "${work}/good/docs/src/generated/cli-commands.json")"
 check "the error codes are the rows between the markers, and nothing else" \
   "${errors_expected}" "$(cat "${work}/good/docs/src/generated/error-codes.md")"
-check "the settings are the rows between the markers, and nothing else" \
+check "the start-only settings are the first table under their heading, and nothing else" \
   "${instance_expected}" "$(cat "${work}/good/docs/src/generated/settings.md")"
+check "the stored settings are the first table under their heading, and not the rule table after it" \
+  "${stored_expected}" "$(cat "${work}/good/docs/src/generated/stored-settings.md")"
 check "the permissions are the rows between the markers, and nothing else" \
   "${permissions_expected}" "$(cat "${work}/good/docs/src/generated/permissions.md")"
 check "the event types are the rows between the markers, and nothing else" \
@@ -789,7 +810,7 @@ check "the server image commands name that release's image, on loopback" \
   "$(sed -n 2p "${work}/good/docs/src/generated/server-image.md")|$(sed -n 3p "${work}/good/docs/src/generated/server-image.md")|$(sed -n 4p "${work}/good/docs/src/generated/server-image.md")"
 check "the server image commands are one bash block" '```bash|```' "$(head -1 "${work}/good/docs/src/generated/server-image.md")|$(tail -1 "${work}/good/docs/src/generated/server-image.md")"
 check "nothing else is left in the generated folder" \
-  "GLOSSARY.md api-overview.md catalog cli cli-commands.json cli-download.md contract-index.json error-codes.md event-types.md housekeeping.md marfa-release.json permissions.md server-image.md settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  "GLOSSARY.md api-overview.md catalog cli cli-commands.json cli-download.md contract-index.json error-codes.md event-types.md housekeeping.md marfa-release.json permissions.md server-image.md settings.md stored-settings.md" "$(ls "${work}/good/docs/src/generated" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 
 # The Catalog's files: a Markdown file for each top-level type with its subtypes
@@ -802,12 +823,12 @@ check "the catalog directory holds what the script writes, and the stale files a
 check "the folder can be read by anyone who can read the checkout" \
   755 "$(python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "${catalog_dir}")"
 check "the type catalog is copied byte for byte" \
-  "$(cat "${work}/good/marfa/core/marfa-core/src/builtin_catalog.json")" "$(cat "${catalog_dir}/builtin-catalog.json")"
+  "$(cat "${work}/good/marfa/core/marfa-rules/src/builtin_catalog.json")" "$(cat "${catalog_dir}/builtin-catalog.json")"
 check "a core type's file has its fields and settings, a subtype's section only what it adds or changes, an enum's values follow its description, and an em dash is a colon or a pair of parentheses" \
   "${note_expected}" "$(cat "${catalog_dir}/core.note.md")"
 check "a system type's file has its fields, as a core type's does" \
   "${folder_expected}" "$(cat "${catalog_dir}/system.folder.md")"
-check "the edge types are a table, with a Source types column only when an edge type constrains its source, a label, a reverse label that is the label where none is named, a reverse name or None, and the contract's wording for a target" \
+check "the edge types are a table, with a From types column only when an edge type constrains its source, a label, a reverse label that is the label where none is named, a reverse name or None, and the contract's wording for a target" \
   "${edge_table_expected}" "$(cat "${catalog_dir}/edge-types.md")"
 check "each edge type is a section with its properties, and where it is written only when that is its target" \
   "${catalog_edges_expected}" "$(cat "${catalog_dir}/edges.md")"
@@ -1028,8 +1049,55 @@ refuse_table_cases() {
   refuse_table "$f" "$f" "$m" "$n" "prose between the markers" "${start}\\nNot a table.\\n${head}\\n| \`x\` | y |\\n${end}\\n"
   refuse_table "$f" "$f" "$m" "$n" "a chapter that is not UTF-8" "${start}\\n| \\xff | y |\\n| --- | --- |\\n| \`x\` | y |\\n${end}\\n"
 }
+# refuse_section <chapter file> <heading> <noun> <label> <chapter text, or "absent">: the same
+# as refuse_table for a table with no markers, which is the first one under a level-2 heading.
+sec=0
+refuse_section() {
+  sec=$((sec+1))
+  local name="section-${sec}"
+  fixture "${name}" "${work}/untagged.json"
+  local file="${work}/${name}/marfa/conformance/spec/$1"
+  if [ "$5" = absent ]; then rm "${file}"; else printf '%b' "$5" > "${file}"; fi
+  local before; before="$(everything "${name}")"
+  sync "${name}"
+  local message
+  if [ "$5" = absent ] || [ -z "$5" ]; then
+    message="No conformance/spec/$1 in ${work}/${name}/marfa. Nothing has changed."
+  else
+    message="${file} is not UTF-8 or has no $3 table under its \"$2\" heading. Nothing has changed."
+  fi
+  check "$1 $2, ${4}: exits 1" 1 "${status}"
+  check "$1 $2, ${4}: says so in one line" "${message}" "${out}"
+  check "$1 $2, ${4}: shows no traceback" 0 "$(printf '%s' "${out}" | grep -c 'Traceback\|File "' || true)"
+  check "$1 $2, ${4}: changes nothing" "${before}" "$(everything "${name}")"
+}
+
+# refuse_section_cases <chapter file> <heading> <noun>: the nine chapters every sectioned table is refused for.
+refuse_section_cases() {
+  local f="$1" h="$2" n="$3"
+  local head="| Key | Other |\\n| --- | --- |"
+  # The script reads both settings tables, so the other one is good in every chapter.
+  local other="Start-only settings"
+  if [ "$h" = "Start-only settings" ]; then other="Stored settings"; fi
+  local good="\\n## ${other}\\n\\n${head}\\n| \`x\` | y |\\n"
+  echo "$f ${h}, a chapter the script refuses"
+  refuse_section "$f" "$h" "$n" "no chapter" absent
+  refuse_section "$f" "$h" "$n" "an empty chapter" ''
+  refuse_section "$f" "$h" "$n" "no heading" "# Chapter\\n\\n${head}\\n| \`x\` | y |\\n${good}"
+  refuse_section "$f" "$h" "$n" "the heading twice" "## ${h}\\n\\n${head}\\n| \`x\` | y |\\n\\n## ${h}\\n\\n${head}\\n| \`x\` | y |\\n${good}"
+  refuse_section "$f" "$h" "$n" "the heading only in a code fence" "\`\`\`text\\n## ${h}\\n\\n${head}\\n| \`x\` | y |\\n\`\`\`\\n${good}"
+  refuse_section "$f" "$h" "$n" "no table" "## ${h}\\n\\nNot a table.\\n${good}"
+  refuse_section "$f" "$h" "$n" "a table after the next heading" "## ${h}\\n\\nNot a table.\\n\\n## Other\\n\\n${head}\\n| \`x\` | y |\\n${good}"
+  refuse_section "$f" "$h" "$n" "a header with no rows" "## ${h}\\n\\n${head}\\n${good}"
+  refuse_section "$f" "$h" "$n" "a table with no separator row" "## ${h}\\n\\n| Key | Other |\\n| \`x\` | y |\\n| \`z\` | w |\\n${good}"
+  # A chapter that is not UTF-8 is refused by the first table read, which is the start-only one.
+  if [ "$h" = "Start-only settings" ]; then
+    refuse_section "$f" "$h" "$n" "a chapter that is not UTF-8" "## ${h}\\n\\n| \\xff | y |\\n| --- | --- |\\n| \`x\` | y |\\n${good}"
+  fi
+}
 refuse_table_cases errors.md errors code Code
-refuse_table_cases instance.md settings settings Setting
+refuse_section_cases instance.md "Stored settings" "stored settings"
+refuse_section_cases instance.md "Start-only settings" "start-only settings"
 refuse_table_cases housekeeping.md housekeeping "housekeeping jobs" Job
 refuse_table housekeeping housekeeping.md housekeeping "housekeeping jobs" "duplicate start marker" "${housekeeping_chapter}\n<!-- housekeeping-table:start -->"
 refuse_table housekeeping housekeeping.md housekeeping "housekeeping jobs" "duplicate end marker" "${housekeeping_chapter}\n<!-- housekeeping-table:end -->"
@@ -1090,7 +1158,7 @@ refuse_catalog() {
   k=$((k+1))
   local name="catalog-${k}"
   fixture "${name}" "${work}/untagged.json"
-  local file="${work}/${name}/marfa/core/marfa-core/src/builtin_catalog.json"
+  local file="${work}/${name}/marfa/core/marfa-rules/src/builtin_catalog.json"
   if [ "$3" = absent ]; then rm "${file}"; else printf '%b' "$3" > "${file}"; fi
   local before; before="$(everything "${name}")"
   sync "${name}"
@@ -1104,10 +1172,10 @@ refuse_catalog() {
 catalog_with() {
   printf '%s' "${catalog_json}" | python3 -c 'import json, sys; c = json.load(sys.stdin); exec(sys.argv[1]); print(json.dumps(c))' "$1"
 }
-cat_file="@marfa@/core/marfa-core/src/builtin_catalog.json"
+cat_file="@marfa@/core/marfa-rules/src/builtin_catalog.json"
 echo "a type catalog the script refuses"
-refuse_catalog "no type catalog" "No core/marfa-core/src/builtin_catalog.json in @marfa@. Nothing has changed." absent
-refuse_catalog "an empty type catalog" "No core/marfa-core/src/builtin_catalog.json in @marfa@. Nothing has changed." ''
+refuse_catalog "no type catalog" "No core/marfa-rules/src/builtin_catalog.json in @marfa@. Nothing has changed." absent
+refuse_catalog "an empty type catalog" "No core/marfa-rules/src/builtin_catalog.json in @marfa@. Nothing has changed." ''
 refuse_catalog "a type catalog that is not JSON" "${cat_file} is not valid JSON. Nothing has changed." '{"types": ['
 refuse_catalog "a type catalog that is not UTF-8" "${cat_file} is not UTF-8. Nothing has changed." '{"types": "\xff\xfe"}'
 refuse_catalog "a list at the top" "${cat_file} is not an object. Nothing has changed." '[]'
@@ -1137,14 +1205,14 @@ refuse_catalog "an edge type with no description" "${cat_file} has an edge type 
 refuse_catalog "an edge type with a key the sync does not write" "${cat_file} has a key 'weight' on the edge type in-collection that the sync does not write. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["weight"] = 1')"
 refuse_catalog "an edge type with no label" "${cat_file} has the edge type in-collection with no label. Nothing has changed." "$(catalog_with 'del c["edge_types"][0]["label"]')"
 refuse_catalog "an edge type with an empty reverse label" "${cat_file} has the edge type in-collection with a reverse_label that is not a label. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["reverse_label"] = ""')"
-refuse_catalog "an edge type written nowhere the sync knows" "${cat_file} has the edge type in-collection with a written_at the sync does not know. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["written_at"] = "both"')"
-refuse_catalog "an edge type written at its target with no reverse name" "${cat_file} has the edge type parent-of written at its target with no reverse_name. Nothing has changed." "$(catalog_with 'del c["edge_types"][1]["reverse_name"]')"
+refuse_catalog "an edge type written nowhere the sync knows" "${cat_file} has the edge type in-collection with a written_from the sync does not know. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["written_from"] = "both"')"
+refuse_catalog "an edge type written at its target with no reverse name" "${cat_file} has the edge type parent-of written from its to end with no reverse_name. Nothing has changed." "$(catalog_with 'del c["edge_types"][1]["reverse_name"]')"
 refuse_catalog "an edge type with a cardinality the sync does not know" "${cat_file} has the edge type in-collection with a cardinality the sync does not know. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["cardinality"] = "some-to-some"')"
 refuse_catalog "an edge type with a cascade the sync does not know" "${cat_file} has the edge type in-collection with a cascade_on_delete the sync does not know. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["cascade_on_delete"] = "restrict"')"
-refuse_catalog "an edge type with no target constraints" "${cat_file} has the edge type in-collection with no target_type_constraints list. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["target_type_constraints"] = []')"
-refuse_catalog "an edge type that mixes any type with another" "${cat_file} has the edge type in-collection with a source_type_constraints that mixes * with other entries. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["source_type_constraints"] = ["*", "core.note"]')"
-refuse_catalog "an edge type that names a type the catalog lacks" "${cat_file} has the edge type in-collection with a target_type_constraints entry 'core.recipe' that the sync does not write. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["target_type_constraints"] = ["core.recipe"]')"
-refuse_catalog "an edge type that names a role the sync does not know" "${cat_file} has the edge type in-collection with a target_type_constraints entry 'role:archive' that the sync does not write. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["target_type_constraints"] = ["role:archive"]')"
+refuse_catalog "an edge type with no target constraints" "${cat_file} has the edge type in-collection with no to_type_constraints list. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["to_type_constraints"] = []')"
+refuse_catalog "an edge type that mixes any type with another" "${cat_file} has the edge type in-collection with a from_type_constraints that mixes * with other entries. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["from_type_constraints"] = ["*", "core.note"]')"
+refuse_catalog "an edge type that names a type the catalog lacks" "${cat_file} has the edge type in-collection with a to_type_constraints entry 'core.recipe' that the sync does not write. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["to_type_constraints"] = ["core.recipe"]')"
+refuse_catalog "an edge type that names a role the sync does not know" "${cat_file} has the edge type in-collection with a to_type_constraints entry 'role:archive' that the sync does not write. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["to_type_constraints"] = ["role:archive"]')"
 refuse_catalog "an edge type with a reverse name that is not a name" "${cat_file} has the edge type parent-of with a reverse_name that is not a name. Nothing has changed." "$(catalog_with 'c["edge_types"][1]["reverse_name"] = 7')"
 refuse_catalog "a field whose required is not true or false" "${cat_file} has a field core.note.body whose required is not true or false. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["required"] = "yes"')"
 
@@ -1152,14 +1220,14 @@ refuse_catalog "a field whose required is not true or false" "${cat_file} has a 
 # keep them, and a type with nothing to add has no table.
 echo "a type catalog in other shapes"
 fixture shapes "${work}/untagged.json"
-catalog_with 'c["types"][0]["merge_policy"] = {"default": "keep_both_copies", "fields": {"title": "last_writer_wins", "language": "last_writer_wins"}}; c["types"].append({"id": "core.note.bare", "parent": "core.note", "label": "Bare", "description": "A note.", "version": 0, "fields": c["types"][0]["fields"]}); c["edge_types"][2]["source_type_constraints"] = ["core.note", "core.note.memo"]' \
-  > "${work}/shapes/marfa/core/marfa-core/src/builtin_catalog.json"
+catalog_with 'c["types"][0]["merge_policy"] = {"default": "keep_both_copies", "fields": {"title": "last_writer_wins", "language": "last_writer_wins"}}; c["types"].append({"id": "core.note.bare", "parent": "core.note", "label": "Bare", "description": "A note.", "version": 0, "fields": c["types"][0]["fields"]}); c["edge_types"][2]["from_type_constraints"] = ["core.note", "core.note.memo"]' \
+  > "${work}/shapes/marfa/core/marfa-rules/src/builtin_catalog.json"
 sync shapes
 check "a default of both copies and a subtype with no field to add: the script succeeds" 0 "${status}"
 check "a default of both copies names the fields that do not keep both, as values" 1 \
   "$(grep -cF '| [`merge_policy`](/catalog/type-rules#merge-policy) | `last_writer_wins` for `title` and `language`; `keep_both_copies` for every other field |' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
-check "an edge type that constrains its source adds a Source types column, and several types are joined with or" \
-  "$(printf '%s\n%s\n%s\n%s\n%s' '| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | On delete | Source types                    | Target types                       |' '| --------------- | ------------- | --------------- | ------------ | -------------- | --------- | ------------------------------- | ---------------------------------- |' '| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`  | Any type                        | Any type with the role `container` |' '| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade` | Any type                        | Any type                           |' '| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`  | `core.note` or `core.note.memo` | `system.folder`                    |')" \
+check "an edge type that constrains its source adds a From types column, and several types are joined with or" \
+  "$(printf '%s\n%s\n%s\n%s\n%s' '| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | `cascade_on_delete` | `written_from` | From types                      | To types                           |' '| --------------- | ------------- | --------------- | ------------ | -------------- | ------------------- | -------------- | ------------------------------- | ---------------------------------- |' '| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`            | `from`         | Any type                        | Any type with the role `container` |' '| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade`           | `to`           | Any type                        | Any type                           |' '| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`            | `none`         | `core.note` or `core.note.memo` | `system.folder`                    |')" \
   "$(cat "${work}/shapes/docs/src/generated/catalog/edge-types.md")"
 check "a subtype with nothing to add is a heading and its description" \
   "$(printf '### core.note.bare [#core-note-bare]\n\nA note.')" "$(sed -n '/^### core.note.bare \[#core-note-bare\]$/,$p' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
@@ -1169,7 +1237,7 @@ check "a subtype with nothing to add is a heading and its description" \
 echo "a subtype that repeats or changes what its parent says"
 fixture drift "${work}/untagged.json"
 catalog_with 'base = c["types"][0]; c["types"].append({"id": "core.note.same", "parent": "core.note", "label": "Same", "description": "Says what the parent says.", "version": 0, "fields": base["fields"], "display_hints": dict(base["display_hints"]), "merge_policy": json.loads(json.dumps(base["merge_policy"]))}); c["types"].append({"id": "core.note.drift", "parent": "core.note", "label": "Drift", "description": "Says something else.", "version": 0, "fields": base["fields"], "display_hints": {"title_field": "language", "body_field": "body"}, "merge_policy": {"default": "keep_both_copies"}})' \
-  > "${work}/drift/marfa/core/marfa-core/src/builtin_catalog.json"
+  > "${work}/drift/marfa/core/marfa-rules/src/builtin_catalog.json"
 sync drift
 drift_file="${work}/drift/docs/src/generated/catalog/core.note.md"
 check "a subtype that differs from its parent: the script succeeds" 0 "${status}"
@@ -1187,7 +1255,7 @@ check "the parent says its own hints once, and a subtype equal to it adds none" 
 echo "a type catalog with plurals, labels, members, ranges and statuses"
 fixture labels "${work}/untagged.json"
 catalog_with 'n = c["types"][0]; n["plural"] = "Notes"; n["fields"]["title"]["label"] = "Heading"; n["fields"]["rating"] = {"type": "integer", "description": "A rating", "minimum": 1, "maximum": 5}; n["fields"]["progress"] = {"type": "status", "description": "Progress", "status_values": [{"value": "planned", "group": "not_started"}, {"value": "done", "group": "completed"}]}; n["fields"]["stage"] = {"type": "status", "description": "Stage", "status_values": [{"value": "not_started", "group": "not_started"}, {"value": "completed", "group": "completed"}]}; n["fields"]["links"] = {"type": "array", "description": "Links", "items_type": "object", "items_fields": {"value": {"type": "url", "label": "Link", "description": "The link", "required": True}}}; c["edge_types"][1]["acyclic"] = True' \
-  > "${work}/labels/marfa/core/marfa-core/src/builtin_catalog.json"
+  > "${work}/labels/marfa/core/marfa-rules/src/builtin_catalog.json"
 sync labels
 labels_file="${work}/labels/docs/src/generated/catalog/core.note.md"
 check "plurals, labels, members, ranges and statuses: the script succeeds" 0 "${status}"
@@ -1205,6 +1273,34 @@ refuse_catalog "a range that is not a number" "${cat_file} has a minimum on core
 refuse_catalog "members on a field that is not a list of objects" "${cat_file} has items_fields on core.note.body, which is not an array of objects. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["items_fields"] = {"a": {"type": "string", "description": "A"}}')"
 refuse_catalog "an acyclic flag that is not true or false" "${cat_file} has the edge type in-collection with an acyclic that is not true or false. Nothing has changed." "$(catalog_with 'c["edge_types"][0]["acyclic"] = "yes"')"
 
+# A type that declares a table: its name, description and order, then its columns with their kind,
+# whether each is required or searchable, and what a column adds to its description.
+echo "a type catalog with tables"
+fixture tables "${work}/untagged.json"
+table_setup='n = c["types"][0]; n["tables"] = {"entries": {"label": "Log", "description": "What was logged", "order": "at", "columns": {"at": {"type": "datetime", "description": "When", "required": True}, "text": {"type": "string", "description": "What", "searchable": True, "max_length": 80}, "kind": {"type": "enum", "description": "Which", "enum_values": ["a", "b"], "label": "Kind"}, "file": {"type": "item", "description": "A file", "type_constraints": ["core.note"]}, "cost": {"type": "number", "description": "Cost", "minimum": 0, "adds_up": "sum"}}}}'
+catalog_with "${table_setup}" > "${work}/tables/marfa/core/marfa-rules/src/builtin_catalog.json"
+sync tables
+tables_file="${work}/tables/docs/src/generated/catalog/core.note.md"
+check "a type with a table: the script succeeds" 0 "${status}"
+check "the table is a section after the settings, headed by its name and an anchor" 1 "$(grep -cF '### entries [#core-note-table-entries]' "${tables_file}")"
+check "the table's description and order follow its heading, and its label is a value" \
+  "What was logged|**label:** Log|**order:** \`at\`" "$(grep -F -e 'What was logged' -e '**order:**' -e '**label:**' "${tables_file}" | paste -sd'|' -)"
+check "a required column says so in its kind, and a searchable one" 2 "$(grep -cE '^\| `(at)` +\| `datetime`, required +\||^\| `text` +\| `string`, searchable +\|' "${tables_file}")"
+check "a column's limits, values, types, sum and label follow its description" 4 \
+  "$(grep -cF -e 'Maximum length: 80.' -e 'Values: `a`, `b`. Label: Kind.' -e 'Types: `core.note`.' -e 'Adds up: `sum`.' "${tables_file}")"
+check "a range is in a column's kind" 1 "$(grep -cF '`number` (at least 0)' "${tables_file}")"
+refuse_catalog "a table with no columns" "${cat_file} has a table core.note.entries without columns. Nothing has changed." "$(catalog_with "${table_setup}"'; n["tables"]["entries"]["columns"] = {}')"
+refuse_catalog "a table with a key the sync does not write" "${cat_file} has a key 'weight' on the table core.note.entries that the sync does not write. Nothing has changed." "$(catalog_with "${table_setup}"'; n["tables"]["entries"]["weight"] = 1')"
+refuse_catalog "a column with a key the sync does not write" "${cat_file} has a key 'weight' on the column core.note.entries.at that the sync does not write. Nothing has changed." "$(catalog_with "${table_setup}"'; n["tables"]["entries"]["columns"]["at"]["weight"] = 1')"
+refuse_catalog "a column of a type the sync does not know" "${cat_file} has a column core.note.entries.at without a type the sync knows. Nothing has changed." "$(catalog_with "${table_setup}"'; n["tables"]["entries"]["columns"]["at"]["type"] = "money"')"
+refuse_catalog "an enum column with no values" "${cat_file} has an enum column core.note.entries.kind without values. Nothing has changed." "$(catalog_with "${table_setup}"'; del n["tables"]["entries"]["columns"]["kind"]["enum_values"]')"
+refuse_catalog "a column that adds up in a way the sync does not know" "${cat_file} has an adds_up on core.note.entries.cost that the sync does not know. Nothing has changed." "$(catalog_with "${table_setup}"'; n["tables"]["entries"]["columns"]["cost"]["adds_up"] = "median"')"
+refuse_catalog "a column whose required is not true or false" "${cat_file} has a column core.note.entries.at whose required is not true or false. Nothing has changed." "$(catalog_with "${table_setup}"'; n["tables"]["entries"]["columns"]["at"]["required"] = "yes"')"
+refuse_catalog "type constraints that are not a list" "${cat_file} has type_constraints on core.note.entries.file that are not a list of types. Nothing has changed." "$(catalog_with "${table_setup}"'; n["tables"]["entries"]["columns"]["file"]["type_constraints"] = "core.note"')"
+refuse_catalog "an order that names no column" "${cat_file} has a table core.note.entries whose order is not one of its own columns. Nothing has changed." "$(catalog_with "${table_setup}"'; n["tables"]["entries"]["order"] = "nothing"')"
+refuse_catalog "an order that names a column that cannot order" "${cat_file} has a table core.note.entries whose order is not one of its own columns. Nothing has changed." "$(catalog_with "${table_setup}"'; n["tables"]["entries"]["order"] = "file"')"
+refuse_catalog "a type with an empty tables object" "${cat_file} has no tables for core.note. Nothing has changed." "$(catalog_with 'c["types"][0]["tables"] = {}')"
+
 # spec_with <python statements on the spec s>: the fixture's spec, changed.
 spec_with() {
   python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); exec(sys.argv[2]); print(json.dumps(s))' "${work}/untagged.json" "$1"
@@ -1216,6 +1312,7 @@ refuse "no item schema" "${sch_file} has no schema Item. Nothing has changed." "
 refuse "no stream frame schema" "${sch_file} has no schema StreamLiveFrame. Nothing has changed." "$(spec_with 'del s["components"]["schemas"]["StreamLiveFrame"]')"
 refuse "an edge schema with no properties" "${sch_file} has no properties on the schema Edge. Nothing has changed." "$(spec_with 's["components"]["schemas"]["Edge"]["properties"] = {}')"
 refuse "a frame with no name constant" "${sch_file} has no event_type constant on the schema CursorAheadFrame. Nothing has changed." "$(spec_with 'del s["components"]["schemas"]["CursorAheadFrame"]["properties"]["event_type"]["const"]')"
+refuse "a webhook body that adds nothing to its frame" "${sch_file} has a webhook schema WebhookEdgeEvent that is not a frame plus its delivery fields. Nothing has changed." "$(spec_with 's["components"]["schemas"]["WebhookEdgeEvent"]["allOf"] = [s["components"]["schemas"]["WebhookEdgeEvent"]["allOf"][0]]')"
 refuse "a webhook body that is not a frame plus its fields" "${sch_file} has a webhook schema WebhookItemEvent that is not a frame plus its delivery fields. Nothing has changed." "$(spec_with 's["components"]["schemas"]["WebhookItemEvent"] = {"type": "object"}')"
 refuse "an array property with no items" "${sch_file} has an array property with no items. Nothing has changed." "$(spec_with 's["components"]["schemas"]["Edge"]["properties"]["tags"] = {"type": "array", "description": "Tags."}')"
 refuse "an item enum the sync cannot reach the values of" "${sch_file} has the property state, an enum whose values the sync cannot reach. Nothing has changed." "$(spec_with 's["components"]["schemas"]["Item"]["properties"]["state"] = {"type": "array", "items": {"type": "string", "enum": ["a", "b"]}, "description": "States."}')"
@@ -1223,15 +1320,15 @@ refuse "an item field in no group" "${sch_file} has the item field colour, which
 refuse "a property with no type" "${sch_file} has a property with no type. Nothing has changed." "$(spec_with 'del s["components"]["schemas"]["Edge"]["properties"]["id"]["type"]')"
 
 echo "a spec whose webhook bodies add different fields"
-spec_with 's["components"]["schemas"]["WebhookEdgeEvent"]["allOf"][1]["properties"]["attempt"] = {"type": "integer", "description": "Which attempt."}' > "${work}/two-deliveries.json"
+spec_with 's["components"]["schemas"]["WebhookDeliveryAttempt"]["properties"]["attempt"] = {"type": "integer", "description": "Which attempt."}' > "${work}/two-deliveries.json"
 fixture two-deliveries "${work}/two-deliveries.json"
 sync two-deliveries
 check "two shapes of webhook body: the script succeeds" 0 "${status}"
-check "each shape of webhook body gets its own table" \
-  "## Item webhook delivery fields|## Edge webhook delivery fields|2" \
+check "each kind of webhook body gets its own table when their fields differ" \
+  "## Item webhook delivery fields|## Rows webhook delivery fields|## Edge webhook delivery fields|## Attention webhook delivery fields|4" \
   "$(grep '^## .*webhook delivery fields$' "${work}/two-deliveries/docs/src/generated/catalog/event-fields.md" | paste -sd'|' -)|$(grep -c '^## .*webhook delivery fields$' "${work}/two-deliveries/docs/src/generated/catalog/event-fields.md")"
-check "the field only one shape adds is in the edge table" 1 \
-  "$(sed -n '/^## Edge webhook delivery fields$/,/^## Stream/p' "${work}/two-deliveries/docs/src/generated/catalog/event-fields.md" | grep -c '`attempt`')"
+check "the field the shared schema adds is in the edge table" 1 \
+  "$(sed -n '/^## Edge webhook delivery fields$/,/^## Attention webhook/p' "${work}/two-deliveries/docs/src/generated/catalog/event-fields.md" | grep -c '`attempt`')"
 
 check "the housekeeping rows are copied without their markers" \
   '| Job | What it does |
