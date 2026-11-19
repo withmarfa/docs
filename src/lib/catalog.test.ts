@@ -309,11 +309,10 @@ describe('the tab', () => {
     // The Types page is the folder's own page, named by `pagesIndex`, and the folder lists the rest.
     const inTypes = [typesMeta.pagesIndex, ...typesMeta.pages.filter((entry: string) => !entry.startsWith('('))];
     const inFamilies = families.flatMap((family: string) => readMeta(`${TYPES_DIR}/${family}`).pages as string[]);
-    const connectorsMeta = readMeta(CONNECTORS_DIR);
     const edgesMeta = readMeta(EDGES_DIR);
     expect(direct).toContain(CONNECTORS_DIR);
     expect(direct).toContain(EDGES_DIR);
-    const all = [...direct, ...inTypes, ...inFamilies, ...connectorsMeta.pages, ...edgesMeta.pages];
+    const all = [...direct, ...inTypes, ...inFamilies, ...CONNECTOR_SLUGS, ...edgesMeta.pages];
     expect(all.sort()).toEqual(PAGES.map((page) => page.slug).sort());
     expect(all.length).toBe(new Set(all).size);
   });
@@ -350,8 +349,8 @@ describe('the tab', () => {
     const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, CONNECTORS_DIR, 'meta.json'), 'utf8'));
     expect(meta.title).toBe('Connectors');
     expect(meta.defaultOpen).toBe(false);
-    // The sync writes them in name order, which is how the index lists them.
-    expect(meta.pages).toEqual(CONNECTOR_SLUGS);
+    // The sync writes no list: the folder's pages come in file-name order, which is how the index lists them.
+    expect(meta.pages).toBeUndefined();
     expect(
       PAGES.filter((page) => page.group === CONNECTORS_DIR)
         .map((page) => page.slug)
