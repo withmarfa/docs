@@ -9,6 +9,7 @@ import { apiMapMarkdown, buildApiMap, type Areas, type Spec } from './src/lib/ap
 import { changelogMarkdown, remarkChangelogIndex, type Release } from './src/lib/changelog';
 import { statusLabel } from './src/lib/http-status';
 import { sseLanguage } from './src/lib/sse-language';
+import { rehypeFieldTables } from './src/lib/field-tables';
 import { rehypeTableLabels } from './src/lib/table-labels';
 
 /** The releases the Changelog page draws, from the file `scripts/sync-changelog.ts` writes. */
@@ -213,7 +214,7 @@ export default defineConfig({
     // Before Fumadocs's structure step, which builds the search index: the Changelog page's releases are
     // data the component draws, so the index would otherwise hold none of their notes.
     remarkPlugins: [remarkChangelogIndex(readReleases)],
-    rehypePlugins: (plugins) => [...plugins, rehypeTableLabels],
+    rehypePlugins: (plugins) => [...plugins, rehypeTableLabels, rehypeFieldTables],
     rehypeCodeOptions: {
       ...rehypeCodeDefaultOptions,
       langs: ['yaml', 'markdown', 'json', sseLanguage as never],
