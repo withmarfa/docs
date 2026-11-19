@@ -10,6 +10,7 @@ import { changelogMarkdown, remarkChangelogIndex, type Release } from './src/lib
 import { statusLabel } from './src/lib/http-status';
 import { sseLanguage } from './src/lib/sse-language';
 import { rehypeFieldTables } from './src/lib/field-tables';
+import { remarkIcons } from './src/lib/remark-icons';
 import { rehypeTableLabels } from './src/lib/table-labels';
 
 /** The releases the Changelog page draws, from the file `scripts/sync-changelog.ts` writes. */
@@ -49,6 +50,7 @@ const REWRITTEN = new Set([
   'Terminal',
   'Changelog',
   'ApiMap',
+  'Icon',
 ]);
 
 /** Node types that start a block, as opposed to text within one. */
@@ -140,6 +142,9 @@ const llms: LLMsOptions = {
         : state.containerFlow(node as never, info)
       ).trim();
     switch (node.name) {
+      // An icon is not text: the copy keeps only what a page says it stands for, such as a mark's ID.
+      case 'Icon':
+        return attribute(node, 'markdown') ?? '';
       case 'Tab':
       case 'CodeBlockTab':
         return `**${attribute(node, 'value') ?? ''}**\n\n${inner()}`;
@@ -213,7 +218,9 @@ export default defineConfig({
   mdxOptions: {
     // Before Fumadocs's structure step, which builds the search index: the Changelog page's releases are
     // data the component draws, so the index would otherwise hold none of their notes.
-    remarkPlugins: [remarkChangelogIndex(readReleases)],
+    remarkPlugins: [remarkChangelogIndex(readReleases), remarkIcons()],
+    // The icon a Catalog page's heading shows, which `remarkIcons` finds (src/lib/remark-icons.ts).
+    valueToExport: ['pageIcon'],
     rehypePlugins: (plugins) => [...plugins, rehypeTableLabels, rehypeFieldTables],
     rehypeCodeOptions: {
       ...rehypeCodeDefaultOptions,
