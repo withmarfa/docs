@@ -6,7 +6,7 @@ Send a credential in the `Authorization` header as `Bearer <token>`: an API key 
 
 ### Recent sign-in
 
-Restoring an archive or a backup, moving the sign-in address and changing `allow_private_addresses` also need the owner to have signed in within the last five minutes. An app's access token whose owner signed in longer ago is answered `401 insufficient_user_authentication` with `WWW-Authenticate: Bearer error="insufficient_user_authentication", max_age="300"`, as RFC 9470 describes. Send the owner through `GET /oauth/authorize` with `max_age=300`: Marfa asks them to sign in again, and the tokens the code leads to carry the new sign-in. A refreshed token keeps the time of the sign-in it came from. An API key has no sign-in to renew, so it is refused these acts with `403 app_sign_in_required`, and the private local command makes them without one.
+Restoring an archive or a backup, moving the sign-in address, changing `allow_private_addresses` and changing where files and backups go (`backup_path` and the `object_store_` settings other than the access key ID and the secret) also need the owner to have signed in within the last five minutes. An app's access token whose owner signed in longer ago is answered `401 insufficient_user_authentication` with `WWW-Authenticate: Bearer error="insufficient_user_authentication", max_age="300"`, as RFC 9470 describes. Send the owner through `GET /oauth/authorize` with `max_age=300`: Marfa asks them to sign in again, and the tokens the code leads to carry the new sign-in. A refreshed token keeps the time of the sign-in it came from. An API key has no sign-in to renew, so it is refused these acts with `403 app_sign_in_required`, and the private local command makes them without one.
 
 ### Local command
 
