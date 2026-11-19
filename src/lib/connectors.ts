@@ -22,7 +22,7 @@ export function readConnectors(root: string = process.cwd()): Connector[] {
   return [...list.connectors].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
-function capitalise(word: string): string {
+function capitalize(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
@@ -34,6 +34,6 @@ function capitalise(word: string): string {
 export function connectorTitle(connector: Pick<Connector, 'name' | 'source' | 'sourceName'>): string {
   if (connector.name === connector.source) return connector.sourceName;
   const rest = connector.name.startsWith(`${connector.source}-`) ? connector.name.slice(connector.source.length + 1) : connector.name;
-  const words = rest.split('-').map(capitalise).join(' ');
+  const words = rest.split('-').map(capitalize).join(' ');
   return connector.name.startsWith(`${connector.source}-`) ? `${connector.sourceName} ${words}` : words;
 }

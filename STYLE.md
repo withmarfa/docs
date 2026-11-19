@@ -217,4 +217,6 @@ kind: concept
 
 A page whose title another page shares, or whose title doesn't name it well outside the site, also holds a `headTitle`: its name in browser tabs, search results and link previews, which the site name follows unless it starts with it. The landing page's is "Marfa Docs" and what Marfa is, after a colon. `pnpm test` fails when two pages would show the same name.
 
+A page whose title wraps in the sidebar can also hold a `sidebar_label`, a shorter name for the sidebar, the breadcrumb and the previous and next cards. The heading, search, `llms.txt` and the page's metadata keep the full title.
+
 Quote a `description` that starts with `@`, `:`, `>`, `|`, `*`, `&`, `?` or `%`, or YAML misreads it.

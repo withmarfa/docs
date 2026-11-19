@@ -26,8 +26,8 @@ The source of the public documentation site at `docs.marfa.so` and the status pa
 - `src/routes/`, `src/lib/` and `src/components/`: the docs site, including the Worker entry `src/server.ts`, the Markdown copies, `llms.txt`, the docs MCP server at `/mcp` and the JSON addresses under `/api/docs/`.
 - `src/status/`: the status page, a second Vite target built by `vite.status.config.ts` into `dist-status/` and deployed from `wrangler.status.jsonc`.
 - `src/generated/` and `openapi.json`: written only by the sync scripts. Never edit them by hand.
-- `scripts/`: the sync from marfa, the changelog sync and the staleness report. The changelog sync and the report use only Node built-ins, because CI runs the report without installing anything. Their tests are in `src/lib/`, the only place Vitest looks.
-- `.github/scripts/`: the CI change classifier and the publish checks, each with a `.test.sh` beside it, and the sync script's test.
+- `scripts/`: the sync from marfa, the sync from marfa-connectors, the changelog sync and the staleness report. The changelog sync and the report use only Node built-ins, because CI runs the report without installing anything. Their tests are in `src/lib/`, the only place Vitest looks.
+- `.github/scripts/`: the CI change classifier and the publish checks, each with a `.test.sh` beside it, and the two sync scripts' tests.
 - `public/`: static files for both targets.
 
 ## Commands
@@ -101,7 +101,7 @@ On a pull request, the `Docs reports` job writes the same report to the job summ
 
 ## CI and publishing
 
-- `CI` runs on every pull request and every push to `main`. `Full CI` (named `Draft CI` while the pull request is a draft) is a roll-up of `Build and type-check`, and with `Pull request description` it is a required check, so never add `paths` filters to `ci.yml`: a filtered-out run leaves the check pending. `.github/scripts/ci-changes.sh` skips the build only for root `AGENTS.md`, `CLAUDE.md`, `README.md` and `LICENSE`, the agent directories, `.githooks/` and the GitHub templates, and runs the sync script's test only when `scripts/sync-from-marfa.sh`, its test or `ci.yml` changed.
+- `CI` runs on every pull request and every push to `main`. `Full CI` (named `Draft CI` while the pull request is a draft) is a roll-up of `Build and type-check`, and with `Pull request description` it is a required check, so never add `paths` filters to `ci.yml`: a filtered-out run leaves the check pending. `.github/scripts/ci-changes.sh` skips the build only for root `AGENTS.md`, `CLAUDE.md`, `README.md` and `LICENSE`, the agent directories, `.githooks/` and the GitHub templates, and runs the sync scripts' tests only when `scripts/sync-from-marfa.sh`, `scripts/sync-from-connectors.sh`, either one's test or `ci.yml` changed.
 - A pull request description follows the organization's template: `Pull request description` fails it otherwise (`scripts/check-pr-description.ts`).
 - A newer push cancels a pull request's earlier run; a push to `main` is never cancelled.
 - Every workflow runs on GitHub-hosted `ubuntu-latest`. The `CodeQL` workflow owns code scanning, so GitHub's default CodeQL setup stays off.
