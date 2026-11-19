@@ -1,54 +1,106 @@
 ---
 title: Give your instance an address
-description: Choose how your computers, your phone and chat apps such as Claude reach your instance.
+description: Choose how your computers, your phone and chat apps such as Claude reach your instance, and move its address later.
 ---
 
-This page will explain the instance's address once: a private address for your own devices, a public one for Claude and ChatGPT, and how to set it for each kind of install.
+An instance starts at `http://localhost`, which only its own machine reaches. **Your other devices need an `https` address,** and Claude or ChatGPT in a chat need one on the public internet, because they connect from their own servers.
+
+| You want to reach it from | Use |
+| --- | --- |
+| Only the machine it runs on | `local`, the default. |
+| Your own computers and phone, wherever they are | [Tailscale](#over-tailscale), with no public address at all. |
+| Anywhere, Claude and ChatGPT included | [A Cloudflare Tunnel](#give-the-instance-a-public-address), your own proxy, or [Railway](/run/run-on-a-server#on-railway). |
+
+An agent on your own computer, such as Claude Code, works over Tailscale too. [Connect Claude and ChatGPT](/use/claude-and-chatgpt) needs the public address.
 
 ## Choose how it's reached
 
-The way you reach the instance decides which caller address the server believes, so the command asks, and sets [the address](/run/address#the-address) and the proxy setting to match.
+On a machine you [installed with one command](/run/install), `--access` sets the address, how the server listens, and which caller addresses it believes. Run the install again with another choice to change it:
 
-| `--access` | Reached | Address | Proxy setting |
-| --- | --- | --- | --- |
-| `local` | Only from this machine. | `http://localhost` and the port. | None. |
-| `tailscale` | From your tailnet, through Tailscale Serve. | This machine's `ts.net` name, served with `tailscale serve` on port 443 unless you pass `--https-port`. The tailnet needs MagicDNS and HTTPS certificates. | `TRUSTED_PROXY_CIDRS` set to the range of the instance's Docker network. |
-| `cloudflare` | Through a Cloudflare Tunnel on this machine. | The `https` address you give with `--address`. | `TRUSTED_PROXY_HEADER` set to `CF-Connecting-IP`. |
-| `proxy` | Through another proxy on this machine, such as Caddy or nginx. | The `https` address you give with `--address`. | `TRUSTED_PROXY_CIDRS` set to the range of the instance's Docker network. |
+| `--access` | Address | What the command does |
+| --- | --- | --- |
+| `local` | `http://localhost` and the port. | Nothing beyond the install. |
+| `tailscale` | This machine's name on your tailnet, such as `https://your-mac.<tailnet>.ts.net`. | Serves the port with `tailscale serve`, on port 443 unless you pass `--https-port`. |
+| `cloudflare` | The `https` address you give with `--address`. | Trusts the `CF-Connecting-IP` header from the tunnel. |
+| `proxy` | The `https` address you give with `--address`. | Trusts `X-Forwarded-For` from the proxy. |
 
-**To use Marfa from Claude or ChatGPT in a chat, choose `cloudflare`, or `proxy` with a public address.** Their servers connect over the internet, which a tailnet address doesn't reach. `tailscale` suits your own devices and agents on your computer, such as Claude Code. [Connect Claude and ChatGPT](/use/claude-and-chatgpt) shows the rest.
+The server listens on `127.0.0.1` only, so only a proxy or tunnel on the same machine reaches it. **For `cloudflare` and `proxy`, point the tunnel or proxy at `http://127.0.0.1:` and the port.** The command's summary repeats this as **Point at**. A tunnel aimed at another port, or running on another machine, makes the address answer `502`.
 
-The instance gets a Docker network of its own, named for the install (`marfa-net` unless you pass `--name`), and the command reads its range from Docker. The network is made once and kept when the container is replaced, so the range stays the one the setting names. The port is 8600, or the next free one, unless you pass `--port`. It is published on the loopback address only, so only a proxy or tunnel on the same machine reaches it.
+The server believes a forwarded caller address from anything on the machine that reaches its port. Under Docker Desktop or OrbStack that includes every container, through `host.docker.internal`, so run nothing there you don't trust.
 
-**For `cloudflare` and `proxy`, point the tunnel or proxy at `http://localhost:` and the port, on the machine that holds the folder.** The summary repeats this as **Point at**, beside the machine's name. A tunnel aimed at another port, or running on another machine, makes the address answer `502`.
+### Over Tailscale
 
-For `cloudflare`, also turn off Cloudflare's Email Address Obfuscation, or the instance's pages show email addresses as `[email protected]`. [The address](/run/address#the-address) says where.
+```bash
+marfa server install --access tailscale
+```
 
-## The address
-
-`MARFA_AUTH_BASE_URL` is the URL your devices reach the instance at. The server uses it as the OAuth issuer and in its links. **The owner can claim the instance and sign in only over `https`**, or over `http` on `localhost`, `127.0.0.1` or `[::1]`.
-
-Devices reach the instance on your local network, from anywhere over Tailscale, or through a Cloudflare Tunnel at an address on your own domain. Claude and ChatGPT connect from their own servers and [need a public address](/run/address#give-the-instance-a-public-address).
-
-**Behind a proxy or tunnel, tell the server which caller address to believe.** Otherwise every request seems to come from the proxy, and anyone's wrong passwords count toward one address's limit of ten in fifteen minutes, locking the owner out. [`marfa server install`](/run/address#choose-how-its-reached) sets the right one. By hand, set one of these:
-
-- **`TRUSTED_PROXY_CIDRS`** names the proxy's address ranges. The server believes `X-Forwarded-For` from any address in them, so list only your proxy. A proxy beside a container, such as Tailscale Serve, reaches it from Docker's network, which `docker network inspect bridge --format '{{json .IPAM.Config}}'` shows. Every container there is then trusted, so run nothing there you don't control.
-- **`TRUSTED_PROXY_HEADER`** names a header the platform's edge overwrites with the caller's address, for a host whose edge addresses you can't list. Set it only when nothing reaches the server except through that edge, or any client can choose its address.
-
-**Through Cloudflare, turn off Email Address Obfuscation**, or every email address on the instance's pages shows as `[email protected]`. Turn it off under **Security** > **Settings** in the Cloudflare dashboard, or for one hostname with a Configuration Rule.
+The tailnet needs **MagicDNS and HTTPS certificates** turned on, in the Tailscale admin console, and the Tailscale app must be running and signed in. The address then works on every device signed in to your tailnet and nowhere else. The command doesn't use Tailscale Funnel.
 
 ## Give the instance a public address
 
-The chat's servers reach your instance **over the public internet**, at an `https` address. An address on your local network or your tailnet works for an agent on your own computer, as [Use Marfa with AI agents](/use/from-an-agent) shows, but not for a chat.
-
-A Cloudflare Tunnel gives the instance a public address on your own domain without opening a port on your network. Install it that way, or run the install again to change how it's reached:
+A Cloudflare Tunnel gives the instance an address on your own domain without opening a port on your network. Make the tunnel in Cloudflare, aim it at `http://127.0.0.1:8600` (or the port the install chose), and run:
 
 ```bash
 marfa server install --access cloudflare --address https://marfa.example.com
 ```
 
-[Install the server](/run/address#choose-how-its-reached) covers the other choices, such as your own proxy. On a public address, anyone can reach the instance's sign-in page, but every request for your data needs a credential, and only you can approve one.
+On a public address, anyone can reach the sign-in page, but every request for your data needs a credential, and only the owner approves one.
 
-## Choose the address
+**Turn off Cloudflare's Email Address Obfuscation** for the address, or the instance's pages show email addresses as `[email protected]`. It's under **Security** > **Settings** in the Cloudflare dashboard, or set it for one hostname with a Configuration Rule.
 
-Your instance's address followed by `/mcp`, such as `https://marfa.example.com/mcp`, gives the chat tools to find, read, save and change items. **Use it unless you need more.** To design types or save views from a chat, add `/mcp/schema` instead, and to check the instance's health, read its audit log or manage keys and webhooks, add `/mcp/admin`. Each address is a connector of its own in the chat app. [Endpoints](/marfa-mcp-server#endpoints) lists what each one adds.
+## The address
+
+The instance keeps two stored settings:
+
+- **`sign_in_address`** is where the owner signs in. It's the OAuth issuer every app signs in through, the origin of passkeys and sign-in cookies, and the base of the links the server builds. Empty means `http://localhost` and the port. **The owner signs in only over `https`,** or over `http` on `localhost`, `127.0.0.1` or `[::1]`.
+- **`addresses`** lists every address people reach the instance at, and always holds the sign-in address. Add another, such as a name on your local network, so that links the server builds can use it.
+
+`marfa config get` shows both. Each is an origin: a scheme, a host and a port if needed, with no path.
+
+## Move the address
+
+Moving the sign-in address **signs out every browser and app**, and passkeys made for the old address stop working until it moves back. Grants and keys stay. See what a move would do first, which writes nothing:
+
+<Terminal>
+
+```bash
+marfa config check-address --body '{"sign_in_address": "https://marfa.example.com"}'
+```
+
+```text
+sign_in_address               https://marfa.example.com
+addresses                     https://marfa.example.com
+requires_confirmation         true
+consequences[0].code          browser_sessions_end
+consequences[0].sentence      Everyone signed in on a browser is signed out.
+consequences[1].code          apps_sign_in_again
+consequences[1].sentence      Apps connected to this instance have to sign in again.
+consequences[2].code          address_removed
+consequences[2].sentence      Links that use http://localhost:8600 stop working.
+next_steps[0].code            sign_in
+next_steps[1].code            add_passkey
+sign_in_address_check.passed  false
+sign_in_address_check.reason  unreachable
+```
+
+</Terminal>
+
+The server moves the address only when the new one answers as this instance within five seconds, so set up the tunnel or proxy first. `unreachable`, `timed_out` and `not_this_instance` say why a check failed.
+
+The move needs the CLI signed in with `marfa login`, by a sign-in from the last five minutes. An API key is refused it with `403 app_sign_in_required`, since a key has no sign-in to renew. From any machine, sign in again, then confirm the move:
+
+```bash
+marfa login --fresh-sign-in
+marfa config set sign_in_address https://marfa.example.com --confirm-address-change
+```
+
+On the server's own machine, `marfa server install --address` moves it for you. Then sign in at the new address, add a passkey there, and connect your apps again.
+
+## Behind a proxy you set up yourself
+
+Every request through a proxy seems to come from the proxy, so anyone's wrong passwords would count toward one address's limit of ten in fifteen minutes and lock the owner out. Tell the server which caller address to believe with one of these [start-only settings](/run/settings#set-an-environment-setting):
+
+- **`MARFA_TRUSTED_PROXY_CIDRS`** names the proxy's address ranges. The server believes `X-Forwarded-For` only from an address in them, so list only your proxy.
+- **`MARFA_TRUSTED_PROXY_HEADER`** names a header the platform's edge overwrites with the caller's address, such as `CF-Connecting-IP`. It needs `MARFA_TRUSTED_PROXY_CIDRS` too, and is safe only when nothing reaches the server except through that edge.
+
+`marfa server install` and the Railway template set these for you.

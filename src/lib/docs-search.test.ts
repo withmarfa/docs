@@ -66,7 +66,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   // Running an instance.
   ['environment variables', ['/run/settings']],
   ['docker compose', ['/run/install', '/run/run-on-a-server']],
-  ['litestream', ['/run/run-on-a-server', '/run/back-up-and-restore']],
+  ['back up to a bucket', ['/run/back-up-and-restore']],
   ['s3 bucket', ['/run/settings', '/run/run-on-a-server', '/run/install', '/run/back-up-and-restore']],
   ['upgrade server', ['/run/upgrade']],
   ['folders autostart', ['/use/keep-folders-syncing']],
@@ -92,7 +92,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['audit', ['/use/audit-log']],
 
   // An apostrophe is part of a word, not a break in it.
-  ["can't overwrite", ['/connect-your-agent', '/run/export-and-restore']],
+  ["can't overwrite", ['/use/from-an-agent', '/run/export-and-restore']],
 ];
 
 /**
