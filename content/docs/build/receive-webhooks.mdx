@@ -12,7 +12,7 @@ marfa keys create --label "Note hook" --source note-hook \
   --permission webhooks.manage --type-permission core.note=read
 ```
 
-**A webhook belongs to the key or app that registered it**: only that one can read, change or delete it. Marfa sends it nothing once the key is revoked or expires, and deletes it when the app's access is revoked. Each key or app can hold 100 webhooks.
+**A webhook belongs to the key or app that registered it**: only that one can read, change or delete it. Marfa sends it nothing once the key expires, is revoked or loses `webhooks.manage`, even as a delivery connects, and deletes it when the app's access is revoked. Each key or app can hold 100 webhooks.
 
 ## Register a webhook
 
@@ -80,7 +80,7 @@ X-Marfa-Signature: t=1795047415,v1=02cf60cdfab91dc4c0b59be82d09af59ef11b124d2b3a
 }
 ```
 
-Anyone can post to your URL, so check `X-Marfa-Signature` before you trust a delivery. It reads `t=<unix seconds>,v1=<hex>`, where `v1` is the HMAC-SHA-256, under your secret, of `t`, a period, and the raw body. Compute it over the bytes **exactly as they arrived**: parsing the JSON and serializing it again changes them.
+Anyone can post to your URL, so check `X-Marfa-Signature` before you trust a delivery. It reads `t=<unix seconds>,v1=<hex>`, where `v1` is the HMAC-SHA-256, under your secret, of `t`, a period, and the raw body. Compute it over the bytes **exactly as they arrived**: parsing and serializing the JSON again changes them.
 
 The receiver needs Node.js 22.18 or later and only its built-in modules. `verify-signature.mts` refuses a delivery signed more than five minutes away from now, so a captured one can't be replayed, and compares the signatures in constant time. Marfa signs every attempt afresh, so a retry of an old event still passes:
 
@@ -156,11 +156,11 @@ It holds the whole body before checking it, so **a receiver open to the internet
 
 ## Answer, and recognize a repeat
 
-Answer with a `2xx` status **within 10 seconds**, or the attempt counts as not answered, so do slow work afterward or in a queue. Marfa can deliver an event more than once, such as when your answer was lost, with the same `delivery_id` each time: record the IDs you've handled, as the receiver does.
+Answer with a `2xx` status **within 10 seconds**, or the attempt times out, so do slow work afterward or in a queue. Marfa can deliver an event more than once, such as when your answer was lost, with the same `delivery_id` each time: record the IDs you've handled, as the receiver does.
 
 ## Expect deliveries out of order
 
-Marfa sends one delivery at a time to each webhook, but a delivery that failed waits for its retry while newer ones go through.
+Marfa sends one delivery at a time to each webhook, but a failed delivery waits for its retry while newer ones go through.
 
 `event_id` rises with every event. It's a string of decimal digits, so compare IDs as numbers: as text, `"99"` sorts after `"252"`. Keep the highest `event_id` you've applied for each item and ignore a delivery with a lower one, or treat a delivery as a prompt to [get the item](/reference/api/items/getItem) again.
 
@@ -198,7 +198,7 @@ Authorization: Bearer $MARFA_API_KEY
 }
 ```
 
-A delivery's `status` is `pending`, `succeeded`, `failed` or `canceled`, and `attempt` counts attempts across every redelivery. Once you've fixed the fault, [Redeliver a webhook delivery](/reference/api/webhooks/redeliverWebhookDelivery) sends a `failed` delivery again with the same `delivery_id`, to the webhook's current URL and signed with its current secret. It answers `202` with the delivery as `pending`, and Marfa sends it shortly after, with eight attempts of its own:
+A delivery's `status` is `pending`, `succeeded`, `failed` or `canceled`, and `attempt` counts attempts across every redelivery. Once the fault is fixed, [Redeliver a webhook delivery](/reference/api/webhooks/redeliverWebhookDelivery) sends a `failed` delivery again with the same `delivery_id`, to the webhook's current URL and signed with its current secret. It answers `202` with the delivery `pending`, and Marfa sends it with eight attempts of its own:
 
 ```bash tab="CLI" tab-group="client"
 marfa webhooks redeliver 01a1f129-39f3-759b-84ea-b791ecb64764 01a1f129-8222-708f-9ddc-1483d55cd7ee
