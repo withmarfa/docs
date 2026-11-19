@@ -1,27 +1,49 @@
 ---
 title: Connectors
 headTitle: Connector catalog
-description: The six connectors Marfa ships, what each reads from its service, and whether it carries changes back.
+description: The six connectors Marfa ships, what each brings in from its service, the source it writes under, and what it carries back.
 ---
 
-A connector is a program you run that reads another service and writes what it finds to your instance, under a key made for it alone. Some also carry changes made in Marfa back to the service. [Connectors](/build/connectors) explains how they work, and [Run a connector](/use/connect-a-service) runs one.
+Each connector is a program you run yourself, with a key of its own. It reads one service and writes what it finds to your instance, and some carry changes made in Marfa back. [Connectors](/build/connectors) explains how they work, and [Bring in records from another service](/use/connect-a-service) runs one.
 
-Marfa ships six, in the [withmarfa/marfa-connectors](https://github.com/withmarfa/marfa-connectors) repository. You build each from that repository and run it yourself.
+All six are in the [withmarfa/marfa-connectors](https://github.com/withmarfa/marfa-connectors) repository. **It has no releases**: build from its `main` branch.
 
-| Connector | Reads | Goes back to the service |
-| --- | --- | --- |
-| [GitHub](/catalog/connectors/github) | Repositories, issues, discussions, comments, pull requests and notifications | Issues, discussions and comments, with a GitHub App |
-| [Google Calendar](/catalog/connectors/google-calendar) | Calendars and events | Event changes |
-| [Todoist](/catalog/connectors/todoist) | Tasks | Task changes |
-| [Readwise](/catalog/connectors/readwise) | Sources and highlights | Nothing |
-| [Readwise Reader](/catalog/connectors/readwise-reader) | Documents, highlights and saved content, and on request the pictures they show | Supported edits to documents and highlights |
-| [RSS](/catalog/connectors/rss) | The entries of the feeds you list, and on request their pictures as files | Nothing |
+| Connector | Source code | Shown as | Brings in | Carries back |
+| --- | --- | --- | --- | --- |
+| [GitHub](/catalog/connectors/github) | `github` | GitHub | Repositories, issues, pull requests, discussions, comments, notifications and Markdown files | Issues, discussions and comments, with a GitHub App |
+| [Google Calendar](/catalog/connectors/google-calendar) | `google-calendar` | Google Calendar | Calendars and events | Events |
+| [Todoist](/catalog/connectors/todoist) | `todoist` | Todoist | Tasks | Tasks |
+| [Readwise](/catalog/connectors/readwise) | `readwise` | Readwise | Sources and highlights | Nothing |
+| [Readwise Reader](/catalog/connectors/readwise-reader) | `readwise` | Readwise | Documents, highlights and their content | Supported edits |
+| [RSS](/catalog/connectors/rss) | `rss` | RSS | Feed entries, and on request their pictures | Nothing |
 
 ## What every connector shares
 
-- **Its own key.** Each connector refuses a key that holds more, or less, than it needs.
-- **The feed.** Items land in the [feed](/build/items-and-types#library-and-feed). Moving an item to the library is a person's or an app's act. A connector names the library only for a file that belongs to something already there, such as a picture the RSS or Readwise Reader connector saves for something you kept.
-- **Nothing kept on your machine.** A connector keeps its progress on the instance, and takes its secrets from its environment.
-- **Two settings every connector reads.** `MARFA_API_URL` is the address of your instance and `MARFA_API_KEY` is the connector's key. The pages below list only the settings that are specific to a connector.
+- **A source of its own.** Every item a connector writes carries its source code. The code names the service, never the route the data came by or an account.
+- **A name and a mark for that source.** On every start, the connector reads its source (`GET /sources/{source}`) and sets the name it is shown by, and its mark (an icon from the `simple-icons` set) where it has one. **It sets only what the source lacks**, so a name or mark you set yourself is kept. If Marfa refuses, the connector warns and runs anyway, and tries again at the next start. The contract defines this in [Source names and marks](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthsource-name-set).
+- **A key that holds exactly what it writes.** Each page gives the `marfa keys create` command. On every start the connector reads its key back and **refuses a key that holds more or less**, naming what to change. The key holds write on each type and each edge type the connector writes, and `--metadata-permission types=write` to register its types. It holds no `--permission`, and `edge_types=write` only where the connector registers edge types of its own. An app's key is refused.
+- **Retired edges.** When a connector moves to a more exact edge type, it clears the old edges it wrote itself and never one a person drew. The key keeps write on the old edge type to do that, so a page's key can name an edge type the connector no longer writes.
+- **The feed.** Items land in the [feed](/build/items-and-types#library-and-feed). Moving one to the library is a person's or an app's act.
+- **Nothing kept on your machine.** Progress is kept on the instance, so a connector can move to another computer or container and carry on. Secrets come from its environment.
+- **One process at a time.** Each run holds the connector's registration. A second process under the same key waits while it keeps running on an interval, and exits without running when it runs once.
 
-Each page has the same sections: what the connector reads, the types it writes, what goes back, its settings, what to know and how to run it. A page adds a section for anything only its connector does.
+## Run any connector
+
+Every connector reads `MARFA_API_URL`, the address of your instance, and `MARFA_API_KEY`, its key. Each page lists the settings that are its own. After a build, run one from the repository root:
+
+```bash
+node connectors/rss/dist/main.js --once
+node connectors/rss/dist/main.js --every 15m
+```
+
+The first runs once and exits, for launchd, cron or a scheduled container. The second keeps the process running, with a run every 15 minutes. The repository's [template README](https://github.com/withmarfa/marfa-connectors/blob/main/template/README.md#run-it) has a launchd file, a Dockerfile and the optional telemetry settings.
+
+Check what a connector did with your own key:
+
+```bash
+marfa connectors list
+marfa connectors runs <connector-id>
+marfa sources get rss
+```
+
+A connector reports each run with `POST /connectors/{id}/runs` and stays in touch with `POST /connectors/{id}/heartbeat`. Only the key it registered with may call either.

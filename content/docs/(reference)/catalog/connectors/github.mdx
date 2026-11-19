@@ -1,86 +1,118 @@
 ---
 title: GitHub
-description: Repositories, issues, discussions, comments, pull requests, notifications and Markdown files from GitHub, with edits to issues, discussions and comments carried back.
+description: Repositories, issues, pull requests, discussions, comments, notifications and Markdown files from GitHub, with edits to issues, discussions and comments carried back through a GitHub App.
 ---
 
-The GitHub connector reads your repositories into the feed. With a GitHub App it also carries changes to issues, discussions and comments back to GitHub.
+The GitHub connector reads the repositories a token or GitHub App can reach into the feed. **With a GitHub App it also carries changes to issues, discussions and comments back to GitHub**, where they appear under the App's name. With a personal access token it only reads.
 
-## What it reads
+| Source code | Shown as | Mark |
+| --- | --- | --- |
+| `github` | GitHub | `simple-icons:github` |
 
-You choose how it signs in, and the choice decides whether anything can go back:
+## What it brings in
 
-- **A fine-grained personal access token** only reads, even if the token could write.
-- **A GitHub App** reads and writes. You register it from a manifest the connector serves, and install it on the repositories to sync.
-
-It reads:
-
-- **Repositories.** Every repository the token or App can reach, or only those named in `GITHUB_REPOSITORIES`. A repository left out of that setting is paused, not archived: its items stay as they are. With a personal token, or a notifications token and no personal one, it also reads the repositories you have starred.
-- **Issues and pull requests.** Everything open, and what closed or changed in the last 90 days. An older issue comes in once anything happens to it. An issue's assignees are core `assignees` entries, each with the login as `name`. A pull request carries its branches and check results. A fine-grained personal token has no Checks permission, so with one a pull request keeps the check summary it had, a new one has none, and the run names `checks-unreadable`.
-- **Discussions and comments.** The discussions of each repository that has Discussions turned on, with their comments and replies, and the comments on issues.
+- **Repositories.** Every repository the token or App reaches, or only those in `GITHUB_REPOSITORIES`. A repository left out of that setting is paused, not archived. With a personal token, or a notifications token and no personal one, it also reads the repositories you starred.
+- **Issues and pull requests.** Everything open, and what closed or changed in the last 90 days. An older issue comes in once anything happens to it. A pull request carries its branches and check results.
+- **Discussions and comments.** The discussions of each repository with Discussions turned on, their comments and replies, and the comments on issues.
 - **Relations.** Sub-issues, blockers, related issues, duplicates, and which pull request closed which issue.
-- **Notifications.** With `GITHUB_NOTIFICATIONS_TOKEN` set, every thread in its owner's notifications, read and unread.
-- **Files.** Images and files that GitHub signs in issue and comment bodies, kept as files.
-- **Repository files.** With `GITHUB_FILES` set, the Markdown files under the paths it names, on each repository's default branch, as notes, and the directories that hold them as collections. A file moved or renamed with the same content keeps its item, and a removed one is archived.
+- **Notifications.** With `GITHUB_NOTIFICATIONS_TOKEN`, every thread in its owner's notifications, read and unread. It never marks one read.
+- **Attachments.** Images and files GitHub signs in issue and comment bodies, kept as files.
+- **Repository files.** With `GITHUB_FILES`, the Markdown files under the paths it names, on each default branch, as notes, and the directories that hold them.
 
 ## Types it writes
 
 | Type | Parent type | Holds |
 | --- | --- | --- |
 | `github.repository` | [Entity](/catalog/entity) | A repository, with whether you starred it |
-| `github.issue` | [Task](/catalog/task) | An issue. Its `status` is `open` while open, then `completed`, `canceled` (not planned) or `duplicate`, in the `canceled` group, as GitHub closes it |
-| `github.pull_request` | [Task](/catalog/task) | A pull request, read only. Its `status` is `draft` or `open` while open, then `merged` or `closed` |
+| `github.issue` | [Task](/catalog/task) | An issue. `status` is `open`, then `completed`, `canceled` (not planned) or `duplicate` |
+| `github.pull_request` | [Task](/catalog/task) | A pull request, read only. `status` is `draft` or `open`, then `merged` or `closed` |
 | `github.discussion` | [Note](/catalog/note) | A discussion, with its category and whether it is answered |
-| `github.comment` | [Message](/catalog/message) | A comment on an issue or a discussion |
+| `github.comment` | [Message](/catalog/message) | A comment on an issue or discussion, or a reply to a comment |
 | `github.notification` | [Message](/catalog/message) | A notification thread, read only |
-| `github.file`, `github.file.image` | [File](/catalog/file) | Bytes kept from an attachment, read only |
-| `github.repository_file` | [Note](/catalog/note) | A Markdown file from a repository, with its text as the body, read only |
+| `github.file`, `github.file.image` | [File](/catalog/file) | An attachment's bytes, read only |
+| `github.repository_file` | [Note](/catalog/note) | A Markdown file, with its text as the body, read only |
 | `github.directory` | [Collection](/catalog/collection) | A directory that holds synced Markdown files, read only |
 
-Every item of the other types holds `github_id`, which is how the connector finds the same thing on GitHub again; a repository file or directory is known by its repository and path. The connector registers these types on its first start.
+An issue's assignees are core `assignees` entries, each with the login as `name`. Each item says in `private` whether its repository is private. **That field is a marker, not a lock**: a key reaches items by type, so read it before you copy an item somewhere public.
 
-It also writes the edges `github.in-repository`, `github.sub-issue-of`, `github.blocked-by`, `github.relates-to`, `github.duplicate-of`, `github.closes` and `github.closed-by`, and uses Marfa's own `in-thread`, `references`, `parent-of`, `attached-to` and `in-collection`. A repository file joins its directory through `in-collection`, and a directory joins its parent directory through `parent-of`.
+## Edges it writes
+
+| Edge type | From | To |
+| --- | --- | --- |
+| `github.in-repository` | An issue, pull request, discussion, comment, repository file or directory | Its repository |
+| `github.sub-issue-of`, `github.blocked-by`, `github.relates-to`, `github.duplicate-of` | An issue | An issue |
+| `github.closes` | A pull request | The issues it closes |
+| `github.closed-by` | An issue | The pull request that closed it |
+| [`comments-on`](/catalog/edges#comments-on) | A comment | Its issue or discussion, or the comment it replies to |
+| [`about`](/catalog/edges#about) | A notification | The issue, pull request or discussion it concerns |
+| [`attached-to`](/catalog/edges#attached-to) | An attachment | What shows it |
+| [`in-collection`](/catalog/edges#in-collection) | A repository file | Its directory |
+| [`parent-of`](/catalog/edges#parent-of) | A directory | The directories inside it |
+
+The `github.` edge types are the connector's own, and it registers them on its first start. **It writes no `in-thread` or `references` edges**, and puts no comment beneath another with `parent-of`. It clears any of those it wrote itself, so its key keeps write on all three.
 
 ## What goes back
 
-Only with a GitHub App, and only for issues, discussions, comments and the relations between issues:
+Only with a GitHub App:
 
-- **Edits.** An issue's title, body, labels, assignees and status; a discussion's title, body and whether it is closed; a comment's text. A status other than `completed`, `canceled` or `duplicate` reopens a closed issue, and one GitHub has no word for, such as `in_progress`, stays in Marfa. An assignee with no `name` isn't sent.
-- **New items.** An issue or discussion made in Marfa is created in the repository its `github.in-repository` edge names, and a comment in its thread is posted. A discussion also needs a `category` that the repository has.
+- **Edits.** An issue's title, body, labels, assignees and status; a discussion's title, body and whether it is closed; a comment's text. A status GitHub has no word for, such as `in_progress`, stays in Marfa.
+- **New items.** An issue or discussion made in Marfa is created in the repository its `github.in-repository` edge names; a discussion also needs a `category` the repository has. A comment is posted on what its `comments-on` edge names.
 - **Relations.** A `github.sub-issue-of`, `github.blocked-by` or `github.relates-to` edge made or removed in Marfa is made or removed on GitHub.
-- **Removal.** Moving an open issue to the bin closes it as not planned, and a discussion is left as it is. Moving a comment the App wrote to the bin deletes it.
+- **The bin.** Moving an open issue to the bin closes it as not planned. A discussion is left as it is. A comment the App wrote is deleted.
 
-Repositories, pull requests, notifications, files, repository files, directories, duplicates and closing links are always read only, whatever `GITHUB_READ_ONLY` says. A change to one in Marfa is put back from GitHub. Edits to someone else's comment are put back too.
+**Every issue, discussion and comment on the instance is sent**, whoever made it. Keep one that should stay in Marfa as a core task, note or message. Repositories, pull requests, notifications, files, duplicates and closing links are always read only: a change in Marfa is put back from GitHub, as is an edit to someone else's comment. GitHub can refuse a change, such as one in an archived repository; the run names it.
 
 ## Settings
 
 | Setting | What it holds |
 | --- | --- |
-| `GITHUB_PERSONAL_TOKEN` | A fine-grained personal access token with read access to Issues, Discussions, Pull requests, Commit statuses and Contents, Starring for your stars, and the Metadata read access GitHub adds. A secret. Use it alone, without the App settings. |
+| `GITHUB_PERSONAL_TOKEN` | A fine-grained personal access token with read access to Issues, Discussions, Pull requests, Commit statuses and Contents, Starring for your stars, and Metadata. A secret. Use it without the App settings. |
 | `GITHUB_APP_ID` | The App's ID. |
 | `GITHUB_PRIVATE_KEY` | The App's private key. A secret. |
 | `GITHUB_WEBHOOK_SECRET` | The secret GitHub signs deliveries with. A secret. |
-| `GITHUB_NOTIFICATIONS_TOKEN` | A classic token with only the `notifications` scope. A secret. Optional. It works beside either way of signing in. |
-| `GITHUB_REPOSITORIES` | The repositories to sync, as `owner/repo` or `owner/*`, separated by commas or whitespace. Unset, every repository it can see. |
-| `GITHUB_FILES` | The repositories and paths whose Markdown files to mirror, as `owner/repo:path`, with paths separated by commas and entries by whitespace or semicolons, such as `someone/agents:runbooks,skills`. Optional. |
-| `GITHUB_READ_ONLY` | `true`, or a comma-separated list of kinds to keep read only: `repository`, `issue`, `comment`, `discussion`, `pull_request`, `notification`, `file` and `image`. |
-| `GITHUB_STARS` | `true` (the default) or `false`. `false` stops this process reading stars and leaves every star mark as it is. |
-| `GITHUB_PUBLIC_URL` | The public address of your instance, so GitHub can post webhooks to it. |
-| `GITHUB_ORGANIZATION` | The organization that owns the App, for setup. |
-| `GITHUB_APP_NAME` | The App's name, for setup. |
+| `GITHUB_NOTIFICATIONS_TOKEN` | A classic token with only the `notifications` scope. A secret. Optional, beside either way of signing in. |
+| `GITHUB_REPOSITORIES` | The repositories to sync, as `owner/repo` or `owner/*`, separated by commas or whitespace. Unset, every one it can see. |
+| `GITHUB_FILES` | The Markdown files to mirror, as `owner/repo:path`, paths separated by commas and entries by whitespace or semicolons. Optional. |
+| `GITHUB_READ_ONLY` | `true`, or a comma-separated list of `repository`, `issue`, `comment`, `discussion`, `pull_request`, `notification`, `file` and `image`. |
+| `GITHUB_STARS` | `true` (the default) or `false`, which stops this process reading stars. |
+| `GITHUB_PUBLIC_URL` | Your instance's public address, so GitHub can deliver webhooks. Setup reads it. |
+| `GITHUB_ORGANIZATION`, `GITHUB_APP_NAME` | The organization that owns the App and the App's name, for setup. Optional. |
 
-## What to know
+**The connector refuses a personal token set beside the App settings.** A fine-grained token has no Checks permission, so with one a pull request keeps the check summary it had, and the run names `checks-unreadable`.
 
-- **Pick one way to sign in.** The connector refuses a personal token set beside the App settings.
-- **Every issue, discussion and comment syncs.** With an App, each one on the instance is sent to GitHub, whoever made it. An item meant to stay in Marfa is a core task, note or message instead.
-- **Changes arrive on a schedule, unless the webhook is on.** With the App, setting `GITHUB_PUBLIC_URL` turns on GitHub's webhook, and changes arrive within seconds. A personal token has no webhook.
-- **`private` is a marker, not a lock.** Each item says whether its repository is private. Marfa gives a key access by type, not by that field, so read it before you copy an item somewhere public.
-- **GitHub can refuse a change,** such as one in an archived repository. The run names it and does not send it again until the item changes.
-- **Stars are read on scheduled runs only.** A repository loses its star mark only after two scheduled runs in a row list your stars and lack it. A repository that a process syncs, or once synced, only loses its mark. A repository kept for its star alone is archived, unless an earlier version of the connector wrote its item: that item only loses its mark, so archive it in Marfa yourself if you no longer want it.
-- **Two processes on one instance need one star reader.** To read repositories under two owners, run the connector twice, each with its own token, key and `GITHUB_REPOSITORIES`, and no repository in both. Every key after the first passes `--claim github`. Set `GITHUB_STARS=false` on every process but one, or each unmarks the stars the other marked. Give each repository to one process for good: one that moves is archived by the first process, and you restore it in Marfa. Run the same version in both.
-- **It never marks a notification read.**
-- **Repository files need Contents read access.** A personal token needs it on the repositories `GITHUB_FILES` names, and the App asks for it. A repository the run doesn't sync, a path that isn't on the default branch, a tree GitHub cuts short or refuses, and a file over 512 KiB or not in UTF-8 are named in the run, and nothing is archived for them.
-- **Moving a directory to the bin in Marfa takes the directories below it too,** since `parent-of` cascades, but not the files in them. The directories stay in the bin until you restore them; a later run doesn't bring them back. A file in the bin stays there the same way.
+## Make its key
+
+```bash
+marfa keys create --label github --source github \
+  --type-permission github.repository=write --type-permission github.issue=write \
+  --type-permission github.discussion=write --type-permission github.comment=write \
+  --type-permission github.pull_request=write --type-permission github.notification=write \
+  --type-permission github.file=write --type-permission github.file.image=write \
+  --type-permission github.repository_file=write --type-permission github.directory=write \
+  --edge-permission github.in-repository=write --edge-permission github.sub-issue-of=write \
+  --edge-permission github.blocked-by=write --edge-permission github.relates-to=write \
+  --edge-permission github.duplicate-of=write --edge-permission github.closes=write \
+  --edge-permission github.closed-by=write --edge-permission comments-on=write \
+  --edge-permission about=write --edge-permission attached-to=write \
+  --edge-permission in-collection=write --edge-permission parent-of=write \
+  --edge-permission in-thread=write --edge-permission references=write \
+  --metadata-permission types=write --metadata-permission edge_types=write \
+  --default-tier feed
+```
+
+`edge_types=write` registers the `github.` edge types. Once they are registered, the start logs the `marfa keys update` command that narrows it to `read`.
 
 ## Run it
 
-[Run a connector](/use/connect-a-service) runs any connector. The [README](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/github/README.md) lists the permissions this connector's key needs and walks through registering the GitHub App.
+[Bring in records from another service](/use/connect-a-service) builds and runs any connector, and [Connectors](/build/connectors) explains how they work. With a personal token, run it with nothing else:
+
+```bash
+node connectors/github/dist/main.js --once
+node connectors/github/dist/main.js --every 1h
+```
+
+**A GitHub App is registered once, from a page the connector serves.** Run `node connectors/github/dist/main.js --setup <file>` with your key and, where your instance has one, `GITHUB_PUBLIC_URL`, naming a file outside any Git checkout. Open the address it logs, create the App and install it on the repositories to sync. Move the three secrets the file holds into your secret store and delete the file. The [README](https://github.com/withmarfa/marfa-connectors/blob/main/connectors/github/README.md#github-app) has each step.
+
+With the App and `GITHUB_PUBLIC_URL`, GitHub's webhook brings changes within seconds to a process that keeps running. A personal token has no webhook, so changes arrive on the schedule.
+
+**To read repositories under two owners**, run the connector twice, each with its own token, `GITHUB_REPOSITORIES` and key, and no repository in both. The second key takes a source such as `github-work` and claims `github`, which only the [private socket](/cli#use-the-private-socket) can grant: `marfa --socket <socket-path> keys create --source github-work --claim github` with the same permissions. Set `GITHUB_STARS=false` on every process but one, and give each repository to one process for good.
