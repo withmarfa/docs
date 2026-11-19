@@ -113,6 +113,8 @@ describe('fetchDocsPage', () => {
     const quickstart = await fetchDocsPage('/quickstart');
     expect(quickstart).toContain('marfa items add ~/Downloads/receipt.pdf');
     expect(quickstart).toContain('Output:');
+    // A figure that shows a flow keeps its label as a line of its own.
+    expect(await fetchDocsPage('/how-marfa-works')).toContain('Figure: Your instance holds the library, the feed and the bin.');
     expect(await fetchDocsPage('/build/write-safely')).toContain('**TypeScript**');
     expect(await fetchDocsPage('/cli-reference')).toBeNull();
     expect(await fetchDocsPage('/cli/items')).toBeNull();

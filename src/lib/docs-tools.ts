@@ -15,6 +15,7 @@
 import { createFromSource } from 'fumadocs-core/search/server';
 import { source, getLLMText } from '@/lib/source';
 import { TOP_BAR_LINKS } from '@/lib/top-bar';
+import pageLimits from '@/lib/page-limits.json';
 
 /** Words a reader types around the one that matters. Dropped from a query, never from the index. */
 const STOP_WORDS = new Set([
@@ -273,6 +274,10 @@ const EXACT_WEIGHT = 2;
 /** What a heading that is the query's words earns its page, at most: under the smallest step between two kinds in `KIND_WEIGHT`, so a heading never lifts a page over one of a better kind. */
 const HEADING_WEIGHT = 1.2;
 const DESCRIPTION_WEIGHT = 1.5;
+/** What a concept page earns for a question that asks what something is: `what is an item` wants the page that explains items, not a guide that names them. */
+const CONCEPT_WEIGHT = 3;
+/** A question that asks what something is, by its opening words, which the tokenizer drops as stop words. */
+const ASKS_WHAT = /^\s*what(?:\s+(?:is|are)\b|['’]s\b)/iu;
 
 /**
  * Where a page sits decides which of two equally matching pages a reader wants for a task: a Use or Run guide
@@ -294,6 +299,8 @@ interface TextProfile {
 
 interface PageProfile {
   kind: PageKind;
+  /** Whether the page explains an idea, the `concept` kind of `page-limits.json`. */
+  concept: boolean;
   title: TextProfile;
   headings: TextProfile[];
   description: TextProfile;
@@ -310,6 +317,23 @@ function kindOf(page: (typeof source)['$inferPage']): PageKind {
   const folder = page.path.split('/')[0];
   if (folder === 'use' || folder === 'run' || folder === '(start)') return 'guide';
   return folder === 'build' ? 'build' : 'reference';
+}
+
+/**
+ * Whether a page is a concept page, known as `kindFor` in `page-limits.ts` knows it: the frontmatter's `kind`, then
+ * the page's entry in `page-limits.json`, then the entry of the longest folder that holds it. A `fix-*` page is never
+ * a concept.
+ */
+function isConcept(page: (typeof source)['$inferPage']): boolean {
+  if ((page.path.split('/').pop() ?? '').startsWith('fix-')) return false;
+  const declared = (page.data as { kind?: string }).kind;
+  const pages: Record<string, object> = pageLimits.pages;
+  const folders: Record<string, object> = pageLimits.folders;
+  const kindIn = (entry: object | undefined) => (entry && 'kind' in entry ? entry.kind : undefined);
+  const folder = Object.keys(folders)
+    .filter((candidate) => page.path.startsWith(`${candidate}/`))
+    .sort((a, b) => b.length - a.length)[0];
+  return (declared ?? kindIn(pages[page.path]) ?? kindIn(folder ? folders[folder] : undefined)) === 'concept';
 }
 
 /** The index keeps a four-letter plural (`keys`) as it is, so that `cors` stays `cors`. Here a plural meets its singular. */
@@ -335,6 +359,7 @@ function pageProfiles(): Promise<Map<string, PageProfile>> {
       const structured = typeof data.structuredData === 'function' ? await data.structuredData() : data.structuredData;
       map.set(page.url, {
         kind: kindOf(page),
+        concept: isConcept(page),
         title: profileText(data.title),
         headings: (structured?.headings ?? []).map((h) => profileText(h.content)),
         description: profileText(data.description ?? ''),
@@ -378,11 +403,12 @@ export function namesAnIdentifier(query: string): boolean {
 
 /**
  * Places of rank a page gains for how well its title, headings and description answer the query's words, and,
- * for a question that is not a code or a number, for being a guide. BM25 weighs a page's rows by their length and
+ * for a question that is not a code or a number, for being a guide. A question that asks what something is also
+ * earns a concept page `CONCEPT_WEIGHT`. BM25 weighs a page's rows by their length and
  * counts, so a reference page that repeats a word outranks the guide that is about it. Headings add at most
  * `HEADING_WEIGHT`, less than a step between two kinds, so a heading never lifts a page over one of a better kind.
  */
-function boost(profile: PageProfile, words: string[], task: boolean): number {
+function boost(profile: PageProfile, words: string[], task: boolean, asksWhat: boolean): number {
   const exactly = (text: TextProfile) => coverage(words, text) === 1 && text.bare === words.length;
   const heading = profile.headings.reduce((best, h) => Math.max(best, coverage(words, h)), 0);
   const headingExact = profile.headings.some(exactly);
@@ -391,7 +417,8 @@ function boost(profile: PageProfile, words: string[], task: boolean): number {
     (exactly(profile.title) ? EXACT_WEIGHT : 0) +
     HEADING_WEIGHT * (headingExact ? 1 : heading ** 2) +
     DESCRIPTION_WEIGHT * coverage(words, profile.description) ** 2 +
-    (task ? KIND_WEIGHT[profile.kind] : 0)
+    (task ? KIND_WEIGHT[profile.kind] : 0) +
+    (asksWhat && profile.concept ? CONCEPT_WEIGHT : 0)
   );
 }
 
@@ -404,6 +431,7 @@ export async function searchDocs(
   const cap = Math.min(Math.max(Math.trunc(limit), 1), MAX_SEARCH_LIMIT);
 
   const task = !namesAnIdentifier(query);
+  const asksWhat = ASKS_WHAT.test(query);
   // A hyphenated word is two words for a reader asking for a task: `sign-in` is the `sign in` of the guide. Pages
   // that write it with the hyphen still rank first for the query as typed, so both are searched.
   const spaced = query.replace(/(?<=\p{L})-(?=\p{L})/gu, ' ');
@@ -439,7 +467,7 @@ export async function searchDocs(
   const ranked = [...rankOf]
     .map(([url, rank]) => {
       const profile = known.get(url);
-      return { url, rank, place: rank - (profile ? boost(profile, rankWords, task) : 0) };
+      return { url, rank, place: rank - (profile ? boost(profile, rankWords, task, asksWhat) : 0) };
     })
     .sort((a, b) => a.place - b.place || a.rank - b.rank)
     .map((c) => c.url);

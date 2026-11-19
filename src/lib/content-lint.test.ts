@@ -30,6 +30,7 @@ type Rule =
   | 'coming-soon'
   | 'callout-title'
   | 'tutorial-length'
+  | 'paged-steps-last'
   | 'link'
   | 'include';
 
@@ -326,6 +327,27 @@ export function checkTutorialLength(file: string, text: string): Violation[] {
       line: lineOf(text, match.index),
       rule: 'tutorial-length',
       detail: `a tutorial has at most ${String(MAX_TUTORIAL_STEPS)} steps and this one has ${String(steps)}; split it in two`,
+    });
+  }
+  return out;
+}
+
+/**
+ * A paged stepper ends its page: a heading after it reads as one more step's
+ * title under the card, so the next steps go in the last step.
+ */
+export function checkPagedStepsLast(file: string, text: string): Violation[] {
+  const prose = stripCode(text);
+  const out: Violation[] = [];
+  for (const match of prose.matchAll(/<Steps\s+paged\b[\s\S]*?<\/Steps>/g)) {
+    const after = prose.slice(match.index + match[0].length);
+    const heading = /^#{1,6}\s/m.exec(after);
+    if (!heading) continue;
+    out.push({
+      file,
+      line: lineOf(text, match.index + match[0].length + heading.index),
+      rule: 'paged-steps-last',
+      detail: 'nothing is headed after a paged Steps; put the next steps inside its last step',
     });
   }
   return out;
@@ -640,6 +662,10 @@ describe('content lint: the corpus', () => {
   it('keeps every tutorial to seven steps', () => {
     expect(lintAll(checkTutorialLength)).toEqual([]);
   });
+
+  it('ends every paged tutorial with its last step', () => {
+    expect(lintAll(checkPagedStepsLast)).toEqual([]);
+  });
 });
 
 // ── Witnesses: each rule fires on a small bad sample ─────────────────────
@@ -783,6 +809,15 @@ describe('content lint: each rule fires on a bad sample', () => {
     expect(rules(checkTutorialLength('x.mdx', steps(8)))).toEqual(['tutorial-length']);
     expect(checkTutorialLength('x.mdx', steps(8))[0].line).toBe(3);
     expect(checkTutorialLength('x.mdx', steps(8).replace('Steps paged', 'Steps'))).toEqual([]);
+  });
+
+  it('paged-steps-last', () => {
+    const tutorial = 'Intro.\n\n<Steps paged>\n<Step>\n\n### A\n\n</Step>\n</Steps>\n';
+    expect(checkPagedStepsLast('x.mdx', tutorial)).toEqual([]);
+    expect(rules(checkPagedStepsLast('x.mdx', `${tutorial}\n## Next steps\n`))).toEqual(['paged-steps-last']);
+    expect(checkPagedStepsLast('x.mdx', `${tutorial}\n## Next steps\n`)[0].line).toBe(11);
+    expect(checkPagedStepsLast('x.mdx', `${tutorial.replace('Steps paged', 'Steps')}\n## Next steps\n`)).toEqual([]);
+    expect(checkPagedStepsLast('x.mdx', `${tutorial}\n\`\`\`md\n## In code\n\`\`\`\n`)).toEqual([]);
   });
 
   it('callout-title accepts a title and ignores code', () => {

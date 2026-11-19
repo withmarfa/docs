@@ -102,7 +102,8 @@ function fileTree(node: JsxElement, depth = 0): string[] {
  * The Markdown copy of each page, which agents read at `<page>.md`, through the
  * docs MCP server and in `llms-full.txt`. Layout components give way to their
  * content, a few become plain Markdown, and the visuals are left out: a page's
- * prose carries every fact a visual shows.
+ * prose carries every fact a visual shows. A visual the page gives a `label`,
+ * its text form, is written as that label on a "Figure:" line.
  */
 const llms: LLMsOptions = {
   // Tables without column alignment: padding each cell to its column's width
@@ -113,7 +114,7 @@ const llms: LLMsOptions = {
     if (!isJsx(node) || !node.name) return true;
     if (WRAPPERS.has(node.name)) return 'children-only';
     if (REWRITTEN.has(node.name)) return true;
-    return false;
+    return attribute(node, 'label') !== undefined;
   },
   stringify(node, parent, state, info) {
     // A fenced block with a note or a status chip in its header: the header's
@@ -132,7 +133,11 @@ const llms: LLMsOptions = {
       const fence = state.handle({ ...node, meta: rest.trim() || null } as never, parent as never, state, info);
       return `${label}:\n\n${fence}`;
     }
-    if (!isJsx(node) || !node.name || !REWRITTEN.has(node.name)) return undefined;
+    if (!isJsx(node) || !node.name) return undefined;
+    if (!REWRITTEN.has(node.name)) {
+      const label = WRAPPERS.has(node.name) ? undefined : attribute(node, 'label');
+      return label === undefined ? undefined : `Figure: ${label}`;
+    }
     // A component written on one line holds phrasing, not paragraphs, and
     // writing that as flow would break the text at each inline element.
     const inline = node.children.every((child) => !FLOW.has(child.type));
@@ -196,6 +201,8 @@ export const docs = defineDocs({
       identifier: z.string().optional(),
       headTitle: z.string().optional(),
       sidebar_label: z.string().min(1).optional(),
+      // The page's kind where neither its name nor page-limits.json says it (`src/lib/page-limits.ts`), which search reads.
+      kind: z.string().optional(),
     }),
     postprocess: {
       includeProcessedMarkdown: llms,
