@@ -26,7 +26,7 @@ describe('searchDocs', () => {
     }
 
     const page = hits.find((h) => h.url === '/run/housekeeping')!;
-    expect(page.title).toBe('Check the housekeeping jobs');
+    expect(page.title).toBe('Check on an instance and empty its bin');
     expect(page.snippets.length).toBeGreaterThan(0);
   });
 
@@ -88,7 +88,7 @@ describe('fetchDocsPage', () => {
   it('returns the Markdown of a page, whichever way the path is written', async () => {
     const page = await fetchDocsPage('/run/housekeeping');
     expect(page).not.toBeNull();
-    expect(page).toMatch(/^# Check the housekeeping jobs \(\/run\/housekeeping\)\n/);
+    expect(page).toMatch(/^# Check on an instance and empty its bin \(\/run\/housekeeping\)\n/);
     expect(page).toContain('housekeeping jobs');
 
     for (const form of ['run/housekeeping', '/run/housekeeping.md', '/run/housekeeping/']) {
@@ -138,7 +138,7 @@ describe('listTopics', () => {
     expect(pages.length).toBeGreaterThan(0);
     const housekeeping = pages.find((p) => p.url === '/run/housekeeping');
     expect(housekeeping).toEqual({
-      title: 'Check the housekeeping jobs',
+      title: 'Check on an instance and empty its bin',
       url: '/run/housekeeping',
       description: expect.any(String),
       breadcrumbs: ['run', 'housekeeping'],

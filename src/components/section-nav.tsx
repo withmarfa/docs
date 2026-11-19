@@ -27,7 +27,7 @@ function isUnder(pathname: string, prefix: string) {
 export const SECTIONS: { label: string; href: string; matches: ((pathname: string) => boolean) | null }[] = [
   { label: 'Start', href: '/', matches: null },
   { label: 'Use', href: '/use/from-an-agent', matches: (pathname) => isUnder(pathname, '/use') },
-  { label: 'Run', href: '/run/install', matches: (pathname) => isUnder(pathname, '/run') },
+  { label: 'Run', href: '/run/memory-cpu-and-disk', matches: (pathname) => isUnder(pathname, '/run') },
   { label: 'Build', href: '/build/how-marfa-works', matches: (pathname) => isUnder(pathname, '/build') },
   {
     label: 'Reference',

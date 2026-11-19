@@ -1,13 +1,38 @@
 ---
 title: Upgrade an instance
-description: Find out whether a newer release is out, move an instance to it safely, and know what a release does when it can't read your database.
+description: Keep an instance on its release, try a newer one beside it, and know what each way of moving a release does and what it can't undo.
 ---
 
-**Before Marfa 0.1, a release doesn't promise to read another release's database, or an archive or backup another release wrote.** The server checks before it changes anything, and refuses rather than guess, so trying a newer release never damages your data. [The changelog](/changelog) says what each release changes.
+**Before Marfa 0.1, a newer release is a new instance, not an upgrade of the one you run.** A release doesn't promise to read another release's database, archive or backup, and a release that updates the database leaves it in a shape the earlier one refuses. So keep the instance you use on its release, try a newer one as a second install, and move your data across by restoring a backup or an archive. [The changelog](/changelog) says what each release changes.
+
+## Keep an instance on its release
+
+Each kind of install moves to another release only when something replaces its programs or its image:
+
+| Install | What moves it, and how to stop that |
+| --- | --- |
+| [The install script](/run/install#install-the-programs) | Running the script again into the same folder. The service runs the `marfa-server` beside `marfa`, so its next start runs the new one. Install another release into another folder. |
+| Homebrew | `brew upgrade`, for the same reason. Run `brew pin marfa` to keep the formula where it is. |
+| Docker, set up by the CLI | Nothing: `.env` names the release, and only `marfa server upgrade` changes it. |
+| A container you run | A tag that moves. Start it from a version tag, never `latest`. |
+| Railway | A changed tag, or image auto updates. Keep the tag pinned and auto updates off. |
+
+## Try a release beside your instance
+
+Install the newer release's programs into a folder of their own, then make a second install with its own name, folder and port:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/withmarfa/marfa/main/scripts/install.sh | MARFA_INSTALL_DIR=~/marfa-next/bin sh
+~/marfa-next/bin/marfa server install --name marfa-next --dir ~/marfa-next/server --port 8610
+```
+
+Claim it from the link it prints. Your instance and its data stay as they are. To bring your data across, [restore a backup](/run/back-up-and-restore#restore-a-backup) from the same backup place, or [restore an archive](/run/export-and-restore#restore-an-archive). On Railway, deploy the template again into a new project instead.
+
+Use the new instance for a while before you rely on it. When you move to it for good, [set up its backups](/run/back-up-and-restore#turn-on-backups) and give it the address your devices use.
 
 ## See whether a newer release is out
 
-The server checks GitHub for a published release every six hours. With `instance.read`:
+The server checks GitHub for a published release every six hours. With a credential that holds `instance.read`:
 
 <Terminal>
 
@@ -16,13 +41,13 @@ marfa update status
 ```
 
 ```text
-release              0.0.80
+release              0.0.79
 check_enabled        true
-checked_at           2026-11-19T00:03:47.797Z
+checked_at           2026-11-19T00:41:12.204Z
 check_error          -
 latest.release       0.0.80
 latest.published_at  2026-11-18T23:23:28.000Z
-available            false
+available            true
 method               server
 step                 -
 progress.state       idle
@@ -32,73 +57,65 @@ last                 -
 
 </Terminal>
 
-`available` is `true` only when the newest release is newer than the one running. `method` is `server` where the server can update itself, and `manual` elsewhere, with `step` saying what to do on the host. `update_check_enabled` set to `false` stops the check, and nothing leaves the machine for it. `marfa server status`, and `version` in what `GET /` answers, also show the running release.
+`available` is `true` only when the newest release is newer than the one running. `method` is `server` where the server can replace its own programs, and `manual` elsewhere, with `step` saying what to do on the host. `update_check_enabled` set to `false` stops the check, and nothing leaves the machine for it.
 
-## Update an installed server
+## Move an instance to a newer release
 
-On a machine you [installed with one command](/run/install), the server replaces its own programs. With `instance.maintain`:
+If you choose to move an instance in place anyway, **take a backup first** with `marfa backups run`, and know what each way does:
 
-```bash
-marfa update start
-```
+- **The install script, as a service.** `marfa update start`, with `instance.maintain`, makes the server download the release, check it against the release's checksums, check that each new program runs, and ask the new server whether it accepts the settings and opens the database. If a check fails, it keeps the running programs and says why in `last`. Otherwise it swaps them, keeping the old ones beside the new.
+- **Homebrew.** `marfa update start` is refused `409 update_unavailable`, since Homebrew owns the programs. Run `brew upgrade marfa`, then `marfa server upgrade`.
+- **Programs you replaced yourself.** `marfa server upgrade`, run on the machine with the new programs, restarts the service on them, says whether it updated the database, and refuses an older release.
+- **Docker, set up by the CLI.** `marfa server upgrade --release <version>` names the new release in `.env` and recreates the container on the same volume.
+- **A container you run.** Create it again from the new release's image, on the same volume. [Check the image](/run/run-on-a-server#check-the-image) first.
+- **Railway.** Changing the tag on a running service redeploys it on the same volume, and Railway's guide advises against it. Back up the volume in Railway first if you do.
 
-Before it swaps anything, the server checks the download against the release's checksums, checks that each new program runs and reports the release, and **asks the new server whether it accepts this instance's settings and opens its database**. If any check fails, or the disk lacks room, it keeps the running programs and says why in `last`. It keeps the old programs beside the new ones, and if the new release doesn't stay up through its second start, it puts them back and reports the update as rolled back.
+**A release that changes the database schema first copies the database** to `marfa.db.before-upgrade` beside it, replacing any copy from an earlier change, when the database holds data. It refuses to start, and changes nothing, if the copy can't be written or would take the volume below `disk_reserve_bytes`. `marfa server upgrade` says whether it made the copy and where.
 
-`marfa server upgrade` does the same from the machine itself: once you [install the CLI](/run/install#change-upgrade-or-remove-it) again, it moves the server to the release installed beside it, says whether it updated the database, and refuses an older release. If the new release refuses the database, it says how to go back.
+## Go back to the earlier release
 
-## Update a container or Railway
+**Going back depends on whether the new release changed the database.**
 
-A server in a container can't replace its own programs, so `marfa update status` answers `manual`, and `marfa update start` refuses `409 update_unavailable` with the step.
+- **While the database is unchanged,** the earlier release still reads it. After `marfa update start`, a new release that doesn't stay up through its second start is put back by the server, and reported as rolled back. Otherwise, install the earlier programs again, or set `MARFA_RELEASE` to the earlier release in the install's `.env` for a Docker install, and run `marfa server start`.
+- **Once the database has changed,** the earlier release refuses it, and the server doesn't roll back. The way back is `marfa.db.before-upgrade`, which holds the database as it stood before the update. **Everything written since then is lost**, so export an archive with the new release first if you want to keep it.
 
-- **A Docker install** the CLI set up moves with `marfa server upgrade --release <version>`. To go back after a refusal, set `MARFA_RELEASE` in `marfa.env` to the earlier release and run `marfa server start`.
-- **A container you run yourself** moves when you create it again from the new release's image, on the same volume. [Check the image](/run/run-on-a-server#check-the-image) first.
-- **On Railway**, back up the volume in Railway first, then change the image's tag on the service, which redeploys it. If the new release refuses the database, set the earlier tag again.
+To put the copy back on an install made with `marfa server install`:
 
-Keep a container on a release you name, never `latest`, so that a restart never changes the release under your data.
+<Steps>
+<Step>
 
-## Try a release beside your instance
+### Stop the server
 
-To try a newer release without moving the one you use, make a second install in another folder, with its own port:
+Run `marfa server stop`. A clean stop folds the database's write-ahead log into `marfa.db`, so no `marfa.db-wal` is left beside it.
 
-```bash
-marfa server install --dir ~/marfa-next --port 8610
-```
+</Step>
+<Step>
 
-Your instance and its data stay as they are. To move your data across, [restore a backup](/run/back-up-and-restore#restore-the-copy) or [an archive](/run/export-and-restore#restore-an-archive) into it.
+### Swap in the copy
+
+In the install's `data` folder, move `marfa.db` to a folder of its own, then copy `marfa.db.before-upgrade` to `marfa.db`. Keep the moved file until the instance works again.
+
+</Step>
+<Step>
+
+### Start the earlier release
+
+Install the earlier release's programs, or set its release in `.env` for Docker, and run `marfa server start`. In a Docker install the files are in the volume: `marfa server upgrade` names the `docker cp` command that copies them out.
+
+</Step>
+</Steps>
 
 ## When a build refuses the database
 
 A build checks the database before it opens a port. **When it refuses one, it leaves the file as it found it,** opens no port, logs the reason with the file's path, and exits with status `78`:
 
-- **`… is at schema version …, which a newer build wrote`.** An earlier build doesn't know what a later one changed. Run that build or a later one.
+- **`… is at schema version …, which a newer build wrote`.** An earlier build doesn't know what a later one changed. Run the build that wrote it, or a later one.
 - **`… is not this build's: …`.** The database isn't in the shape its version declares, such as one changed by hand. The message gives the way forward: export with the build that wrote the file, start a new instance, and restore the archive there.
 
-`marfa server run`, which every install starts, stays up without the server after a `78`, so nothing starts it again into the same refusal. `marfa server status` shows the reason, and so does `docker logs <name>`. **To go back,** run `marfa server stop`, install the release that wrote the database again, and run `marfa server start`.
-
-**A build that changes the database** first copies it to `marfa.db.before-upgrade` beside it, replacing the copy from any earlier change. It refuses to start, and changes nothing, if the copy can't be written or would take the volume below `disk_reserve_bytes`. An update that fails partway leaves the database as it was.
+`marfa server run`, which every install starts, stays up without the server after a `78`, so nothing starts it again into the same refusal. `marfa server status` shows the reason, and so does `docker logs <name>`.
 
 ## Types a new build leaves in conflict
 
-A new build can give a built-in type a field that a type registered beneath it already declares in another shape. A task type whose parent is `core.task` may declare `recurrence` as text where `core.task` comes to give a list. **The type keeps working,** and its items stay readable.
-
-[List types](/api-reference/types/listTypes) gives such a type's entry a `conflicts` list:
-
-```json
-{
-  "id": "app.tasks.task",
-  "parent": "core.task",
-  "conflicts": [
-    {
-      "field": "recurrence",
-      "attribute": "type",
-      "inherited_from": "core.task",
-      "inherited": "type \"array\"",
-      "declared": "type \"string\""
-    }
-  ]
-}
-```
-
-**Registering the type again as it stands is refused** `400 inheritance_violation`, so the app or connector that registers it fails until its definition gives the field the inherited shape. Update it, or [change the type](/build/change-a-type) yourself. Once the shapes agree, `conflicts` is left out.
+A new release can give a built-in type a field that a type an app registered beneath it declares in another shape. The type and its items keep working, and [Change a type](/build/change-a-type) says how the app puts it right.
 
 The rules behind this page are in the [updates](https://github.com/withmarfa/marfa/blob/main/conformance/spec/updates.md) chapter of the contract, and the section on [a database this build did not write](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#a-database-this-build-did-not-write) in the instance chapter.

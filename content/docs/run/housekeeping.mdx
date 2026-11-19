@@ -1,13 +1,43 @@
 ---
-title: Check the housekeeping jobs
-description: See the work an instance does on itself, read what each housekeeping job last did, run one now, and empty the bin.
+title: Check on an instance and empty its bin
+description: Check from any machine that an instance is well, read what each housekeeping job last did, run one now, and empty the bin.
 ---
+
+## Check that all is well
+
+**`marfa attention` is the one check to run from any machine.** With `instance.read`, it names a degraded part of the server, a job that failed, a connector or folder with a problem, a key about to expire, and backups that aren't kept or have stopped. It prints `nothing needs attention` while all is well.
+
+Two more checks fill it in:
+
+- **`marfa update status`** says whether a newer release is out. Read [Upgrade an instance](/run/upgrade) before you move to one.
+- **`marfa server status`,** on the server's own machine, says whether the service runs and answers, with the release, the address and whether backups are kept. When the server isn't answering, it shows the end of its log.
+
+<Terminal>
+
+```bash
+marfa attention
+marfa server status
+```
+
+```text
+nothing needs attention
+marfa 0.0.80: running and healthy
+  Runtime   native, the launchd agent so.marfa.server.marfa
+  Address   http://localhost:8600
+  Folder    /Users/you/marfa-server
+  Owner     set up
+  Login     on
+```
+
+</Terminal>
+
+## The housekeeping jobs
 
 An instance looks after itself on a schedule: it empties the bin, thins old versions, moves expired feed items to the bin, clears old log entries, copies and checks files, and takes backups. Each piece of that work is a housekeeping job. **What each job last did shows whether the instance is keeping up,** and running one applies a changed retention without waiting.
 
 Listing needs `instance.read`, and running needs `instance.maintain`. The [private socket](/run/run-on-a-server#the-private-socket) needs neither.
 
-## List the housekeeping jobs
+### List the housekeeping jobs
 
 <Terminal>
 
@@ -26,15 +56,15 @@ trash-purge               1 d    2026-11-20T00:02:52.692Z  succeeded 2026-11-19T
 
 `--json` gives each job's `name`, `interval_seconds`, `next_run_at`, `running_since`, `last_started_at`, `last_finished_at`, `last_outcome`, `last_error` and `last_result`. [List housekeeping jobs](/api-reference/health-and-maintenance/listHousekeeping) has every field.
 
-## Read what a job did
+### Read what a job did
 
-- **`last_outcome`** is `null` until a run finishes, then `succeeded`, `failed` with the reason in `last_error`, or `held` while [the clock is ahead](#when-the-clock-jumps-ahead).
+- **`last_outcome`** is `null` until a run finishes, then `succeeded`, `failed` with the reason in `last_error`, or `held` when the job did nothing because [the clock is far ahead](#when-the-clock-jumps-ahead) or a restore holds writes.
 - **`last_result`** holds the job's own counts, such as `deleted` for a cleanup, `moved` and `held` for `feed-expiry`, and `copied` and `remaining` for `blob-replicate`.
 - **`running_since`** is when the current run started, or `null`.
 
 A job whose `last_outcome` stays `failed`, or whose `next_run_at` is long past, is **the place to look when an instance falls behind**. A run that outlives its deadline is recorded as `failed`, and the job can run again. `marfa attention` names a failing job too.
 
-## The housekeeping jobs
+### What each job does
 
 <include cwd>src/generated/housekeeping.md</include>
 
@@ -42,13 +72,13 @@ Retention windows and intervals are [stored settings](/run/settings#change-setti
 
 Four jobs are listed only when something turns them on: `heartbeat` while `heartbeat_url` is set, `blob-orphans` while `blob_cleanup_enabled` is `true`, `backup` while a [backup place](/run/back-up-and-restore#turn-on-backups) is set and `backup_interval_seconds` is above `0`, and `release-check` while `update_check_enabled` is `true`. Running a job that isn't listed is refused `404 housekeeping_job_not_found`. Other jobs stay listed when their work is off, such as `enrichment-sweep` while `enrichment_enabled` is `false`.
 
-### Feed expiry
+#### Feed expiry
 
-`feed-expiry` acts only on a type with a `feed_days` window in its [retention policy](/catalog/type-rules#retention-policy), set on the type or taken from a parent. Once an active feed item has been in the feed longer than that, the job moves it to the bin, where it can be restored until `trash-purge` deletes it. **Library items, archived items and items brought back from the bin stay.**
+`feed-expiry` acts only on a type with a `feed_days` window in its [retention policy](/catalog/type-rules#retention-policy), set on the type or taken from a parent. Once an active feed item is older than that, counted from when it was created, which a connector's later updates don't change, the job moves it to the bin, where it can be restored until `trash-purge` deletes it. **Library items, archived items and items brought back from the bin stay.**
 
 `held` counts expired items the job left because moving one would take an item that isn't expired with it, or an edge with `cascade_on_delete` set to `block` refuses it.
 
-## Run a housekeeping job now
+### Run a housekeeping job now
 
 Name the job as the listing shows it. **The server runs it before it answers:**
 
@@ -75,7 +105,7 @@ marfa housekeeping run trash-purge --json
 
 A run that fails still answers `200`, with `outcome` set to `failed` and the reason in `error`. A run on demand never moves the next scheduled run later. While a run of the same job is in progress, another is refused `409 housekeeping_job_running`: try again when it finishes. [Run a housekeeping job](/api-reference/health-and-maintenance/runHousekeeping) lists every answer.
 
-## When the clock jumps ahead
+### When the clock jumps ahead
 
 **While the server's clock reads more than seven days later than the time it last trusted, the jobs that delete do nothing.** A clock set wrong would otherwise judge everything old enough to remove. Those runs are recorded as `held`, the table above marks which jobs are held, and [Health](/api-reference/health-and-maintenance/getHealth) reports the instance `degraded`, with `housekeeping.held`.
 
@@ -93,7 +123,7 @@ An item stays in the bin until it's purged. `trash-purge` purges each item once 
 
 <Callout type="warn" title="A purge can't be undone">It deletes the items and their history. Emptying the bin has no dry run, so list the bin first.</Callout>
 
-To empty it now, with `items.purge` or the private socket:
+Emptying it now needs `items.purge` or the private socket:
 
 <Terminal>
 
