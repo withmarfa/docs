@@ -111,7 +111,7 @@ describe('fetchDocsPage', () => {
     expect(await fetchDocsPage('/typescript-sdk')).toMatch(/^# TypeScript SDK \(\/typescript-sdk\)\n/);
     // A command keeps its output, and code tabs keep their examples under each tab's label.
     const quickstart = await fetchDocsPage('/quickstart');
-    expect(quickstart).toContain('marfa items create --type core.note');
+    expect(quickstart).toContain('marfa items add ~/Downloads/receipt.pdf');
     expect(quickstart).toContain('Output:');
     expect(await fetchDocsPage('/build/write-safely')).toContain('**TypeScript**');
     expect(await fetchDocsPage('/cli-reference')).toBeNull();

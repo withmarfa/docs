@@ -1,26 +1,37 @@
 ---
 title: Bring in records from another service
-description: Build a connector from the marfa-connectors repository, give it a key of its own, and run it once or on a schedule.
+description: Run one of the connectors Marfa ships, so your tasks, events, highlights or feeds arrive in your feed and stay up to date.
 ---
 
-A connector is **a program you run yourself**, with a key of its own and the vendor's credentials in its environment. [Connectors](/build/connectors) explains why the server never runs one. These steps run any connector in [withmarfa/marfa-connectors](https://github.com/withmarfa/marfa-connectors), whether one Marfa ships or [one you built](/build/connector).
+A connector is **a small program you run yourself** that reads another service and writes what it finds into your feed, under a type of its own. Some also carry your changes back, such as a Todoist task you complete in Marfa. The server never runs one. **Running one takes three things:** you build it from source on a computer with Git, Node.js and pnpm; you make its key on the machine your server runs on; and you run it there or on any computer that can reach your instance, with the key and the service's credentials in its environment.
 
-Marfa ships six: [GitHub](/catalog/connectors/github), [Google Calendar](/catalog/connectors/google-calendar), [Todoist](/catalog/connectors/todoist), [Readwise](/catalog/connectors/readwise), [Readwise Reader](/catalog/connectors/readwise-reader) and [RSS](/catalog/connectors/rss). The [Catalog](/catalog/connectors) says what each reads and writes back, and lists its settings.
+Marfa ships six, each with a page in the Catalog that says what it reads, what it writes back, and the settings and key it needs:
 
-A connector that signs in to Google needs a Google Cloud project of your own first: [Create a Google Cloud project for Google connectors](/use/google-project).
+| Connector | Brings in |
+| --- | --- |
+| [GitHub](/catalog/connectors/github) | Repositories, issues, discussions, pull requests and their comments |
+| [Google Calendar](/catalog/connectors/google-calendar) | Calendars and events |
+| [Todoist](/catalog/connectors/todoist) | Tasks |
+| [Readwise](/catalog/connectors/readwise) | Books, articles and their highlights |
+| [Readwise Reader](/catalog/connectors/readwise-reader) | Saved documents and their highlights |
+| [RSS](/catalog/connectors/rss) | The entries of the feeds you list |
 
-The repository **has no releases and publishes no package**, so build from its `main` branch, and run it against an instance on the latest Marfa release.
+A Google connector also needs a Google Cloud project of your own first: [Create a Google Cloud project for Google connectors](/use/google-project). To write a connector for a service that isn't listed, see [Build a connector](/build/connector).
+
+## Before you start
+
+- **A terminal on the server's machine,** to make the connector's key. A connector refuses a key that an app made, and the CLI's own sign-in is an app, so you make the key through the server's private socket, which only that machine reaches. A server from `marfa server install` keeps the socket at `~/marfa-server/data/control/marfa.sock`.
+- **Git, [Node.js](https://nodejs.org) 22.13 or later and [pnpm](https://pnpm.io/installation) 11** on the computer that runs the connector.
+- **The connectors' source.** They're published as source in [withmarfa/marfa-connectors](https://github.com/withmarfa/marfa-connectors), with no package to install, so you build them from its `main` branch.
 
 ## Run one
 
-The steps use the RSS connector. You need the instance and CLI from the [Quickstart](/quickstart), with a key that holds `keys.mint`, such as the Quickstart's. You also need Git, [Node.js](https://nodejs.org) 22.13 or later and [pnpm](https://pnpm.io/installation) 11.
+The steps use the RSS connector, which needs no account.
 
 <Steps>
 <Step>
 
-### Build the connector
-
-The build compiles every connector in the repository:
+### Build the connectors
 
 ```bash
 git clone https://github.com/withmarfa/marfa-connectors.git
@@ -29,31 +40,34 @@ pnpm install --frozen-lockfile
 pnpm build
 ```
 
+The build compiles every connector in the repository.
+
 </Step>
 <Step>
 
 ### Make its key
 
-Give each connector a key of its own: its source is the connector's `source`, and it holds only what the connector writes. The RSS connector writes `rss.entry`:
+On the server's machine, make a key that holds only what the connector writes. The RSS connector writes `rss.entry` items into the feed:
 
 ```bash
-marfa keys create --label rss --source rss --type-permission rss.entry=write \
+marfa --socket ~/marfa-server/data/control/marfa.sock keys create \
+  --label rss --source rss --type-permission rss.entry=write \
   --metadata-permission types=write --default-tier feed
 ```
 
-`--metadata-permission types=write` lets the connector register its type on the first start. This key is for the default setting. To save entry pictures as well, see [RSS](/catalog/connectors/rss#run-it) for the setting and the key it needs. **Copy the key from the answer**, because Marfa shows it once. The connector **refuses a key that holds more, or less**, and names what to change. [Manage keys](/run/manage-keys) explains each flag.
+**Copy the key from the answer,** because Marfa shows it once, and keep it in your password manager. `--metadata-permission types=write` lets the connector add its type the first time it starts. Each connector's Catalog page has the command for its own key, and the connector **refuses a key that holds more or less** than it needs, naming what to change. [Manage keys](/run/manage-keys) explains each option.
 
 </Step>
 <Step>
 
 ### Run it once
 
-In a terminal of its own, so the connector's key doesn't replace your CLI's, set its environment and run it with `--once`. `RSS_FEEDS` holds one feed on each line, as an address or as `name=address`; a named feed keeps its items when its address changes. A feed's address can carry a token, so keep `RSS_FEEDS` and the key out of any file in the checkout. Replace the two addresses with your own feeds:
+In a terminal of its own, so the connector's key doesn't replace your own, give it your instance's address, its key and its settings, then run it with `--once`. `RSS_FEEDS` holds one feed on each line:
 
 <Terminal>
 
 ```bash
-export MARFA_API_URL=http://localhost:8600
+export MARFA_API_URL=https://marfa.example.com
 export MARFA_API_KEY=<the connector's key>
 export RSS_FEEDS='https://example.org/feed.xml
 news=https://example.com/atom.xml'
@@ -61,18 +75,20 @@ node connectors/rss/dist/main.js --once
 ```
 
 ```text
-2026-10-21T15:41:15.500Z info registered as 01a15f1f-b268-77df-acbb-e84c10f5ae22
-2026-10-21T15:41:16.439Z info run succeeded: created 3, updated 0, archived 0, unchanged 0, skipped 0
+2026-11-19T00:15:49.402Z info registered as 01a1f125-53b5-77aa-84a7-d453cd05ce6e
+2026-11-19T00:15:49.536Z info run succeeded: created 2, updated 0, archived 0, unchanged 0, skipped 0
 ```
 
 </Terminal>
 
+A feed's address can hold a token, so keep `RSS_FEEDS` and the key out of any file in the checkout.
+
 </Step>
 <Step>
 
-### Check its runs
+### Check what arrived
 
-With your own key, list the connectors. Each shows its last run and that run's summary or error:
+Back in your own terminal, list your connectors. Each shows its last run and what that run did, or why it failed:
 
 <Terminal>
 
@@ -81,32 +97,27 @@ marfa connectors list
 ```
 
 ```text
-01a15f1f-b268-77df-acbb-e84c10f5ae22  rss  rss  succeeded  2026-10-21T15:41:16.439Z  created 3, updated 0, archived 0, unchanged 0, skipped 0
+id                                    source  name  last run   finished                  note
+01a1f125-53b5-77aa-84a7-d453cd05ce6e  rss     rss   succeeded  2026-11-19T00:15:49.536Z  created 2, updated 0, archived 0, unchanged 0, skipped 0
 ```
 
 </Terminal>
 
-`marfa connectors runs <connector id>` lists its recent runs, and `marfa items list --type rss.entry` lists what it wrote.
+The new entries are in your feed: `marfa items list --type rss.entry` lists them. Keep the ones you want by moving them to your library, as [Work from the command line](/use/command-line) shows. The connector never moves anything there itself.
 
 </Step>
 </Steps>
 
-[Keep it running](#keep-it-running) runs it on a schedule.
+## Keep it running
 
-## Check and manage it in the browser
+A connector run once takes in what's there now. To keep up with the service, run it again and again:
 
-The owner's **Connectors** page, at `/auth/owner/connectors`, lists each connector with its state. **Failing** means its last run failed, **Problems** that it reported a problem, and **Not heard from** that it hasn't reported for more than a day. Open one to see its problems and recent runs, then check the process where it runs.
+- **Leave it running** with `--every 15m` in place of `--once`. It reads the service every 15 minutes, never starts a run while one is still going, and waits longer after a run that failed.
+- **Run it from a scheduler** with `--once`, such as cron, launchd or a scheduled container. The [template's README](https://github.com/withmarfa/marfa-connectors/blob/main/template/README.md#run-it) has a launchd file and a container image.
 
-A connector's page has two actions that can't be undone, and **neither stops the process or revokes its key**:
+**Run one copy of each connector.** A second copy under the same key waits under `--every`, and exits under `--once`. The connector keeps its place in the service on your instance, not in a file, so a new process, or one on another computer, carries on from the last run.
 
-- **Clear saved state** deletes what the connector keeps between runs, for every key under its source, so its next run starts from the beginning.
-- **Remove connector** deletes the registration and its runs. If it's the current registration, it also deletes the source's [inbound endpoints](/build/connector-webhooks) and the deliveries they hold.
-
-The [connectors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md) and [inbound webhooks](https://github.com/withmarfa/marfa/blob/main/conformance/spec/inbound-webhooks.md#inbound-webhookssource-old-delete-keeps) chapters of the contract define both.
-
-## Exit codes
-
-A run with `--once` ends with one of these codes:
+A run with `--once` ends with one of these codes, for a scheduler to act on:
 
 | Code | Meaning |
 | --- | --- |
@@ -114,11 +125,23 @@ A run with `--once` ends with one of these codes:
 | `1` | The run failed, or the connector couldn't start, such as on a key it refuses. |
 | `2` | A setting is missing or malformed. The log names the setting, never its value. |
 
-A failed run loses nothing, and the next run reads the vendor again.
+A failed run loses nothing, and the next run reads the service again.
 
-## Keep it running
+## When a run fails
 
-- **`--every 15m`** in place of `--once` keeps one process running, with a run every 15 minutes. Runs never overlap, and a failed run lengthens the wait before the next.
-- **`--once` from a scheduler**, such as cron, launchd or a scheduled container.
+`marfa connectors list` shows the reason in the `note` column, such as this answer to a key the CLI's sign-in made:
 
-The connector keeps its place at the vendor on the instance, not in a file, so a new process carries on from the last run. **Run one process for each connector**: a second under the same key waits under `--every` and exits under `--once`, as [Holds and retries](/build/connector-holds-and-retries) explains. The [template README](https://github.com/withmarfa/marfa-connectors/blob/main/template/README.md#run-it) has a launchd file and a container image.
+```text
+01a1f124-aaa3-70f3-8ed9-61eb7b6509d4  rss     rss   failed     2026-11-19T00:11:14.480Z  the key 01a1f124-95ba-777f-8c8f-4e4d26707dc1 is refused: an app made it, and it stays that app's. Mint the connector a key of its own as connectors/rss/README.md says.
+```
+
+`marfa connectors runs <connector-id>` lists its recent runs, each with what it did or what went wrong, and `marfa connectors get <connector-id>` shows the problems it reports now, such as a service that no longer lets it in. For a Google connector, see [Google connectors](/run/troubleshooting/google-connectors).
+
+## Stop or remove a connector
+
+- **To stop it,** stop its process or take it out of its scheduler. Nothing on your instance changes, and its items stay.
+- **To cut it off,** revoke its key with `marfa keys revoke <key-id>`, as [See and cut access](/use/see-and-cut-access) shows. It can't write again with that key.
+- **To start it again from the beginning,** run `marfa connectors state delete <connector-id>`. Its next run reads the whole service again.
+- **To remove it from the list,** run `marfa connectors delete <connector-id>`. This deletes its registration and its runs, but keeps its place in the service, for a later key under the same source.
+
+None of these moves the connector's items to the bin. To remove them, move them to the bin as you would any item.

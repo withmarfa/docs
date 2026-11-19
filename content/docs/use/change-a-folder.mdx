@@ -1,65 +1,97 @@
 ---
 title: Change what a folder syncs
-description: Change which items a folder holds, the defaults for its new files, or the key it uses.
+description: Change which items a folder holds, what its new files become, and which files it leaves alone.
 ---
 
-This page will show how to change a folder's query, defaults and key after it is set up.
+A folder's settings live on your instance, so **a change reaches every computer that follows the folder.** Change them in the folder's own settings file, or with the CLI from any computer.
 
-## Change a folder's settings
+## Edit the settings file
 
-Each computer writes the folder's settings out as `.marfa/folder.yaml`:
+Each computer writes the folder's settings into `.marfa/folder.yaml`:
 
-```yaml title="Notes/.marfa/folder.yaml"
+```yaml title="Home/.marfa/folder.yaml"
 # This folder's settings, the system.folder it follows. An edit here is
 # sent through the folder operations by `folders push`, or while watching.
-folder: 01a1232d-949d-758c-b244-70057174b96a
-version: 1
-title: Notes
+folder: 01a1f165-1c9c-71f5-b4b6-e88135e8df1f
+version: 2
+title: Home
 query:
   types:
     - core.note
-```
-
-Edit the file and the next sync sends your change to the instance through [Update a folder](/api-reference/folders/updateFolder), so **it reaches every computer that follows the folder**. `folder` and `version` in this file are Marfa's to write. [Folder](/catalog/folder) lists every other setting.
-
-**A `first_placement` directory can't hold a `..` name**, such as `Notes/../Tickets`, which leads outside the folder. Marfa refuses the settings with `validation_error`, naming `first_placement` and the type.
-
-**Each setting you send replaces its value whole.** Omitted settings stay, and a change removes any stored setting the folder type doesn't declare. A change names the version it starts from: changes to different settings can merge, but a collision is refused without changing the folder ([folder change rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#itemsfolder-change-declared)).
-
-This edit leaves a `drafts` directory alone and tags every new note:
-
-```yaml title="Notes/.marfa/folder.yaml"
-ignore:
-  - drafts/
+    - core.file
 defaults:
   tags:
     - from-folder
+ignore:
+  - drafts/
 ```
 
-To change settings without opening the local folder, read the `system.folder` item with `marfa items get <id>` and note its `version`. Put the settings you want to change in a JSON file, then send it:
+Edit the file and save it, and the next sync sends the change to your instance. **Leave `folder` and `version` to Marfa.**
 
-```json title="settings.json"
-{"query":{"types":["core.note"]}}
+- **`query`** says which items the folder holds. Add `tier: all` to take in the feed too, or a `filter` to hold only some items, such as `tags contains "lisbon"`.
+- **`defaults`** says what a new file becomes when its frontmatter leaves something out, such as its type or tags. Here every new note or file is tagged `from-folder`.
+- **`ignore`** lists the paths the folder leaves alone, in the form a `.gitignore` takes. Here the folder doesn't sync the `drafts` directory.
+
+The [folder type](/catalog/folder) lists every setting, such as `full_pass_interval_seconds` and the thresholds for [large changes](/use/large-changes).
+
+## Change it from the CLI
+
+From any computer you're signed in on, change a setting by the folder's ID. **A change names the version it starts from,** so two changes made at once don't overwrite each other. Read the version with `marfa items get <id>`, then send the change:
+
+<Terminal>
+
+```bash
+marfa folders update 01a1f165-1c9c-71f5-b4b6-e88135e8df1f --version 1 \
+  --ignore 'drafts/' --defaults '{"tags":["from-folder"]}'
 ```
 
-```bash tab="CLI" tab-group="client"
-marfa folders change <id> --version <n> --file settings.json
+```text
+marfa: writing to http://localhost:8600
+id                        01a1f165-1c9c-71f5-b4b6-e88135e8df1f
+type                      system.folder
+state                     active
+tier                      library
+created_at                2026-11-19T01:21:37.948Z
+updated_at                2026-11-19T01:23:24.956Z
+last_activity_at          2026-11-19T01:23:24.956Z
+occurred_at               2026-11-19T01:21:37.948Z
+source                    oauth:01a1f121-2b5f-7e3c-a1d4-58b2c06e9f17
+version                   2
+schema_version            0
+trashed_at                -
+read_only                 false
+properties.title          Home
+properties.query.types    core.note, core.file
+properties.defaults.tags  from-folder
+properties.ignore         drafts/
 ```
 
-```http tab="HTTP"
-PATCH /folders/<id>
-Authorization: Bearer <key>
-Content-Type: application/json
+</Terminal>
 
-{"version":1,"query":{"types":["core.note"]}}
+**Each setting you name replaces its value whole,** and settings you leave out stay as they were. To hold only the notes and files tagged `lisbon`, send the whole query:
+
+```bash
+marfa folders update <id> --version <n> \
+  --query '{"types":["core.note","core.file"],"filter":"tags contains \"lisbon\""}'
 ```
 
-Use the version you read in place of `<n>` or `1`. Then sync the folder.
+The other computers take the change on their next sync.
 
-**Moving items to another type changes the folders too.** When you [move them](/build/move-items-to-another-type), Marfa replaces the old type in every folder's `query.types`, `defaults.type`, `first_placement`, and `type eq` and `type neq` terms. Each item keeps its file, and the next sync writes the new type into the file's frontmatter.
+## What a change to the query does
 
-## Replace a folder's key
+- **Items the query now holds** are written into the folder as new files on the next sync. Widening a query can write many, so check with `marfa search` or `marfa items list` first.
+- **Items the query no longer holds keep their files.** The folder stops syncing them, and nothing moves to the bin. [Remove files a folder no longer holds](#remove-files-a-folder-no-longer-holds) takes the files away.
+- **A new file the query wouldn't hold** is still sent, and flagged unmatched. To leave such files on disk instead, set `outside_query` to `hold`.
 
-A new key with the same `--source` is refused `409 conflict` while the old key is live. [Revoke the old key](/run/manage-keys#revoke-a-key), run the `keys create` command from the first step again, then run `marfa keys keep` so the folder reads the new key from the keychain.
+[List, filter and search](/build/list-filter-search) has the whole filter grammar.
 
-Then run `marfa folders push Notes`. If the key's reach changed, the push rebuilds the working copy once and sends the waiting writes in the same run, keeping earlier verdicts. If the reach changes again during that run, it stops and keeps the remaining writes queued: try again once the access is settled.
+## Remove files a folder no longer holds
+
+When you narrow a query, the files of the items it drops stay on disk. List them, then remove them:
+
+```bash
+marfa folders unmatched ~/Home
+marfa folders unmatched ~/Home --remove
+```
+
+`--remove` asks before it takes anything away, and keeps a file you've changed since the folder wrote it. **Use it rather than your file manager:** a file you delete by hand moves its item to the bin, while this command only takes the file out of the folder, and the item stays as it was.
