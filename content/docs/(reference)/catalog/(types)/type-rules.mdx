@@ -5,6 +5,21 @@ description: "The rules a type you register must meet: its identifier, label and
 
 **Marfa refuses a definition that breaks a rule with `400 invalid_schema`** unless the rule names another answer. [Define a type](/build/define-a-type) shows how to register one, and [Field kinds](/catalog/field-kinds) has the rules for its fields.
 
+## Definition
+
+A definition is an object with these keys. **Marfa refuses any other key** with `400 invalid_schema`, naming the path of each one in `details.errors`, and refuses `states`, `default_state` and `transitions` the same way.
+
+| Key | Rule |
+| --- | --- |
+| `id` | Required. Refused `400 invalid_schema` when missing. An `id` already registered is refused `409 type_exists`. |
+| `fields` | Required, an object of field definitions. Refused `400 missing_required_field` when missing. |
+| `required` | Optional, a list of field names the type or an ancestor declares. It's the same as `required: true` on each field, and Marfa answers it that way. |
+| `version` | Optional, a whole number of 0 or more. Defaults to 0. |
+| `description` | Optional, a string. |
+| `tables` | Optional. [Tables](/build/tables) has their rules. |
+
+The other keys have sections below.
+
 ## Identifier
 
 [Items and types](/build/items-and-types) explains the namespaces a type can sit in.
@@ -38,7 +53,7 @@ A type's `fields` follow [Field kinds](/catalog/field-kinds). A field can't take
 | --- | --- |
 | `parent` | Names a registered type, with no loop and at most ten ancestors. Refused `400 validation_error`. |
 | A subtype may | Add fields. Redeclare an inherited field, or give it a new `description` or `label`. Make an inherited field required. Add a range to an inherited `number` or `integer` field, or narrow its range. Add status words. |
-| A subtype may not | Change an inherited field's `type`, `format`, `items_type`, `items_fields`, `searchable`, `maxLength`, `maxItems` or `enum_values`. Widen or drop its range. Make a required field optional. Refused `400 inheritance_violation`, naming the field. |
+| A subtype may not | Change an inherited field's `type`, `format`, `items_type`, `items_fields`, `searchable`, `max_length`, `max_items` or `enum_values`. Widen or drop its range. Make a required field optional. Refused `400 inheritance_violation`, naming the field. |
 | Write access | A new `parent` that isn't a platform type needs write on that type; keeping one doesn't. Refused `403 type_not_permitted`. |
 
 **A parent change that breaks a subtype is refused the same way.** A new build can still give a shipped type a field that a registered subtype declares in another shape: `GET /types` lists the field in the subtype's `conflicts`, as [Upgrade](/run/upgrade#types-a-new-build-leaves-in-conflict) shows.
@@ -49,12 +64,13 @@ A subtype inherits its parent's [status field](/catalog/field-kinds#status-words
 
 ### Compatible with
 
-`compatible_with` names a type that yours is readable as, without inheriting from it. A claim that doesn't hold, or that names an unregistered type, is refused `422 compatible_with_violation`. The claim holds when:
+`compatible_with` names a type, or a list of types, that yours is readable as, without inheriting from it. Marfa stores and answers it as a list. A claim that doesn't hold, or that names an unregistered type, is refused `422 compatible_with_violation`. The claim holds when:
 
 - Yours requires every field the target requires.
 - Each target field that yours declares or inherits has the same kind. A `string` target field also accepts `url`, `email`, `datetime`, `date`, `thumbnail`, `enum` or `status`, and a `number` accepts `integer`.
 - An `array` has the same `items_type` and `items_fields`. An `enum` takes values from the target's, and a `status` field takes words from the target's, each in the same group.
-- A range is no wider than the target's, and a `format` the target names is the same on yours (a `currency` field also reads as a plain `string`).
+- A range is no wider than the target's.
+- Where both fields name a `format`, it's the same. A target field with the `currency` format needs it on yours, and a `currency` field reads as a `string` with no format.
 
 A replacement or deletion that breaks another type's claim is refused the same way, naming the claimants in `details.dependent_type_ids`. Naming a new target that isn't a platform type needs write on it, as a new `parent` does; keeping one doesn't. Refused `403 type_not_permitted`.
 
@@ -64,7 +80,7 @@ A replacement or deletion that breaks another type's claim is refused the same w
 
 ## Roles
 
-`roles` takes `container` alone. A `container` type can be the target of an [`in-collection`](/catalog/edges/in-collection) edge.
+`roles` takes `container` alone. A `container` type can be the to item of an [`in-collection`](/catalog/edges/in-collection) edge, and can't be its from item: that edge is refused `400 edge_constraint_violation`, with `details.constraint` `nesting`.
 
 A type also plays its ancestors' roles. [List types](/api-reference/types/listTypes) answers `roles`, every role it plays, and `own_roles`, those it declares. **When you [replace a type](/api-reference/types/replaceType), send its `own_roles` as `roles`.**
 
@@ -74,6 +90,7 @@ A type also plays its ancestors' roles. [List types](/api-reference/types/listTy
 
 - **The value is unique within the type**, in every state. A write that gives it to a second item is refused `409 link_taken`, and `details.existing_id` names the holder. An empty value is no link.
 - **Marfa refuses** a field that isn't a declared or inherited `string`, or whose name holds `"` or `\`: `400 invalid_schema`.
+- **A new or changed link is refused `409 link_taken`** where two of the type's items, in any state, already hold one value in the field.
 - **A subtype inherits the field, not the link**, and may name its own.
 
 ## Merge policy
@@ -96,7 +113,7 @@ A type also plays its ancestors' roles. [List types](/api-reference/types/listTy
 | `weekly_snapshot_days` | One a week, back this many days. |
 | `max_versions` | At most this many, dropping the oldest first. |
 
-Each is a whole number of at least 1, and no window ends sooner than the one above it. Marfa refuses a policy that breaks either rule with `400 invalid_schema`, naming the key. **A key left out** comes from the parent type, then the instance's defaults.
+Each window is a whole number from 0 to 36500, and `max_versions` a whole number from 1 to 1,000,000. No window ends sooner than the one above it. Marfa refuses a policy that breaks either rule with `400 invalid_schema`, naming the key. A `weekly_snapshot_days` of 0 removes no version for its age. **Marfa always keeps an item's newest version.** **A key left out** comes from the parent type, then the instance's defaults.
 
 ## Retention policy
 
