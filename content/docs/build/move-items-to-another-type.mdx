@@ -6,7 +6,7 @@ description: Move every item of one type to another in one step, and change the 
 
 A type's identifier never changes. **To rename a type, or to fold one type into another, register the new type, move the items, then delete the old type.** Each item keeps its ID, edges, tags and files; only its type changes. [Define a type](/build/define-a-type) shows how to register one.
 
-The examples move every `acme.deal` item to a registered type, `acme.contract`.
+You need your own Marfa instance, with the CLI signed in to it, as the [Quickstart](/quickstart) leaves you. The examples move every `acme.deal` item to a registered type, `acme.contract`, which requires a `signed` property that deals don't have. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/typescript-sdk#create-a-client) shows. In the Swift examples, `api` is a `Client` made as [the Swift SDK](/swift-sdk/server-calls#the-api-client) shows.
 
 ## Check what a move does
 
@@ -18,10 +18,10 @@ marfa types move acme.deal acme.contract --dry-run
 
 ```http tab="HTTP"
 POST /types/acme.deal/move
-Authorization: Bearer <key>
+Authorization: Bearer $MARFA_API_KEY
 Content-Type: application/json
 
-{"to":"acme.contract","dry_run":true}
+{ "to": "acme.contract", "dry_run": true }
 ```
 
 ```ts tab="TypeScript"
@@ -31,7 +31,11 @@ const { data, error } = await marfa.POST("/types/{id}/move", {
 });
 ```
 
-Marfa answers `200` with the items it would move, the settings it would change and the keys that name the type:
+```swift tab="Swift"
+let preview = try await api.previewMove(ofType: "acme.deal", to: "acme.contract")
+```
+
+Marfa answers `200` with the items it would move, the settings that name the type, and the keys and apps whose type map names it:
 
 ```json title="Response" status="200"
 {
@@ -39,60 +43,75 @@ Marfa answers `200` with the items it would move, the settings it would change a
   "from": "acme.deal",
   "to": "acme.contract",
   "matched": 2,
-  "ids": ["01a16f80-1c2e-7d4b-9a10-3f5e8b2c6d01", "01a16f80-1c31-7a0e-8b44-6c2d1e9f0a12"],
-  "settings": [
-    { "kind": "folder", "id": "01a16f80-1d02-7c55-9e21-0b7a4c3d2e13", "field": "query.types" },
-    { "kind": "webhook", "id": "01a16f80-1d4f-7b18-a3c6-5d9e2f1a0b24", "field": "type_filter" }
-  ],
-  "grants": [
-    { "kind": "key", "id": "01a16f80-1b9a-7e63-8f02-2a4b6c8d0e35", "label": "Sales app" }
-  ]
+  "ids": ["01a1f130-7e1d-7368-ad10-cf62c075285b", "01a1f130-7e2e-73ad-a3c7-7ddc31cfef4f"],
+  "settings": [{ "kind": "webhook", "id": "01a1f130-7e53-7538-a866-e7d49546e103", "field": "type_filter" }],
+  "grants": []
 }
 ```
 
-**A move takes every item of exactly that type that your key can see, in any state.** An archived item stays archived, and an item in the bin moves and stays in the bin. A type that names `acme.deal` as its `parent` keeps its own items. An item your key's source filter hides isn't moved or counted in `matched`. One move takes up to 50,000 items.
+**A move takes every item of exactly that type that your key can see, in any state.** An archived item stays archived, and an item in the bin moves and stays in the bin. A type that names `acme.deal` as its `parent` keeps its own items. An item your key's source filter hides isn't moved or counted in `matched`.
 
 ## Move the items
 
-Send the same request without `dry_run`. The CLI waits for the move to finish and says what moved:
+**Marfa checks each item against the new type,** as it checks any write. To add a property the new type requires, send it in `properties`, which Marfa merges into every item as it moves, as [Update an item](/api-reference/items/updateItem) does:
 
 ```bash tab="CLI" tab-group="client"
-marfa types move acme.deal acme.contract
+marfa types move acme.deal acme.contract --properties '{"signed":false}'
 ```
 
 ```http tab="HTTP"
 POST /types/acme.deal/move
-Authorization: Bearer <key>
+Authorization: Bearer $MARFA_API_KEY
 Content-Type: application/json
 
-{"to":"acme.contract"}
+{ "to": "acme.contract", "properties": { "signed": false } }
 ```
 
 ```ts tab="TypeScript"
-const { data, error } = await marfa.POST("/types/{id}/move", {
+const { data: job, error } = await marfa.POST("/types/{id}/move", {
   params: { path: { id: "acme.deal" } },
-  body: { to: "acme.contract" },
+  body: { to: "acme.contract", properties: { signed: false } },
 });
 ```
 
-Over HTTP, Marfa answers `202` with a bulk-action job. Read it with [Get a bulk action job](/api-reference/bulk-actions/getBulkActionJob) until its `status` is `completed`.
+```swift tab="Swift"
+import Marfa // the JSON values in `properties`
+import MarfaAPI
 
-**Marfa checks each item against the new type,** as it checks any write. To add a property the new type requires, send it in `properties`, which Marfa merges into every item as it moves, as [Update an item](/api-reference/items/updateItem) does:
-
-```json
-{"to":"acme.contract","properties":{"signed":false}}
+let started = try await api.startMove(ofType: "acme.deal", to: "acme.contract", properties: ["signed": false])
+let job = try await api.follow(moveJob: started.id)
 ```
 
-The CLI takes the same object as `--properties '{"signed":false}'`.
+Over HTTP, Marfa answers `202` with a bulk-action job. Read it with [Get a bulk action job](/api-reference/bulk-actions/getBulkActionJob) until its `status` is `completed`. The CLI and the Swift SDK's `follow(moveJob:)` wait for it, and the CLI says what moved.
 
-An item the new type refuses stays where it is. The job counts them in `result.errored` and lists the first 100 in `result.errors`, each with the reason.
+Each moved item gets an `item.updated` [event](/build/events) on the stream. No webhook is sent them, as with any bulk write.
 
-**When the job finishes, it reports what is still of the old type:**
+An item the new type refuses stays where it is. The job counts them in `result.errored` and lists the first 100 in `result.errors`, each with the reason. Without `properties`, the CLI reports each deal:
+
+<Terminal>
+
+```bash
+marfa types move acme.deal acme.contract
+```
+
+```text
+moved 0 of 2 items from acme.deal to acme.contract
+it couldn't move 2 items:
+  01a1f130-7e1d-7368-ad10-cf62c075285b invalid_properties: Cannot move item to "acme.contract": signed: Required field is missing
+  01a1f130-7e2e-73ad-a3c7-7ddc31cfef4f invalid_properties: Cannot move item to "acme.contract": signed: Required field is missing
+2 items you can see are still acme.deal
+these settings still name acme.deal, and change once no item of it remains:
+  webhook 01a1f130-7e53-7538-a866-e7d49546e103 type_filter
+```
+
+</Terminal>
+
+It then exits `1`. **When the job finishes, it reports what is still of the old type:**
 
 - `result.remaining` counts the items of the old type your key can see, in any state. It includes the items the new type refused and any item written with the old type while the move ran.
 - `result.remaining_hidden` is `true` when an item your key can't see is still of the old type. Marfa doesn't say how many.
 
-The CLI names the refused items and says what remains. Whenever it leaves the settings unchanged, it exits with a nonzero status and says why. Deal with those items, or move the hidden ones with a key that can see them, then run the move again: it moves what remains.
+Deal with those items, or move the hidden ones with a key that can see them, then run the move again: it moves what remains.
 
 ## What changes with the items
 
@@ -104,17 +123,17 @@ Once every item has moved, **Marfa changes the settings that name the old type**
 | View | `query.types`, and each `type eq` or `type neq` term in `query.filter` |
 | Webhook | `type_filter`, when it's exactly the type. A pattern, such as `acme.*`, stays as it is |
 
-While any item of the old type remains, including one your key can't see, Marfa changes no setting, so a folder or view never stops showing items that haven't moved. The job's `result.settings` lists the settings, and `result.settings_rewritten` says whether Marfa changed them. A folder keeps its files; [Sync a folder](/use/change-a-folder#change-a-folders-settings) says what changes on disk.
+While any item of the old type remains, including one your key can't see, Marfa changes no setting, so a folder or view never stops showing items that haven't moved. The job's `result.settings` lists the settings, and `result.settings_rewritten` says whether Marfa changed them. A folder keeps its files where they are, since `first_placement` places only new files. [Change what a folder syncs](/use/change-a-folder) covers a folder's settings.
 
-**When the type has subtypes,** a folder or view keeps the old type in `query.types` beside the new one, because the subtypes' items still need it, and a folder's `first_placement` keeps the old type's key too.
+**When the type has subtypes,** a folder or view keeps the old type in `query.types` beside the new one, because a query naming the old type still reaches the subtypes' items through it. A folder's `first_placement` still swaps the old type's key for the new one.
 
 ### When a setting blocks the move
 
-Marfa refuses a move when a setting names the type in a way it can't rewrite, or when your key can't change the setting, with `409 type_move_blocked`, and moves nothing. The dry run is refused the same way. `details.settings` names each setting, with a `reason`:
+Marfa refuses a move, dry run or not, with `409 type_move_blocked` when a setting names the type in a way it can't rewrite, or when your key can't change the setting, and moves nothing. `details.settings` names each setting, with a `reason`:
 
 | `reason` | What to change first |
 | --- | --- |
-| `filter_term` | A `query.filter` term on `type`, other than `type eq` or `type neq` naming the type, whose answer the move would change, such as `type starts_with "acme.d"`. Also a stored filter that names the type and doesn't parse, or one that would be longer than a filter may be once it names the new type |
+| `filter_term` | A `query.filter` term on `type`, other than `type eq` or `type neq` naming the type, whose answer the move would change, such as `type starts_with "acme.d"`. Also a filter the rewrite would make longer than a filter may be |
 | `placement_conflict` | A folder's `first_placement` that places the two types in different directories |
 | `subtypes` | A webhook whose `type_filter` names a type with subtypes, since one filter can't name both types |
 | `not_permitted` | A setting your key can't change, as below |
@@ -123,9 +142,9 @@ Change each setting, then move again.
 
 ## What your key needs
 
-A move needs a key whose type map grants write on both types. Marfa refuses it `403 type_not_permitted` otherwise.
+A move needs a key whose type map grants write on both types. Marfa refuses it `403 type_not_permitted` otherwise, and refuses a type Marfa ships `403 core_type_immutable`.
 
-The key also needs what each setting's own operation needs: write on `system.folder` to change a folder and write on `system.view` to change a view. Only the key or app that made a webhook can change it, and it needs the `webhooks.manage` permission. A setting the key can't change blocks the move with `not_permitted`. When your key can't read the setting either, Marfa names it by `kind` and `field` only, without its `id`, in a move's answer and in a `type_in_use` refusal.
+The key also needs what each setting's own operation needs: write on `system.folder` to change a folder, and write on `system.view` to change a view. Only the key or app that made a webhook can change it, holding `webhooks.manage`. A setting the key can't change blocks the move with `not_permitted`. When your key can't read the setting either, Marfa names it by `kind` and `field` alone, without its `id`.
 
 **A move never changes a key's or an app's type map.** The dry run lists in `grants` each key whose type map names the old type, if your key has `keys.manage`, and each app, if it has `grants.manage`. Give them the new type through [Manage keys](/run/manage-keys) before you delete the old one.
 

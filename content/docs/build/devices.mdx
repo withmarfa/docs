@@ -1,56 +1,58 @@
 ---
 title: Devices
-description: How an app keeps a copy of your data on a phone or a Mac, works without a connection, and sends its changes when it can.
+description: How an app keeps a copy of someone's data on a phone or a Mac, works without a connection, and sends its changes when it can.
 ---
 
-An app on your phone shouldn't stop working on a train. A **device** is a program that keeps a **working copy** of part of an instance on the machine it runs on. It reads from that copy, and puts its writes in a **queue** that it sends when it can reach the server.
+A **device** is a program that keeps a **working copy** of part of an instance on the machine it runs on. It reads from that copy, and puts its writes in a **queue** that it sends when it can reach the server.
 
-An app built on the [Swift SDK](/swift-sdk) is a device, and so is the [CLI](/cli)'s [`marfa device`](/build/write-in-a-working-copy). A device syncs only with the instance, never another device, because the instance is the [source of truth](/build/how-marfa-works#the-instance).
+An app built on the [Swift SDK](/swift-sdk) is a device, and so is the [CLI](/cli)'s `marfa device`. A device syncs only with the instance, never with another device, because the instance is the [source of truth](/build/how-marfa-works#the-instance).
 
 ## The working copy
 
-A device chooses the **slice** it keeps: a list of types, a tier and the edge types it holds, such as every `core.note` in the library. `*` alone holds every type except `system.*`. A device can also **pin** an item to keep it whatever the slice says.
+A device chooses the **slice** it keeps: the types, the tier and the edge types it holds. `*` alone holds every type except `system.*`. It can also **pin** an item to keep it whatever the slice says.
 
-**A folder's slice also carries its query**, so its copy holds the items the folder shows, not every item of its types: with `beneath`, one item and everything under it by `parent-of`. It still keeps what its files, its bin and its waiting writes need. A filter on an edge, a backreference or a part doesn't narrow it. A saved view the copy can't answer whole is refused `invalid`.
+The device fills its copy once, by a **hydration** that reads every item in the slice, then keeps it current from the instance's [event stream](/build/events):
 
-The device fills its copy once, by a **hydration** that reads every item in the slice, then keeps it current from the instance's [event stream](/build/events). Reads, [saved views](/build/read-a-view#read-a-view-from-a-working-copy) included, need no connection.
+<Terminal>
 
-**While the copy fills, the device answers from what has arrived**, marking a list or search `partial`. A saved view's items, groups and search, any edge read or write, and a read or write of an item that hasn't arrived are refused `hydration_incomplete`. Other writes wait in the queue until the copy is whole.
+```bash
+marfa device --db reading.db hydrate --type core.bookmark --tier library
+marfa device --db reading.db catch-up
+```
 
-**A fill that stops partway resumes where it stopped**, unless something such as the slice has changed.
+```text
+hydrated 1 item(s) and 0 edge(s) of core.bookmark at library in 1 page(s); cursor 32
+applied 0 event(s), skipped 0; cursor 32
+```
 
-### Files on the device
+</Terminal>
 
-A device keeps the files it fetched within a **file budget**, removing the ones read longest ago and fetching them again when asked.
+Reads need no connection, [saved views](/build/read-a-view#read-a-view-from-a-working-copy) included. **While the copy fills, it answers from what has arrived**, marking a list or a search `partial`. An edge read or write, and a read or write of an item that hasn't arrived, are refused `hydration_incomplete`. A fill that stops partway resumes where it stopped.
 
-**Attachments of items in the copy stay**, outside the budget. [Keep files on a device](/build/keep-files-on-a-device) sets the budget and fetches attachments ahead of time.
+Each item in the copy answers `read_only` as the server last gave it, and the device reads it again from time to time, by the [read_only rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#an-items-read_only). Other processes can open the copy to read while one writes, as [the writer and readers](/swift-sdk/working-copy#the-writer-and-readers) explains.
+
+### Tables and files
+
+**A device holds a [table](/build/tables) only when an app asks**, with `marfa device tables hold` or the SDK: a phone can hold a step counter without ten years of its readings. A table too large to hold is read from the server, by the [table rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md#tables-a-device-holds). Rows are kept current from `rows.changed`, and a follow tells the app `table.filled` once a table is whole.
+
+A device keeps the files it fetched within a **file budget**, removing the ones read longest ago, as [Keep files on a device](/build/keep-files-on-a-device) shows.
 
 ## When the copy falls behind
 
 A copy sometimes needs filling again, and its **queued writes wait** for the fill.
 
-- **After a device was away longer than the instance keeps events**, its copy is `stale`. It answers reads by ID, lists and searches, marking the last two `stale`, until a hydration refills it in place.
-- **When another instance answers at the address, or the credential's reach changed**, the copy has expired. It refuses reads and writes until a hydration, which empties it first. A hydration also empties a copy ahead of an instance restored from backup.
+- **After a device was away longer than the instance keeps events**, its copy is `stale`. It answers listings, searches and reads by id, marked `stale`, and refuses edge reads `hydration_incomplete`, until a hydration refills it in place.
+- **When another instance answers at the address, or the credential's reach changed**, the copy has expired. It refuses reads and writes until a hydration, which empties it first.
 
 ## A write made offline
 
-A write waits in the queue until the instance answers it. Sending the queue is a **drain**.
-
-<Sequence title="A note edited on a train">
-
-1. You edit a note offline, and see the change at once.
-2. The write waits in the queue, with the version of the note it was based on.
-3. A drain can't reach the server, so the write stays.
-4. Back online, a drain sends the queued writes in order. The instance recognizes a retry, so it never applies a write twice.
-5. The device gives each answered write a verdict, and the copy takes what the instance now holds.
-
-</Sequence>
+A write made offline shows in the copy at once, and waits in the queue with the version it was based on. Sending the queue is a **drain**. A drain that can't reach the server leaves the writes where they are, and one that can sends them in order. The instance recognizes a retry, so it never applies a write twice. Each answered write gets a verdict, and the copy takes what the instance now holds.
 
 A device sends every update with `conflict=auto`, so the instance settles most collisions, as [Versions](/build/versions#when-two-apps-write-the-same-item) explains.
 
 ## Verdicts
 
-Each write a drain settles gets one verdict:
+Each settled write gets one of six verdicts:
 
 | Verdict | What happened |
 | --- | --- |
@@ -61,22 +63,10 @@ Each write a drain settles gets one verdict:
 | `blocked` | Something must change before the write can go. |
 | `dead` | The write failed five times, not counting lost connections, timeouts, rate limits or server errors. |
 
-Only `refused`, `blocked` and `dead` need an **app's attention**. A `blocked` write says why:
+Only the last three need an **app's attention**. A `blocked` write names its reason, and each reason has its own way to clear, as [blocked writes](/swift-sdk/queue#blocked-writes) lists.
 
-| Reason | What clears it |
-| --- | --- |
-| `credential_refused` | A credential with the access it needs |
-| `key_spent` | A release |
-| `ancestor_unavailable` | A withdrawal, or a release once the credential can read the write's base version |
-| `conflict_unresolved` | A withdrawal |
-| `failing_alone` | A release or a withdrawal |
-| `instance_changed` | A release, to the new instance, or a withdrawal |
-| `awaiting_dependency` | Nothing: the answer to the write it waits for |
+A **release** sends the write again in the next drain, under the idempotency key it went under, so the instance answers an attempt that may already have applied from its record. Only a write blocked `key_spent`, `conflict_unresolved` or `ancestor_unavailable` gets a fresh key, because the instance's answer under the old one applied none of it. A **withdrawal** takes it out of the queue and puts the copy back to what the instance holds. `marfa device release`, `marfa device withdraw` and the Swift SDK's [queue](/swift-sdk/queue) do these. [Write in a working copy](/build/write-in-a-working-copy) shows each from the CLI.
 
-A **release** sends the write again in the next drain, under a fresh idempotency key. A **withdrawal** takes it out of the queue and puts the copy back to what the instance holds. `marfa device release`, `marfa device withdraw` and the Swift SDK's [queue](/swift-sdk/queue) do these.
+A working copy can also be **a folder**, where each item is a file, such as a note in Markdown. [Sync a folder](/use/sync-a-folder) explains how.
 
-## Folders
-
-A working copy can also be **a folder**: each item is a file, such as a note in Markdown. [Sync a folder](/use/sync-a-folder) explains how.
-
-The rules behind this page are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) and [folders](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folders.md) chapters of the contract.
+The rules behind this page are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) and [folder sync](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-sync.md) chapters of the contract.

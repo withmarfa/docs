@@ -3,64 +3,71 @@ title: Keep a copy in sync
 description: Follow an instance's event stream from a cursor, so a copy of your data stays current and picks up where it stopped after a break.
 ---
 
-A search index, a cache or a report keeps its own copy of an instance's data. Read what you need once, then apply each change from the [event stream](/build/events) and save a cursor, so that after a break you receive everything you missed and nothing twice. The [Swift SDK](/swift-sdk) and the [CLI](/cli) do this for you.
+A search index, a cache or a report keeps its own copy of an instance's data. Read it once, then apply each change from the [event stream](/build/events) and save a cursor, so after a break you receive everything you missed and nothing twice. The [Swift SDK](/swift-sdk) does this for you ([Devices](/build/devices)).
 
-You need a credential that can read the types you copy. A copy that answers reads offline in the instance's place, as a device does, needs [more](https://github.com/withmarfa/marfa/blob/main/conformance/spec/reach.md).
+You need your own Marfa instance, with the CLI signed in to it, as the [Quickstart](/quickstart) leaves you. This guide keeps a copy of files, so make a key that reads `core.file` and its subtypes:
+
+```bash
+marfa keys create --label "File copy" --source file-copy --type-permission "core.file.*=read"
+```
+
+Set `MARFA_API_URL` to your instance's address, such as `http://localhost:8600`, and `MARFA_API_KEY` to the key.
 
 ## What the stream sends
 
-Both clients read the same stream, and each shows it in its own form. From cursor `4`, narrowed to notes, `marfa events` prints one frame a line:
+From cursor `21`, narrowed to files, `marfa events` prints one frame a line:
 
 <Terminal>
 
 ```bash
-marfa events --type core.note --edges none --from 4
+marfa events --type core.file --edges none --cursor 21
 ```
 
 ```text
--  stream_cursor  6
-6  item.created  01a15f3c-db7b-745c-a178-be82b8caa2a0
--  stream_live  6
+-  stream_cursor  25
+22  item.created  01a1f126-5ad1-7029-8f69-a66a15ee406d
+23  item.trashed  01a1f124-12c1-7762-af28-52450dd463af
+24  item.updated  01a1f126-5ad1-7029-8f69-a66a15ee406d
+25  item.purged  01a1f124-12c1-7762-af28-52450dd463af
+-  stream_live  25
 ```
 
 </Terminal>
 
-Over HTTP, the [stream](/api-reference/event-stream/streamEvents) takes your cursor in the `Last-Event-ID` header and answers server-sent events. This is the same stream, with the item cut short:
+Over HTTP, the [stream](/api-reference/event-stream/streamEvents) takes your cursor in the `Last-Event-ID` header and answers server-sent events. This is the same stream from cursor `24`, with the item cut short:
 
 ```http title="Request"
-GET /events?type=core.note&edges=none
-Authorization: Bearer <key>
-Last-Event-ID: 4
+GET /events?type=core.file&edges=none
+Authorization: Bearer $MARFA_API_KEY
+Last-Event-ID: 24
 ```
 
 ```sse title="Response" status="200" note="Server-sent events"
-: connected
-
 event: stream_cursor
-data: {"event_type":"stream_cursor","cursor":"6"}
+data: {"event_type":"stream_cursor","cursor":"25"}
 
-id: 6
-event: item.created
-data: {"event_type":"item.created","item":{"id":"01a15f3c-db7b-745c-a178-be82b8caa2a0","type":"core.note",...},"metadata":{...}}
+id: 25
+event: item.purged
+data: {"event_type":"item.purged","item":{"id":"01a1f124-12c1-7762-af28-52450dd463af","type":"core.file","state":"trashed",...},"metadata":{...}}
 
 event: stream_live
-data: {"event_type":"stream_live","cursor":"6"}
+data: {"event_type":"stream_live","cursor":"25"}
 ```
 
-In both, the stream opens with `stream_cursor`, which names the **head of the log**, the latest event. It replays every event after your cursor, sends `stream_live` when it has caught up, then sends each new event as it happens. Event 5 changed a task, so the filter left it out and the IDs skip it.
+The stream opens with `stream_cursor`, which names the **head of the log**, the latest event. It replays every event after your cursor, sends `stream_live` once caught up, then sends each new event.
 
 Only events carry an `id:` line, so **the last `id:` you received is always a cursor you can resume from**. Lines that start with `:` are comments: Marfa sends `:ping` every 30 seconds while the stream is quiet. The Catalog's [Events](/catalog/events) page lists every event and its fields.
 
 ## Build the sync
 
-`sync.ts` keeps a copy of every note in a JSON file. On its first run, it takes the head of the log, reads the notes, then follows the stream from that head. Because it takes the head first, every change made while it reads waits in the log.
+`sync.ts` keeps a copy of every file item in a JSON file. On its first run, it takes the head of the log, reads the files, then follows the stream from that head, so every change made while it reads waits in the log.
 
 <Steps>
 <Step>
 
 ### Read the frames
 
-A browser `EventSource` can't send an `Authorization` header, and the TypeScript SDK doesn't read streams, so read the stream with `fetch`:
+A browser `EventSource` can't send an `Authorization` header, and the [TypeScript SDK](/typescript-sdk) doesn't read streams, so read the stream with `fetch`:
 
 ```ts title="sync.ts"
 import { readFile, writeFile } from "node:fs/promises";
@@ -95,7 +102,7 @@ async function* readFrames(body: ReadableStream<Uint8Array<ArrayBuffer>>): Async
 }
 
 async function open(cursor?: string): Promise<ReadableStream<Uint8Array<ArrayBuffer>>> {
-  const response = await fetch(`${baseUrl}/events?type=core.note&edges=none`, {
+  const response = await fetch(`${baseUrl}/events?type=core.file&edges=none`, {
     headers: {
       Authorization: `Bearer ${credential}`,
       ...(cursor === undefined ? {} : { "Last-Event-ID": cursor }),
@@ -108,22 +115,26 @@ async function open(cursor?: string): Promise<ReadableStream<Uint8Array<ArrayBuf
 }
 ```
 
+Take each frame as it arrives: Marfa closes a reader that takes nothing for 30 seconds while a frame waits.
+
 </Step>
 <Step>
 
 ### Keep the copy and its cursor together
 
-Save the cursor **in the same place as the copy, in step with what you apply**: here, one file written after each event. An item event carries the item as it stands after the change, so `apply` replaces what the copy holds, or removes it for `item.purged`. An event the copy already reflects changes nothing.
+Save the cursor **in the same place as the copy, in step with what you apply**: here, one file written after each event. An item event carries the item as it stands after the change, so `apply` replaces what the copy holds, or removes it for `item.purged`. `item.trashed` keeps the item, now in the bin. `metadata.changed` carries the item too, and its tags in `metadata`.
 
 ```ts title="sync.ts"
 type Item = components["schemas"]["Item"];
-type Copy = { cursor?: string; notes: Record<string, Item> };
-const file = "notes-copy.json";
-let copy: Copy = await readFile(file, "utf8").then(JSON.parse, () => ({ notes: {} }));
+type Copy = { cursor?: string; files: Record<string, Item> };
+const file = "files-copy.json";
+let copy: Copy = await readFile(file, "utf8").then(JSON.parse, () => ({ files: {} }));
 
 function apply(event: { event_type: string; item: Item }) {
-  if (event.event_type === "item.purged") delete copy.notes[event.item.id];
-  else copy.notes[event.item.id] = event.item;
+  if (event.event_type === "item.purged") delete copy.files[event.item.id];
+  else if (event.event_type.startsWith("item.") || event.event_type === "metadata.changed") {
+    copy.files[event.item.id] = event.item;
+  }
 }
 
 async function saveCursor(cursor: string) {
@@ -132,12 +143,14 @@ async function saveCursor(cursor: string) {
 }
 ```
 
+`apply` passes over `rows.changed`, which names its item only by `id`, `type` and `source` ([Tables](/build/tables)).
+
 </Step>
 <Step>
 
 ### Follow the stream
 
-`follow` applies each event and saves its ID. It returns the frame that ended the stream, or `closed` if the connection dropped.
+`follow` applies each event and saves its ID, and returns the frame that ended the stream, or `closed`.
 
 ```ts title="sync.ts"
 async function follow(cursor: string): Promise<string> {
@@ -147,7 +160,7 @@ async function follow(cursor: string): Promise<string> {
       case "stream_cursor":
         break;
       case "stream_live":
-        if (data.cursor !== null) await saveCursor(data.cursor);
+        await saveCursor(data.cursor);
         break;
       case "stream_incomplete":
       case "catchup_too_old":
@@ -169,7 +182,7 @@ Save the `cursor` of `stream_live` too: on a narrow stream, the last event can b
 
 ### Start from the head of the log
 
-`rebuild` takes the head from the first frame, lists every note in every state with the [TypeScript SDK](/typescript-sdk), and saves the head as the cursor. The listing and the stream both ask for notes and no edges, so the copy holds exactly what the stream keeps current.
+`rebuild` takes the head from the first frame, lists every file in every state, and saves the head as the cursor. The listing and the stream ask for the same items, so the copy holds exactly what the stream keeps current.
 
 ```ts title="sync.ts"
 async function rebuild(): Promise<string> {
@@ -179,21 +192,21 @@ async function rebuild(): Promise<string> {
     break; // closes the stream
   }
   if (head === undefined) throw new Error("The stream didn't name the head of the log");
-  copy = { notes: {} };
-  const notes = pages(async (cursor) => {
+  copy = { files: {} };
+  const files = pages(async (cursor) => {
     const { data, error } = await marfa.GET("/items", {
-      params: { query: { type: "core.note", state: "any", cursor } },
+      params: { query: { type: "core.file", state: "any", cursor } },
     });
     if (error) throw new Error(error.error.message);
     return data;
   });
-  for await (const item of notes) apply({ event_type: "item.created", item: item as Item });
+  for await (const item of files) apply({ event_type: "item.created", item: item as Item });
   await saveCursor(head);
   return head;
 }
 ```
 
-When Marfa can't read the head in time, the first frame is `stream_live` with a `null` cursor, so `rebuild` throws.
+When Marfa can't read the head, the first frame is `stream_incomplete` with the reason `read_failed`, so `rebuild` throws.
 
 </Step>
 <Step>
@@ -212,46 +225,28 @@ for (;;) {
 }
 ```
 
-Run it as an ES module, with `MARFA_API_URL` and `MARFA_API_KEY` set.
+Run it as an ES module. Add a file with `marfa items add`, move it to the bin, and `files-copy.json` follows each change.
 
 </Step>
 </Steps>
 
 ## When the stream ends
 
-What ends a stream tells you what to do:
-
 | You see | It means | What to do |
 | --- | --- | --- |
-| The connection closes with no frame | A network or proxy fault. | Wait a moment, then resume from your saved cursor. |
-| `stream_incomplete` | The stream couldn't go on, for the `reason` it names, such as `server_stopping`. Everything after your cursor is still in the log. | Resume from your saved cursor. For `credential_ended`, use a key that's valid. For `reader_behind`, take frames off the connection as they arrive and apply them from a queue. |
-| `catchup_too_old` | The log no longer holds the events after your cursor. By default it keeps them for at least 30 days. | Rebuild from the head of the log. |
+| The connection closes with no frame | A network fault, or your reader took nothing for 30 seconds. | Wait a moment, then resume from your saved cursor. |
+| `stream_incomplete` | The stream couldn't go on, for its `reason`: `server_stopping`, `read_failed` or `credential_ended`. | Resume from your saved cursor. For `credential_ended`, use a valid key. |
+| `catchup_too_old` | The log no longer holds the events after your cursor. It keeps them for 30 days by default (`event_log_retention_days`). | Rebuild from the head of the log. |
 | `cursor_ahead` | Your cursor is past the log's head, as after the instance was restored from a backup. | Discard the cursor and rebuild from the head of the log. |
 
-`marfa events` exits `1` for `cursor_ahead` and `catchup_too_old`, `3` for a `stream_incomplete` that a new stream can mend, and `5` for `credential_ended`, so a script needn't read the frames. [Exit codes](/cli#exit-codes) lists every status.
+`marfa events` exits `1` for `cursor_ahead` and `catchup_too_old`, `3` for a `stream_incomplete` a new stream can mend, and `5` for `credential_ended` ([Exit codes](/cli#exit-codes)).
 
-A stream can also be refused before it opens, and then `open` throws:
-
-- **`429 rate_limited`:** wait the seconds `Retry-After` names, then try again.
-- **`503 stream_capacity_exhausted`:** the instance is serving as many streams as it allows. Try again later.
-- **Anything else,** such as `403 type_not_permitted`, `400 unknown_type`, or `400 validation_error` for a cursor the stream didn't write, is a fault in the credential or the request. Fix it rather than retry.
-
-[Stream change events](/api-reference/event-stream/streamEvents) lists every answer.
+A stream can also be refused before it opens, and then `open` throws. After `429 rate_limited`, wait the seconds `Retry-After` names; after `503 stream_capacity_exhausted`, the instance is serving all the streams it allows, so try again later. Anything else, such as `403 type_not_permitted` or `400 validation_error` for a cursor the log didn't write, is a fault in the key or the request: fix it rather than retry. [Stream change events](/api-reference/event-stream/streamEvents) lists every answer.
 
 ## Narrow the stream
 
-`type` limits item events to a type and its subtypes. It takes up to ten types or patterns, separated by commas, such as `core.note,app.*`. Edge events come whatever `type` says, so send `edges=none` to leave them out, as `sync.ts` does.
+`type` limits item events to a type and its subtypes. It takes up to ten types or patterns, such as `app.*`: repeat `--type` in the CLI, as in `--type core.file --type core.note`, and separate them with commas over HTTP, as in `type=core.file,core.note`. Edge events come whatever `type` says, so send `edges=none` to leave them out, as `sync.ts` does.
 
-```bash tab="CLI" tab-group="client"
-marfa events --type core.note --type core.task --edges none --from 4
-```
-
-```http tab="HTTP"
-GET /events?type=core.note,core.task&edges=none
-Authorization: Bearer <key>
-Last-Event-ID: 4
-```
-
-A cursor works under any filter, so you can change the filter between connections.
+A cursor works under any filter, so you can change it between connections. A stream that names a `type` never carries `attention.raised`.
 
 The rules behind this guide are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) chapter of the contract.

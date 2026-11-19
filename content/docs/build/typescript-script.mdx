@@ -1,0 +1,198 @@
+---
+title: Write a script with TypeScript
+description: Write a TypeScript script that saves a note in your library and lists the latest ones, using a key that reaches notes and nothing else.
+---
+
+- **You'll build** Standup, a TypeScript script that saves a note for the day and lists your last five.
+- **You need** your own Marfa instance, with the CLI signed in to it, as the [Quickstart](/quickstart) leaves you, at `http://localhost:8600`. You also need Node.js 22.18 or later.
+- **You'll have** a script that runs with a key of its own, which can read and write notes and nothing else.
+
+The CLI's sign-in stays in your keychain, on your computer. A script carries a **key** instead: a secret that names exactly which types it can read or write. It works from any computer that can reach your instance, such as a server or a scheduled job.
+
+<Steps paged>
+<Step>
+
+### Make a key for the script
+
+Ask the CLI for a key that can write notes:
+
+<Terminal>
+
+```bash
+marfa keys create --label "Standup script" --source standup --type-permission core.note=write
+```
+
+```text
+marfa_k1_…
+key 01a1f184-1bed-74ae-afc6-32fc15c97ef3 (Standup script); the plaintext is shown once, keep it now
+  core.note  Read and edit
+```
+
+</Terminal>
+
+The first line is the key. **Copy it now**: Marfa shows it only once and keeps only a hash of it.
+
+`--type-permission core.note=write` lets the key read and write notes, the type `core.note`, and nothing else. `--source standup` names where the notes it writes come from, so an app can show and filter them by it.
+
+</Step>
+<Step>
+
+### Create the project
+
+Make a folder for the script, and install the [TypeScript SDK](/typescript-sdk) with TypeScript itself:
+
+```bash
+mkdir standup && cd standup
+npm init -y
+npm pkg set type=module
+npm install @withmarfa/client
+npm install --save-dev typescript @types/node
+```
+
+Node.js runs a `.ts` file by removing its types, so the script needs no build step. TypeScript checks the types. Give it a `tsconfig.json`:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "target": "esnext",
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true
+  }
+}
+```
+
+Then tell the script where your instance is and which key to send, in the same terminal:
+
+```bash
+export MARFA_API_URL=http://localhost:8600
+export MARFA_API_KEY=marfa_k1_…
+```
+
+</Step>
+<Step>
+
+### Save a note
+
+Create `standup.ts`. It makes a client for your instance, then saves what you type after the command as a note, titled with today's date and tagged `standup`:
+
+```ts title="standup.ts"
+import { createClient } from "@withmarfa/client";
+
+const { MARFA_API_URL, MARFA_API_KEY } = process.env;
+if (!MARFA_API_URL || !MARFA_API_KEY) {
+  throw new Error("Set MARFA_API_URL and MARFA_API_KEY first.");
+}
+const marfa = createClient({ baseUrl: MARFA_API_URL, credential: MARFA_API_KEY });
+
+const text = process.argv.slice(2).join(" ");
+if (text) {
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await marfa.POST("/items", {
+    body: {
+      type: "core.note",
+      properties: { title: `Standup ${today}`, body: text },
+      tags: ["standup"],
+    },
+  });
+  if (error) throw new Error(`${error.error.code}: ${error.error.message}`);
+  console.log(`Saved ${data.item.id}, version ${data.item.version}`);
+}
+```
+
+Every call returns `data` when it works and `error` when Marfa refuses. **Check `error` first**: after that, TypeScript knows the shape of `data`. Branch on `error.error.code`, which stays the same, rather than the message.
+
+Run it with a line for today:
+
+<Terminal>
+
+```bash
+node standup.ts "Shipped the export fix, reviewing the importer next"
+```
+
+```text
+Saved 01a1f184-1ca3-7014-a945-ebd0bce70faf, version 1
+```
+
+</Terminal>
+
+The note is an **item**, with an ID and a version that rises each time it changes. Run `marfa items list --type core.note --tag standup` to see it from the CLI.
+
+</Step>
+<Step>
+
+### List your notes
+
+Add a read to the end of `standup.ts`. It asks for the five newest notes tagged `standup`:
+
+```ts title="standup.ts"
+const { data, error } = await marfa.GET("/items", {
+  params: { query: { type: "core.note", tags: "standup", limit: 5 } },
+});
+if (error) throw new Error(`${error.error.code}: ${error.error.message}`);
+for (const note of data.data) {
+  if ("id" in note) console.log(`${note.properties.title}: ${note.properties.body}`);
+}
+```
+
+The `"id" in note` check tells TypeScript each entry is an item: a list that asks for metadata answers each item with its metadata instead. Check the types, then run the script with nothing after it, so it only reads:
+
+<Terminal>
+
+```bash
+npx tsc
+node standup.ts
+```
+
+```text
+Standup 2026-11-19: Shipped the export fix, reviewing the importer next
+```
+
+</Terminal>
+
+`npx tsc` prints nothing when the types are right. Save another line and run it again: the list shows the newest note first.
+
+</Step>
+<Step>
+
+### See what the key can't do
+
+In `standup.ts`, change `type: "core.note"` in the write to `type: "core.task"`, and run it:
+
+<Terminal>
+
+```bash
+node standup.ts "Review the importer"
+```
+
+```text
+Error: type_not_permitted: No access to type "core.task"
+```
+
+</Terminal>
+
+Marfa refuses the write with `403 type_not_permitted`, because the key holds only notes. The refusal's `details.grant` names the type and the level the request needed. **A key reaches only what you gave it**, so a script that leaks its key exposes your notes and nothing else.
+
+Change the type back to `core.note`. To let the script write tasks too, widen the same key, naming every type it should keep, because an update replaces the key's whole list of types:
+
+```bash
+marfa keys update 01a1f184-1bed-74ae-afc6-32fc15c97ef3 \
+  --type-permission core.note=write --type-permission core.task=write
+```
+
+[Manage keys](/run/manage-keys) covers expiry, narrowing and revoking a key.
+
+</Step>
+</Steps>
+
+## Next steps
+
+<Cards>
+  <Card title="List, filter and search" href="/build/list-filter-search">Find items by type, tag, property or text, a page at a time.</Card>
+  <Card title="Write safely" href="/build/write-safely">Change an item without overwriting someone else's edit, and retry without writing twice.</Card>
+  <Card title="Authenticate" href="/build/authenticate">Connect an app with OAuth, so the owner approves its access.</Card>
+  <Card title="TypeScript SDK" href="/typescript-sdk">Every part of the client: calls, pages, files and errors.</Card>
+</Cards>
