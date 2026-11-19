@@ -2,7 +2,7 @@
  * The PostHog project key a bundle was built with, injected as a `define` so
  * it never has to be read at runtime.
  *
- * MARFA_POSTHOG_KEY is set by the publish workflow from a repository variable
+ * DOCS_POSTHOG_KEY is set by the publish workflow from a repository variable
  * rather than a secret. A PostHog project key is write-only and ships inside
  * the browser bundle of every site that uses one, so hiding it would be
  * theater; what matters is that it is not committed.
@@ -17,5 +17,5 @@
  * to another, and two copies of this would drift the moment one was fixed.
  */
 export function posthogKey(): string {
-  return process.env.MARFA_POSTHOG_KEY ?? '';
+  return process.env.DOCS_POSTHOG_KEY ?? '';
 }

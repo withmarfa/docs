@@ -111,7 +111,7 @@ On a pull request, the `Docs reports` job writes the same report to the job summ
 - **Merging to `main` publishes.** `Publish` runs when `CI` succeeds on `main`. Each Worker has its own job, which deploys only when something that target builds from changed since the commit the site serves, then fails unless the site's `/version.json` reports the deployed commit.
 - **Never build both targets and then deploy in one tree.** The Cloudflare plugin writes one deploy pointer per project root and every build rewrites it, so a bare `wrangler deploy` deploys whichever target built last. `deploy:status` passes the config its own build emitted.
 - `Publish` has no schedule. Run it by hand with `mode` set to `check` to compare each live commit with `main` and check that the status store is still written, or to `publish` to deploy. `target` limits it to `docs` or `status`. Nothing reports outside GitHub: a red run is the signal.
-- Deploying uses the `CLOUDFLARE_API_TOKEN` secret and the `CLOUDFLARE_ACCOUNT_ID` variable. The analytics key is the `POSTHOG_PROJECT_KEY_SITES` variable, passed to the build as `MARFA_POSTHOG_KEY`. Never commit any of them.
+- Deploying uses the `CLOUDFLARE_API_TOKEN` secret and the `CLOUDFLARE_ACCOUNT_ID` variable. The analytics key is the `POSTHOG_PROJECT_KEY_SITES` variable, passed to the build as `DOCS_POSTHOG_KEY`. Never commit any of them.
 
 ## Code Review Rules
 
