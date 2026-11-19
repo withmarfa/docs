@@ -33,10 +33,13 @@ The tabs follow what a reader comes to do, in this order:
 | Tab | What it holds | Kind of page |
 | --- | --- | --- |
 | Start | What Marfa is, at `/`; the Quickstart, from `marfa server install` or Railway to an agent connected and a first item saved and found; Connect your agent; Ideas in Marfa, the few ideas everyone meets, with no HTTP | Explanation, tutorial, how-to |
-| Use | The everyday jobs: working from an agent, Claude or ChatGPT and the CLI; a synced folder from set-up to a second computer; connectors; seeing and cutting access; Limits; Get help | How-to |
+| Use | The everyday jobs: working from an agent, Claude or ChatGPT and the CLI; a synced folder from set-up to a second computer; connectors; seeing and cutting access; Limits | How-to |
 | Run | Looking after an instance: where it runs and its address, sign-in, settings, keys and apps, backups, upgrades, telemetry and Troubleshooting | How-to |
 | Build | The concepts at full depth, then the tutorials and guides for apps, agents, working copies and connectors | Explanation, tutorial, how-to |
-| Reference | The Catalog first (items, types, edges, events, permissions, connectors), then the HTTP API and Errors, the SDKs, the CLI and MCP pages, the Glossary, the Changelog and the contract | Reference |
+| Catalog | What Marfa ships, generated from the code: items, types, edge types, events, permissions and connectors | Reference |
+| Reference | The HTTP API and Errors, the SDKs, the CLI and MCP pages and the contract | Reference |
+
+The Glossary, the Changelog and Get help are not in a tab: they are links in the top bar, and in the phone menu.
 
 **No tab has a landing page.** A tab's header link opens the first page in its sidebar, and no page is a grid of cards that repeats the sidebar.
 

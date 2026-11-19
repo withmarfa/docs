@@ -4,7 +4,7 @@ import { Menu, X } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 import { appName, gitConfig } from '@/lib/shared';
 import { cn } from '@/lib/cn';
-import { SectionNav } from './section-nav';
+import { SectionNav, TopBarLinks } from './section-nav';
 import { GitHubIcon, HeaderBar, IconLink, NpmIcon, SearchButton, iconButton } from './site-header';
 import { StatusIndicator } from './status-indicator';
 import { ThemeSwitch } from './theme-switch';
@@ -15,7 +15,9 @@ import { ThemeSwitch } from './theme-switch';
 // left them to be moved and hidden from CSS.
 //
 // The icon row drops what the screen can't hold: the links below 1024px, the
-// appearance control below 768px, where the phone menu carries both.
+// appearance control below 768px, where the phone menu carries both. The
+// text links (Glossary, Changelog, Get help) drop below 1280px, where the
+// sidebar's footer carries them.
 export function DocsHeader(props: ComponentProps<'header'>) {
   const { slots } = useNotebookLayout();
   const sidebar = slots.sidebar;
@@ -53,6 +55,7 @@ export function DocsHeader(props: ComponentProps<'header'>) {
 export function DocsActions({ children }: { children?: ReactNode }) {
   return (
     <>
+      <TopBarLinks className="me-2 max-xl:hidden" />
       <StatusIndicator className="max-lg:hidden" />
       <IconLink
         label="npm"

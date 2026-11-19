@@ -128,7 +128,7 @@ const FIRST: [query: string, pages: string[]][] = [
   ['upgrade', ['/run/upgrade']],
   ['make a key', ['/run/manage-keys']],
   ['narrow a key', ['/run/manage-keys']],
-  ['get help', ['/use/get-help']],
+  ['get help', ['/get-help']],
   ['limits', ['/use/limits']],
   ['errors', ['/api-reference/errors']],
   ['webhooks', ['/build/receive-webhooks']],

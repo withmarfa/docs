@@ -14,7 +14,7 @@ import { parse as parseYaml } from 'yaml';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const CONTENT = path.join(ROOT, 'content/docs');
-const CATALOG_PAGES = path.join(CONTENT, '(reference)', 'catalog');
+const CATALOG_PAGES = path.join(CONTENT, 'catalog');
 const GENERATED = path.join(ROOT, 'src/generated/catalog');
 
 interface Field {
@@ -238,7 +238,7 @@ const PAGES = (readdirSync(CATALOG_PAGES, { recursive: true }) as string[])
   .map((file) => ({
     slug: path.basename(file, '.mdx') === 'index' && path.dirname(file) !== '.' ? path.basename(path.dirname(file)) : path.basename(file, '.mdx'),
     group: path.dirname(file),
-    file: `content/docs/(reference)/catalog/${file}`,
+    file: `content/docs/catalog/${file}`,
     text: readFileSync(path.join(CATALOG_PAGES, file), 'utf8'),
   }));
 
@@ -249,7 +249,7 @@ const CORE_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('core.'));
 const SYSTEM_TYPES = TOP_LEVEL.filter((type) => type.id.startsWith('system.'));
 /** Where a type's page belongs, for the message of a type that has none. */
 const missingPage = (type: CatalogType) =>
-  `The catalog ships ${type.id} and no page covers it. Expected content/docs/(reference)/catalog/(types)/(${type.id.split('.')[0]})/${slugOf(type)}.mdx, titled "${type.label}" with identifier ${type.id}, listed in that folder's meta.json and including src/generated/catalog/${type.id}.md.`;
+  `The catalog ships ${type.id} and no page covers it. Expected content/docs/catalog/(types)/(${type.id.split('.')[0]})/${slugOf(type)}.mdx, titled "${type.label}" with identifier ${type.id}, listed in that folder's meta.json and including src/generated/catalog/${type.id}.md.`;
 const CORE_SLUGS = CORE_TYPES.map(slugOf);
 const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
 /** The pages that are not the page of one type. */
@@ -296,7 +296,7 @@ describe('the tab', () => {
   it('lists exactly those pages in its meta.json files', () => {
     const readMeta = (dir: string) => JSON.parse(readFileSync(path.join(CATALOG_PAGES, dir, 'meta.json'), 'utf8'));
     const meta = readMeta('.');
-    expect(meta.root).toBeUndefined();
+    expect(meta.root).toBe(true);
     const listed = meta.pages.filter((entry: string) => !entry.startsWith('---'));
     const groups = listed.filter((entry: string) => entry.startsWith('('));
     const direct = listed.filter((entry: string) => !entry.startsWith('('));
@@ -592,7 +592,7 @@ describe('an edge type page', () => {
     if (!page) {
       it(`${edge.id} has a page`, () => {
         expect.fail(
-          `The catalog ships the edge type ${edge.id} and no page covers it. Expected content/docs/(reference)/catalog/${EDGES_DIR}/${edge.id}.mdx, titled ${edge.id}, listed in that folder's meta.json and including src/generated/catalog/edges.md#${edge.id}.`,
+          `The catalog ships the edge type ${edge.id} and no page covers it. Expected content/docs/catalog/${EDGES_DIR}/${edge.id}.mdx, titled ${edge.id}, listed in that folder's meta.json and including src/generated/catalog/edges.md#${edge.id}.`,
         );
       });
       continue;
@@ -766,7 +766,7 @@ describe('the links', () => {
 
   it('reach a heading on the page they name, from the pages, from the generated files they include and from every page that links to the Catalog', () => {
     const elsewhere = (readdirSync(CONTENT, { recursive: true }) as string[])
-      .filter((file) => file.endsWith('.mdx') && !file.startsWith(path.join('(reference)', 'catalog')))
+      .filter((file) => file.endsWith('.mdx') && !file.startsWith('catalog'))
       .map((file) => ({ file: `content/docs/${file}`, text: readFileSync(path.join(CONTENT, file), 'utf8') }))
       .filter(({ text }) => text.includes('](/catalog'));
     const sources = [

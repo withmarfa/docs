@@ -2,12 +2,13 @@ import type * as PageTree from 'fumadocs-core/page-tree';
 import { isTagFolder, regroupApiReference } from '@/lib/api-reference-tree';
 import { slugsToMarkdownPath, source } from '@/lib/source';
 import { siteUrl } from '@/lib/shared';
+import { TOP_BAR_LINKS } from '@/lib/top-bar';
 
 /**
  * A hierarchical index of the docs (Anthropic claude_code_docs_map.md pattern),
  * read from the page tree so it has the same tabs, groups and order as the
  * sidebar: each tab is an H2, each sidebar group or API tag an H3, and each
- * page a Markdown link. Served at `/docs-map.md` for agents that want one fetch
+ * page a Markdown link. The pages the top bar links to come last, under one H2. Served at `/docs-map.md` for agents that want one fetch
  * with every page and its address.
  */
 export function buildDocsMap(): string {
@@ -105,6 +106,13 @@ function buildIndex(header: string[], link: (url: string, page: Page | undefined
     }
     flush();
   }
+
+  // The pages the top bar links to are in no sidebar, so the tabs above never list them.
+  lines.push('## Also in the top bar', '');
+  for (const { label, href } of TOP_BAR_LINKS) {
+    lines.push(pageLine({ type: 'page', name: label, url: href }));
+  }
+  lines.push('');
 
   return lines.join('\n');
 }

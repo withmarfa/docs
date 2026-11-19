@@ -18,6 +18,7 @@ import { releaseToc, type Release } from '@/lib/changelog';
 import { DocsHeader } from '@/components/docs-header';
 import { PageActions } from '@/components/page-actions';
 import { PageFooter } from '@/components/page-footer';
+import { TOP_BAR_LINKS } from '@/lib/top-bar';
 import { SidebarFooter } from '@/components/release-label';
 import {
   useFumadocsLoader,
@@ -103,9 +104,11 @@ const clientLoader = browserCollections.docs.createClientLoader({
     {
       markdownUrl,
       path,
+      url,
     }: {
       markdownUrl: string;
       path: string;
+      url: string;
     },
   ) {
     // The Changelog draws its releases with a component, so its headings are
@@ -119,6 +122,8 @@ const clientLoader = browserCollections.docs.createClientLoader({
       // popover that reveals nothing. Passing an empty toc renders fumadocs'
       // hidden placeholder, which reserves the column without showing anything.
       <DocsPage
+        // A page the top bar links to is in no sidebar, so a trail would name a section it isn't in.
+        breadcrumb={{ enabled: !TOP_BAR_LINKS.some((link) => link.href === url) }}
         toc={entries.length > 1 ? entries : []}
         tableOfContent={{
           enabled: true,
@@ -233,11 +238,12 @@ function DocsView({
   data: {
     kind: 'docs';
     path: string;
+    url: string;
     markdownUrl: string;
     pageTree: SerializedPageTree;
   };
 }) {
-  const { path, pageTree, markdownUrl } = useFumadocsLoader(data);
+  const { path, url, pageTree, markdownUrl } = useFumadocsLoader(data);
 
   return (
     <DocsLayout
@@ -248,7 +254,7 @@ function DocsView({
       tabMode="navbar"
       sidebar={sidebarOptions}
     >
-      <Suspense>{clientLoader.useContent(path, { markdownUrl, path })}</Suspense>
+      <Suspense>{clientLoader.useContent(path, { markdownUrl, path, url })}</Suspense>
     </DocsLayout>
   );
 }
