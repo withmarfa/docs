@@ -15,7 +15,7 @@ The file sits beside the folder registry, `folders.json`:
 | Elsewhere | `$XDG_DATA_HOME/marfa`, or `.local/share/marfa` under the home directory |
 | Either, with `MARFA_FOLDER_REGISTRY` set | The directory of the file it names |
 
-**Parse the whole file on each read.** A watch replaces it in one step, so a read never finds half of one. The file holds no credential, no name of a file inside a folder and no item content: a folder's directory and its ID are the only names in it.
+**Parse the whole file on each read.** A watch replaces it in one step. The file holds no credential, no name of a file inside a folder and no item content: a folder's directory and its ID are the only names in it.
 
 ## The shape
 
@@ -38,6 +38,7 @@ A watch of every folder, with `<notes-directory>` for the folder's absolute path
           "folder": "01a1f11f-27d4-73fe-9429-dfc839d24eb9",
           "watching": true,
           "reason": null,
+          "paused": false,
           "last_success_at": "2026-11-19T00:05:51.293Z",
           "first_sync_waiting": false,
           "problems": [],
@@ -51,17 +52,17 @@ A watch of every folder, with `<notes-directory>` for the folder's absolute path
 }
 ```
 
-`processes` has one entry for each watch on the computer: one for a watch of every folder, and one for each watch of a single directory. A watch rewrites only its own entry.
+`processes` has one entry for each watch on the computer, of every folder or of one directory, and a watch rewrites only its own.
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `pid` | `number` | The watch's process ID. |
-| `build_version` | `string` | The version of the CLI that runs the watch, as `marfa --version` prints it. One that differs from the installed CLI's is a watch still running an earlier build. |
+| `build_version` | `string` | The version of the CLI that runs the watch, as `marfa --version` prints it. One that differs from the installed CLI's is an earlier build still running. |
 | `started_at` | `string` | When the watch started. |
 | `heartbeat_at` | `string` | When the watch last wrote its entry. |
 | `heartbeat_interval_seconds` | `number` | A running watch writes its entry at least this often: `5`. |
-| `ended_at` | `string` or `null` | When the watch stopped, on Ctrl-C, `SIGTERM`, the end of `--for-seconds` or a failure. `null` while it runs. |
-| `folders` | `object[]` | The folders the watch was asked to hold. A watch of every folder lists every folder the registry lists. |
+| `ended_at` | `string` or `null` | When the watch stopped, on Ctrl-C or `SIGTERM`, at the end of `--for-seconds` or a failure. `null` while it runs. |
+| `folders` | `object[]` | The folders the watch was asked to hold: for a watch of every folder, all the registry lists. |
 
 Each folder holds:
 
@@ -71,6 +72,7 @@ Each folder holds:
 | `folder` | `string` | The ID of its `system.folder` item. |
 | `watching` | `boolean` | Whether the watch holds the folder now. A folder tried again after a failure counts once its watch has lasted about 10 seconds. |
 | `reason` | `string` or `null` | Why the folder isn't watched. `null` while it is, and for a folder not yet tried. |
+| `paused` | `boolean` | Whether the directory's sync is paused. Missing means `false`. |
 | `last_success_at` | `string` or `null` | When a complete sync last finished with nothing pending and no blocking problem. `null` until one does. |
 | `first_sync_waiting` | `boolean` or `null` | Whether the first sync waits for `marfa folders confirm`. |
 | `problems` | `object[]` or `null` | The current problems, each a `code` with its `count`. |
@@ -87,8 +89,9 @@ A watch of every folder tries an unwatched folder again, and `reason` changes wi
 | `reason` | Meaning |
 | --- | --- |
 | `first_sync_waiting` | The first sync waits for `marfa folders confirm`. |
+| `paused` | Paused with `marfa folders pause`. |
 | `missing` | The folder's directory can't be found, as on a disk that isn't connected. `marfa folders remove` takes the folder off the list. |
-| `handed_over` | A command such as `marfa folders confirm` asked for the folder, and the watch has let it go until the command ends. |
+| `handed_over` | A command such as `marfa folders confirm` holds the folder until it ends. |
 | `signed_out` | The folder's sign-in has ended. It's watched again once `marfa login` keeps a new credential. |
 | `no_credential`, `no_keychain`, `unauthorized` | The watch has no credential it can use for the folder's server. |
 | Another code | The error that keeps the folder out, such as `io`. |
@@ -107,6 +110,8 @@ A watch of every folder tries an unwatched folder again, and `reason` changes wi
 | `unavailable` | `1` when the server can't be reached, or answers the folder's changes with `403`, `429` or a `5xx`. |
 | `root_gone` | `1` when the folder's directory is missing. |
 | `settings_invalid` | `1` when the folder's settings file can't be used or written. |
+| `unwatched` | Directories the system's file watch can't register, which the watch reads on a short interval. |
+| `paused` | `1` while paused. |
 
 **While a folder's copy fills,** as a new folder's does, it reports no problem for the fill itself. `unavailable` then means the latest attempt couldn't reach the server, and goes once a retry is filling ([`folder-sync/health-hydrating`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-sync.md#folder-synchealth-hydrating)).
 
@@ -115,8 +120,8 @@ A watch of every folder tries an unwatched folder again, and `reason` changes wi
 An entry is **current** when `ended_at` is `null`, and `heartbeat_at` is no later than now and less than three `heartbeat_interval_seconds` before it. A folder is watched now when a current entry lists it with `watching: true`.
 
 - **A watch that stops** sets `ended_at` and marks each folder `watching: false`.
-- **A watch that's killed,** or whose computer loses power, can't. Its entry keeps `watching: true` and `ended_at: null`, and its heartbeat ages past three intervals.
-- **A process ID can be reused,** so checking that `pid` still runs is a quick hint; the heartbeat decides.
+- **A watch that's killed,** or whose computer loses power, can't, so its heartbeat ages past three intervals.
+- **A process ID can be reused,** so `pid` is only a hint; the heartbeat decides.
 - **One folder can appear in two entries.** A watch of every folder lists a folder that a watch of its directory holds as not watched.
 
 A watch drops the entries of other processes whose heartbeat is an hour old or lies in the future.
