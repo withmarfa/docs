@@ -3,7 +3,7 @@ title: Working copy
 description: Open, fill, pin, catch up and close a working copy, give it a new key, and recover a store it refuses.
 ---
 
-`WorkingCopy` is the copy an app keeps on the device. It lives in one SQLite store, holds a slice of the instance, answers reads from that slice and queues every write. [Devices](/build/devices) explains the slice, hydration and the queue; this page lists the calls.
+`WorkingCopy` is the copy an app keeps on the device. It lives in one SQLite store, holds a slice of the instance and queues every write. [Devices](/build/devices) explains the slice, hydration and the queue; this page lists the calls.
 
 ## Open a copy
 
@@ -15,7 +15,7 @@ let server = try Server(url: URL(string: "https://marfa.example.com")!, key: key
 let copy = try await WorkingCopy.open(store: store, server: server)
 ```
 
-`WorkingCopy.open(store:server:fileBudget:ifRefused:)` opens the store at `store`, and makes it when absent. **It makes no request.** A new copy reads and queues writes before its first hydration.
+`WorkingCopy.open(store:server:fileBudget:ifRefused:)` opens the store at `store`, and makes it when absent. **It makes no request.** Through a symbolic link, its lock and files sit beside the target. A new copy reads and queues writes before its first hydration.
 
 | Parameter | Default | What it does |
 | --- | --- | --- |
@@ -24,13 +24,14 @@ let copy = try await WorkingCopy.open(store: store, server: server)
 | `fileBudget` | `nil` | The budget of the [file cache](/reference/swift-sdk/files#the-file-cache), set before the call returns. `nil` keeps what the store holds. |
 | `ifRefused` | `.keep` | What to do with a store another build of the core made. `.replace` replaces it with an empty store **only when it holds no unsent write**. |
 
-A replaced store keeps the files the old copy downloaded and its file budget. It loses its pins, its position in the server's events and its declared types, so hydrate it as a new copy.
+A replaced store keeps its downloaded files and file budget. It loses its pins, its position in the server's events and its declared types, so hydrate it as a new copy.
 
 | `open` throws | When |
 | --- | --- |
 | `MarfaError.wrongSchema` | Another build of the core made the store. `unsent` counts the writes the server hasn't taken. See [A store the copy refuses](#a-store-the-copy-refuses). |
 | `MarfaError.storeDamaged` | SQLite can't read the store. |
-| `MarfaError.store` | The store's lock file exists but can't be opened for writing. |
+| `MarfaError.store` | The lock file can't be opened for writing, or the store can't use write-ahead mode. |
+| `MarfaError.invalid` | The store's file system doesn't lock files, as on a network share or WebDAV. |
 | `MarfaError.readingHandle` | A second opener passed a `fileBudget`, or `.replace` found another process writing the store. |
 | `SignInError.notSignedIn` | `server` was made from a credential the keychain no longer holds. |
 
@@ -83,7 +84,7 @@ A copy whose cursor the server's event log let go has `status().hydration` of `.
 | `copyExpired` | `slice_changed` | The types, tier or edge types differ. |
 | `copyExpired` | `head_past_log` | The server was restored behind the copy. |
 
-Use it to ask the person whether to hydrate afresh or keep the copy stale. A server that refuses the credential or the reach of a stale copy ends it all the same: `.stale` is a copy kept, `.expired` a copy ended.
+Use it to ask whether to hydrate afresh or keep the copy stale. A server that refuses the credential or the reach of a stale copy ends it all the same: `.stale` is a copy kept, `.expired` a copy ended.
 
 ### The hydration report
 
@@ -108,7 +109,7 @@ Use it to ask the person whether to hydrate afresh or keep the copy stale. A ser
 
 ## Catch up
 
-`catchUp()` reads the type catalog again, then applies every event since the last hydration or catch-up. A held `changes()` stream does this by itself; call it to catch up now. It waits for a hydration that is running.
+`catchUp()` reads the type catalog again, then applies every event since the last hydration or catch-up. A held `changes()` stream does this by itself. It waits for a hydration that is running.
 
 | `CatchUpReport` field | Holds |
 | --- | --- |
@@ -139,11 +140,11 @@ Use it to ask the person whether to hydrate afresh or keep the copy stale. A ser
 
 ## Search
 
-`search(_:filters:limit:)` searches indexed fields and tags, best match first, and returns `Rows<SearchHit>`, each hit with `item`, `score` and `snippet`. `limit` defaults to 20. `SearchFilters` takes `types`, `states`, `allStates`, `tier`, `tags`, `occurredAfter`, `occurredBefore`, `filter` and `beneath`. During a fill, hits are marked `.partial`.
+`search(_:filters:limit:)` searches indexed fields and tags, best match first, and returns `Rows<SearchHit>`, each hit with `item`, `score` and `snippet`. `limit` defaults to 20. `SearchFilters` takes `types`, `states`, `allStates`, `tier`, `tags`, `occurredAfter`, `occurredBefore`, `filter` and `beneath`.
 
 ## Give the copy a new key
 
-`use(_:)` gives an open copy a new sign-in or key for the same server. The store closes and opens again with the new token, and queued writes remain.
+`use(_:)` gives an open copy a new sign-in or key for the same server. The store reopens with the new token, and queued writes remain.
 
 - **Call it after `signedOut` or `.keyRefused`,** even with the same credential.
 - **During the change, every call throws `keyChanging`:** ask again. It waits for the slowest running call first.
@@ -168,7 +169,7 @@ These static calls work on a store that is closed in this process. Each throws `
 | `WorkingCopy.setAsideDamaged(store:)` | Moves a damaged store to `<store>.damaged-<n>` and makes a new one carrying every write it could read. |
 | `WorkingCopy.removeLosingAll(store:)` | Removes a damaged store, losing every unsent write, read or not. |
 
-**A removal names what it loses.** Show the person `unsentWrites(in:)`, each `UnsentWrite` with `id`, `kind`, `itemId`, `body` and `verdict`, then pass the answer to `remove(store:confirming:)`. If the store's writes changed in any field since, it throws `unsentDiffers` and removes nothing: read and ask again. It throws `invalid` for a folder's store. A reader doesn't stop a removal and shows the old copy until it reopens.
+**A removal names what it loses.** Show the person `unsentWrites(in:)`, each `UnsentWrite` with `id`, `kind`, `itemId`, `body` and `verdict`, then pass the answer to `remove(store:confirming:)`. If its writes changed since, it throws `unsentDiffers` and removes nothing: read and ask again. It throws `invalid` for a folder's store. A reader doesn't stop a removal and shows the old copy until it reopens.
 
 ```swift
 let unsent = try await WorkingCopy.unsentWrites(in: store)
