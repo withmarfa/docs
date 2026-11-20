@@ -17,6 +17,7 @@ The source of the public documentation site at `docs.marfa.so` and the status pa
 - TypeScript and ESM. pnpm with the committed lockfile, on Node 22.22.2 or later (24.15 or later on Node 24), which jsdom, the component tests' DOM, requires; TanStack Start, Vite and Vitest need only 22.12. CI uses Node 22.
 - This repository is public. Commit no internal hostname, private IP address, personal path, key or token, in a page or anywhere else.
 - A comment says only what the code cannot: the reason, the constraint or the trade-off. It never names a tracker, ticket number or project phase.
+- The telemetry pages (`/run/telemetry`, `/run/client-telemetry`) start with what Marfa shows its owner itself (`marfa attention`, the server's log, a webhook on `attention.raised`) and come to destinations last. PostHog is one optional route for a power user (a free PostHog Cloud project and two settings), never part of Marfa: Marfa sends nothing about itself until its owner sets where.
 - A code change in another repository opens a docs issue here, not a docs pull request. Pages are rewritten whole from those issues after each Marfa release ("Docs pass at each release").
 - Each page has a kind and a `job` line. `pnpm test` fails a page over its kind's word ceiling or caps, and a page under `pending` that grows or shrinks without its entry following. `STYLE.md`, "Page types", says what each kind holds, and `src/lib/page-limits.json` sets the numbers. It also lists each page with a bigger budget and its reason, and each page still waiting for its rewrite under `pending`.
 
