@@ -38,9 +38,10 @@ Says where an item's file sits in a synced folder.
 
 **written_from:** `none`
 
-| Property | Kind     | Description                             |
-| -------- | -------- | --------------------------------------- |
-| `path`   | `string` | The file's path from the folder's root. |
+| Property | Kind     | Description                                                                                    |
+| -------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `path`   | `string` | The file's path from the folder's root.                                                        |
+| `form`   | `object` | How the file writes its frontmatter: its keys in order and each value's style, with no values. |
 
 ## in-thread
 
