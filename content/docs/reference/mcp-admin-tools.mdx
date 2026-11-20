@@ -1,0 +1,67 @@
+---
+title: MCP admin tools
+description: The tools /mcp/admin serves to run an instance, the permission each needs, what each previews before it acts, and what no tool does.
+job: An owner looks up what an agent at /mcp/admin may do to run the instance with a given credential.
+---
+
+`/mcp/admin` serves the [everyday tools](/reference/marfa-mcp-server#everyday-tools) and these, each to a credential that holds its permission. **Each call is the API call it names, made with the client's credential**, so the API's permissions and refusals apply. The rules are in the contract's [MCP chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/mcp.md).
+
+## Tools
+
+| Permission | Tools | What they do |
+| --- | --- | --- |
+| `instance.read` or `connectors.manage` | `marfa_health` | Health and each connector's last run. `instance.read` adds errors, attention, housekeeping, metrics, file stores, updates and a bulk job; `unread` names a part it couldn't read |
+| `audit.read` | `marfa_audit` | Reads the [audit log](/use/audit-log), newest first |
+| `keys.mint` or `keys.manage` | `marfa_keys`, `marfa_manage_key`, `marfa_revoke_key` | List, make, change and revoke keys |
+| `webhooks.manage` | `marfa_webhooks`, `marfa_manage_webhook` | List, make, change, pause or delete webhooks |
+| `config.manage` | `marfa_settings`, `marfa_change_settings` | Read and change the [settings](/run/settings) |
+| `items.purge` | `marfa_trash`, `marfa_purge` | List and purge the bin |
+| `grants.manage` | `marfa_apps`, `marfa_narrow_app` | List apps, and narrow one |
+| `sign_ins.manage` or `grants.manage` | `marfa_end_sign_in` | Ends an app, or with `sign_ins.manage` a browser sign-in or a passkey |
+| `sign_ins.manage` | `marfa_sign_ins`, `marfa_rename_sign_in` | List sign-ins and passkeys, and rename one |
+| `backups.manage` | `marfa_backups`, `marfa_take_backup`, `marfa_adopt_backup_folder` | List backups, take one now, and [adopt a replaced backup disk](/run/back-up-and-restore#when-the-backup-disk-was-replaced) |
+| `instance.maintain` | `marfa_maintain`, `marfa_update_server` | Run a housekeeping job, cancel a bulk job, [confirm the clock](/run/housekeeping#when-the-clock-jumps-ahead), and [update the server](/run/upgrade) |
+| `connectors.manage` | `marfa_connectors`, `marfa_make_endpoint`, `marfa_delete_connector`, `marfa_retire_endpoint` | Read, delete or reset connectors, and make or retire an inbound endpoint |
+| `blobs.manage` | `marfa_files`, `marfa_remove_file_copy` | List a file's copies, and remove one |
+
+`marfa_connectors` pages a connector's runs with `runs_cursor`, and `marfa_trash` the bin with `cursor`.
+
+## What no tool does
+
+**No tool claims the instance, recovers a lost password, sets the owner's password, adds a passkey, exports or restores** ([`mcp/tools-withheld`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/mcp.md#mcptools-withheld)):
+
+- Claiming happens in the sign-in page a client opens, and recovery starts where the server runs.
+- A password must not pass through the model, and a passkey needs the browser's passkey sheet. `marfa_sign_ins` answers `owner_page`, the page for both, and `marfa owner password` sets the password with no echo.
+- An archive doesn't fit a tool's answer. `marfa_take_backup` makes a copy, and [`marfa export`](/run/export-and-restore) streams one.
+- No confirmation binds a restore yet.
+
+## Settings that need a recent sign-in
+
+`marfa_change_settings` changes `allow_private_addresses`, `backup_path` and where files go (the `object_store_` settings) only for an app whose owner [signed in within 900 seconds](/run/sign-in-as-the-owner#confirm-its-you). Otherwise it changes nothing:
+
+- **An older sign-in** gets `insufficient_user_authentication`, with `details.max_age` `900`. The person signs in to that app's connection again: re-authenticate it, since a plain reconnect reuses the old sign-in. The app's next authorization, by code or device, asks them to sign in, and a refresh from the old sign-in gets `invalid_grant`. No other app is affected, and removing the app clears it.
+- **A key** gets `app_sign_in_required`.
+- **`sign_in_address`** gets `not_offered_over_mcp` for every credential, naming `marfa config set sign_in_address`, since moving it ends every sign-in, the agent's own included.
+
+## Previews
+
+The tools that remove, end, replace or restart [preview first](/reference/marfa-mcp-server#previews-and-confirmation) and act only on the `confirm` token, sent by the same credential within five minutes. The instructions `/mcp/admin` sends tell the agent to show the person each preview.
+
+| Tool | The preview shows | Refused with `confirmation_stale` when |
+| --- | --- | --- |
+| `marfa_revoke_key` | The key | The key changed |
+| `marfa_manage_webhook` | Making a webhook, or a new `url`, `events` or `type_filter` | What the webhook would be left as changed |
+| `marfa_purge` | The `ids` to confirm, the `items` and `edges` it takes, `hidden` counts of those the credential can't read, and `goes_with`. Takes `ids` or a `page`; confirm with `ids` | What it takes changed, or an item left the bin |
+| `marfa_end_sign_in` | For `kind` `sign_in` or `passkey` and an `id`: the sign-in or passkey. For an app, its `scopes`, `webhooks`, `token_chains`, whether it `ends_this_connection`, and with `revoke_keys` the `keys` it revokes | The app, its webhooks or those keys changed, or a passkey was renamed |
+| `marfa_delete_connector` | The registration and its runs, or with `part: "state"` its source's state, problems and agreements | The registration, its endpoints or deliveries, or the state changed |
+| `marfa_retire_endpoint` | The endpoint, which stops taking deliveries for good | The endpoint was retired, or its registration replaced |
+| `marfa_remove_file_copy` | For a `hash` and `store_id`: the copy, the `other_copies`, `min_copies`, and whether its `bytes` are deleted or kept | The store no longer holds that copy |
+| `marfa_adopt_backup_folder` | The folder, the store it replaces, what the instance `forgets`, `files_to_purge` and `last_backup` | The folder or what it forgets changed |
+| `marfa_update_server` | The release it runs and the release it moves to | A newer release was found |
+| `marfa_maintain`, `action: "confirm_clock"` | The `gap_seconds`, the `held_jobs` and `hold_ends_at`; `held: false` and no token when nothing waits | The clock jumped, or nothing is held |
+
+- **`marfa_end_sign_in` refuses a key,** with `use_tool` naming `marfa_revoke_key`. Without `revoke_keys`, an app's keys stay.
+- **`marfa_remove_file_copy` refuses a removal below the minimum** with `copies_below_minimum`.
+- **`marfa_adopt_backup_folder` answers `marked`**: `true` once the new store's marker is written, `false` with `marker_error`, or `null` when the folder didn't answer in time. `folder_changed` is `true` when the folder read otherwise once marked. Files the operating system adds, such as `.DS_Store`, don't make the token stale.
+- **`marfa_update_server` refuses as `POST /update` does,** with that code and its `details.step`.
+- **A token works once.** Sent again, `marfa_purge` answers `already_purged`, `marfa_manage_webhook` a refusal, and the connector tools, `marfa_end_sign_in`, `marfa_remove_file_copy`, `marfa_adopt_backup_folder` and `confirm_clock` `already_done`.

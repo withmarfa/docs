@@ -67,11 +67,9 @@ A `filter` takes the `status_group` term: `status_group neq "completed" AND stat
 | `defaults` | `FolderDefaults` for a new file: `type`, `tier`, `properties`, `tags`, and `edges` from edge type to item IDs. |
 | `include`, `ignore` | Gitignore patterns for the paths taken and left alone. **`ignore` wins.** |
 | `firstPlacement` | Where an item of a type made elsewhere first appears, from type to directory. |
-| `removalThreshold` | `RemovalThreshold(files:fraction:)`, `nil` being 10 files and 0.25. |
+| `removalThreshold` | `RemovalThreshold(files:fraction:ceiling:)`, `nil` being 10 files, 0.25 and a `ceiling` of 100: more files than that wait whatever their share. |
 | `additionThreshold` | `AdditionThreshold(files:fraction:)`, `nil` being 50 files and 0.25. |
 | `outsideQuery` | `OutsideQuery`: `.send` makes a new file outside the query an item and flags it unmatched; `.hold` leaves it on the disk. |
-
-The server's removal threshold also has a ceiling, 100 files when unset. **The Swift type doesn't carry it yet**, so a change that names a `removalThreshold` sends none.
 
 | Call | Does |
 | --- | --- |
@@ -83,12 +81,12 @@ These are sent as view writes are, and answer the same way to a `network` failur
 
 ## Folders on a Mac
 
-`Folders(server:)` works the Mac's folders through the same registry as the `marfa` command line, so a folder added in either shows in both. Without a server, only `list()`, `status(of:)`, `confirmFirstSync(in:)`, `confirmRemoval(in:)`, `restoreRemoval(in:)` and `remove(_:)` work.
+`Folders(server:)` works the Mac's folders through the same registry as the `marfa` command line, so a folder added in either shows in both. Without a server, only `list()`, `status(of:)`, `confirmFirstSync(in:)`, `confirmRemoval(in:)`, `restoreRemoval(in:)`, `remove(_:)`, `pause(_:)` and `resume(_:)` work.
 
 | Call | Does |
 | --- | --- |
 | `add(_ directory:following:)` | Makes a directory follow a `system.folder`, making the directory if needed. Returns `AddedFolder`. |
-| `list()` | Every `ListedFolder` in the registry, with `directory` and `folderId`. |
+| `list()` | Every `ListedFolder` in the registry, with `directory`, `folderId` and `syncPaused`. |
 | `status(of:)` | `FolderStatus` from the folder's own store, with no request. |
 | `sync(_:)` | One pass: sends disk changes, catches up, writes out what the query matches, and sends placements. Returns `FolderSyncResult`. |
 | `confirmFirstSync(in:)` | Lets the first sync go. Returns whether it was waiting. |
@@ -96,8 +94,11 @@ These are sent as view writes are, and answer the same way to a `network` failur
 | `restoreRemoval(in:)` | Cancels a paused removal and writes the files back. Returns `RestoredRemoval`. |
 | `remove(_:)` | Takes the folder off the Mac and leaves plain files. **Throws `invalid` while writes wait to be sent**: sync first. |
 | `watch(_:)` | Keeps the folder in step while the app runs. Returns a `FolderWatch`. |
+| `pause(_:)`, `resume(_:)` | Pauses the directory's sync, which lasts until `resume(_:)`, and lets it go on. Each returns whether it changed anything. |
 
 **A new folder's first sync waits for the person.** Until `confirmFirstSync(in:)`, `sync(_:)` only reads the folder and returns `.awaitingConfirmation(FirstSyncPlan)`, and `watch(_:)` throws `firstSyncWaiting`. The plan counts what it will `write` and `send`, the files it writes `beside` a file at the same path, and the items it leaves (`left`).
+
+**While a directory is paused, nothing is sent or written,** a watch lets the folder go, and `sync(_:)`, `confirmFirstSync(in:)`, `confirmRemoval(in:)`, `restoreRemoval(in:)` and `watch(_:)` throw `syncPaused`.
 
 **One process works a folder at a time.** A call that finds a watch holding the folder asks it to let go and waits up to 10 seconds, then throws `readingHandle`. `watch(_:)` throws `readingHandle` at once. `status(of:)` answers beside a watch.
 
@@ -125,7 +126,7 @@ These are sent as view writes are, and answer the same way to a `network` failur
 
 ### Status
 
-`FolderStatus` has `files`, `paused` and `firstSync`. Each `FileStatus` has `path`, `itemId`, `state`, `waits`, `flag`, `reason` and `warning`.
+`FolderStatus` has `files`, `paused`, `firstSync`, `syncPaused`, set by `pause(_:)`, and `unwatched`, the directories a watch last couldn't watch. Each `FileStatus` has `path`, `itemId`, `state`, `waits`, `flag`, `reason` and `warning`.
 
 | `FileState` | Means |
 | --- | --- |
@@ -155,7 +156,7 @@ for try await event in watch {
 | `.retrying(_:after:)` | Hydrating failed; it tries again after the wait. |
 | `.watcherFailed(message:)` | The file system reported an error; the watch goes on. |
 | `.waiting(reason:)` | The directory is gone, and the watch waits for it. |
-| `.handedOver`, `.heldElsewhere`, `.takenBack` | The watch let the folder go, to a call or to another process, and took it back. **No pass runs in between.** |
+| `.handedOver`, `.heldElsewhere`, `.paused`, `.takenBack` | The watch let the folder go, to a call, to another process or to a pause, and took it back. **No pass runs in between.** |
 | `.removed`, `.unlisted` | A call removed the folder or took it off the registry. The watch ends. |
 
 The sequence ends after `stop()`, `.removed` or `.unlisted`, and throws a `MarfaError` when the watch fails, such as `unauthorized`. **Leaving a loop early doesn't stop the watch**: call `stop()`, which returns once the folder is let go.
