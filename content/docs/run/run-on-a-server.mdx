@@ -16,7 +16,7 @@ An instance is one server program, `marfa-server`, with one SQLite database and 
 
 ## On Railway
 
-Railway runs the release image with a volume and gives it an HTTPS address. It bills the service and its storage to your Railway workspace.
+Railway runs the release image with a volume and gives it an HTTPS address.
 
 <Steps>
 <Step>
@@ -30,7 +30,7 @@ Open the [Marfa template](https://railway.com/new/template/5z9-Ja), choose a wor
 
 ### Claim the instance
 
-In the server's **Deployments** tab, open the deploy logs and find the line `Claim this Marfa at https://<address>/setup with setup code: <code>`. Open the address, enter the code and choose the owner's email and password. A restart before you claim prints a new code.
+In the server's **Deployments** tab, open the deploy logs and find the line `Claim this Marfa at https://<address>/setup with setup code: <code>`. Open the address, enter the code and choose the owner's username and password. A restart before you claim prints a new code.
 
 </Step>
 <Step>
@@ -62,7 +62,7 @@ Then claim the instance through the CLI inside the container:
 docker exec marfa marfa --socket /data/control/marfa.sock setup open --address https://marfa.example.com --no-browser
 ```
 
-Open the link it prints within five minutes, and choose the owner's email and password. `--address` is the address people sign in at, which your proxy or tunnel serves.
+Open the link it prints within five minutes, and choose the owner's username and password. `--address` is the address people sign in at, which your proxy or tunnel serves.
 
 ### Check the image
 
@@ -92,7 +92,7 @@ Without the two secrets, the first start makes them and keeps them in `marfa.sec
 
 ### Keep it running
 
-Point a monitor at [`GET /health`](/reference/api/health-and-maintenance/getHealth), which needs no credential: it answers `503` when the database, a write, the disk or file storage is down. The server stops within eight seconds of `SIGTERM`, so allow ten. Its exit status tells your supervisor what to do:
+Point a monitor at [`GET /health`](/reference/api/health-and-maintenance/getHealth), which needs no credential: it answers `503` when the database, a write, the disk or file storage is down, and its `claimed` says whether the instance has an owner yet. It stops within eight seconds of `SIGTERM`, so allow ten. Its exit status tells your supervisor what to do:
 
 | Status | Meaning | Your supervisor |
 | --- | --- | --- |
@@ -100,11 +100,11 @@ Point a monitor at [`GET /health`](/reference/api/health-and-maintenance/getHeal
 | `1` | A failed start, such as a port in use or a setting outside its rules. The log names the cause. | Starts it again once the cause is fixed. |
 | `78` | The server won't open the database, such as one another release wrote, and changed nothing. | Doesn't start it again. See [The server refuses its database](/run/troubleshooting/start-and-claim#the-server-refuses-its-database-exit-78). |
 
-`marfa server run` handles status `78` itself: it stays up and idle, so a supervisor doesn't start the server into the same refusal.
+`marfa server run` handles status `78` itself, staying up and idle so a supervisor doesn't restart it.
 
 ## The data directory
 
-The database and the files are the whole of your data, so keep them on storage that survives a restart, such as a container volume, and on a local file system. The directory holds:
+The database and the files are the whole of your data: keep them on local storage that survives a restart, such as a container volume. The directory holds:
 
 <Files>
   <Folder name="data" defaultOpen>
@@ -119,16 +119,14 @@ The database and the files are the whole of your data, so keep them on storage t
   </Folder>
 </Files>
 
-`marfa.secrets` is there only when the server made the secrets. `marfa.settings.key` seals secret settings, such as the object store's secret key: **keep it with the data**, since a server that finds it missing makes a new one, and every secret setting must then be set again.
+`marfa.secrets` is there only when the server made the secrets. `marfa.settings.key` seals secret settings, such as the object store's secret key: **keep it with the data**, or each must be set again. To bring the instance back from a copy, see [Restore a copy of the data directory](/run/restore-the-data-directory).
 
 **The server keeps its data only where it can make it private.** It refuses a folder that another account can write to or replace, and names the folder and the command that fixes it. It follows a symbolic link that you or root made in a path no other account can change, and refuses any other.
 
+**One server holds the database and the blob folder while it runs,** so a second is refused: leave the `.server-lock` files in place. A blob folder on a network file system, whose locks may not hold, makes `blob_storage` `degraded` in [Health](/reference/api/health-and-maintenance/getHealth).
+
 ## The private socket
 
-`control/marfa.sock` lets a command on the same machine, run as the server's own account, act with the machine's authority instead of a credential. **Three tasks need it:** claiming the instance, [recovering the owner's password](/run/sign-in-as-the-owner#recover-the-owners-password) and making [a key for a connector](/run/manage-keys#a-key-for-a-connector). Everything else works from any machine with a key or a sign-in.
+`control/marfa.sock` lets a command on the same machine, run as the server's own account, act with the machine's authority instead of a credential. **Two tasks need it:** claiming the instance and [recovering the owner's password](/run/sign-in-as-the-owner#recover-the-owners-password). Everything else works from any machine with a key or a sign-in.
 
 The socket's folder must belong to the server's account, with mode `700` and no access control list that opens it to anyone else. `MARFA_CONTROL_SOCKET` moves the socket: an absolute path of 103 bytes or fewer.
-
-## An object store
-
-An S3-compatible bucket keeps a second copy of every file and the server's backups. [Use an object store](/run/back-up-and-restore#use-an-object-store) sets one up.

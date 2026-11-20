@@ -82,10 +82,11 @@ For example, a write to an item another device moved to the bin is refused with 
 | `.credentialRefused` | The server refused the key. | **By itself:** the next drain sends it again. |
 | `.keySpent` | The server answered `422 idempotency_contract_changed`: the key went with another request. | Release, which sends it under a fresh key. |
 | `.ancestorUnavailable` | The server answered `409 ancestor_unavailable`. | Release or withdraw. |
-| `.conflictUnresolved` | The server answered `409 version_conflict`. | Release or withdraw. |
+| `.conflictUnresolved` | The server answered `409 version_conflict`. A tag replace gets it when another writer changed the tags since the copy read them, and the copy keeps the person's tags. | Release, which sends a tag replace with no `read_tags`, so the tags become the copy's, or withdraw. |
 | `.failingAlone` | **Set aside:** it keeps meeting a failure that is no answer while other writes go. `lastFailure` says what. | Release or withdraw. |
 | `.instanceChanged` | Queued against an instance other than the one the copy is built from now. | Release, which sends it to the instance there, or withdraw. |
 | `.recordUnread` | Carried from a store set aside where the record deciding how it is sent couldn't be read. | Release or withdraw. |
+| `.serverRestored` | Queued to put back what the server lost when it was restored to an earlier point, and never sent. | Release, which keeps its key, or withdraw. |
 
 A write held behind another isn't blocked: it has no verdict, and `waiting` is set.
 
@@ -93,7 +94,7 @@ A write held behind another isn't blocked: it has no verdict, and `waiting` is s
 
 | Call | Does |
 | --- | --- |
-| `queue.release(_ id)` | Queues a blocked or dead write for the next drain under a fresh key. A row write goes with its whole batch, which keeps its key unless blocked `keySpent`, `conflictUnresolved` or `ancestorUnavailable`. Returns whether it released one. |
+| `queue.release(_ id)` | Queues a blocked or dead write for the next drain, under its idempotency key unless it was blocked `keySpent`, `conflictUnresolved` or `ancestorUnavailable`, which get a fresh one. A row write goes with its whole batch. Returns whether it released one. |
 | `queue.release(reason:)` | Releases every write blocked for one reason, and returns how many. |
 | `queue.withdraw(_ id)` | **Takes a write that can never be sent out of the queue** and puts its row back as the server holds it. |
 | `queue.discard(_ id)` | Takes a refused write, and the content it carried, out of the queue. |
@@ -101,7 +102,7 @@ A write held behind another isn't blocked: it has no verdict, and `waiting` is s
 | `queue.forgetAnswered(ids:)` | Clears only the named answered writes. |
 | `queue.takeAnswered()` | Clears what `forgetAnswered()` clears and returns each write, in one step. |
 
-`withdraw` takes only a dead write or one blocked `ancestorUnavailable`, `conflictUnresolved`, `failingAlone`, `instanceChanged` or `recordUnread`. **It returns the ID of every write it took**, more than one where the write belonged to a batch, and an empty list for any other write. It reads the row from the server first, so it needs the server, and answers an empty list when the copy moved during the read: ask again. Writes waiting on it are refused unsent.
+`withdraw` takes only a dead write or one blocked `ancestorUnavailable`, `conflictUnresolved`, `failingAlone`, `instanceChanged`, `recordUnread` or `serverRestored`. **It returns the ID of every write it took**, more than one where the write belonged to a batch, and an empty list for any other write. It reads the row from the server first, so it needs the server, and answers an empty list when the copy moved during the read: ask again. Writes waiting on it are refused unsent.
 
 `discard` returns `false` for a write that isn't refused or that a waiting write depends on, and throws `notFound` for an ID the queue doesn't hold.
 

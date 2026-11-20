@@ -5,7 +5,7 @@ description: The endpoints and tools an instance serves to AI agents over MCP, h
 
 Every instance serves MCP at `/mcp`, over the Streamable HTTP transport. **Each tool call is an API call made with the credential the client sent**, so the API's permissions, refusals and limits apply. To connect, see [Connect your agent](/connect-your-agent).
 
-The rules are in the contract's [MCP chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/mcp.md). The [Docs MCP server](/reference/docs-mcp-server) searches these docs.
+The rules are in the contract's [MCP chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/mcp.md).
 
 ## Endpoints
 
@@ -26,7 +26,7 @@ HTTP/1.1 401 Unauthorized
 WWW-Authenticate: Bearer resource_metadata="https://marfa.example.com/.well-known/oauth-protected-resource/mcp"
 ```
 
-- **Protected resource metadata** is at `/.well-known/oauth-protected-resource` and the endpoint's path. Every endpoint lists the scopes `content:read`, `content:write`, `edge.*:read`, `edge.*:write` and `offline_access`. `/mcp/schema` adds `metadata.types:write`, `schema.write` and `system.view:write`, and `/mcp/admin` adds `instance.read`, `connectors.manage`, `audit.read`, `keys.mint` and `webhooks.manage`.
+- **Protected resource metadata** is at `/.well-known/oauth-protected-resource` and the endpoint's path. Every endpoint lists the scopes `content:read`, `content:write`, `edge.*:read`, `edge.*:write` and `offline_access`. `/mcp/schema` adds `metadata.types:write`, `schema.write` and `system.view:write`, and `/mcp/admin` adds each permission in the [admin tools](#admin-tools) table, so Full access shows every tool.
 - **The authorization server is the instance**, whose origin is the issuer, with no path or trailing slash, such as `https://marfa.example.com`. Its metadata is at `/.well-known/oauth-authorization-server` only.
 - **The client signs in as any app does** ([Authenticate](/build/authenticate)), with the instance's origin or one endpoint's address as `resource`. Its token works at the API and every endpoint, within what the owner granted.
 - **A client can ask for more access.** When an app's token lacks a scope a tool call needs, the endpoint answers `403` with `WWW-Authenticate: Bearer error="insufficient_scope"` and the `scope` to ask for, before anything changes. A key gets a tool error instead.
@@ -34,7 +34,7 @@ WWW-Authenticate: Bearer resource_metadata="https://marfa.example.com/.well-know
 
 ## Tools
 
-An endpoint lists only the tools a credential can use. **A credential that may write a type gets all eight everyday tools; one that may only read gets the four that read.**
+An endpoint lists only the tools a credential can use. **A credential that may write a type gets all eight everyday tools, and a reader the four that read.**
 
 ### Everyday tools
 
@@ -67,30 +67,32 @@ An endpoint lists only the tools a credential can use. **A credential that may w
 | --- | --- | --- |
 | `instance.read` or `connectors.manage` | `marfa_health` | Health and each connector's last run. `instance.read` adds errors, attention, housekeeping, metrics, file stores, updates and a bulk job; `unread` names a part it couldn't read |
 | `audit.read` | `marfa_audit` | Reads the [audit log](/use/audit-log), newest first |
-| `keys.mint` or `keys.manage` | `marfa_keys`, `marfa_manage_key`, `marfa_revoke_key` | List, make or narrow, and revoke keys |
+| `keys.mint` or `keys.manage` | `marfa_keys`, `marfa_manage_key`, `marfa_revoke_key` | List, make, change and revoke keys |
 | `webhooks.manage` | `marfa_webhooks`, `marfa_manage_webhook` | List, make, change, pause or delete webhooks |
 | `config.manage` | `marfa_settings`, `marfa_change_settings` | Read and change the [settings](/run/settings) |
-| `items.purge` | `marfa_trash` | Lists the bin |
+| `items.purge` | `marfa_trash`, `marfa_purge` | List and purge the bin |
 | `grants.manage` | `marfa_apps`, `marfa_narrow_app` | List apps, and narrow one |
 | `backups.manage` | `marfa_backups`, `marfa_take_backup` | List backups, and take one now |
 | `instance.maintain` | `marfa_maintain` | Runs a housekeeping job, or cancels a bulk job |
-| `connectors.manage` | `marfa_connectors`, `marfa_make_endpoint` | Read connectors and runs, and make an inbound endpoint |
+| `connectors.manage` | `marfa_connectors`, `marfa_make_endpoint`, `marfa_delete_connector`, `marfa_retire_endpoint` | Read, delete or reset connectors, and make or retire an inbound endpoint |
 | `blobs.manage` | `marfa_files` | Lists a file's copies |
 | `sign_ins.manage` | `marfa_sign_ins`, `marfa_rename_sign_in` | List sign-ins and passkeys, and rename one |
 
-**`marfa_change_settings` changes nothing and answers `app_sign_in_required`** when a call names `sign_in_address`, `allow_private_addresses`, `backup_path` or the object store's bucket, endpoint, region, path style or prefix. The owner changes those with the CLI, or after [a recent sign-in](/run/sign-in-as-the-owner#confirm-its-you).
+**`marfa_change_settings` answers `app_sign_in_required`**, changing nothing, for a setting that needs [a recent sign-in](/run/sign-in-as-the-owner#confirm-its-you).
 
-**No tool does what can't be undone or needs the owner in person,** such as purging chosen items, revoking an app, restoring, claiming or anything with passkeys or the password. [`mcp/tools-withheld`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/mcp.md#mcptools-withheld) lists them all, and the owner does them with the [CLI](/reference/cli). `marfa_maintain` can run `trash-purge`, removing only what [retention](/run/housekeeping) makes eligible.
+**No tool does what a preview can't yet bind or needs the owner in person,** such as revoking an app, removing a file's copy, restoring, claiming or anything with passkeys or the password. [`mcp/tools-withheld`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/mcp.md#mcptools-withheld) lists them all, and the owner does them with the [CLI](/reference/cli).
 
-Annotations tell a client when to ask first. `readOnlyHint` marks the tools that only read, and `destructiveHint` every other except `marfa_create`, `marfa_name_source`, `marfa_change_settings`, `marfa_take_backup`, `marfa_make_endpoint` and `marfa_rename_sign_in`. `openWorldHint` marks those that can reach outside the instance: `marfa_create`, `marfa_manage_webhook`, `marfa_take_backup`, `marfa_maintain` and `marfa_change_settings`.
+`readOnlyHint` marks the tools that only read, and `destructiveHint` every other except `marfa_create`, `marfa_name_source`, `marfa_change_settings`, `marfa_take_backup`, `marfa_make_endpoint` and `marfa_rename_sign_in`. `openWorldHint` marks those that can reach outside the instance: `marfa_create`, `marfa_manage_webhook`, `marfa_take_backup`, `marfa_maintain` and `marfa_change_settings`.
 
 ## Previews and confirmation
 
-`marfa_delete`, `marfa_move_items`, `marfa_revoke_key` and `marfa_manage_webhook` act in two calls. **The first changes nothing** and answers a preview with a `confirm` token; once the person agrees, the agent calls again with the same arguments and the token.
+`marfa_delete`, `marfa_move_items`, `marfa_revoke_key`, `marfa_manage_webhook`, `marfa_purge`, `marfa_delete_connector` and `marfa_retire_endpoint` act in two calls. **The first changes nothing** and answers a preview with a `confirm` token; once the person agrees, the agent sends the same arguments with the token.
 
-- `marfa_delete`'s preview names every item the move would take. `marfa_manage_webhook` previews only making a webhook or changing its `url`, `events` or `type_filter`.
-- **A token is refused with `confirmation_stale`** when another credential sends it, after five minutes, or once what the preview showed changed.
-- **A token works once.** Sent again, `marfa_delete` answers `already_trashed: true`, and `marfa_manage_webhook` refuses it, so a retry never makes a second webhook.
+- `marfa_delete`'s preview names every item it moves. `marfa_manage_webhook` previews only making a webhook or changing its `url`, `events` or `type_filter`.
+- **`marfa_purge`** takes `ids`, up to 200 items in the bin, or a `page` of it. The preview answers the `ids` to confirm, the `items` and `edges` it takes, `hidden` counts of those the key can't read, and `goes_with`. Confirm with `ids`, never `page`.
+- **`marfa_delete_connector`** deletes a registration and its runs, or with `part: "state"` clears its source's state, problems and agreements. **`marfa_retire_endpoint`** stops an endpoint taking deliveries for good.
+- **A token is refused with `confirmation_stale`** when another credential sends it, after five minutes, or once what the preview showed changed, even unreadable items.
+- **A token works once.** Sent again, `marfa_delete` answers `already_trashed`, `marfa_purge` `already_purged`, the connector tools `already_done`, and `marfa_manage_webhook` a refusal.
 
 ## Changing an item
 
@@ -114,7 +116,7 @@ Annotations tell a client when to ask first. `readOnlyHint` marks the tools that
 | `busy`, `rate_limited` | Four fetches running, or 30 in `rate_limit_window_seconds`; retry after `retry_after_seconds` |
 | `disabled` | `mcp_fetch_enabled` is `false` |
 
-The `mcp_fetch_*` [settings](/run/settings) apply from the next fetch. The `mcp.file_fetch` audit entry keeps a fetch's path and query only as lengths and a hash.
+The `mcp_fetch_*` [settings](/run/settings) apply from the next fetch.
 
 ## Tool errors
 
@@ -130,5 +132,4 @@ The `code` is an API [error code](/reference/errors#codes), or the tools' own `c
 
 - **Revisions:** MCP 2026-07-28 with no `initialize` handshake, and 2025-11-25 and earlier through `initialize`, with the same tools.
 - **No sessions or streams:** nothing is kept between requests, and `subscriptions/listen` answers `-32601`. Follow changes with [events](/build/events).
-- **Instructions:** call `marfa_overview` first, read an item before changing it, and confirm a preview only once the person agrees.
 - **Audit:** a tool's write is recorded with the credential, the caller's address and `"via": "mcp"`.
