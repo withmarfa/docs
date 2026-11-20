@@ -3,7 +3,7 @@
   "info": {
     "title": "Marfa API",
     "version": "0",
-    "description": "Marfa stores typed records, called items, and the edges between them. This reference describes its HTTP API.\n\n## Authentication\n\nSend a credential in the `Authorization` header as `Bearer <token>`: an API key (`marfa_k1_…`) or the access token of an app someone signed in to (`marfa_at_…`). In this reference, *you* means the credential that sends the request.\n\n## Recent sign-in\n\nRestoring an archive or a backup, moving the sign-in address, changing `allow_private_addresses` and changing where files and backups go (`backup_path` and the `object_store_` settings other than the access key ID and the secret) also need the owner to have signed in within the last five minutes. An app's access token whose owner signed in longer ago is answered `401 insufficient_user_authentication` with `WWW-Authenticate: Bearer error=\"insufficient_user_authentication\", max_age=\"300\"`, as RFC 9470 describes. Send the owner through `GET /oauth/authorize` with `max_age=300`: Marfa asks them to sign in again, and the tokens the code leads to carry the new sign-in. A refreshed token keeps the time of the sign-in it came from. An API key has no sign-in to renew, so it is refused these acts with `403 app_sign_in_required`, and the private local command makes them without one.\n\n## Local command\n\nAn operation marked `x-marfa-local-command` also answers the private local listener: a Unix socket that only the account running the instance can open. The connection is the proof, so the request carries no credential, and no security scheme here describes it. The `marfa` command line reaches it with `--socket`.\n\n## Permissions\n\nYour credential reads and writes only the types its permissions reach. If you ask by ID for an item whose type you can't read, Marfa answers as if the item doesn't exist. An edge appears in a response only if you can read both its edge type and the type of the item it starts from.\n\n## Pagination\n\nA list returns one page at a time, as `{ \"data\": [...], \"next_cursor\": \"...\" }`. To get the next page, send `next_cursor` back as `cursor`. The last page has `next_cursor: null`. A page can be short or empty and still have more after it, so stop only when `next_cursor` is `null`. A list that can't page answers `{ \"data\": [...] }` alone.\n\n## Answers\n\nAn operation that returns one object returns it bare, and wraps it only where the answer holds more than the object. A delete answers `200` with `{ \"ok\": true }` once the thing is gone, and `200` with the object where the object stays in a new state. No operation answers `204`.\n\n## Query parameters\n\nEvery operation refuses a query parameter it doesn't recognize with `400 validation_error`, so a misspelled filter can't silently return everything. A boolean parameter is `true` or `false`, and anything else, `1` and `yes` included, is a `400 validation_error`. The `edge[<type>]` and `backref[<type>]` filters on `GET /items` and `GET /items/stats` are recognized for any type. Marfa ignores any parameter that starts with `_`, so use that prefix for a parameter of your own, such as a cache buster. The OAuth operations `GET /oauth/authorize`, `POST /oauth/token`, `POST /oauth/revoke` and `POST /oauth/device-authorization` ignore a parameter they don't recognize, as RFC 6749 requires.\n\n## Errors\n\nAn error answers `{ \"error\": { \"code\": \"...\", \"message\": \"...\", \"details\": {} } }`. Use `code` in your logic: each operation lists the codes it can return, and the `X-Error-Code` header repeats it. `message` is for people and can change. A version conflict also carries the item or edge as it stands now, in `current`, so you can merge and try again.\n\nThe OAuth operations under `/oauth/` answer their own errors in the shape their RFCs define, `{ \"error\": \"...\", \"error_description\": \"...\" }`, with no `X-Error-Code`. A refusal every operation shares, such as `412` or `429`, keeps the shape above.\n\n## Idempotency\n\nA write that takes an `Idempotency-Key` header is safe to retry. Send the same request with the same key, and Marfa returns the first response, with `Idempotency-Replayed: true`, and doesn't write again. A key belongs to the credential that sends it. While the first request with a key is still running, a repeat returns `409 idempotency_key_in_flight` and writes nothing, so retry it. Reusing a key for a different request returns `422 idempotency_key_reused`. Repeating a request after Marfa moves to another contract version returns `422 idempotency_contract_changed`, with the first response's status in `details.original_status`, and doesn't write again.\n\n## Request bodies\n\nA body is JSON, sent with `Content-Type: application/json`. A request that doesn't send its body as JSON returns `400 validation_error` and changes nothing, even if it has no body at all. The exceptions are `POST /blobs`, which takes the bytes of a blob, and `POST /restore`, which takes an archive. `POST /oauth/token`, `POST /oauth/revoke` and `POST /oauth/device-authorization` take a form (`application/x-www-form-urlencoded`), as their RFCs define. `POST /oauth/register` takes JSON, and answers a request that isn't JSON with `400 invalid_client_metadata`.\n\n## Time\n\nEvery time is UTC, written as `2026-10-03T09:30:00.000Z`. A time field is named for what happened, such as `created_at`. A filter on a time field pairs `_after` and `_before`, and both leave out the time you give, except `updated_after`, which includes it so that nothing changed at the same moment is skipped. `GET /occurrences` takes a window, `from` and `to`, instead.\n\n## Event stream\n\n`GET /events` sends each change as a frame whose `id:` is its event ID, in the order Marfa made the changes. To resume, reconnect with the last ID you received as `Last-Event-ID`, under any `type` or `edges` filter: Marfa replays what you missed, then sends `stream_live`. Marfa reads your credential again before each batch of frames and every 30 seconds: you receive only what it can read now, and a credential that's revoked or expired ends the stream, so reconnect with a current one. Ignore lines that start with `:`.\n\n## Web pages\n\nA web page can connect from a browser with no setup. `POST /oauth/register` and the discovery documents answer any origin, so the page registers itself, then opens the authorization endpoint in a window for the owner to approve. Once the owner approves it, the origin of each redirect URI it registered may call every operation from a browser. Send the access token in `Authorization`: no response allows a browser's credentials.\n\n## Every response\n\nEvery response carries `X-Marfa-Contract`, the version of this contract, which is also this document's version. Every response also carries `X-Request-ID`, which identifies the request if you report a problem. Send `X-Marfa-Contract` on every request but a read of `/` and of `/health`, naming the contract version your client was built for. A request that names another version, or a value that is not a whole number, returns `412 contract_mismatch` and changes nothing. A request that names none is served."
+    "description": "Marfa stores typed records, called items, and the edges between them. This reference describes its HTTP API.\n\n## Authentication\n\nSend a credential in the `Authorization` header as `Bearer <token>`: an API key (`marfa_k1_…`) or the access token of an app someone signed in to (`marfa_at_…`). In this reference, *you* means the credential that sends the request.\n\n## Recent sign-in\n\nRestoring an archive or a backup, moving the sign-in address, changing `allow_private_addresses` and changing where files and backups go (`backup_path` and the `object_store_` settings other than the access key ID and the secret) also need the owner to have signed in within the last fifteen minutes. An app's access token whose owner signed in longer ago is answered `401 insufficient_user_authentication` with `WWW-Authenticate: Bearer error=\"insufficient_user_authentication\", max_age=\"900\"`, as RFC 9470 describes. Send the owner through `GET /oauth/authorize` with `max_age=900`: Marfa asks them to sign in again, and the tokens the code leads to carry the new sign-in. A refreshed token keeps the time of the sign-in it came from. An API key has no sign-in to renew, so it is refused these acts with `403 app_sign_in_required`, and the private local command makes them without one.\n\n## Local command\n\nAn operation marked `x-marfa-local-command` also answers the private local listener: a Unix socket that only the account running the instance can open. The connection is the proof, so the request carries no credential, and no security scheme here describes it. The `marfa` command line reaches it with `--socket`.\n\n## Permissions\n\nYour credential reads and writes only the types its permissions reach. If you ask by ID for an item whose type you can't read, Marfa answers as if the item doesn't exist. An edge appears in a response only if you can read both its edge type and the type of the item it starts from.\n\n## Pagination\n\nA list returns one page at a time, as `{ \"data\": [...], \"next_cursor\": \"...\" }`. To get the next page, send `next_cursor` back as `cursor`. The last page has `next_cursor: null`. A page can be short or empty and still have more after it, so stop only when `next_cursor` is `null`. A list that can't page answers `{ \"data\": [...] }` alone.\n\n## Answers\n\nAn operation that returns one object returns it bare, and wraps it only where the answer holds more than the object. A delete answers `200` with `{ \"ok\": true }` once the thing is gone, and `200` with the object where the object stays in a new state. No operation answers `204`.\n\n## Query parameters\n\nEvery operation refuses a query parameter it doesn't recognize with `400 validation_error`, so a misspelled filter can't silently return everything. A boolean parameter is `true` or `false`, and anything else, `1` and `yes` included, is a `400 validation_error`. The `edge[<type>]` and `backref[<type>]` filters on `GET /items` and `GET /items/stats` are recognized for any type. Marfa ignores any parameter that starts with `_`, so use that prefix for a parameter of your own, such as a cache buster. The OAuth operations `GET /oauth/authorize`, `POST /oauth/token`, `POST /oauth/revoke` and `POST /oauth/device-authorization` ignore a parameter they don't recognize, as RFC 6749 requires.\n\n## Errors\n\nAn error answers `{ \"error\": { \"code\": \"...\", \"message\": \"...\", \"details\": {} } }`. Use `code` in your logic: each operation lists the codes it can return, and the `X-Error-Code` header repeats it. `message` is for people and can change. A version conflict also carries the item or edge as it stands now, in `current`, so you can merge and try again.\n\nThe OAuth operations under `/oauth/` answer their own errors in the shape their RFCs define, `{ \"error\": \"...\", \"error_description\": \"...\" }`, with no `X-Error-Code`. A refusal every operation shares, such as `412` or `429`, keeps the shape above.\n\n## Idempotency\n\nA write that takes an `Idempotency-Key` header is safe to retry. Send the same request with the same key, and Marfa returns the first response, with `Idempotency-Replayed: true`, and doesn't write again. A key belongs to the credential that sends it. While the first request with a key is still running, a repeat returns `409 idempotency_key_in_flight` and writes nothing, so retry it. Reusing a key for a different request returns `422 idempotency_key_reused`. Repeating a request after Marfa moves to another contract version returns `422 idempotency_contract_changed`, with the first response's status in `details.original_status`, and doesn't write again.\n\n## Request bodies\n\nA body is JSON, sent with `Content-Type: application/json`. A request that doesn't send its body as JSON returns `400 validation_error` and changes nothing, even if it has no body at all. The exceptions are `POST /blobs`, which takes the bytes of a blob, and `POST /restore`, which takes an archive. `POST /oauth/token`, `POST /oauth/revoke` and `POST /oauth/device-authorization` take a form (`application/x-www-form-urlencoded`), as their RFCs define. `POST /oauth/register` takes JSON, and answers a request that isn't JSON with `400 invalid_client_metadata`.\n\n## Time\n\nEvery time is UTC, written as `2026-10-03T09:30:00.000Z`. A time field is named for what happened, such as `created_at`. A filter on a time field pairs `_after` and `_before`, and both leave out the time you give, except `updated_after`, which includes it so that nothing changed at the same moment is skipped. `GET /occurrences` takes a window, `from` and `to`, instead.\n\n## Event stream\n\n`GET /events` sends each change as a frame whose `id:` is its event ID, in the order Marfa made the changes. To resume, reconnect with the last ID you received as `Last-Event-ID`, under any `type` or `edges` filter: Marfa replays what you missed, then sends `stream_live`. Marfa reads your credential again before each batch of frames and every 30 seconds: you receive only what it can read now, and a credential that's revoked or expired ends the stream, so reconnect with a current one. Ignore lines that start with `:`.\n\n## Web pages\n\nA web page can connect from a browser with no setup. `POST /oauth/register` and the discovery documents answer any origin, so the page registers itself, then opens the authorization endpoint in a window for the owner to approve. Once the owner approves it, the origin of each redirect URI it registered may call every operation from a browser. Send the access token in `Authorization`: no response allows a browser's credentials.\n\n## Every response\n\nEvery response carries `X-Marfa-Contract`, the version of this contract, which is also this document's version. Every response also carries `X-Request-ID`, which identifies the request if you report a problem. Send `X-Marfa-Contract` on every request but a read of `/` and of `/health`, naming the contract version your client was built for. A request that names another version, or a value that is not a whole number, returns `412 contract_mismatch` and changes nothing. A request that names none is served."
   },
   "components": {
     "securitySchemes": {
@@ -11,7 +11,7 @@
         "type": "apiKey",
         "in": "cookie",
         "name": "__Host-marfa_session",
-        "description": "The owner's browser sign-in, which only the sign-in pages read: here, the passkey doors. On plain HTTP on this machine, the cookie is `marfa_session`. Writes require this instance's Origin, and changes require authentication within five minutes. Apps cannot use this authority."
+        "description": "The owner's browser sign-in, which only the sign-in pages read: here, the passkey doors. On plain HTTP on this machine, the cookie is `marfa_session`. Writes require this instance's Origin, and changes require authentication within fifteen minutes. Apps cannot use this authority."
       },
       "bearerAuth": {
         "type": "http",
@@ -287,7 +287,7 @@
               "read",
               "write"
             ],
-            "description": "Access to every profile field, except that `write` changes only the name and the avatar. Changing the email address takes `email` at `write`."
+            "description": "Access to every profile field, except that `write` doesn't change the username. Changing the username takes `username` at `write`."
           },
           "name": {
             "type": "string",
@@ -297,13 +297,21 @@
             ],
             "description": "Access to the owner's name."
           },
+          "username": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write"
+            ],
+            "description": "Access to the owner's username, which password sign-in matches. Only this entry at `write` lets a credential change it."
+          },
           "email": {
             "type": "string",
             "enum": [
               "read",
               "write"
             ],
-            "description": "Access to the owner's email address, which password sign-in matches. Only this entry at `write` lets a credential change it."
+            "description": "Access to the owner's email address, which plays no part in signing in."
           },
           "avatar": {
             "type": "string",
@@ -1425,6 +1433,13 @@
             ],
             "description": "`ok`: serving normally. `degraded`: serving, but something is slow, low or unknown. `down`: something refused."
           },
+          "claimed": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`true` if the instance has an owner, `false` if it is waiting to be claimed with its setup code, and `null` if Marfa couldn't read its database to tell."
+          },
           "components": {
             "type": "object",
             "properties": {
@@ -1587,7 +1602,7 @@
                   "turned_off",
                   "destination_unusable"
                 ],
-                "description": "Why backups are `off` or `failing`: `no_backup_destination` when no destination is set, `destination_unusable` when the one set can't be used, or `turned_off` when `backup_interval_seconds` is 0, also given beside `failing`."
+                "description": "Why backups are `off` or `failing`: `no_backup_destination` when no destination is set, `destination_unusable` when the one set can't be used, or `turned_off` when `backup_interval_seconds` is 0. `destination_unusable` wins if both apply."
               },
               "destination": {
                 "type": "string",
@@ -1767,12 +1782,14 @@
         },
         "required": [
           "status",
+          "claimed",
           "components",
           "backups"
         ],
         "description": "The instance's health: the worst state of its components, and each one's state.",
         "example": {
           "status": "ok",
+          "claimed": true,
           "components": {
             "database": {
               "status": "ok",
@@ -2869,7 +2886,7 @@
           "error",
           "current"
         ],
-        "description": "A failed exact version precondition: the error and the item now."
+        "description": "A failed precondition on the item: the error and the item now."
       },
       "LinkTakenOrSourceIdConflictOrTypeMismatchRefusal": {
         "type": "object",
@@ -2938,10 +2955,17 @@
             "type": "string",
             "description": "The owner's name. Present with `profile.name:read`."
           },
-          "email": {
+          "username": {
             "type": "string",
+            "description": "The owner's username, which password sign-in matches. Present with `profile.username:read`."
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "email",
-            "description": "The owner's sign-in email address. Present with `profile.email:read`."
+            "description": "The owner's email address, or `null` when none is set. Present with `profile.email:read`."
           },
           "avatar": {
             "type": [
@@ -6249,7 +6273,7 @@
           "sign_ins.manage",
           "keys.manage"
         ],
-        "description": "A permission a credential can hold, for an operation the type, edge, extension, metadata and profile maps don't cover. `schema.write` replaces and deletes types and edge types; `keys.mint` mints keys and lists, changes and revokes those within the caller's reach; `keys.manage` lists and revokes every key and changes one without widening it; `items.purge` lists and empties the trash and purges trashed items; `webhooks.manage` manages webhooks; `config.manage` reads and replaces `/config`, which holds the stored settings; secret settings are never read back; `audit.read` reads the audit log; `grants.manage` lists, narrows and revokes other apps' access; `instance.read` reads health, what needs attention, metrics, housekeeping, blob storage reports and every bulk job's status; `instance.maintain` runs housekeeping, cancels bulk jobs, updates the server and confirms the clock; `connectors.manage` administers connector registrations and their endpoints, and clears their retained state; `blobs.manage` manages every blob; `backups.manage` lists, takes and adopts backups and restores a backup or an archive; and `sign_ins.manage` lists, renames and ends sign-ins, manages the owner's passkeys and changes the owner's password."
+        "description": "A permission a credential can hold, for an operation the type, edge, extension, metadata and profile maps don't cover. `schema.write` replaces and deletes types and edge types; `keys.mint` mints keys and lists, changes and revokes those within the caller's reach; `keys.manage` lists and revokes every key, changes one without widening it, and grants any source a key may claim; `items.purge` lists and empties the trash and purges trashed items; `webhooks.manage` manages webhooks; `config.manage` reads and replaces `/config`, which holds the stored settings; secret settings are never read back; `audit.read` reads the audit log; `grants.manage` lists, narrows and revokes other apps' access; `instance.read` reads health, what needs attention, metrics, housekeeping, blob storage reports and every bulk job's status; `instance.maintain` runs housekeeping, cancels bulk jobs, updates the server and confirms the clock; `connectors.manage` administers connector registrations and their endpoints, and clears their retained state; `blobs.manage` manages every blob; `backups.manage` lists, takes and adopts backups and restores a backup or an archive; and `sign_ins.manage` lists, renames and ends sign-ins, manages the owner's passkeys and changes the owner's password."
       },
       "OverviewType": {
         "type": "object",
@@ -6527,6 +6551,14 @@
             ],
             "description": "When the instance's configuration stopped naming the store, in UTC, or `null` while it names it.",
             "example": "2026-10-03T09:30:00.000Z"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the attached object store cannot be used while the address rules refuse the requests to it because `allow_private_addresses` is `false`, the same text as `backups.store_error` in `GET /health`, or `null`.",
+            "example": "The object store cannot be used: the object store's address is not public, and allow_private_addresses is false. Until it can, no file is copied there, no backup is taken and no file is purged."
           }
         },
         "required": [
@@ -6534,7 +6566,8 @@
           "kind",
           "locator",
           "attached_at",
-          "detached_at"
+          "detached_at",
+          "error"
         ],
         "description": "A store is a place a blob's bytes live: the disk beside the server, or an S3-compatible bucket."
       },
@@ -6912,6 +6945,13 @@
             },
             {
               "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Text by name, such as `refused` for `blob-replicate`: the ID of each store that took no copy, and why."
             }
           ]
         },
@@ -7795,13 +7835,14 @@
               "backup",
               "setting",
               "clock",
+              "fault",
               "unavailable"
             ],
-            "description": "health: degraded or down; job: last run failed; connector: failed, has problems, or quiet a day; folder: sync problems; key: expiring; backup: none kept, off or failing; setting: a secret to set again; clock: ahead or behind; unavailable: no answer."
+            "description": "health: degraded or down; job: last run failed; connector: failed, problems or quiet; folder: sync problems; key: expiring; backup: none, off or failing; setting: secret to set again; clock: ahead or behind; fault: met lately; unavailable: no answer."
           },
           "reference": {
             "type": "string",
-            "description": "The component, job, connector, folder, or key ID, the check that couldn't answer, a backup concern such as `no_backup_destination`, `run` or `store`, a secret setting's key, or a clock concern `clock_ahead` or `clock_behind`."
+            "description": "The component, job, connector, folder or key ID, the check that couldn't answer, a backup concern such as `store`, a secret setting's key, `clock_ahead` or `clock_behind`, or a fault's kind and place, such as `database:POST /items/{id}`, or `other`."
           },
           "title": {
             "type": "string",
@@ -7902,7 +7943,7 @@
           },
           "beneath": {
             "type": "string",
-            "description": "An item ID. The folder holds that item and everything under it by `parent-of`, at any depth."
+            "description": "An item ID, or the path of one of the folder's own files, relative to its root, with `/`. The folder holds that item and everything beneath it by `parent-of`. A device replaces a path with its file's item ID once it has sent the file."
           }
         },
         "additionalProperties": false,
@@ -8514,7 +8555,7 @@
           },
           "oauth_client_id": {
             "type": "string",
-            "description": "The app origin client ID, inherited by every descendant key. Absent when no app is in the key's origin.",
+            "description": "The app origin client ID, inherited by every descendant key but an owner's key (`owner_key`). Absent when no app is in the key's origin, and on an owner's key.",
             "example": "01a10127-d974-7c54-8cc4-5c5581d45c4c"
           },
           "default_tier": {
@@ -8561,7 +8602,7 @@
                 "$ref": "#/components/schemas/StoredProfilePermissions"
               },
               {
-                "description": "Stored profile levels by field. Only name and avatar permit writes; email is read-only, including under a wildcard."
+                "description": "Stored profile levels by field. Only the `username` entry permits writing the username; a wildcard reads it."
               }
             ]
           },
@@ -8681,7 +8722,7 @@
           },
           "oauth_client_id": {
             "type": "string",
-            "description": "The app origin client ID, inherited by every descendant key. Absent when no app is in the key's origin.",
+            "description": "The app origin client ID, inherited by every descendant key but an owner's key (`owner_key`). Absent when no app is in the key's origin, and on an owner's key.",
             "example": "01a10127-d974-7c54-8cc4-5c5581d45c4c"
           },
           "default_tier": {
@@ -8728,7 +8769,7 @@
                 "$ref": "#/components/schemas/StoredProfilePermissions"
               },
               {
-                "description": "Stored profile levels by field. Only name and avatar permit writes; email is read-only, including under a wildcard."
+                "description": "Stored profile levels by field. Only the `username` entry permits writing the username; a wildcard reads it."
               }
             ]
           },
@@ -8967,8 +9008,31 @@
           },
           "error_reporting_enabled": {
             "type": "boolean",
-            "description": "`true` if error alerts and exception reports are sent. Enabling requires `error_webhook_url`, or both `posthog_host` and `posthog_project_token`. Absent: the environment default applies.",
+            "description": "`true` if exception reports are sent. Enabling requires both `posthog_host` and `posthog_project_token`. Absent: the environment default applies.",
             "default": true
+          },
+          "telemetry_enabled": {
+            "type": "boolean",
+            "description": "`true` if Marfa sends telemetry about itself: traces, log records and metrics to the OTLP endpoints, and exception reports to `posthog_host`. `false` sends none of them and keeps every telemetry setting. Absent: `true`.",
+            "default": true
+          },
+          "otel_sample_ratio": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "The share of traces Marfa exports, from 0 to 1. A trace that holds an error is exported whatever this says. Absent: `0.05`.",
+            "default": 0.05
+          },
+          "otel_service_name": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "The service name on everything Marfa exports, in place of a `service.name` in `otel_resource_attributes`. Absent: `marfa-server`. An archive doesn't carry it."
+          },
+          "otel_resource_attributes": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "Attributes Marfa adds to everything it exports, as comma-separated `key=value` pairs with percent-encoded values. One named here replaces Marfa's own of the same name, such as `service.version`. An archive doesn't carry it.",
+            "example": "deployment.environment=staging"
           },
           "heartbeat_enabled": {
             "type": "boolean",
@@ -9073,32 +9137,32 @@
           },
           "backup_path": {
             "type": "string",
-            "description": "The absolute path of the folder Marfa backs itself up to and keeps a second copy of each file in, outside the data directory and the blob folder. Changing it needs a sign-in from the last five minutes. Absent: no backup folder."
+            "description": "The absolute path of the folder Marfa backs itself up to and keeps a second copy of each file in, outside the data directory and the blob folder. Changing it needs a sign-in from the last fifteen minutes. Absent: no backup folder."
           },
           "object_store_bucket": {
             "type": "string",
             "maxLength": 255,
-            "description": "The bucket of an S3-compatible object store that also keeps each file and the backups: 1 to 255 ASCII letters, digits, `.`, `:`, `-` and `_`, other than `.` and `..`. Changing it needs a sign-in from the last five minutes. Absent: no object store."
+            "description": "The bucket of an S3-compatible object store that also keeps each file and the backups: 1 to 255 ASCII letters, digits, `.`, `:`, `-` and `_`, other than `.` and `..`. Changing it needs a sign-in from the last fifteen minutes. Absent: no object store."
           },
           "object_store_region": {
             "type": "string",
             "maxLength": 63,
-            "description": "The region of the object store: a name of 1 to 63 ASCII letters, digits, hyphens and underscores that can be part of a host name, such as `us-east-1`, `eu-west-2` or `auto`. Changing it needs a sign-in from the last five minutes. Absent: `us-east-1`.",
+            "description": "The region of the object store: a name of 1 to 63 ASCII letters, digits, hyphens and underscores that can be part of a host name, such as `us-east-1` or `auto`. Changing it needs a sign-in from the last fifteen minutes. Absent: `us-east-1`.",
             "default": "us-east-1"
           },
           "object_store_endpoint": {
             "type": "string",
             "format": "uri",
-            "description": "The endpoint of the object store, an `http` or `https` URL with no user name or password. Changing it needs a sign-in from the last five minutes. Absent: the store's provider chooses it."
+            "description": "The endpoint of the object store, an `http` or `https` URL with no user name or password. Changing it needs a sign-in from the last fifteen minutes. Absent: the store's provider chooses it."
           },
           "object_store_path_style": {
             "type": "boolean",
-            "description": "`true` if the store at `object_store_endpoint` is addressed by path. `false` puts the bucket, as lowercase host labels, before the endpoint's host, a name without the bucket. Changing it needs a sign-in from the last five minutes. Absent: `true`.",
+            "description": "`true` if the store at `object_store_endpoint` is addressed by path. `false` puts the bucket, as lowercase host labels, before the endpoint's host, a name without the bucket. Changing it needs a sign-in from the last fifteen minutes. Absent: `true`.",
             "default": true
           },
           "object_store_prefix": {
             "type": "string",
-            "description": "The folder in the bucket Marfa keeps files and backups under, as `/`-joined segments. Changing it needs a sign-in from the last five minutes. Absent: `marfa`.",
+            "description": "The folder in the bucket Marfa keeps files and backups under, as `/`-joined segments. Changing it needs a sign-in from the last fifteen minutes. Absent: `marfa`.",
             "default": "marfa"
           },
           "object_store_access_key_id": {
@@ -9109,7 +9173,7 @@
           },
           "allow_private_addresses": {
             "type": "boolean",
-            "description": "`true` if Marfa may send webhooks, the heartbeat, error notices, exception reports and object store requests to loopback, private and other addresses that aren't public. Changing it needs a sign-in from the last five minutes. Absent: `false`.",
+            "description": "`true` if Marfa may send webhooks, the heartbeat, exception reports and object store requests to loopback, private and other addresses that aren't public. Changing it needs a sign-in from the last fifteen minutes. Absent: `false`.",
             "default": false
           },
           "secrets_set": {
@@ -9466,9 +9530,16 @@
             "description": "Unique identifier for the owner.",
             "example": "01a10127-2109-7883-b687-be1e0823be15"
           },
-          "email": {
+          "username": {
             "type": "string",
-            "description": "Email address used to sign in."
+            "description": "The username the owner signs in with."
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The owner's email address, or `null` when none is set. It plays no part in signing in."
           },
           "name": {
             "type": "string",
@@ -9489,6 +9560,7 @@
         },
         "required": [
           "id",
+          "username",
           "email",
           "name",
           "avatar",
@@ -9618,7 +9690,7 @@
               "string",
               "null"
             ],
-            "description": "For a key an app minted, the ID of that app's sign-in while the app is signed in. `null` for a browser, an app, any other key, and a key whose app has ended."
+            "description": "For a key an app minted, the ID of that app's sign-in while the app is signed in. `null` for a browser, an app, an owner's key (`owner_key`), any other key, and a key whose app has ended."
           }
         },
         "required": [
@@ -12670,9 +12742,10 @@
               "addresses",
               "name",
               "logs",
-              "enforcement"
+              "enforcement",
+              "telemetry"
             ],
-            "description": "What the archive doesn't hold. `enforcement` appears only when the instance that wrote the archive couldn't read its enforcement settings."
+            "description": "What the archive doesn't hold. `enforcement` appears only when the archive's instance couldn't read its enforcement settings, and `telemetry` only when `secrets_to_set` names a telemetry setting."
           },
           "message": {
             "type": "string",
@@ -12794,7 +12867,7 @@
       },
       "AttentionEventFrame": {
         "type": "object",
-        "description": "A new entry in what needs the owner's attention, sent once when a check first finds it. You receive it only with `instance.read`, and only on a stream that names no `type` and isn't a copy stream.",
+        "description": "A new entry in what needs the owner's attention, sent once when a check first finds it or Marfa first meets a fault. You receive it only with `instance.read`, and only on a stream that names no `type` and isn't a copy stream.",
         "properties": {
           "event_type": {
             "type": "string",
@@ -12830,7 +12903,9 @@
               "folder",
               "key",
               "backup",
+              "setting",
               "clock",
+              "fault",
               "unavailable"
             ],
             "description": "The entry's `kind`, as `GET /attention` lists it."
@@ -12859,7 +12934,28 @@
             "$ref": "#/components/schemas/AttentionEventFrame"
           },
           {
-            "$ref": "#/components/schemas/WebhookDeliveryAttempt"
+            "type": "object",
+            "properties": {
+              "event_id": {
+                "type": "string",
+                "description": "The event's ID in the log, the same as its `id:` on `GET /events`. Absent from a delivery of a fault sent while the database fails, which no log holds, no delivery list shows and nothing can redeliver.",
+                "example": "1042"
+              },
+              "delivery_id": {
+                "type": "string",
+                "description": "The ID of the delivery, the same on every attempt. Use it to recognize a repeat.",
+                "example": "01a1011f-f893-7259-9825-8ff347398fef"
+              },
+              "delivered_at": {
+                "type": "string",
+                "description": "When Marfa sent this attempt, in UTC.",
+                "example": "2026-10-05T14:12:08.000Z"
+              }
+            },
+            "required": [
+              "delivery_id",
+              "delivered_at"
+            ]
           }
         ]
       },
@@ -12946,7 +13042,7 @@
               "failed",
               "rolled_back"
             ],
-            "description": "How the update ended. `succeeded`: the new release stayed up. `failed`: Marfa did not change the running release, or could not put the old one back. `rolled_back`: the new release did not stay up and Marfa put the old one back."
+            "description": "How the update ended. `succeeded`: the new release stayed up with both its programs in place. `failed`: Marfa did not change the running release, or could not put the old one back. `rolled_back`: Marfa put the old release back."
           },
           "release": {
             "type": "string",
@@ -13315,7 +13411,7 @@
         }
       },
       "WWW-Authenticate": {
-        "description": "The step-up challenge of RFC 9470, sent with `insufficient_user_authentication`: `Bearer error=\"insufficient_user_authentication\", max_age=\"300\"`, where `max_age` is how many seconds old the owner's sign-in may be.",
+        "description": "The step-up challenge of RFC 9470, sent with `insufficient_user_authentication`: `Bearer error=\"insufficient_user_authentication\", max_age=\"900\"`, where `max_age` is how many seconds old the owner's sign-in may be.",
         "schema": {
           "type": "string"
         }
@@ -20597,20 +20693,20 @@
           {
             "schema": {
               "type": "string",
-              "description": "Window start, ISO 8601. No zone means UTC; a date is its UTC midnight. An event overlaps if it starts before `to` and ends after this. Its end is `ends_at`, else start plus `duration`. A whole-day event fills whole days in its `timezone`, else UTC."
+              "description": "A date-time needs seconds and a zone or offset; a date is UTC midnight. An event overlaps if it starts before `to` and ends after this. Its end is `ends_at`, else start plus `duration`. A whole-day event fills whole days of its `timezone` or UTC."
             },
             "required": true,
-            "description": "Window start, ISO 8601. No zone means UTC; a date is its UTC midnight. An event overlaps if it starts before `to` and ends after this. Its end is `ends_at`, else start plus `duration`. A whole-day event fills whole days in its `timezone`, else UTC.",
+            "description": "A date-time needs seconds and a zone or offset; a date is UTC midnight. An event overlaps if it starts before `to` and ends after this. Its end is `ends_at`, else start plus `duration`. A whole-day event fills whole days of its `timezone` or UTC.",
             "name": "from",
             "in": "query"
           },
           {
             "schema": {
               "type": "string",
-              "description": "Window end, ISO 8601, read as `from` is. The window can span at most 400 days. An event with no length is in the window if it starts at or after `from` and before this time."
+              "description": "Window end, read as `from` is. The window can span at most 400 days. An event with no length is in the window if it starts at or after `from` and before this time."
             },
             "required": true,
-            "description": "Window end, ISO 8601, read as `from` is. The window can span at most 400 days. An event with no length is in the window if it starts at or after `from` and before this time.",
+            "description": "Window end, read as `from` is. The window can span at most 400 days. An event with no length is in the window if it starts at or after `from` and before this time.",
             "name": "to",
             "in": "query"
           },
@@ -21245,7 +21341,7 @@
           "Trash"
         ],
         "summary": "List the trash",
-        "description": "Returns a page of trash summaries, newest creation first, without item content, of the types you can read. Requires `items.purge`.",
+        "description": "Returns a page of trash summaries, newest creation first, without item content, of the types you can write. Requires `items.purge`.",
         "parameters": [
           {
             "schema": {
@@ -21522,7 +21618,7 @@
           "Trash"
         ],
         "summary": "Empty the trash",
-        "description": "Empties one page of the trash: deletes up to 200 items of the types you can read permanently if their state and version still match. Returns partial results and a continuation cursor. Items trashed meanwhile may remain. Requires `items.purge`.",
+        "description": "Empties one page of the trash: deletes up to 200 items of the types you can write permanently if their state and version still match. Returns partial results and a continuation cursor. Items trashed meanwhile may remain. Requires `items.purge`.",
         "parameters": [
           {
             "schema": {
@@ -23050,7 +23146,7 @@
           "Metadata"
         ],
         "summary": "Replace an item's tags",
-        "description": "Replaces the item's tags with the ones you send and returns them. An empty list clears all tags.",
+        "description": "Replaces the item's tags with the ones you send and returns them. An empty list clears all tags. Send `read_tags` to replace them only if the item still has the tags you read.",
         "security": [
           {
             "bearerAuth": []
@@ -23104,6 +23200,13 @@
                     },
                     "default": [],
                     "description": "The tags the item will have: at most 100, each up to 128 characters. An empty list clears them."
+                  },
+                  "read_tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "The tags you read. If the item now has a different set of tags, no tag changes; order and repeats don't count. Leave it out to replace the tags as the item stands."
                   }
                 },
                 "additionalProperties": false
@@ -23140,7 +23243,7 @@
             }
           },
           "400": {
-            "description": "- `validation_error`: `tags` is not a list of valid tags or has more than 100, or the body has a field this endpoint doesn't take.\n- `invalid_id`: the ID is not a valid item ID.",
+            "description": "- `validation_error`: `tags` is not a list of valid tags or has more than 100, `read_tags` is not a list of strings, or the body has a field this endpoint doesn't take.\n- `invalid_id`: the ID is not a valid item ID.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23251,11 +23354,14 @@
             }
           },
           "409": {
-            "description": "`instance_changed`: `X-Marfa-Instance-Id` names another instance. Nothing is written. Rebuild the working copy from the instance at this address.",
+            "description": "- `version_conflict`: `read_tags` differs from the item's tags. `current` is the item now; no tag changed.\n- `instance_changed`: `X-Marfa-Instance-Id` names another instance. Nothing is written. Rebuild the working copy from the instance at this address.",
             "content": {
               "application/json": {
                 "schema": {
                   "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ItemStaleVersion"
+                    },
                     {
                       "$ref": "#/components/schemas/InstanceChangedRefusal"
                     },
@@ -37323,7 +37429,8 @@
                       "kind": "disk",
                       "locator": "/var/lib/marfa/blobs",
                       "attached_at": "2026-10-03T09:34:00.198Z",
-                      "detached_at": null
+                      "detached_at": null,
+                      "error": null
                     }
                   ],
                   "next_cursor": null,
@@ -51350,7 +51457,7 @@
                       "maxLength": 200
                     },
                     "maxItems": 1000,
-                    "description": "Sources the key may also write under, besides its own `source`. Several keys may claim one source, so their writes share natural keys. You can grant only your own `source` and the sources you claim; the local command can grant any."
+                    "description": "Sources the key may also write under, besides its own `source`. Several keys may claim one source, so their writes share natural keys. You can grant your own `source` and your claims, or with `keys.manage` any source; the local command can grant any."
                   },
                   "permissions": {
                     "type": "array",
@@ -51403,7 +51510,7 @@
                         "$ref": "#/components/schemas/ProfilePermissions"
                       },
                       {
-                        "description": "Profile access by `name`, `email`, `avatar`, or `*`. `write` permits name and avatar changes and implies read; email accepts only `read`. `*` reads every field and writes only name and avatar."
+                        "description": "Profile access by `name`, `username`, `email`, `avatar`, or `*`. `write` implies read. `write` on a field changes it, and only `username` at `write` changes the username. `*` reads every field and at `write` changes every field but the username."
                       }
                     ]
                   },
@@ -51421,6 +51528,11 @@
                     "type": "string",
                     "description": "When the key stops working, as an ISO 8601 date and time in the future. Leave it out for a key that never expires, or, if your own key expires, for one that expires when yours does. It can't be later than your own key's `expires_at`.",
                     "example": "2027-01-01T00:00:00.000Z"
+                  },
+                  "owner_key": {
+                    "type": "boolean",
+                    "description": "`true` if the key is the owner's, not the app's you act for: it carries no `oauth_client_id`, and disconnecting or narrowing that app leaves it working. From an app, or a key an app made, it needs `keys.manage`.",
+                    "default": false
                   }
                 },
                 "required": [
@@ -51473,7 +51585,7 @@
             }
           },
           "400": {
-            "description": "- `missing_required_field`: `label` or `source` is missing, or a lever in `enforcement_override` lacks `types` or `sources`.\n- `validation_error`: a field is invalid, such as a permission level that doesn't exist, more than 1,000 `sources`, or an `expires_at` that isn't a time or isn't in the future, or `source` or a claimed source starts with `oauth:`.",
+            "description": "- `missing_required_field`: `label` or `source` is missing, or a lever in `enforcement_override` lacks `types` or `sources`.\n- `validation_error`: a field is invalid, such as an unknown permission level, more than 1,000 `sources`, an `expires_at` that isn't a future time, an `owner_key` that isn't `true` or `false`, or a `source` or claim starting `oauth:` or `restored:`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51515,7 +51627,7 @@
             }
           },
           "403": {
-            "description": "- `forbidden`: you lack `keys.mint` and aren't the local command; the body names a permission, map entry or source you don't hold, a `source` another key claims that you can't grant, an own `source` a connector holds without `keys.manage`, an `expires_at` past your key's, or `enforcement_override` without `config.manage`. `details.required_scope` and `details.source` name what you lack.",
+            "description": "- `forbidden`: you lack `keys.mint` and aren't the local command; the body names a permission or map entry you don't hold, a claim, or another key's claim as `source`, that you can't grant, an own `source` a connector holds without `keys.manage`, an `expires_at` past your key's, `owner_key` from an app without `keys.manage`, or `enforcement_override` without `config.manage`. `details` names it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52654,7 +52766,7 @@
                       "maxLength": 200
                     },
                     "maxItems": 1000,
-                    "description": "Sources the key may also write under, besides its own `source`. Several keys may claim one source, so their writes share natural keys. You can grant only your own `source` and the sources you claim; the local command can grant any."
+                    "description": "Sources the key may also write under, besides its own `source`. Several keys may claim one source, so their writes share natural keys. You can grant your own `source` and your claims, or with `keys.manage` any source; the local command can grant any."
                   },
                   "type_permissions": {
                     "type": "object",
@@ -52690,7 +52802,7 @@
                         "$ref": "#/components/schemas/ProfilePermissions"
                       },
                       {
-                        "description": "Profile access by `name`, `email`, `avatar`, or `*`. `write` permits name and avatar changes and implies read; email accepts only `read`. `*` reads every field and writes only name and avatar."
+                        "description": "Profile access by `name`, `username`, `email`, `avatar`, or `*`. `write` implies read. `write` on a field changes it, and only `username` at `write` changes the username. `*` reads every field and at `write` changes every field but the username."
                       }
                     ]
                   },
@@ -52717,7 +52829,7 @@
                       "string",
                       "null"
                     ],
-                    "description": "Replaces when the key stops working, as an ISO 8601 date and time in the future. `null` clears it. Leave it out to keep it. It can't be later than your own key's `expires_at`, or the key's current one for a key an app made, through `keys.manage` or with `narrow_only`.",
+                    "description": "Replaces when the key stops working, as an ISO 8601 date and time in the future. `null` clears it. Leave it out to keep it. It can't be later than the key's current one for a key an app made, with `narrow_only`, or without `keys.mint`. It also can't be later than your own key's `expires_at`, unless you hold `keys.manage` and it isn't later than the key's current one.",
                     "example": "2027-01-01T00:00:00.000Z"
                   },
                   "source": {
@@ -52816,7 +52928,7 @@
             }
           },
           "403": {
-            "description": "- `forbidden`: you don't hold `keys.mint` and aren't the local command; the body gives the key more than you hold or an `expires_at` later than yours; it widens or lengthens an app's key, or any key through `keys.manage` or with `narrow_only`, which also refuses a changed `enforcement_override`; or it names `enforcement_override` without `config.manage`. `details` names what's missing.",
+            "description": "- `forbidden`: you hold neither `keys.mint` nor `keys.manage`, or only `keys.manage` and it widens or lengthens the key; it gives more than you hold or an `expires_at` later than yours, unless `keys.manage` narrows it; it widens or lengthens an app's key, or any key with `narrow_only`, which also refuses a changed `enforcement_override`; or it names `enforcement_override` without `config.manage`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -54004,10 +54116,10 @@
           {
             "schema": {
               "type": "boolean",
-              "description": "Also revoke every key the app minted, and every key those keys minted. Omitting it, or `false`, leaves them working."
+              "description": "Also revoke every key the app minted, and every key those keys minted, but an owner's key (`owner_key`). Omitting it, or `false`, leaves them working."
             },
             "required": false,
-            "description": "Also revoke every key the app minted, and every key those keys minted. Omitting it, or `false`, leaves them working.",
+            "description": "Also revoke every key the app minted, and every key those keys minted, but an owner's key (`owner_key`). Omitting it, or `false`, leaves them working.",
             "name": "revoke_keys",
             "in": "query"
           }
@@ -54389,7 +54501,7 @@
             }
           },
           "400": {
-            "description": "An RFC 6749 error, when Marfa can't send the browser back to the app:\n- `invalid_request`: `client_id` is missing, or a parameter is repeated.\n- `invalid_client` or `invalid_client_metadata`: the client ID metadata document is unreadable or invalid.\n- `invalid_scope`: a scope writes the owner's email.\n- `invalid_target`: a resource isn't served here.\n\n`X-Marfa-Reach` gets `validation_error`.",
+            "description": "An RFC 6749 error, when Marfa can't send the browser back to the app:\n- `invalid_request`: `client_id` is missing, or a parameter is repeated.\n- `invalid_client` or `invalid_client_metadata`: the client ID metadata document is unreadable or invalid.\n- `invalid_target`: a resource isn't served here.\n\n`X-Marfa-Reach` gets `validation_error`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -55427,11 +55539,10 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "email": {
+                  "username": {
                     "type": "string",
-                    "maxLength": 254,
-                    "format": "email",
-                    "description": "Email address the owner uses to sign in."
+                    "maxLength": 64,
+                    "description": "The username the owner signs in with: 1 to 64 letters a to z, numbers, dots, dashes and underscores. Marfa stores it in lowercase, with spaces at each end trimmed."
                   },
                   "password": {
                     "type": "string",
@@ -55440,7 +55551,13 @@
                   "name": {
                     "type": "string",
                     "maxLength": 200,
-                    "description": "Display name. Defaults to the part before @ in the email address when omitted or blank."
+                    "description": "Display name. Defaults to the username when omitted or blank."
+                  },
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254,
+                    "format": "email",
+                    "description": "The owner's email address. It plays no part in signing in. Marfa stores it in lowercase, with spaces at each end trimmed."
                   },
                   "code": {
                     "type": "string",
@@ -55448,7 +55565,7 @@
                   }
                 },
                 "required": [
-                  "email",
+                  "username",
                   "password"
                 ],
                 "additionalProperties": false
@@ -55466,6 +55583,7 @@
                 },
                 "example": {
                   "id": "01926a3c-4b1d-7e52-9a8f-3c5d7e1b2a40",
+                  "username": "alex",
                   "email": "alex@example.com",
                   "name": "Alex Example",
                   "avatar": null,
@@ -55703,7 +55821,7 @@
           "Owner"
         ],
         "summary": "Get the owner's profile",
-        "description": "Returns the fields of the owner's profile that your credential can read: `name`, `email` and `avatar`, each only with profile read permission for that field. A field you can't read is left out, so a credential that can read none gets an empty object.",
+        "description": "Returns the owner's profile fields that your credential can read: `name`, `username`, `email` and `avatar`, each with its own read permission. A field you can't read is left out, so a credential that can read none gets an empty object.",
         "security": [
           {
             "bearerAuth": []
@@ -55719,6 +55837,7 @@
                 },
                 "example": {
                   "name": "Alex Example",
+                  "username": "alex",
                   "email": "alex@example.com",
                   "avatar": null
                 }
@@ -55916,7 +56035,7 @@
           "Owner"
         ],
         "summary": "Update the owner's profile",
-        "description": "Updates the owner's email or name, or removes the avatar, and returns the profile fields you can read. Requires profile write permission for every submitted field. All fields commit together. Changing the email needs no confirmation.",
+        "description": "Updates the owner's username, email or name, or removes the avatar, and returns the profile fields you can read. Requires profile write permission for every submitted field. All fields commit together. Changing the username needs no confirmation.",
         "security": [
           {
             "bearerAuth": []
@@ -55929,11 +56048,20 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "email": {
+                  "username": {
                     "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "The username the owner signs in with: 1 to 64 letters a to z, numbers, dots, dashes and underscores. Marfa stores it in lowercase, with spaces at each end trimmed. Signing in with the old username stops at once."
+                  },
+                  "email": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
                     "format": "email",
                     "maxLength": 254,
-                    "description": "The email address the owner signs in with. Marfa stores it in lowercase, with spaces at each end trimmed."
+                    "description": "The owner's email address, which plays no part in signing in. Marfa stores it in lowercase, with spaces at each end trimmed. Set it to `null` to remove it."
                   },
                   "name": {
                     "type": "string",
@@ -55961,6 +56089,7 @@
                 },
                 "example": {
                   "name": "Alex Example",
+                  "username": "alex",
                   "email": "alex@example.com",
                   "avatar": null
                 }
@@ -56549,6 +56678,7 @@
                 },
                 "example": {
                   "name": "Alex Example",
+                  "username": "alex",
                   "email": "alex@example.com",
                   "avatar": "https://marfa.example.com/profile/avatar"
                 }
@@ -57433,10 +57563,10 @@
           {
             "schema": {
               "type": "boolean",
-              "description": "For an app, also revoke every key it minted, as its `minted_by` entries show. Only an app takes it."
+              "description": "For an app, also revoke every key it minted but an owner's key (`owner_key`), as its `minted_by` entries show. Only an app takes it."
             },
             "required": false,
-            "description": "For an app, also revoke every key it minted, as its `minted_by` entries show. Only an app takes it.",
+            "description": "For an app, also revoke every key it minted but an owner's key (`owner_key`), as its `minted_by` entries show. Only an app takes it.",
             "name": "revoke_keys",
             "in": "query"
           },
@@ -58256,7 +58386,7 @@
             "bearerAuth": []
           }
         ],
-        "description": "Renames the passkey and returns its public details. Requires the owner's browser session, signed in within five minutes, or `sign_ins.manage`.",
+        "description": "Renames the passkey and returns its public details. Requires the owner's browser session, signed in within fifteen minutes, or `sign_ins.manage`.",
         "parameters": [
           {
             "schema": {
@@ -58369,7 +58499,7 @@
             }
           },
           "403": {
-            "description": "- `forbidden`: the credential lacks `sign_ins.manage`, and `details.required_scope` names it, or the owner's browser session signed in more than five minutes ago, and `details.needs` is `recent_sign_in`.",
+            "description": "- `forbidden`: the credential lacks `sign_ins.manage`, and `details.required_scope` names it, or the owner's browser session signed in more than fifteen minutes ago, and `details.needs` is `recent_sign_in`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58601,7 +58731,7 @@
             "bearerAuth": []
           }
         ],
-        "description": "Deletes one passkey so it cannot sign in again. Existing sign-ins remain usable. Requires the owner's browser session, signed in within five minutes, or `sign_ins.manage`.",
+        "description": "Deletes one passkey so it cannot sign in again. Existing sign-ins remain usable. Requires the owner's browser session, signed in within fifteen minutes, or `sign_ins.manage`.",
         "parameters": [
           {
             "schema": {
@@ -58689,7 +58819,7 @@
             }
           },
           "403": {
-            "description": "- `forbidden`: the credential lacks `sign_ins.manage`, and `details.required_scope` names it, or the owner's browser session signed in more than five minutes ago, and `details.needs` is `recent_sign_in`.",
+            "description": "- `forbidden`: the credential lacks `sign_ins.manage`, and `details.required_scope` names it, or the owner's browser session signed in more than fifteen minutes ago, and `details.needs` is `recent_sign_in`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59767,7 +59897,7 @@
                   },
                   "error_reporting_enabled": {
                     "type": "boolean",
-                    "description": "`true` if error alerts and exception reports are sent. Enabling requires `error_webhook_url`, or both `posthog_host` and `posthog_project_token`. Absent: the environment default applies.",
+                    "description": "`true` if exception reports are sent. Enabling requires both `posthog_host` and `posthog_project_token`. Absent: the environment default applies.",
                     "default": true
                   },
                   "heartbeat_enabled": {
@@ -59882,32 +60012,32 @@
                   },
                   "backup_path": {
                     "type": "string",
-                    "description": "The absolute path of the folder Marfa backs itself up to and keeps a second copy of each file in, outside the data directory and the blob folder. Changing it needs a sign-in from the last five minutes. Absent: no backup folder."
+                    "description": "The absolute path of the folder Marfa backs itself up to and keeps a second copy of each file in, outside the data directory and the blob folder. Changing it needs a sign-in from the last fifteen minutes. Absent: no backup folder."
                   },
                   "object_store_bucket": {
                     "type": "string",
                     "maxLength": 255,
-                    "description": "The bucket of an S3-compatible object store that also keeps each file and the backups: 1 to 255 ASCII letters, digits, `.`, `:`, `-` and `_`, other than `.` and `..`. Changing it needs a sign-in from the last five minutes, and removes `object_store_secret_access_key` unless the same request sets it. Absent: no object store."
+                    "description": "The bucket of an S3-compatible object store that also keeps each file and the backups: 1 to 255 ASCII letters, digits, `.`, `:`, `-` and `_`, other than `.` and `..`. Changing it needs a sign-in from the last fifteen minutes, and removes `object_store_secret_access_key` unless the same request sets it. Absent: no object store."
                   },
                   "object_store_region": {
                     "type": "string",
                     "maxLength": 63,
-                    "description": "The region of the object store: a name of 1 to 63 ASCII letters, digits, hyphens and underscores that can be part of a host name, such as `us-east-1`, `eu-west-2` or `auto`. Changing it needs a sign-in from the last five minutes. Absent: `us-east-1`.",
+                    "description": "The region of the object store: a name of 1 to 63 ASCII letters, digits, hyphens and underscores that can be part of a host name, such as `us-east-1` or `auto`. Changing it needs a sign-in from the last fifteen minutes. Absent: `us-east-1`.",
                     "default": "us-east-1"
                   },
                   "object_store_endpoint": {
                     "type": "string",
                     "format": "uri",
-                    "description": "The endpoint of the object store, an `http` or `https` URL with no user name or password. Changing it needs a sign-in from the last five minutes, and removes `object_store_secret_access_key` unless the same request sets it. Absent: the store's provider chooses it."
+                    "description": "The endpoint of the object store, an `http` or `https` URL with no user name or password. Changing it needs a sign-in from the last fifteen minutes, and removes `object_store_secret_access_key` unless the same request sets it. Absent: the store's provider chooses it."
                   },
                   "object_store_path_style": {
                     "type": "boolean",
-                    "description": "`true` if the store at `object_store_endpoint` is addressed by path. `false` puts the bucket, as lowercase host labels, before the endpoint's host, a name without the bucket. Changing it needs a sign-in from the last five minutes. Absent: `true`.",
+                    "description": "`true` if the store at `object_store_endpoint` is addressed by path. `false` puts the bucket, as lowercase host labels, before the endpoint's host, a name without the bucket. Changing it needs a sign-in from the last fifteen minutes. Absent: `true`.",
                     "default": true
                   },
                   "object_store_prefix": {
                     "type": "string",
-                    "description": "The folder in the bucket Marfa keeps files and backups under, as `/`-joined segments. Changing it needs a sign-in from the last five minutes. Absent: `marfa`.",
+                    "description": "The folder in the bucket Marfa keeps files and backups under, as `/`-joined segments. Changing it needs a sign-in from the last fifteen minutes. Absent: `marfa`.",
                     "default": "marfa"
                   },
                   "object_store_access_key_id": {
@@ -59918,7 +60048,7 @@
                   },
                   "allow_private_addresses": {
                     "type": "boolean",
-                    "description": "`true` if Marfa may send webhooks, the heartbeat, error notices, exception reports and object store requests to loopback, private and other addresses that aren't public. Changing it needs a sign-in from the last five minutes. Absent: `false`.",
+                    "description": "`true` if Marfa may send webhooks, the heartbeat, exception reports and object store requests to loopback, private and other addresses that aren't public. Changing it needs a sign-in from the last fifteen minutes. Absent: `false`.",
                     "default": false
                   },
                   "object_store_secret_access_key": {
@@ -59933,12 +60063,6 @@
                     "description": "The `http` or `https` URL Marfa requests on a schedule, so that something else can notice when the requests stop. Marfa never returns it. A `PUT` that leaves it out keeps it; `PATCH` with `null` removes it.",
                     "writeOnly": true
                   },
-                  "error_webhook_url": {
-                    "type": "string",
-                    "format": "uri",
-                    "description": "The `http` or `https` URL Marfa posts a notice to when a request fails with a 500 error. Marfa never returns it. A `PUT` that leaves it out keeps it; `PATCH` with `null` removes it.",
-                    "writeOnly": true
-                  },
                   "posthog_host": {
                     "type": "string",
                     "format": "uri",
@@ -59951,6 +60075,79 @@
                     "maxLength": 256,
                     "description": "The PostHog project token Marfa sends its fault reports with, with no whitespace around it. It needs `posthog_host` set too. Marfa never returns it. A `PUT` that leaves it out keeps it; `PATCH` with `null` removes it.",
                     "writeOnly": true
+                  },
+                  "telemetry_enabled": {
+                    "type": "boolean",
+                    "description": "`true` if Marfa sends telemetry about itself: traces, log records and metrics to the OTLP endpoints, and exception reports to `posthog_host`. `false` sends none of them and keeps every telemetry setting. Absent: `true`.",
+                    "default": true
+                  },
+                  "otel_exporter_otlp_endpoint": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "The base URL of the OTLP receiver Marfa exports traces to, under `v1/traces`, log records to, under `v1/logs`, and metrics to, under `v1/metrics`, keeping its query. Marfa never returns it. A `PUT` that leaves it out keeps it; `PATCH` with `null` removes it.",
+                    "writeOnly": true,
+                    "example": "https://collector.example:4318"
+                  },
+                  "otel_exporter_otlp_traces_endpoint": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "The URL Marfa posts traces to, used as written, in place of the one under `otel_exporter_otlp_endpoint`, which must also be set. Marfa never returns it. A `PUT` that leaves it out keeps it; `PATCH` with `null` removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_exporter_otlp_logs_endpoint": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "The URL Marfa posts log records to, used as written, in place of the one under `otel_exporter_otlp_endpoint`, which must also be set. Marfa never returns it. A `PUT` that leaves it out keeps it; `PATCH` with `null` removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_exporter_otlp_metrics_endpoint": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "The URL Marfa posts metrics to, used as written, in place of the one under `otel_exporter_otlp_endpoint`, which must also be set. Marfa never returns it. A `PUT` that leaves it out keeps it; `PATCH` with `null` removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_exporter_otlp_headers": {
+                    "type": "string",
+                    "maxLength": 8192,
+                    "description": "The headers Marfa sends with every OTLP export, as comma-separated `key=value` pairs with percent-encoded values and no whitespace around them. Marfa never returns it. A `PUT` that leaves it out keeps it; `PATCH` with `null` removes it.",
+                    "writeOnly": true,
+                    "example": "authorization=Bearer%20token"
+                  },
+                  "otel_exporter_otlp_traces_headers": {
+                    "type": "string",
+                    "maxLength": 8192,
+                    "description": "The headers Marfa sends with trace exports, as comma-separated `key=value` pairs with percent-encoded values. One here replaces the one of the same name in `otel_exporter_otlp_headers`. Marfa never returns it. A `PUT` that leaves it out keeps it; `PATCH` with `null` removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_exporter_otlp_logs_headers": {
+                    "type": "string",
+                    "maxLength": 8192,
+                    "description": "The headers Marfa sends with log exports, as comma-separated `key=value` pairs with percent-encoded values. One here replaces the one of the same name in `otel_exporter_otlp_headers`. Marfa never returns it. A `PUT` that leaves it out keeps it; `PATCH` with `null` removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_exporter_otlp_metrics_headers": {
+                    "type": "string",
+                    "maxLength": 8192,
+                    "description": "The headers Marfa sends with metric exports, as comma-separated `key=value` pairs with percent-encoded values. One here replaces the one of the same name in `otel_exporter_otlp_headers`. Marfa never returns it. A `PUT` that leaves it out keeps it; `PATCH` with `null` removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_sample_ratio": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "The share of traces Marfa exports, from 0 to 1. A trace that holds an error is exported whatever this says. Absent: `0.05`.",
+                    "default": 0.05
+                  },
+                  "otel_service_name": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "description": "The service name on everything Marfa exports, in place of a `service.name` in `otel_resource_attributes`. Absent: `marfa-server`. An archive doesn't carry it."
+                  },
+                  "otel_resource_attributes": {
+                    "type": "string",
+                    "maxLength": 4096,
+                    "description": "Attributes Marfa adds to everything it exports, as comma-separated `key=value` pairs with percent-encoded values. One named here replaces Marfa's own of the same name, such as `service.version`. An archive doesn't carry it.",
+                    "example": "deployment.environment=staging"
                   },
                   "secrets_set": {
                     "type": "array",
@@ -60220,7 +60417,7 @@
             }
           },
           "401": {
-            "description": "- `unauthorized`: the request has no credential, or its credential is not valid. For a key that has expired, `details.expired_at` says when it expired.\n- `insufficient_user_authentication`: your app's owner signed in more than five minutes ago. Send them through `GET /oauth/authorize` with `max_age`.",
+            "description": "- `unauthorized`: the request has no credential, or its credential is not valid. For a key that has expired, `details.expired_at` says when it expired.\n- `insufficient_user_authentication`: your app's owner signed in more than fifteen minutes ago. Send them through `GET /oauth/authorize` with `max_age`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60543,7 +60740,7 @@
                       "boolean",
                       "null"
                     ],
-                    "description": "`true` if error alerts and exception reports are sent. Enabling requires `error_webhook_url`, or both `posthog_host` and `posthog_project_token`. Absent: the environment default applies. `null` removes it, so the server's default applies.",
+                    "description": "`true` if exception reports are sent. Enabling requires both `posthog_host` and `posthog_project_token`. Absent: the environment default applies. `null` removes it, so the server's default applies.",
                     "default": true
                   },
                   "heartbeat_enabled": {
@@ -60700,7 +60897,7 @@
                       "string",
                       "null"
                     ],
-                    "description": "The absolute path of the folder Marfa backs itself up to and keeps a second copy of each file in, outside the data directory and the blob folder. Changing it needs a sign-in from the last five minutes. Absent: no backup folder. `null` removes it, so the server's default applies."
+                    "description": "The absolute path of the folder Marfa backs itself up to and keeps a second copy of each file in, outside the data directory and the blob folder. Changing it needs a sign-in from the last fifteen minutes. Absent: no backup folder. `null` removes it, so the server's default applies."
                   },
                   "object_store_bucket": {
                     "type": [
@@ -60708,7 +60905,7 @@
                       "null"
                     ],
                     "maxLength": 255,
-                    "description": "The bucket of an S3-compatible object store that also keeps each file and the backups: 1 to 255 ASCII letters, digits, `.`, `:`, `-` and `_`, other than `.` and `..`. Changing it needs a sign-in from the last five minutes, and removes `object_store_secret_access_key` unless the same request sets it. Absent: no object store. `null` removes it, so the server's default applies."
+                    "description": "The bucket of an S3-compatible object store that also keeps each file and the backups: 1 to 255 ASCII letters, digits, `.`, `:`, `-` and `_`, other than `.` and `..`. Changing it needs a sign-in from the last fifteen minutes, and removes `object_store_secret_access_key` unless the same request sets it. Absent: no object store. `null` removes it, so the server's default applies."
                   },
                   "object_store_region": {
                     "type": [
@@ -60716,7 +60913,7 @@
                       "null"
                     ],
                     "maxLength": 63,
-                    "description": "The region of the object store: a name of 1 to 63 ASCII letters, digits, hyphens and underscores that can be part of a host name, such as `us-east-1`, `eu-west-2` or `auto`. Changing it needs a sign-in from the last five minutes. Absent: `us-east-1`. `null` removes it, so the server's default applies.",
+                    "description": "The region of the object store: a name of 1 to 63 ASCII letters, digits, hyphens and underscores that can be part of a host name, such as `us-east-1` or `auto`. Changing it needs a sign-in from the last fifteen minutes. Absent: `us-east-1`. `null` removes it, so the server's default applies.",
                     "default": "us-east-1"
                   },
                   "object_store_endpoint": {
@@ -60725,14 +60922,14 @@
                       "null"
                     ],
                     "format": "uri",
-                    "description": "The endpoint of the object store, an `http` or `https` URL with no user name or password. Changing it needs a sign-in from the last five minutes, and removes `object_store_secret_access_key` unless the same request sets it. Absent: the store's provider chooses it. `null` removes it, so the server's default applies."
+                    "description": "The endpoint of the object store, an `http` or `https` URL with no user name or password. Changing it needs a sign-in from the last fifteen minutes, and removes `object_store_secret_access_key` unless the same request sets it. Absent: the store's provider chooses it. `null` removes it, so the server's default applies."
                   },
                   "object_store_path_style": {
                     "type": [
                       "boolean",
                       "null"
                     ],
-                    "description": "`true` if the store at `object_store_endpoint` is addressed by path. `false` puts the bucket, as lowercase host labels, before the endpoint's host, a name without the bucket. Changing it needs a sign-in from the last five minutes. Absent: `true`. `null` removes it, so the server's default applies.",
+                    "description": "`true` if the store at `object_store_endpoint` is addressed by path. `false` puts the bucket, as lowercase host labels, before the endpoint's host, a name without the bucket. Changing it needs a sign-in from the last fifteen minutes. Absent: `true`. `null` removes it, so the server's default applies.",
                     "default": true
                   },
                   "object_store_prefix": {
@@ -60740,7 +60937,7 @@
                       "string",
                       "null"
                     ],
-                    "description": "The folder in the bucket Marfa keeps files and backups under, as `/`-joined segments. Changing it needs a sign-in from the last five minutes. Absent: `marfa`. `null` removes it, so the server's default applies.",
+                    "description": "The folder in the bucket Marfa keeps files and backups under, as `/`-joined segments. Changing it needs a sign-in from the last fifteen minutes. Absent: `marfa`. `null` removes it, so the server's default applies.",
                     "default": "marfa"
                   },
                   "object_store_access_key_id": {
@@ -60757,7 +60954,7 @@
                       "boolean",
                       "null"
                     ],
-                    "description": "`true` if Marfa may send webhooks, the heartbeat, error notices, exception reports and object store requests to loopback, private and other addresses that aren't public. Changing it needs a sign-in from the last five minutes. Absent: `false`. `null` removes it, so the server's default applies.",
+                    "description": "`true` if Marfa may send webhooks, the heartbeat, exception reports and object store requests to loopback, private and other addresses that aren't public. Changing it needs a sign-in from the last fifteen minutes. Absent: `false`. `null` removes it, so the server's default applies.",
                     "default": false
                   },
                   "object_store_secret_access_key": {
@@ -60778,15 +60975,6 @@
                     "description": "The `http` or `https` URL Marfa requests on a schedule, so that something else can notice when the requests stop. Marfa never returns it. `null` or an empty string removes it.",
                     "writeOnly": true
                   },
-                  "error_webhook_url": {
-                    "type": [
-                      "string",
-                      "null"
-                    ],
-                    "format": "uri",
-                    "description": "The `http` or `https` URL Marfa posts a notice to when a request fails with a 500 error. Marfa never returns it. `null` or an empty string removes it.",
-                    "writeOnly": true
-                  },
                   "posthog_host": {
                     "type": [
                       "string",
@@ -60805,6 +60993,115 @@
                     "maxLength": 256,
                     "description": "The PostHog project token Marfa sends its fault reports with, with no whitespace around it. It needs `posthog_host` set too. Marfa never returns it. `null` or an empty string removes it.",
                     "writeOnly": true
+                  },
+                  "telemetry_enabled": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "`true` if Marfa sends telemetry about itself: traces, log records and metrics to the OTLP endpoints, and exception reports to `posthog_host`. `false` sends none of them and keeps every telemetry setting. Absent: `true`. `null` removes it, so the server's default applies.",
+                    "default": true
+                  },
+                  "otel_exporter_otlp_endpoint": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uri",
+                    "description": "The base URL of the OTLP receiver Marfa exports traces to, under `v1/traces`, log records to, under `v1/logs`, and metrics to, under `v1/metrics`, keeping its query. Marfa never returns it. `null` or an empty string removes it.",
+                    "writeOnly": true,
+                    "example": "https://collector.example:4318"
+                  },
+                  "otel_exporter_otlp_traces_endpoint": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uri",
+                    "description": "The URL Marfa posts traces to, used as written, in place of the one under `otel_exporter_otlp_endpoint`, which must also be set. Marfa never returns it. `null` or an empty string removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_exporter_otlp_logs_endpoint": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uri",
+                    "description": "The URL Marfa posts log records to, used as written, in place of the one under `otel_exporter_otlp_endpoint`, which must also be set. Marfa never returns it. `null` or an empty string removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_exporter_otlp_metrics_endpoint": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uri",
+                    "description": "The URL Marfa posts metrics to, used as written, in place of the one under `otel_exporter_otlp_endpoint`, which must also be set. Marfa never returns it. `null` or an empty string removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_exporter_otlp_headers": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8192,
+                    "description": "The headers Marfa sends with every OTLP export, as comma-separated `key=value` pairs with percent-encoded values and no whitespace around them. Marfa never returns it. `null` or an empty string removes it.",
+                    "writeOnly": true,
+                    "example": "authorization=Bearer%20token"
+                  },
+                  "otel_exporter_otlp_traces_headers": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8192,
+                    "description": "The headers Marfa sends with trace exports, as comma-separated `key=value` pairs with percent-encoded values. One here replaces the one of the same name in `otel_exporter_otlp_headers`. Marfa never returns it. `null` or an empty string removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_exporter_otlp_logs_headers": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8192,
+                    "description": "The headers Marfa sends with log exports, as comma-separated `key=value` pairs with percent-encoded values. One here replaces the one of the same name in `otel_exporter_otlp_headers`. Marfa never returns it. `null` or an empty string removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_exporter_otlp_metrics_headers": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8192,
+                    "description": "The headers Marfa sends with metric exports, as comma-separated `key=value` pairs with percent-encoded values. One here replaces the one of the same name in `otel_exporter_otlp_headers`. Marfa never returns it. `null` or an empty string removes it.",
+                    "writeOnly": true
+                  },
+                  "otel_sample_ratio": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "The share of traces Marfa exports, from 0 to 1. A trace that holds an error is exported whatever this says. Absent: `0.05`. `null` removes it, so the server's default applies.",
+                    "default": 0.05
+                  },
+                  "otel_service_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 255,
+                    "description": "The service name on everything Marfa exports, in place of a `service.name` in `otel_resource_attributes`. Absent: `marfa-server`. An archive doesn't carry it. `null` removes it, so the server's default applies."
+                  },
+                  "otel_resource_attributes": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 4096,
+                    "description": "Attributes Marfa adds to everything it exports, as comma-separated `key=value` pairs with percent-encoded values. One named here replaces Marfa's own of the same name, such as `service.version`. An archive doesn't carry it. `null` removes it, so the server's default applies.",
+                    "example": "deployment.environment=staging"
                   },
                   "secrets_set": {
                     "type": "array",
@@ -61167,7 +61464,7 @@
             }
           },
           "401": {
-            "description": "- `unauthorized`: the request has no credential, or its credential is not valid. For a key that has expired, `details.expired_at` says when it expired.\n- `insufficient_user_authentication`: your app's owner signed in more than five minutes ago. Send them through `GET /oauth/authorize` with `max_age`.",
+            "description": "- `unauthorized`: the request has no credential, or its credential is not valid. For a key that has expired, `details.expired_at` says when it expired.\n- `insufficient_user_authentication`: your app's owner signed in more than fifteen minutes ago. Send them through `GET /oauth/authorize` with `max_age`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -61458,7 +61755,7 @@
                     },
                     {
                       "name": "reporting_needs_a_receiver",
-                      "description": "Error reporting and the heartbeat can be turned from off to on only where a receiver is set: error_webhook_url, or posthog_host with posthog_project_token, and heartbeat_url.",
+                      "description": "Error reporting and the heartbeat can be turned from off to on only where a receiver is set: posthog_host with posthog_project_token, and heartbeat_url.",
                       "keys": [
                         "error_reporting_enabled",
                         "heartbeat_enabled"
@@ -62003,6 +62300,7 @@
                 },
                 "example": {
                   "status": "ok",
+                  "claimed": true,
                   "components": {
                     "database": {
                       "status": "ok",
@@ -64765,7 +65063,7 @@
           "Export and restore"
         ],
         "summary": "Restore from an archive",
-        "description": "Restores an exported archive atomically and returns counts of written and skipped records. While it writes, Marfa turns other writes away. Requires `backups.manage`, `config.manage` to add settings, and a sign-in from the last five minutes.",
+        "description": "Restores an exported archive atomically and returns counts of written and skipped records. While it writes, Marfa turns other writes away. Requires `backups.manage`, `config.manage` to add settings, and a sign-in from the last fifteen minutes.",
         "requestBody": {
           "required": true,
           "description": "The archive file, as `GET /export?format=archive` returned it, with its `manifest.json`, `files.ndjson.gz`, `instance.ndjson.gz`, `items.ndjson.gz`, `versions.ndjson.gz`, `edges.ndjson.gz` and `rows.ndjson.gz`, in that order. Only the build that wrote an archive is sure to read it.",
@@ -65093,7 +65391,7 @@
             }
           },
           "401": {
-            "description": "- `unauthorized`: the request has no credential, or its credential is not valid. For a key that has expired, `details.expired_at` says when it expired.\n- `insufficient_user_authentication`: your app's owner signed in more than five minutes ago. Send them through `GET /oauth/authorize` with `max_age`.",
+            "description": "- `unauthorized`: the request has no credential, or its credential is not valid. For a key that has expired, `details.expired_at` says when it expired.\n- `insufficient_user_authentication`: your app's owner signed in more than fifteen minutes ago. Send them through `GET /oauth/authorize` with `max_age`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66203,7 +66501,7 @@
           "Export and restore"
         ],
         "summary": "Restore a backup",
-        "description": "Restores a backup from the backup folder or object store, as `POST /restore` does, reading a folder's files from it. Requires `backups.manage`, `config.manage` to add settings, and a sign-in from the last five minutes.",
+        "description": "Restores a backup from the backup folder or object store, as `POST /restore` does, reading a folder's files from it. Requires `backups.manage`, `config.manage` to add settings, and a sign-in from the last fifteen minutes.",
         "responses": {
           "200": {
             "description": "Returns the counts. Items and edges keep their IDs, versions, dates and history, even if their type now refuses them or is gone. An item whose ID, natural key or link is taken is left as it is, and a setting, icon, source name or connector state is set only where none is. An archive holds no sign-in, keys, apps, webhooks or tombstones.",
@@ -66532,7 +66830,7 @@
             }
           },
           "401": {
-            "description": "- `unauthorized`: the request has no credential, or its credential is not valid. For a key that has expired, `details.expired_at` says when it expired.\n- `insufficient_user_authentication`: your app's owner signed in more than five minutes ago. Send them through `GET /oauth/authorize` with `max_age`.",
+            "description": "- `unauthorized`: the request has no credential, or its credential is not valid. For a key that has expired, `details.expired_at` says when it expired.\n- `insufficient_user_authentication`: your app's owner signed in more than fifteen minutes ago. Send them through `GET /oauth/authorize` with `max_age`.",
             "content": {
               "application/json": {
                 "schema": {

@@ -37,13 +37,37 @@
 | `event_type` | `string` | The event, which is also the frame's `event:`.                             |
 | `attention`  | `object` | The new entry: its kind and reference, with a sentence fixed for its kind. |
 
-## Webhook delivery fields
+## Item webhook delivery fields
 
 | Field          | Kind     | Description                                                                      |
 | -------------- | -------- | -------------------------------------------------------------------------------- |
 | `event_id`     | `string` | The event's ID in the log, the same as its `id:` on `GET /events`.               |
 | `delivery_id`  | `string` | The ID of the delivery, the same on every attempt. Use it to recognize a repeat. |
 | `delivered_at` | `string` | When Marfa sent this attempt, in UTC.                                            |
+
+## Rows webhook delivery fields
+
+| Field          | Kind     | Description                                                                      |
+| -------------- | -------- | -------------------------------------------------------------------------------- |
+| `event_id`     | `string` | The event's ID in the log, the same as its `id:` on `GET /events`.               |
+| `delivery_id`  | `string` | The ID of the delivery, the same on every attempt. Use it to recognize a repeat. |
+| `delivered_at` | `string` | When Marfa sent this attempt, in UTC.                                            |
+
+## Edge webhook delivery fields
+
+| Field          | Kind     | Description                                                                      |
+| -------------- | -------- | -------------------------------------------------------------------------------- |
+| `event_id`     | `string` | The event's ID in the log, the same as its `id:` on `GET /events`.               |
+| `delivery_id`  | `string` | The ID of the delivery, the same on every attempt. Use it to recognize a repeat. |
+| `delivered_at` | `string` | When Marfa sent this attempt, in UTC.                                            |
+
+## Attention webhook delivery fields
+
+| Field          | Kind     | Description                                                                                                                                                                                               |
+| -------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `event_id`     | `string` | The event's ID in the log, the same as its `id:` on `GET /events`. Absent from a delivery of a fault sent while the database fails, which no log holds, no delivery list shows and nothing can redeliver. |
+| `delivery_id`  | `string` | The ID of the delivery, the same on every attempt. Use it to recognize a repeat.                                                                                                                          |
+| `delivered_at` | `string` | When Marfa sent this attempt, in UTC.                                                                                                                                                                     |
 
 ## Stream frame fields
 
