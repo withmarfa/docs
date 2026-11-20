@@ -21,7 +21,7 @@ Set **one** of two stored settings, from any machine, with a credential that hol
 marfa config set backup_path /Volumes/Backup/marfa
 ```
 
-- **`backup_path`** names a folder, best on another disk. The server makes only the folders inside it, and refuses one inside its data directory or blob folder, where a backup is lost with the data. In a container, name the mounted path.
+- **`backup_path`** names a folder, best on another disk of the server's machine. The server makes only the folders inside it, and refuses one inside its data directory or blob folder, where a backup is lost with the data. In a container, name the mounted path. **It holds the folder for itself alone,** so a second server can't use it: on a network file system, whose locks may not keep out a server on another machine, `marfa attention` warns `The backup folder is on a network file system`.
 - **`object_store_bucket`** and the other `object_store_` settings name a bucket, as [Use an object store](#use-an-object-store) shows.
 
 Setting both is refused `400 validation_error`, so a restore always knows where to look. `backup_interval_seconds` sets how often a backup runs, `3600` by default, and `0` turns the schedule off.
@@ -80,7 +80,7 @@ name                       instance_id  created_at                size_bytes
 
 ## Check that backups work
 
-`marfa attention` names a place that isn't set, a backup that failed, a backup folder whose disk isn't there and files still waiting for their copy. The `backups` block of [Health](/reference/api/health-and-maintenance/getHealth) gives the detail:
+`marfa attention` names a place that isn't set, a backup that failed, a backup folder whose disk isn't there or that another program changed, and files still waiting for their copy. The `backups` block of [Health](/reference/api/health-and-maintenance/getHealth) gives the detail:
 
 ```json
 {
@@ -93,11 +93,11 @@ name                       instance_id  created_at                size_bytes
 }
 ```
 
-A wrong or missing destination stops the backups, never the instance, and the next run tries again. **An object store setting that can't be read attaches no store:** files are served from the instance's own disk, and `marfa attention` names the setting. Correct it with `marfa config set`, and the store is used with no restart.
+A wrong or missing destination stops the backups, never the instance, and the next run retries. **An object store setting that can't be read attaches no store:** files are served from the instance's own disk, and `marfa attention` names the setting. Correct it with `marfa config set`, and the store is used with no restart. **A store at an address that isn't public stays attached but unused** while `allow_private_addresses` is off: `backups.reason` is `destination_unusable`, `backups.store_error` and `marfa blobs stores` say why, and no file is purged until the store is used again.
 
 ## Restore a backup
 
-**With a backup place, the place is all you need:** the folder, or the bucket with its prefix and credentials. A [copy of the data directory](#copy-the-data-directory-instead) also needs the server's secrets.
+**With a backup place, the place is all you need:** the folder, or the bucket with its prefix and credentials. A [copy of the data directory](/run/restore-the-data-directory) also needs the server's secrets.
 
 To bring an instance back after a lost disk or machine:
 
@@ -139,12 +139,6 @@ The server writes only into a backup folder it has marked as its own, so a disk 
 marfa backups folder adopt
 ```
 
-The server forgets what it kept on the old disk and copies every file again with the next backup.
-
-## Copy the data directory instead
-
-A copy of [the data directory](/run/run-on-a-server#the-data-directory) brings back the same instance, keys and sign-ins included. **It must be an image of one moment:** a copy taken with the server stopped, or a snapshot, such as a host's disk snapshot or Time Machine, which copies from an APFS snapshot. A file-by-file copy of a running server can hold a database that isn't whole.
-
-Keep the server's secrets with the copy: `marfa.env` from the install folder, or `marfa.secrets` where the server made them, or the two variables your platform holds. **With a different `MARFA_KEY_SALT`, the server starts but refuses every key and app token,** and every browser is signed out: sign in as the owner again and make new keys. A different `MARFA_AUTH_SECRET` also signs everyone out of the browser. `marfa.settings.key`, inside the data directory, seals the secret settings: without it, each must be set again.
+The server claims the new folder first, then forgets what it kept on the old disk and copies every file again with the next backup. If it can't claim the folder, it forgets nothing, and the message says to check that the folder is writable and has room.
 
 The rules behind this page are in the [backing up](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#backing-up) section of the instance chapter of the contract.

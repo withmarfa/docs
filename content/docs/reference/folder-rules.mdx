@@ -3,7 +3,7 @@ title: How a folder treats files
 description: Every rule a synced folder follows for a file, from what it takes in and what it keeps to what it removes, names and holds for you.
 ---
 
-A folder syncs both ways, so **a file you delete can move its item to the bin, and an item that leaves the folder can remove its file.** These rules decide when, and which safeguards stop it happening by mistake. A folder's settings live in `.marfa/folder.yaml` and change with `marfa folders update`, as [Change or stop syncing a folder](/use/change-or-stop-a-folder) shows.
+A folder syncs both ways, so **a file you delete can move its item to the bin, and an item that leaves the folder can remove its file.** These rules decide when, and what stops it by mistake. [Change or stop syncing a folder](/use/change-or-stop-a-folder) changes a folder's settings.
 
 ## What a folder takes in
 
@@ -18,11 +18,11 @@ The `include` and `ignore` lists, gitignore patterns, say which paths a folder r
 
 **A push names each secret it leaves out,** as `server.pem: not taken, because its name is one a secret goes by`. The contract [lists every name](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-documents.md#folder-documentsbuiltin-secret-names).
 
-A file the lists stop reading keeps its item, sends no edits and counts as `unreached`. Read it again and its edits go to the same item.
+A file the lists stop reading keeps its item, sends no edits and counts as `unreached` until they read it again.
 
 ## What a folder does with each file
 
-The folder's query says which items it holds, by types, tiers, states, tags, filter and `beneath`. **Whether an item was ever in the folder decides what happens to its file.**
+The folder's query says which items it holds. **Whether an item was ever in the folder decides what happens to its file.**
 
 | When | What the folder does |
 | --- | --- |
@@ -32,17 +32,11 @@ The folder's query says which items it holds, by types, tiers, states, tags, fil
 | An item leaves the query's types, tiers, tags, filter or `beneath` | Keeps the file as unmatched, and still sends its edits |
 | An item leaves the query's states, or moves to the bin, or is purged | Removes the file at the next pull, unless it changed since Marfa wrote it |
 
-**A new file never goes for falling outside the query's states.** A note you write with `state: archived` in a folder of active items becomes an archived item, and its file stays as unmatched. Once a pull finds the item in a state the query holds, leaving those states again removes its file.
+**A new file never goes for falling outside the query's states:** a note you write with `state: archived` among active items becomes an archived item, kept as unmatched. Once a pull finds it in a state the query holds, leaving those states removes its file.
 
 ### Unmatched files
 
-`marfa folders unmatched` lists them, and `--remove` takes them off the disk:
-
-- **It asks first.** At a terminal it goes on only for `y` or `yes`; a script passes `--yes`. With neither, it takes nothing.
-- **It keeps what you changed.** A file whose bytes differ from what the folder wrote, or whose edit waits to be sent, stays and is named.
-- **The item stays.** Only the folder's placement of it ends.
-
-Don't delete an unmatched file by hand: that moves its item to the bin.
+`marfa folders unmatched` lists them. `--remove` takes them off the disk once you answer `y` or `yes`, or a script passes `--yes`, and **the items stay**. A file you changed, or whose edit waits to be sent, stays and is named. Don't delete an unmatched file by hand: that moves its item to the bin.
 
 ### Hold new files outside the query
 
@@ -60,13 +54,17 @@ marfa folders push Notes
 
 </Terminal>
 
-`marfa folders status` lists it as `held` with the flag `outside_query`. Change the file so the query holds it, or set `outside_query` to `send`, and the next scan sends it. It never counts toward a large addition.
+`marfa folders status` lists it as `held` with the flag `outside_query`. Once the query holds it, or `outside_query` is `send`, the next scan sends it. It never counts toward a large addition.
 
 ## Deleting, moving and renaming
 
 - **You delete a file:** its item moves to the bin after a five-second grace, so an editor that saves by replacing the file isn't taken for a delete. If another device changed what the file showed, the file comes back with that change instead.
 - **You move or rename a file:** the item stays. Between two folders on one computer, the folders keep one item, following a note by its `marfa_id` and any other file by its identity or exact bytes.
 - **The folder can't tell where a file went,** because another folder can't be read or several hold its bytes: the deletion waits, and a watch looks again each minute.
+
+### A save made as Marfa writes
+
+Marfa moves a file aside as `.marfa-kept-<id>.tmp` before replacing or removing it. **A save it didn't read goes back at the path,** or under the next numbered name if another file took it, flagged `kept`; a save of `.marfa/folder.yaml` stays in the root under its hidden name. After a stop, the next scan settles each hidden file, never deleting one or bringing back a file you deleted.
 
 ### A folder added again over its files
 
@@ -94,7 +92,7 @@ A folder holds a large addition or removal until you confirm it, as [Fix a folde
 | `removal_threshold.ceiling` | `100` | One pass would remove over 100 files, whatever share they are |
 | `addition_threshold.files` and `.fraction` | `50` and `0.25` | New files exceed both, counting those sent in the last ten minutes. A folder with no files judges by count alone |
 
-**Nothing moves to the bin while a removal waits,** whether the files went from the disk or their items left elsewhere. The first sync isn't counted as an addition. While an addition waits, edits keep going and new files join it.
+**Nothing moves to the bin while a removal waits.** The first sync isn't an addition, and while one waits, edits keep going and new files join it.
 
 <Terminal>
 
@@ -111,14 +109,15 @@ a large removal waits: 60 delete(s) not sent; `folders confirm` sends them, `fol
 
 ## A file too large to send
 
-A write larger than the server takes in one request is held and flagged `refused`: "This file is 2,000,126 bytes as a request, and this server takes 1,048,576. Make it smaller to send it." The limit is 1 MiB unless [`MARFA_MAX_REQUEST_BYTES`](/run/settings#every-environment-setting) sets another, and counts the JSON sent. A file at nine tenths of it gets a `size` warning.
+A write larger than the server takes in one request is held and flagged `refused`, with its size and the limit in bytes. The limit is 1 MiB unless [`MARFA_MAX_REQUEST_BYTES`](/run/settings#every-environment-setting) sets another, and counts the JSON sent. A file at nine tenths of it gets a `size` warning.
 
-Make the file smaller, or raise the limit, and the next sync sends it.
+Make it smaller, or raise the limit, and the next sync sends it.
 
-## A missing or unreadable directory
+## A directory Marfa can't read or write
 
-- **The folder's directory is missing,** as on a disk that isn't connected: nothing moves to the bin, and commands say the directory can't be found.
+- **The folder's directory is missing,** as on a disk that isn't connected: nothing moves to the bin, and commands say so.
 - **A directory or file can't be read:** nothing in it moves to the bin, and `marfa folders status` flags it `unreadable`.
+- **A volume can't rename safely,** such as exFAT on a Mac: Marfa replaces and removes no file there, and counts its item `unwritten`.
 - **A different directory stands at the folder's path:** the folder doesn't read it, and carries on when the original returns.
 
 ## Know whether a push finished
@@ -129,21 +128,6 @@ Make the file smaller, or raise the limit, and the next sync sends it.
 | `3` | A write is left unsent, or catching up with the server failed. Push again |
 | `5` | The server refused the credential |
 
-**A push under a rate limit doesn't wait.** It keeps its writes queued and exits `3`:
-
-<Terminal>
-
-```bash
-marfa folders push Notes
-```
-
-```text
-2 write(s) not delivered, waiting for the next drain: the server is limiting requests (429) and asked for a wait of 60s
-the server asked for 60s before the next drain; push again after that to send the rest
-```
-
-</Terminal>
-
-A watch waits by itself, and says `the server is limiting requests; waiting 60s`.
+**A push under a rate limit doesn't wait.** It keeps its changes waiting and exits `3`, as [Fix a folder](/use/fix-a-folder#the-server-asked-for-a-wait-before-more-is-sent) shows. A watch waits by itself.
 
 The rules are in the contract's [folder-guards](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-guards.md), [folder-files](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-files.md), [folder-documents](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-documents.md) and [folder-sync](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-sync.md) chapters.
