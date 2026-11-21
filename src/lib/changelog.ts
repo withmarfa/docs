@@ -246,6 +246,43 @@ export function changelogMarkdown(releases: Release[]): string {
     .join('\n\n');
 }
 
+const DOCS_LINK = /\[([^\]]*)\]\(https:\/\/docs\.marfa\.so(\/[^\s)]*)\)/g;
+
+/**
+ * Older notes link pages the site has since removed. The page shows such a
+ * link as its text, so the Markdown copy does the same: a Markdown link to a
+ * docs address that is not in `pages` becomes its text. Code spans and fenced
+ * code stay as written.
+ */
+export function unlinkMissingPages(markdown: string, pages: ReadonlySet<string>): string {
+  let fence: string | null = null;
+  return markdown
+    .split('\n')
+    .map((line) => {
+      const marker = FENCE.exec(line)?.[1][0] ?? null;
+      if (fence === null && marker) {
+        fence = marker;
+        return line;
+      }
+      if (fence !== null) {
+        if (marker === fence) fence = null;
+        return line;
+      }
+      return line
+        .split(/(`[^`]*`)/)
+        .map((part, index) =>
+          index % 2 === 1
+            ? part
+            : part.replace(DOCS_LINK, (link, text: string, path: string) => {
+                const page = path.replace(/[#?].*$/, '').replace(/(.)\/$/, '$1');
+                return pages.has(page) ? link : text;
+              }),
+        )
+        .join('');
+    })
+    .join('\n');
+}
+
 // ── Search ──────────────────────────────────────────────────────────────
 
 /** A passage of the page's text for the search index: the words of one block, or of one item with the part it belongs to. */
