@@ -1,0 +1,58 @@
+---
+title: Working copies
+description: How a device keeps a copy of part of an instance, reads it without a connection, and has the writes it queued judged by the instance when it reconnects.
+job: A builder learns how a device keeps a working copy, works offline, and has its queued writes judged by the instance.
+kind: concept
+---
+
+A **device** is a program that keeps a **working copy** of part of an instance on the machine it runs on. It reads from that copy, and sends its writes from a **queue** when it can reach the server. An app built on the [Swift SDK](/reference/swift-sdk), the [CLI](/reference/cli)'s `marfa device` and a [synced folder](/use/sync-a-folder) are devices. **A device syncs only with the instance,** the [source of truth](/build/architecture#the-instance).
+
+## The working copy
+
+A device chooses the **slice** it keeps: the types, tier and edge types it holds, and can **pin** an item to keep it regardless. The copy is one file, the **store**. A file system that can't lock files is refused `invalid`.
+
+A **hydration** fills the copy with the slice, and the [event stream](/build/events) then keeps it current:
+
+<Terminal>
+
+```bash
+marfa device --db reading.db hydrate --type app.example.expense --tier library
+marfa device --db reading.db catch-up
+```
+
+```text
+hydrated 2 item(s) and 0 edge(s) of app.example.expense at library in 1 page(s); cursor 7
+applied 0 event(s), skipped 0; cursor 7
+```
+
+</Terminal>
+
+**Reads need no connection.** While the copy fills, it marks a list or search `partial`, and refuses an edge read or a read of an item that hasn't arrived, `hydration_incomplete`. **A device holds a [table](/build/tables) only when an app asks,** and keeps fetched files within a file budget ([Keep files on a device](/build/keep-files-in-a-working-copy)).
+
+## When the copy falls behind
+
+- **A copy away longer than the instance keeps events** is `stale`: its reads say so until a hydration refills it.
+- **A copy that finds another instance at the address, or a changed credential reach,** has expired. It refuses reads and writes until a hydration, which empties the copy and keeps the queue and pins. After another instance, each waiting write is held `blocked: instance_changed` until an app releases or withdraws it.
+- **A server put back to an earlier point** expires the copy too. The next hydration queues, blocked `server_restored`, the work the copy held that the server lost ([Restore a copy of the data directory](/run/restore-the-data-directory#settle-the-work-each-device-kept)).
+- **A store made by a build of the core with another schema** won't open. The refusal names the release that last saved it, the only build that can send the writes it holds.
+
+[Fix a working copy that can't catch up](/build/fix-a-working-copy) says what to run for each message.
+
+## A write made offline
+
+A write shows in the copy at once and waits in the queue with the version it was based on, and **survives the app being killed.** A **drain** sends the queue in order, and the instance recognizes a retry, so none applies twice. A device sends every item update with `conflict=auto`, so the instance settles most collisions ([Versions](/build/versions#let-marfa-settle-it)). Each answered write gets a verdict.
+
+## Verdicts
+
+| Verdict | What happened |
+| --- | --- |
+| `accepted` | The instance applied the write. |
+| `merged` | It collided, and the merge rule settled it. |
+| `conflicted` | It collided. For an item, its value went into a conflicted copy. |
+| `refused` | The instance refused it. The content is kept to offer back. |
+| `blocked` | Something must change before it can go. |
+| `dead` | It failed five times, not counting network or server trouble. |
+
+The other four need an **app's attention:** [the queue's verdicts](/build/write-in-a-working-copy#send-the-queue) say what to do.
+
+The rules are in the contract's [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) and [folder sync](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-sync.md) chapters.
