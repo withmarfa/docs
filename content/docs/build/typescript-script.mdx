@@ -1,55 +1,57 @@
 ---
 title: Write a script with TypeScript
-description: Write a TypeScript script that saves a note in your library and lists the latest ones, using a key that reaches notes and nothing else.
+sidebar_label: Write a TypeScript script
+description: Write a TypeScript script that saves a CSV report of a directory's files to your instance and lists the latest ones, with a key that reaches files and nothing else.
+job: A builder writes a TypeScript script with a narrow key that saves and lists report files, and sees what the key can't do.
+kind: tutorial
 ---
 
-- **You'll build** Standup, a TypeScript script that saves a note for the day and lists your last five.
-- **You need** your own Marfa instance, with the CLI signed in to it, as the [Quickstart](/quickstart) leaves you, at `http://localhost:8600`. You also need Node.js 22.18 or later.
-- **You'll have** a script that runs with a key of its own, which can read and write notes and nothing else.
+A script doesn't sign in as you. It carries a **key**, a secret that names exactly which types it may read or write, and works from any computer that reaches your instance.
 
-The CLI's sign-in stays in your keychain, on your computer. A script carries a **key** instead: a secret that names exactly which types it can read or write. It works from any computer that can reach your instance, such as a server or a scheduled job.
+- **You'll build** Reports, a TypeScript script that saves a CSV report of the files in a directory as a file on your instance and lists your last five reports.
+- **You need** your own Marfa instance with the CLI signed in, as the [Quickstart](/quickstart) leaves you, at `http://localhost:8600`, and Node.js 22.18 or later.
+- **You'll have** a script that runs on a key which can read and write files and nothing else.
 
 <Steps paged>
 <Step>
 
 ### Make a key for the script
 
-Ask the CLI for a key that can write notes:
+Make a key that writes files:
 
 <Terminal>
 
 ```bash
-marfa keys create --label "Standup script" --source standup --type-permission core.note=write
+marfa keys create --label "Report script" --source reports --type-permission core.file=write
 ```
 
 ```text
+marfa: writing to http://localhost:8600
 marfa_k1_…
-key 01a1f184-1bed-74ae-afc6-32fc15c97ef3 (Standup script); the plaintext is shown once, keep it now
-  core.note  Read and edit
+key 01a1fc70-1dfa-7783-9116-682a03979985 (Report script); the plaintext is shown once, keep it now
+  core.file  Read and edit
 ```
 
 </Terminal>
 
-The first line is the key. **Copy it now**: Marfa shows it only once and keeps only a hash of it.
-
-`--type-permission core.note=write` lets the key read and write notes, the type `core.note`, and nothing else. `--source standup` names where the notes it writes come from, so an app can show and filter them by it.
+**Copy the line that starts `marfa_k1_` now:** Marfa shows the key once and keeps only a hash of it. `core.file=write` lets it read and write the type `core.file`, which holds ordinary files, and nothing else. `--source reports` labels every item the key creates, so an app can filter by it.
 
 </Step>
 <Step>
 
 ### Create the project
 
-Make a folder for the script, and install the [TypeScript SDK](/reference/typescript-sdk) with TypeScript itself:
+Install the [TypeScript SDK](/reference/typescript-sdk) and TypeScript:
 
 ```bash
-mkdir standup && cd standup
+mkdir reports && cd reports
 npm init -y
 npm pkg set type=module
 npm install @withmarfa/client
 npm install --save-dev typescript @types/node
 ```
 
-Node.js runs a `.ts` file by removing its types, so the script needs no build step. TypeScript checks the types. Give it a `tsconfig.json`:
+Node.js runs a `.ts` file by removing its types, so there is no build step, and TypeScript only checks them. Give it a `tsconfig.json`:
 
 ```json title="tsconfig.json"
 {
@@ -65,7 +67,7 @@ Node.js runs a `.ts` file by removing its types, so the script needs no build st
 }
 ```
 
-Then tell the script where your instance is and which key to send, in the same terminal:
+Tell the script where your instance is and which key to send, in the same terminal:
 
 ```bash
 export MARFA_API_URL=http://localhost:8600
@@ -75,97 +77,110 @@ export MARFA_API_KEY=marfa_k1_…
 </Step>
 <Step>
 
-### Save a note
+### Save a report
 
-Create `standup.ts`. It makes a client for your instance, then saves what you type after the command as a note, titled with today's date and tagged `standup`:
+Saving a file takes two requests: [upload its bytes](/reference/api/blobs/uploadBlob), then [create an item](/reference/api/items/createItem) that names them. Create `report.ts` with a client for your instance:
 
-```ts title="standup.ts"
+```ts title="report.ts"
 import { createClient } from "@withmarfa/client";
+import { readdir, stat } from "node:fs/promises";
 
 const { MARFA_API_URL, MARFA_API_KEY } = process.env;
 if (!MARFA_API_URL || !MARFA_API_KEY) {
   throw new Error("Set MARFA_API_URL and MARFA_API_KEY first.");
 }
 const marfa = createClient({ baseUrl: MARFA_API_URL, credential: MARFA_API_KEY });
-
-const text = process.argv.slice(2).join(" ");
-if (text) {
-  const today = new Date().toISOString().slice(0, 10);
-  const { data, error } = await marfa.POST("/items", {
-    body: {
-      type: "core.note",
-      properties: { title: `Standup ${today}`, body: text },
-      tags: ["standup"],
-    },
-  });
-  if (error) throw new Error(`${error.error.code}: ${error.error.message}`);
-  console.log(`Saved ${data.item.id}, version ${data.item.version}`);
-}
 ```
 
-Every call returns `data` when it works and `error` when Marfa refuses. **Check `error` first**: after that, TypeScript knows the shape of `data`. Branch on `error.error.code`, which stays the same, rather than the message.
+Add the report. It writes one CSV row for each file in the directory you run it from, and saves the result under a name that holds the time:
 
-Run it with a line for today:
+```ts title="report.ts"
+const rows = ["name,bytes,modified"];
+for (const name of await readdir(".")) {
+  const info = await stat(name);
+  if (info.isFile()) rows.push(`"${name.replaceAll('"', '""')}",${info.size},${info.mtime.toISOString()}`);
+}
+const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+
+const upload = await marfa.POST("/blobs", {
+  body: new TextEncoder().encode(rows.join("\n") + "\n"),
+  headers: { "Content-Type": "text/csv" },
+});
+if (upload.error) throw new Error(`${upload.error.error.code}: ${upload.error.error.message}`);
+const { data, error } = await marfa.POST("/items", {
+  body: {
+    type: "core.file",
+    properties: { title: `report-${stamp}.csv`, blob_ref: upload.data.hash, mime_type: upload.data.mime_type },
+    tags: ["report"],
+  },
+});
+if (error) throw new Error(`${error.error.code}: ${error.error.message}`);
+console.log(`Saved ${data.item.id}, version ${data.item.version}`);
+```
+
+Every call returns `data` when it works and `error` when Marfa refuses. **Check `error` first:** TypeScript then knows the shape of `data`. Branch on `error.error.code`, which stays the same, never on the message.
 
 <Terminal>
 
 ```bash
-node standup.ts "Shipped the export fix, reviewing the importer next"
+node report.ts
 ```
 
 ```text
-Saved 01a1f184-1ca3-7014-a945-ebd0bce70faf, version 1
+Saved 01a1fc70-4d6e-7b2f-a2d6-0d6b3c0e55a1, version 1
 ```
 
 </Terminal>
 
-The note is an **item**, with an ID and a version that rises each time it changes. Run `marfa items list --type core.note --tag standup` to see it from the CLI.
+The file is an **item**, with an ID and a version that rises each time it changes.
 
 </Step>
 <Step>
 
-### List your notes
+### List your reports
 
-Add a read to the end of `standup.ts`. It asks for the five newest notes tagged `standup`:
+Add a read to the end of `report.ts`. It asks for the five newest files tagged `report`:
 
-```ts title="standup.ts"
-const { data, error } = await marfa.GET("/items", {
-  params: { query: { type: "core.note", tags: "standup", limit: 5 } },
+```ts title="report.ts"
+const list = await marfa.GET("/items", {
+  params: { query: { type: "core.file", tags: "report", limit: 5 } },
 });
-if (error) throw new Error(`${error.error.code}: ${error.error.message}`);
-for (const note of data.data) {
-  if ("id" in note) console.log(`${note.properties.title}: ${note.properties.body}`);
+if (list.error) throw new Error(`${list.error.error.code}: ${list.error.error.message}`);
+for (const file of list.data.data) {
+  if ("id" in file) console.log(`${file.properties.title}, ${file.properties.size_bytes} bytes`);
 }
 ```
 
-The `"id" in note` check tells TypeScript each entry is an item: a list that asks for metadata answers each item with its metadata instead. Check the types, then run the script with nothing after it, so it only reads:
+The `"id" in file` check tells TypeScript each entry is an item: a list that asks for metadata answers each item with its metadata instead. Check the types, then run the script again:
 
 <Terminal>
 
 ```bash
 npx tsc
-node standup.ts
+node report.ts
 ```
 
 ```text
-Standup 2026-11-19: Shipped the export fix, reviewing the importer next
+Saved 01a1fc70-9b3a-7c0e-8f41-5a7e2d19c3b4, version 1
+report-2026-11-21-04-50-12.csv, 250 bytes
+report-2026-11-21-04-49-58.csv, 250 bytes
 ```
 
 </Terminal>
 
-`npx tsc` prints nothing when the types are right. Save another line and run it again: the list shows the newest note first.
+`npx tsc` prints nothing when the types are right. Each run saves another report, and the newest comes first.
 
 </Step>
 <Step>
 
 ### See what the key can't do
 
-In `standup.ts`, change `type: "core.note"` in the write to `type: "core.task"`, and run it:
+In the `body` of the write, change `type: "core.file"` to `type: "core.task"`, and run it:
 
 <Terminal>
 
 ```bash
-node standup.ts "Review the importer"
+node report.ts
 ```
 
 ```text
@@ -174,23 +189,21 @@ Error: type_not_permitted: No access to type "core.task"
 
 </Terminal>
 
-Marfa refuses the write with `403 type_not_permitted`, because the key holds only notes. The refusal's `details.grant` names the type and the level the request needed. **A key reaches only what you gave it**, so a script that leaks its key exposes your notes and nothing else.
+Marfa refuses with `403 type_not_permitted`. **A key reaches only what you gave it,** so a script that leaks its key exposes your files and nothing else. [Errors](/reference/errors) lists every code.
 
-Change the type back to `core.note`. To let the script write tasks too, make a new key that names both types: signed in with `marfa login`, `marfa keys update` can take access away from a key but never give it more. A source belongs to one live key, so revoke the first key before you reuse `standup`:
+Change the type back. To let the script write tasks too, widen the key from the CLI, using the ID from step 1. The key you hold changes in place:
 
 ```bash
-marfa keys revoke 01a1f184-1bed-74ae-afc6-32fc15c97ef3
-marfa keys create --label "Standup script" --source standup \
-  --type-permission core.note=write --type-permission core.task=write
+marfa keys update <key-id> --type-permission core.file=write --type-permission core.task=write
 ```
 
-Put the new key in `MARFA_API_KEY`. [Manage keys](/use/manage-keys) covers expiry, narrowing and revoking a key.
+Run it again with only `core.file=write` to narrow it back. [Manage keys](/use/manage-keys) covers expiry and revoking a key.
 
 <Cards>
   <Card title="List, filter and search" href="/build/list-filter-search">Find items by type, tag, property or text, a page at a time.</Card>
-  <Card title="Write safely" href="/build/write-safely">Change an item without overwriting someone else's edit, and retry without writing twice.</Card>
+  <Card title="Handle files" href="/build/handle-files">Download a file's bytes, hand out a link and replace them.</Card>
+  <Card title="Write safely" href="/build/write-safely">Change an item without overwriting another edit, and retry without writing twice.</Card>
   <Card title="Authenticate" href="/build/authenticate">Connect an app with OAuth, so the owner approves its access.</Card>
-  <Card title="TypeScript SDK" href="/reference/typescript-sdk">Every part of the client: calls, pages, files and errors.</Card>
 </Cards>
 
 </Step>

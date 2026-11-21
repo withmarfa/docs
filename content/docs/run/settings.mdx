@@ -1,120 +1,62 @@
 ---
 title: Change an instance's settings
-description: Change an instance's name, limits and policies while it runs, and set what the server reads when it starts.
+sidebar_label: Change settings
+description: Change an instance's name, limits and policies while it runs, and set what the server reads only when it starts.
+job: An owner changes a setting while the instance runs, or sets one the server reads when it starts.
+kind: how-to
 ---
 
-An instance has two kinds of settings. **Stored settings** live in the database and change while the server runs, from any machine with a key that holds `config.manage`: the name, the addresses, backups, retention, limits and reporting. **Start-only settings** are environment variables the server reads once, when it starts: where the data lives, the port, the proxy, the two secrets and telemetry.
+An instance has two kinds of settings. **Stored settings** live in its database and change while it runs, from any computer with a key that holds `config.manage`. **Start-only settings** are environment variables the server reads once, when it starts. [Instance settings](/reference/instance-settings) lists every one with its default.
 
 ## Change settings while it runs
 
-A stored setting **takes effect at once, with no restart**. Change one by name, and return it to its default with `unset`:
+A stored setting **takes effect at once, with no restart.** Set one by name, and return it to its default with `unset`:
 
 <Terminal>
 
 ```bash
-marfa config set trash_retention_days 30
+marfa config set otel_resource_attributes deployment.environment=test
 ```
 
 ```text
-set trash_retention_days
+set otel_resource_attributes
 ```
 
 </Terminal>
 
-`config set` sends the value as the setting's own kind: a number, `true` or `false`, a comma-separated list or text. It refuses a value of the wrong kind before it sends anything, and **asks for a secret setting with no echo**, or reads it from standard input, never as an argument. `marfa config settings` lists every stored setting with its value and whether it's stored or the default, and names every start-only setting without its value.
+`config set` refuses a value of the wrong kind before it sends anything, and **asks for a secret with no echo,** never as an argument. `marfa config settings` lists every stored setting with its value, and names every start-only setting without one.
 
-To change several at once, send a body. **An update changes only the settings it names,** and `null` returns one to its default:
-
-```bash tab="CLI" tab-group="client"
-marfa config update --body '{"trash_retention_days": 30, "name": "Family archive"}'
-```
-
-```http tab="HTTP"
-PATCH /config
-Authorization: Bearer <key>
-Content-Type: application/json
-
-{
-  "trash_retention_days": 30,
-  "name": "Family archive"
-}
-```
-
-`marfa config replace` (`PUT /config`) sets the whole configuration instead: **a setting you leave out returns to its default**, so read it with `marfa config get` first. A body with an unknown field or a value outside its rule is refused, and nothing changes. [Update the configuration](/reference/api/instance/updateConfig) has every refusal, and the server records each change in the [audit log](/use/audit-log) as `config.update`.
-
-Some changes need [a sign-in from the last fifteen minutes](/run/sign-in-as-the-owner#confirm-its-you), from the CLI signed in with `marfa login` rather than a key, or the [private socket](/run/run-on-a-server#the-private-socket) on the server's machine:
-
-- **Moving `sign_in_address`,** which [Give your instance an address](/run/address#move-the-address) covers.
-- **Changing `allow_private_addresses`.**
-- **Changing where files and backups go:** `backup_path`, `object_store_bucket`, `object_store_endpoint`, `object_store_region`, `object_store_path_style` and `object_store_prefix`. Clearing one counts as a change, and so does leaving a stored one out of `marfa config replace`. Sending back the value already stored doesn't.
-
-A change applies to work that starts after it: switching something off doesn't stop work already under way. A reporting switch needs its receiver set too.
-
-## Every stored setting
-
-A retention of `0` keeps those records with no age limit, and the version windows must not decrease from recent to daily to weekly. A type's own version policy takes precedence over the instance's.
-
-<ReferenceList description={3}>
-
-<include cwd>src/generated/stored-settings.md</include>
-
-</ReferenceList>
-
-## What the enforcement levers do
-
-`enforcement` holds the levers, which hold chosen types to a stricter rule. Each names `types`, and `source_allowlist` and `source_filter` also name `sources`:
+To change several at once, or the instance's `name`, which `config set` doesn't take, send a body. **An update changes only the fields it names,** and `null` returns one to its default:
 
 ```bash
-marfa config update --body '{"enforcement": {"strict_mode": {"types": ["core.note"]}}}'
+marfa config update --body '{"name": "Family archive", "otel_resource_attributes": "deployment.environment=test"}'
 ```
 
-| Lever | What it does | What the caller meets |
-| --- | --- | --- |
-| `strict_mode` | Refuses a write that names a property neither the item's type nor an ancestor declares. Without it, Marfa keeps an undeclared property and serves it back. | `400 invalid_properties`, with `details.code` set to `unknown_property`. |
-| `source_allowlist` | Lets only the listed sources create items of a type, such as one app that alone writes a type. | `403 forbidden`, with `details.type`, `details.source` and `details.allowed`. |
-| `source_filter` | Leaves an item of a type whose source isn't listed out of listings, searches, exports, event streams and webhook deliveries. | Nothing: the item isn't there. |
+**Read a setting's rule before you set it:** some change what the server keeps or sends. `trash_retention_days`, for one, sets how long binned items stay before the server deletes them for good, and a shorter number deletes at the next purge.
 
-`strict_mode` and `source_allowlist` hold for exactly the types they list, **not the types that inherit from them**, so list each type you mean. `source_filter` also covers the types under a listed type. **Reading an item by its ID isn't filtered.** An item with no source counts as one whose source is `unknown`.
+`marfa config replace` sets the whole configuration instead: **a setting you leave out returns to its default,** so read it with `marfa config get` first. A value outside its rule is refused and nothing changes. A change applies to work that starts after it, and the [audit log](/use/audit-log) records it.
 
-`enforcement` is one setting: an update that names it replaces all three levers, and `null` removes them all. A key can carry levers of its own in `enforcement_override`, each replacing the instance's for that key, looser or stricter. [Manage keys](/use/manage-keys) shows the `--enforcement-override` flag.
+## Changes that need a recent sign-in
+
+These need [a sign-in from the last fifteen minutes](/run/sign-in-as-the-owner#confirm-its-you), from the CLI signed in with `marfa login`, or the [private socket](/run/run-on-a-server#the-private-socket) on the server's computer. A key is refused:
+
+- **Moving `sign_in_address`:** [Give your instance an address](/run/address#move-the-address).
+- **Changing where files and backups go:** `backup_path` and the `object_store_` settings, as [Back up and restore](/run/back-up-and-restore#turn-on-backups) shows.
+- **Changing `allow_private_addresses`.**
 
 ## Let webhooks reach a private network
 
-Marfa sends only to public addresses: webhooks, `heartbeat_url`, `posthog_host`, the OTLP endpoints and `object_store_endpoint`. A loopback, private, link-local, unique-local or carrier-grade NAT address (`100.64.0.0/10`, which Tailscale uses) is refused `400 validation_error`, and so is a name that resolves to one.
-
-To reach a receiver or an object store on a Tailscale or home network, turn on `allow_private_addresses`. It needs a recent sign-in:
+Marfa sends only to public addresses: webhooks, `heartbeat_url`, `posthog_host`, the OTLP endpoints and `object_store_endpoint`. A loopback, private or Tailscale address (`100.64.0.0/10`) written into one of these settings is refused `400 validation_error`. **A name is judged when something is sent:** a webhook is refused when you register it, but the server accepts a name for the others and sends nothing to it while it leads to a private address. An object store that way becomes unusable, which `GET /health` shows as a `destination_unusable` backup. To reach a receiver on your own network, turn on `allow_private_addresses`:
 
 ```bash
 marfa login --fresh-sign-in
 marfa config set allow_private_addresses true
 ```
 
-**Leave it off** unless something you run needs it: it lets anyone who can register a webhook make the server send to your own network. [Receive webhooks](/build/receive-webhooks) shows what a delivery to a non-public address records.
+**Leave it off** unless something you run needs it: it lets anyone who can register a webhook make the server send to your own network.
 
-## Set an environment setting
+## Set a start-only setting
 
-On a machine you [installed with one command](/run/install), add the setting to `marfa.env` in the install folder and run `marfa server restart`. The folder sets the port, the listening address and the paths itself, and the command refuses a `marfa.env` that sets them.
+On a computer you [installed with one command](/run/install), add the setting to `marfa.env` in the install folder and run `marfa server restart`. In a container, change its environment and **create the container again:** a restart keeps the old environment. On Railway, change the service's variables, which redeploys it.
 
-In a container you run yourself, change its environment file and **create the container again**: a restart keeps the environment the container was created with. On Railway, change the service's variables, which redeploys it. A blank value counts as unset.
-
-If any setting is outside its rule, the server opens no port and makes no file. It logs one line naming every wrong setting at once, and exits with status `1`:
-
-```text
-The server cannot start; fix these settings:
-  MARFA_PORT must be a whole number, from 0 to 65535 (got "99999")
-  MARFA_AUTH_SECRET must be at least 32 characters; generate one with `openssl rand -hex 32`
-```
-
-A secret is named but never printed. A `MARFA_` name the server doesn't read only warns, and names the setting you may have meant, or says that it's a stored setting to set with `marfa config set`.
-
-## Every environment setting
-
-Most instances set none of these by hand: the install, the image and the Railway template set the ones they need. The `MARFA_TEST_` settings are for Marfa's own tests: leave them unset.
-
-<ReferenceList description={3}>
-
-<include cwd>src/generated/settings.md</include>
-
-</ReferenceList>
-
-[Send telemetry](/run/telemetry) explains the telemetry settings, and [Give your instance an address](/run/address#behind-a-proxy-you-set-up-yourself) the proxy settings.
+If a setting is outside its rule, the server opens no port, logs one line naming every wrong setting, and exits with status `1`. [Fix a server that won't start](/run/troubleshooting/start-and-claim) shows the message.

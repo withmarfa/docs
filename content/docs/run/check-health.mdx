@@ -1,0 +1,89 @@
+---
+title: Check an instance's health
+sidebar_label: Check an instance's health
+description: Check from any computer that your instance is well, how much it uses and what its housekeeping jobs last did, and run one now.
+job: An owner checks from any computer that the instance is well, how much it uses, and what its housekeeping jobs last did.
+kind: how-to
+---
+
+An instance looks after itself on a schedule: it thins old versions, empties the bin, clears old logs, copies files and takes backups. **Check that it is keeping up** from any computer with the CLI signed in, using a credential that holds `instance.read`.
+
+## Check that all is well
+
+**`marfa attention` is the one check to run.** It names a degraded part of the server, a job that failed, a connector or folder with a problem, a key about to expire, and backups that aren't kept or have stopped. It prints `nothing needs attention` while all is well.
+
+<Terminal>
+
+```bash
+marfa attention
+```
+
+```text
+nothing needs attention
+```
+
+</Terminal>
+
+Two more checks fill it in. `marfa update status` says whether a newer release is out: read [Upgrade an instance](/run/upgrade) before you move to one. On the server's own computer, `marfa server status` says whether the service runs and answers, its release, and whether backups are kept, and shows the end of the log when the server isn't answering.
+
+## See what an instance uses
+
+`marfa metrics` asks the instance what it holds and what its process costs:
+
+<Terminal>
+
+```bash
+marfa metrics
+```
+
+```text
+items.total                    4
+blobs.total_bytes              15
+process.memory_rss_bytes       39796736
+process.memory_rss_peak_bytes  41320448
+storage.database_bytes         1036288
+storage.wal_bytes              688072
+```
+
+</Terminal>
+
+**`process.memory_rss_peak_bytes` is the most memory the process has held since it started:** compare it with the computer's memory after a large upload. `storage.database_bytes` and `storage.wal_bytes` are the database and its write-ahead log, and `blobs.total_bytes` is every file the instance keeps. A figure the server can't read is `null`. [Get instance metrics](/reference/api/health-and-maintenance/getInstanceMetrics) lists every field.
+
+## See what the jobs did
+
+Each piece of housekeeping is a job. **What each last did shows whether the instance is keeping up.** Listing needs `instance.read`, and running one needs `instance.maintain`:
+
+<Terminal>
+
+```bash
+marfa housekeeping list
+```
+
+```text
+name        every  next run                  last run                            result
+trash-purge 1 d    2026-11-22T03:50:41.331Z  succeeded 2026-11-21T03:50:41.331Z  {"deleted":0}
+```
+
+</Terminal>
+
+The result holds the job's own counts. A job whose last outcome is `failed`, with the reason in `last_error`, or whose next run is long past, is **the place to look when an instance falls behind.** `held` means the job did nothing because the clock is far ahead or a restore holds writes. `--json` gives every field.
+
+<include cwd>src/generated/housekeeping.md</include>
+
+Retention windows are [stored settings](/run/settings), such as `trash_retention_days`, and a change applies without a restart. **A retention of `0` keeps everything** of its kind. Four jobs are listed only while their setting is on: `heartbeat`, `blob-orphans`, `backup` and `release-check`.
+
+To run a job now, name it. The server runs it before it answers, and a run that fails still answers `200` with `outcome` set to `failed`:
+
+```bash
+marfa housekeeping run trash-purge
+```
+
+## When the clock jumps ahead
+
+**While the server's clock reads more than seven days later than the time it last trusted, the jobs that delete do nothing.** A clock set wrong would otherwise judge everything old enough to remove. Those runs are recorded as `held`, and `marfa attention` names the hold. If the clock is right, as after months switched off, confirm it:
+
+```bash
+marfa housekeeping confirm-clock
+```
+
+An agent at `/mcp/admin` does this with `marfa_maintain`. To empty the bin now, see [Work from the command line](/use/command-line#get-an-item-back-or-empty-the-bin). The rules behind this page are in the [housekeeping](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md) chapter of the contract.
