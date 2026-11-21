@@ -1,79 +1,54 @@
 ---
 title: Fix a server that won't start or be claimed
-description: Fix a server that won't start, and claim an instance when the setup code is lost.
+sidebar_label: Server won't start
+description: Find the message a server shows when it won't start, and claim an instance when the setup code is lost.
+job: An owner whose server won't start, or who lost the setup code, finds the message they see and fixes it.
 ---
 
-The server checks its settings, its data folder and its database before it opens a port. **A refusal is a line in its log, and the server exits** without changing anything. A failed `marfa server install`, `start` or `upgrade` prints the log's end; later, `marfa server status` shows it, or `docker logs <name>`.
+The server checks its settings, folders and database before it opens a port, and **a refusal is a line in its log and an exit,** with nothing changed. A failed `marfa server install`, `start` or `upgrade` prints the end of the log. Later, `marfa server status` shows it, or `docker logs <name>`.
 
 ## The server cannot start; fix these settings
 
-A setting has a value the server doesn't take. The server **names each setting it refuses** in one message, then exits with status `1`:
+A start-only setting has a value the server doesn't take. The server names each one in the same message and exits with status `1`:
 
 ```text
-The server cannot start; fix these settings:
-  MARFA_MAX_CONNECTIONS must be a whole number, from 1 to 1000000 (got "abc")
-  MARFA_AUTH_SECRET must be at least 32 characters; generate one with `openssl rand -hex 32`
+MARFA_MAX_CONNECTIONS must be a whole number, from 1 to 1000000 (got "abc")
 ```
 
-Correct each value it names, then start the server again. [Every environment setting](/run/settings#every-environment-setting) lists what each takes.
+Correct each value it names, then start the server again. [Instance settings](/reference/instance-settings#start-only-settings) says what each takes.
 
 ## The port is already taken (EADDRINUSE)
 
-The line names the server's port. Another process listens there, often an earlier Marfa server that is still running.
-
-Stop the other server with `marfa server stop`, or give this one a free port with `MARFA_PORT`. A second install takes its own port, as [`--name`](/run/install#where-the-service-runs) shows.
+Another process listens on the server's port, often an earlier Marfa server. Stop it with `marfa server stop`, or give this one a free port with `MARFA_PORT`.
 
 ## MARFA_CONTROL_SOCKET must be a normalized absolute path of at most 103 bytes
 
-The server opens its [private socket](/run/run-on-a-server#the-private-socket) at `control/marfa.sock` in the data directory, and a data directory deep in the file system makes that path longer than a Unix socket allows.
-
-Keep the data in a shorter path, or set `MARFA_CONTROL_SOCKET` to a shorter absolute path.
-
-## The control socket's folder is a symbolic link
-
-The socket's folder must be a real folder that belongs to the server's account, with mode `700`. A link there could hand the machine's authority to whoever controls where it points.
-
-Name the folder the link points to. In a shell, `pwd -P` prints the current folder with its links followed.
+The data folder is so deep that its [private socket](/run/run-on-a-server#the-private-socket) path is longer than a system allows. Keep the data in a shorter path, or set `MARFA_CONTROL_SOCKET` to a shorter absolute one.
 
 ## Is a symbolic link, and the server keeps its data only where it can make it private
 
-The data directory, the database or the blob folder is a link the server can't make private, such as one another account made. **The server keeps its data only where no other account can read, write or replace it**, and the message names the path and what to change: give the server the folder the link points to, or give that folder to the server's account with `chown`.
-
-A link that you or root made, in a path that no other account can change, is followed.
+The data folder, the database or the blob folder is a link the server can't trust, such as one another account made. Name the folder the link points to, or give that folder to the server's account with `chown`. A link you or root made, in a path no other account can change, is followed.
 
 ## Is open in another Marfa server
 
-Another server already holds the database. **One database has one server**, so the second refuses before it reads anything.
-
-Stop the other server, or give this one a data directory of its own. Keep the data on a disk of the server's machine, and leave its `.server-lock` files in place.
+Another server already holds that database or folder, and **one database has one server.** Stop the other server, or give this one a data folder of its own, and leave its `.server-lock` files in place.
 
 ## The server refuses its database (exit 78)
 
-A build checks the database before it opens a port. **When it refuses one, it leaves the file as it found it,** opens no port, logs the reason with the file's path, and exits with status `78`:
+The log says why, the file is untouched, and `marfa server run` stays idle:
 
-- **`… is at schema version …, which a newer build wrote`.** An earlier build doesn't know what a later one changed. [Go back](/run/go-back-a-release) to the build that wrote it, or to the copy taken before the update.
-- **`… is not this build's: …`.** The database isn't in the shape its version declares, such as one changed by hand. The message gives the way forward: export with the build that wrote the file, start a new instance, and restore the archive there.
-- **`… was not upgraded from schema version …`.** The build couldn't keep its copy of the database before an update, or the update failed. Nothing was changed: make room on the volume, or fix what the message names, and start it again.
-
-`marfa server run`, which every install starts, stays up without the server after a `78`, so nothing starts it again into the same refusal. `marfa server status` shows the reason, and so does `docker logs <name>`.
+- **`… which a newer build wrote`:** [go back](/run/go-back-a-release) to that build, or to the copy from before the update.
+- **`… is not this build's`:** the file is changed, or its schema is unread here. Export with the build that wrote it, and restore into a new install.
+- **`… was not upgraded from schema version …`:** fix the cause named, such as no room on the volume.
 
 ## I lost the setup code
 
-An unclaimed instance writes a new setup code to its log each time it starts, in the line `Claim this Marfa at <address>/setup with setup code: <code>`, and **only the newest works**: an older one gets `That setup code isn't right, or Marfa has replaced it since.` To get a new one:
-
-- **An install** made with `marfa server install`: run the same command again, which prints a new link until the instance has an owner.
-- **A container or Railway:** restart the server, and read the new line in its log.
-- **On the server's machine:** replace the code through the private socket, or claim without one:
+An unclaimed instance writes a new code to its log at each start, and **only the newest works:** an older one gets `That setup code isn't right, or Marfa has replaced it since.` For an install, run `marfa server install` again for a new link. On Railway or in a container, restart the server and read the new `Claim this Marfa at …` line. On the server's computer, claim through the private socket:
 
 ```bash
-marfa --socket /Users/you/marfa-server/data/control/marfa.sock setup code
-marfa --socket /Users/you/marfa-server/data/control/marfa.sock setup claim --username sam
+marfa --socket ~/marfa-server/data/control/marfa.sock setup claim --username sam
 ```
-
-`setup claim` through the socket asks for the password with no echo. From another machine, `marfa setup claim` asks for the code too.
 
 ## 409 owner_exists
 
-The instance already has an owner, and an instance is claimed only once. A second browser tab that sends the setup form shows **This Marfa already has an owner**, and its **Sign in** link signs you in instead.
-
-If you're the owner and have lost the password, [recover the owner's password](/run/sign-in-as-the-owner#recover-the-owners-password) from the server's machine.
+The instance already has an owner: it's claimed once, and a second tab shows **This Marfa already has an owner.** Its **Sign in** link signs you in. If you've lost the password, [recover it](/run/sign-in-as-the-owner#recover-the-owners-password) from the server's computer.

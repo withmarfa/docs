@@ -19,14 +19,14 @@ describe('searchDocs', () => {
 
     const urls = hits.map((h) => h.url);
     expect(new Set(urls).size).toBe(urls.length);
-    expect(urls.filter((u) => u === '/run/housekeeping')).toHaveLength(1);
+    expect(urls.filter((u) => u === '/run/check-health')).toHaveLength(1);
     for (const hit of hits) {
       expect(hit.url).not.toContain('#');
       expect(hit.snippets.length).toBeLessThanOrEqual(MAX_SNIPPETS_PER_PAGE);
     }
 
-    const page = hits.find((h) => h.url === '/run/housekeeping')!;
-    expect(page.title).toBe('Check on an instance and empty its bin');
+    const page = hits.find((h) => h.url === '/run/check-health')!;
+    expect(page.title).toBe("Check an instance's health");
     expect(page.snippets.length).toBeGreaterThan(0);
   });
 
@@ -86,12 +86,12 @@ describe('pathToSlugs', () => {
 
 describe('fetchDocsPage', () => {
   it('returns the Markdown of a page, whichever way the path is written', async () => {
-    const page = await fetchDocsPage('/run/housekeeping');
+    const page = await fetchDocsPage('/run/check-health');
     expect(page).not.toBeNull();
-    expect(page).toMatch(/^# Check on an instance and empty its bin \(\/run\/housekeeping\)\n/);
+    expect(page).toMatch(/^# Check an instance's health \(\/run\/check-health\)\n/);
     expect(page).toContain('housekeeping jobs');
 
-    for (const form of ['run/housekeeping', '/run/housekeeping.md', '/run/housekeeping/']) {
+    for (const form of ['run/check-health', '/run/check-health.md', '/run/check-health/']) {
       expect(await fetchDocsPage(form), form).toBe(page);
     }
   });
@@ -186,12 +186,12 @@ describe('listTopics', () => {
   it('lists every page with its title, url, description and breadcrumbs', () => {
     const { pages } = listTopics();
     expect(pages.length).toBeGreaterThan(0);
-    const housekeeping = pages.find((p) => p.url === '/run/housekeeping');
+    const housekeeping = pages.find((p) => p.url === '/run/check-health');
     expect(housekeeping).toEqual({
-      title: 'Check on an instance and empty its bin',
-      url: '/run/housekeeping',
+      title: "Check an instance's health",
+      url: '/run/check-health',
       description: expect.any(String),
-      breadcrumbs: ['run', 'housekeeping'],
+      breadcrumbs: ['run', 'check-health'],
     });
   });
 });

@@ -1,29 +1,32 @@
 ---
 title: Build a Raycast extension
-description: Write a small Raycast extension that saves a file from your Mac to your instance, with a key of its own that can write files and nothing else.
+sidebar_label: Build a Raycast extension
+description: Write a small Raycast extension that saves a file from your computer to your instance, with a key of its own that can write files and nothing else.
+job: A builder writes a Raycast extension that saves a file to their instance with a key that can write files and nothing else.
+kind: tutorial
 ---
 
-- **You'll build** a Raycast extension with one command, **Save File**. It shows a form where you pick a file, uploads its bytes to your instance and saves it as a file item.
-- **You need** your own Marfa instance, with the CLI signed in to it, as the [Quickstart](/quickstart) leaves you, plus [Raycast](https://www.raycast.com) and [Node.js](https://nodejs.org) 22.14 or later on a Mac.
-- **You'll have** a command that saves any file on your Mac to Marfa. [Build forms from types in a Raycast extension](/build/raycast-type-forms) adds a second command to it.
+An extension is a client of your instance, like any app you write. It sends requests with a **key**, and the key decides what it may do.
 
-An extension is a client of your instance, like any app you write. It sends requests with a key, and the key decides what it may do. Here the key can write files and nothing else.
+- **You'll build** a Raycast extension with one command, **Save File**. It shows a form where you pick a file, uploads the file and saves it as an item.
+- **You need** your own Marfa instance with the CLI signed in, as the [Quickstart](/quickstart) leaves you, plus [Raycast](https://www.raycast.com) signed in to your Raycast account, which its **Create Extension** command requires, and [Node.js](https://nodejs.org) 22.14 or later.
+- **You'll have** a command that saves any file to Marfa, on a key that can write files and nothing else.
 
 <Steps paged>
 <Step>
 
 ### Make a key for the extension
 
-A key is the credential a program sends with each request. Give the extension a key of its own, so that it reaches only what it needs. In a terminal, make a key that reads and writes files:
+Make a key that writes files:
 
 <Terminal>
 
 ```bash
-marfa keys create --label "Raycast" --source raycast \
-  --type-permission core.file=write
+marfa keys create --label "Raycast" --source raycast --type-permission core.file=write
 ```
 
 ```text
+marfa: writing to http://localhost:8600
 marfa_k1_…
 key 01a1f180-8448-7483-bc7b-658365a3a12f (Raycast); the plaintext is shown once, keep it now
   core.file  Read and edit
@@ -31,65 +34,45 @@ key 01a1f180-8448-7483-bc7b-658365a3a12f (Raycast); the plaintext is shown once,
 
 </Terminal>
 
-<Callout type="warn" title="Copy the key now">Marfa shows it once. If you lose it, make a new one.</Callout>
+**Copy the line that starts `marfa_k1_` now:** Marfa shows the key once and keeps only a hash of it. If you lose it, make a new one.
 
-The `--type-permission` flag names the one type the key may write, `core.file`. **That's also what lets it upload bytes**: Marfa takes an upload from a key that may write at least one type. The **source** is the label Marfa puts on every item the key creates, so you can always tell what the extension saved. [Manage keys](/use/manage-keys) explains each flag, and [Access](/build/access) explains what a key can hold.
+`--type-permission` names the one type the key may write, `core.file`, which holds ordinary files. **That also lets it upload bytes:** Marfa takes an upload from a key that may write at least one type. The **source** labels every item the key creates, so you can always tell what the extension saved. [Manage keys](/use/manage-keys) explains each flag, and [Access](/build/access) what a key can hold.
 
 </Step>
 <Step>
 
-### Create the extension and add the client
+### Create the extension
 
-Open Raycast and run the **Create Extension** command. Name the extension "Marfa Capture", choose a template and a folder. Then, in the new folder, add the Marfa client and Raycast's utilities:
+Open Raycast and run **Create Extension**. Name it "Marfa Capture", and choose a template and a folder. In the new folder, add the Marfa client:
 
 ```bash
-npm install @withmarfa/client @raycast/utils
+npm install @withmarfa/client
 ```
 
-The [TypeScript SDK](/reference/typescript-sdk) is a typed client for every operation. It knows each path, parameter and answer, so a mistake in a request fails the type check.
+The [TypeScript SDK](/reference/typescript-sdk) is a typed client for every operation, so a mistake in a request fails the type check. In `tsconfig.json`, set `"module": "esnext"` and `"moduleResolution": "bundler"`, so TypeScript finds the client's types.
 
-The extension needs to know where your instance is and which key to use. In `package.json`, replace the template's `commands` with one command, and add two **preferences**:
+In `package.json`, replace the template's `commands` with one command, and add two **preferences**, the settings Raycast asks you for. The file's other keys stay as they are:
 
 ```json title="package.json"
 {
-  "platforms": ["macOS"],
   "commands": [
-    {
-      "name": "save-file",
-      "title": "Save File",
-      "description": "Save a file to Marfa",
-      "mode": "view"
-    }
+    { "name": "save-file", "title": "Save File", "description": "Save a file to Marfa", "mode": "view" }
   ],
   "preferences": [
-    {
-      "name": "apiUrl",
-      "title": "Server URL",
-      "description": "Where your Marfa instance answers, such as http://localhost:8600",
-      "type": "textfield",
-      "required": true
-    },
-    {
-      "name": "apiKey",
-      "title": "API Key",
-      "description": "A key made for this extension",
-      "type": "password",
-      "required": true
-    }
+    { "name": "apiUrl", "title": "Server URL", "description": "Where your instance answers, such as http://localhost:8600", "type": "textfield", "required": true },
+    { "name": "apiKey", "title": "API Key", "description": "A key made for this extension", "type": "password", "required": true }
   ]
 }
 ```
 
-Raycast runs a command from the file in `src` that its `name` gives, so this one runs `src/save-file.tsx`. Delete the template's own command file. Leave the rest of the template's `package.json` and `tsconfig.json` as they are.
-
-Raycast asks for a required preference before the command first runs, and a `password` preference is for secure entry.
+Raycast runs `src/save-file.tsx` for this command, so delete the template's own command file. It asks for a required preference before the command first runs, and a `password` preference is for secure entry.
 
 </Step>
 <Step>
 
 ### Keep every call in one module
 
-Put each request to Marfa in one file. The rest of the extension then asks for a saved file, and never sees a URL or a key:
+Put each request in one file, so the rest of the extension never sees a URL or a key. Create `src/marfa.ts` with the client and an error that keeps what the server said:
 
 ```ts title="src/marfa.ts"
 import { getPreferenceValues } from "@raycast/api";
@@ -97,10 +80,8 @@ import { createClient } from "@withmarfa/client";
 import { readFile } from "node:fs/promises";
 import { basename, extname } from "node:path";
 
-/** What the server said when it refused a request. */
 export class MarfaError extends Error {
   constructor(
-    readonly status: number,
     readonly code: string,
     message: string,
   ) {
@@ -113,56 +94,52 @@ function client() {
   return createClient({ baseUrl: apiUrl.trim(), credential: apiKey.trim() });
 }
 
-type Refusal = { error: { code: string; message: string } };
-
-function refused(response: Response, refusal: Refusal) {
-  return new MarfaError(response.status, refusal.error.code, refusal.error.message);
+function refused(refusal: { error: { code: string; message: string } }) {
+  return new MarfaError(refusal.error.code, refusal.error.message);
 }
+```
 
-// The media type each kind of file is stored under. Anything else is
-// stored as plain bytes.
+Raycast writes the `Preferences` type from `package.json` into `raycast-env.d.ts` when the extension runs in step 5, so an editor flags `Preferences` until then. Marfa stores bytes under the media type the upload names, so add the types the extension knows. Anything else is stored as plain bytes:
+
+```ts title="src/marfa.ts"
 const mediaTypes: Record<string, string> = {
   ".pdf": "application/pdf",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".txt": "text/plain",
-  ".md": "text/markdown",
   ".csv": "text/csv",
 };
+```
 
+Saving a file takes two requests: [upload the bytes](/reference/api/blobs/uploadBlob), then [create an item](/reference/api/items/createItem) that names them:
+
+```ts title="src/marfa.ts"
 export async function saveFile(path: string, title: string, notes: string) {
   const marfa = client();
   const upload = await marfa.POST("/blobs", {
     body: await readFile(path),
     headers: { "Content-Type": mediaTypes[extname(path).toLowerCase()] ?? "application/octet-stream" },
   });
-  if (upload.error) throw refused(upload.response, upload.error);
+  if (upload.error) throw refused(upload.error);
   const { hash, mime_type } = upload.data;
 
   const properties: Record<string, unknown> = { blob_ref: hash, mime_type, title: title || basename(path) };
   if (notes) properties.notes = notes;
-  const { data, error, response } = await marfa.POST("/items", {
-    body: { type: "core.file", properties },
-  });
-  if (error) throw refused(response, error);
+  const { data, error } = await marfa.POST("/items", { body: { type: "core.file", properties } });
+  if (error) throw refused(error);
   return data.item;
 }
 ```
 
-Saving a file takes two requests:
-
-1. [Upload a blob](/reference/api/blobs/uploadBlob) sends the bytes as they are, with their media type as the `Content-Type`. Marfa answers the bytes' `hash` and the `mime_type` it stores them under. That's the type the bytes were first uploaded with, so the item takes it from the answer.
-2. [Create an item](/reference/api/items/createItem) saves a `core.file` that names the bytes. A file item requires `blob_ref`, the hash, and `mime_type`. The title falls back to the file's name.
-
-Each call returns `data` when it works and `error` when Marfa refuses it. A refusal carries a stable `code` and a `message` for people, so `MarfaError` keeps both. Raycast generates the `Preferences` type from your `package.json`, in `raycast-env.d.ts`, so don't write it yourself. [Files](/build/files) explains how a blob and the item that names it fit together.
+The upload answers the bytes' `hash` and the `mime_type` Marfa stores them under, which is the type of the first upload of the same bytes. A file item requires both. Each call returns `data` when it works and `error` when Marfa refuses, with a stable `code`. [Files](/build/files) explains how a blob and its item fit together.
 
 </Step>
 <Step>
 
-### Build the form and save the file
+### Build the form
 
-Create `src/save-file.tsx` with a form that picks one file and takes a title and notes:
+Create `src/save-file.tsx`. It saves the chosen file and shows the outcome in a toast, Raycast's short message:
 
 ```tsx title="src/save-file.tsx"
 import { Action, ActionPanel, Form, popToRoot, showToast, Toast } from "@raycast/api";
@@ -170,32 +147,31 @@ import { MarfaError, saveFile } from "./marfa";
 
 type Values = { files: string[]; title: string; notes: string };
 
-export default function SaveFile() {
-  async function save(values: Values) {
-    const [path] = values.files;
-    if (!path) {
-      await showToast({ style: Toast.Style.Failure, title: "Choose a file first" });
-      return;
-    }
-    const toast = await showToast({ style: Toast.Style.Animated, title: "Uploading" });
-    try {
-      const item = await saveFile(path, values.title.trim(), values.notes.trim());
-      toast.style = Toast.Style.Success;
-      toast.title = "Saved";
-      toast.message = item.id;
-      await popToRoot();
-    } catch (error) {
-      toast.style = Toast.Style.Failure;
-      if (error instanceof MarfaError) {
-        toast.title = `Refused: ${error.code}`;
-        toast.message = error.message;
-      } else {
-        toast.title = "Could not reach Marfa";
-        toast.message = String(error);
-      }
-    }
+async function save(values: Values) {
+  const [path] = values.files;
+  if (!path) {
+    await showToast({ style: Toast.Style.Failure, title: "Choose a file first" });
+    return;
   }
+  const toast = await showToast({ style: Toast.Style.Animated, title: "Uploading" });
+  try {
+    const item = await saveFile(path, values.title.trim(), values.notes.trim());
+    toast.style = Toast.Style.Success;
+    toast.title = "Saved";
+    toast.message = item.id;
+    await popToRoot();
+  } catch (error) {
+    toast.style = Toast.Style.Failure;
+    toast.title = error instanceof MarfaError ? `Refused: ${error.code}` : "Could not save the file";
+    toast.message = error instanceof Error ? error.message : String(error);
+  }
+}
+```
 
+Add the form that calls it:
+
+```tsx title="src/save-file.tsx"
+export default function SaveFile() {
   return (
     <Form
       actions={
@@ -212,25 +188,28 @@ export default function SaveFile() {
 }
 ```
 
-Each control's `id` names the value it fills. A file picker's value is a list of paths, even when it takes one file. The toast says **Uploading** while the bytes travel, then shows the new item's ID, or the server's `code` and `message` when Marfa refuses it. The file arrives with the `source` of the key, `raycast`. [File](/catalog/file) lists every field the type holds.
+Each control's `id` names the value it fills. A file picker's value is a list of paths, even for one file. The item takes the key's `source`, `raycast`. [File](/catalog/file) lists every field the type holds.
 
 </Step>
 <Step>
 
 ### Run the extension
 
-In the extension's folder, check the types, then start the extension:
+In the extension's folder, start development mode:
 
 ```bash
-npx tsc --noEmit
 npm run dev
 ```
 
-`tsc` reports a type error with its file and line, and prints nothing when there's none. `npm run dev` starts the extension in development mode and adds it to the top of Raycast's root search.
+It adds the extension to the top of Raycast's root search, and it writes `raycast-env.d.ts`. In a second terminal in the same folder, check the types:
 
-Open Raycast and search for **Save File**. The first time, Raycast asks for the preferences. Enter your instance's address, such as `http://localhost:8600`, and paste the key from step 1. Choose a file, and run **Save to Marfa** from the form's actions. A **Saved** toast shows the new file's ID.
+```bash
+npx tsc --noEmit
+```
 
-Check the file in the terminal, where the CLI is signed in to your instance:
+`tsc` prints nothing when the types are right.
+
+Search for **Save File**. Raycast asks for the preferences first: enter your instance's address, such as `http://localhost:8600`, and paste the key from step 1. Choose a file and run **Save to Marfa**. A **Saved** toast shows the new item's ID. Check it from the CLI:
 
 <Terminal>
 
@@ -245,13 +224,10 @@ id                                    type       when                      title
 
 </Terminal>
 
-`marfa items get` with that ID shows the `blob_ref`, the `mime_type` and the `size_bytes` Marfa set once it held the bytes.
-
-You now have a Raycast command that saves files to your own instance, with a key that can do little else. Stop `npm run dev` in the terminal when you're done. The extension stays in Raycast.
+`marfa items get` with that ID shows the `blob_ref`, `mime_type` and `size_bytes`. Stop `npm run dev` with Control-C when you're done: the extension stays in Raycast.
 
 <Cards>
-  <Card title="Build forms from types in a Raycast extension" href="/build/raycast-type-forms">Add a command that saves an item of any type, with a form built from the type.</Card>
-  <Card title="Upload files" href="/build/files-upload-download">Download the bytes, hand out a link and replace a file's bytes.</Card>
+  <Card title="Upload and download files" href="/build/files-upload-download">Download the bytes, hand out a link and replace a file's bytes.</Card>
   <Card title="Manage keys" href="/use/manage-keys">Narrow, expire, rotate and revoke the extension's key.</Card>
   <Card title="TypeScript SDK" href="/reference/typescript-sdk">Call every operation from TypeScript, and walk a list a page at a time.</Card>
 </Cards>
