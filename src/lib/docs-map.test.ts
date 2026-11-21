@@ -47,7 +47,7 @@ describe('buildDocsMap', () => {
     expect(use.some((line) => line.startsWith('- [Sync a folder](/use/sync-a-folder)'))).toBe(true);
 
     const run = lines.slice(lines.indexOf('## Run'), lines.indexOf('## Build'));
-    expect(run.filter((line) => line.startsWith('### '))).toEqual(['### Set up', '### Keys and apps', '### Look after it']);
+    expect(run.filter((line) => line.startsWith('### '))).toEqual(['### Set up', '### Look after it']);
     expect(run.some((line) => line.startsWith('- [Troubleshooting](/run/troubleshooting)'))).toBe(true);
 
     const build = lines.slice(lines.indexOf('## Build'), lines.indexOf('## Catalog'));

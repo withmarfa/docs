@@ -5,6 +5,7 @@ import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { docsRoute } from './shared';
 import { openapi } from './openapi';
 import { sidebarLabelPlugin } from './sidebar-label';
+import { unlinkMissingPages } from './changelog';
 
 export const source = loader(
   {
@@ -61,8 +62,11 @@ export function slugsToMarkdownPath(slugs: string[]) {
 
 export async function getLLMText(page: (typeof source)['$inferPage']) {
   // OpenAPI pages are virtual and carry no source markdown.
-  const body =
+  const text =
     'getText' in page.data ? await page.data.getText('processed') : (page.data.description ?? '');
+  // Old release notes link removed pages; the page draws those as text, so the copy does too.
+  const body =
+    page.url === '/changelog' ? unlinkMissingPages(text, new Set(source.getPages().map((p) => p.url))) : text;
 
   // The page's lead and, on a Catalog type page, its identifier, which the
   // header shows from frontmatter rather than the body.

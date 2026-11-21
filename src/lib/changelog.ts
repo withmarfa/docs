@@ -246,6 +246,39 @@ export function changelogMarkdown(releases: Release[]): string {
     .join('\n\n');
 }
 
+// A code span is matched as a whole, so a link written inside one stays as written,
+// while a link whose text holds one is still matched as a link.
+const DOCS_LINK_OR_CODE = /\[((?:`[^`]*`|[^\]`])*)\]\(https:\/\/docs\.marfa\.so(\/[^\s)]*)\)|`[^`]*`/g;
+
+/**
+ * Older notes link pages the site has since removed. The page shows such a
+ * link as its text, so the Markdown copy does the same: a Markdown link to a
+ * docs address that is not in `pages` becomes its text. Code spans and fenced
+ * code stay as written.
+ */
+export function unlinkMissingPages(markdown: string, pages: ReadonlySet<string>): string {
+  let fence: string | null = null;
+  return markdown
+    .split('\n')
+    .map((line) => {
+      const marker = FENCE.exec(line)?.[1][0] ?? null;
+      if (fence === null && marker) {
+        fence = marker;
+        return line;
+      }
+      if (fence !== null) {
+        if (marker === fence) fence = null;
+        return line;
+      }
+      return line.replace(DOCS_LINK_OR_CODE, (match, text: string | undefined, path: string | undefined) => {
+        if (path === undefined) return match;
+        const page = path.replace(/[#?].*$/, '').replace(/(.)\/$/, '$1');
+        return pages.has(page) ? match : (text as string);
+      });
+    })
+    .join('\n');
+}
+
 // ── Search ──────────────────────────────────────────────────────────────
 
 /** A passage of the page's text for the search index: the words of one block, or of one item with the part it belongs to. */
