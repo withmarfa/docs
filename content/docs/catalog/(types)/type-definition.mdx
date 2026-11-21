@@ -8,11 +8,11 @@ job: A builder looks up every key a type definition takes and the rule each must
 
 ## Keys
 
-A definition takes these keys and no others.
+A registration takes these keys and no others. A replacement takes its `id` from the path, and its body may carry the `provenance` a read gave.
 
 | Key | Rule |
 | --- | --- |
-| `id` | Required. See [Identifier](#identifier). One already registered is refused `409 type_exists`. |
+| `id` | Required to register. See [Identifier](#identifier). An otherwise valid, permitted registration of one already registered is refused `409 type_exists`. |
 | `fields` | Required, an object of field definitions. Refused `400 missing_required_field` when missing. |
 | `required` | A list of field names the type or an ancestor declares, the same as `required: true` on each. |
 | `version` | A whole number of 0 or more that Marfa never changes. Defaults to 0. |
@@ -57,7 +57,7 @@ A parent change that breaks a subtype is refused the same way. [Upgrade](/run/up
 
 ### Compatible with
 
-`compatible_with` names a type, or a list of types, that yours is readable as without inheriting from it. Marfa refuses a claim that doesn't hold, or names an unregistered type, `422 compatible_with_violation`. It holds when yours requires every field the target requires, and each target field that yours declares has the same kind, `items_type`, `items_fields`, `format` and values, within a range no wider than the target's. A target `string` also accepts `url`, `email`, `datetime`, `date`, `thumbnail`, `enum` or `status`, and a `number` accepts `integer`. A replacement or deletion that breaks another type's claim is refused the same way.
+`compatible_with` names a type, or a list of types, that yours is readable as without inheriting from it. Marfa refuses a claim that doesn't hold, or names an unregistered type, `422 compatible_with_violation`. It holds when yours requires every field the target requires and reads each target field that yours declares as the target's: the same kind, or a `string` target with `url`, `email`, `datetime`, `date`, `thumbnail`, `enum` or `status`, or a `number` target with `integer`, and a range no wider than the target's. [`types/compatible-with`](https://github.com/withmarfa/marfa/blob/v0.0.89/conformance/spec/types.md#typescompatible-with) has the rest, including `format`, status groups and currency. A target you didn't already name needs write on it, or `403 type_not_permitted` ([`types/compatible-with-reach`](https://github.com/withmarfa/marfa/blob/v0.0.89/conformance/spec/types.md#typescompatible-with-reach)). A replacement or deletion that breaks another type's claim is refused the same way.
 
 ## Display hints
 
@@ -71,19 +71,12 @@ A parent change that breaks a subtype is refused the same way. [Upgrade](/run/up
 | `icon` | An [Iconify](https://iconify.design/) icon ID, `<set>:<name>`, from `lucide` or, for brand marks, `simple-icons`, such as `lucide:star`. | A bare name, another set, a name the set's pinned version lacks, an alias, a hidden icon, or a wrong-case or padded ID. |
 
 - **Each hint comes from the nearest type that sets it.** `GET /types/{id}` answers each after inheritance, and `GET /types` only those a type sets itself.
-- **The accepted icons** are in [`icon-set-lucide.json`](https://github.com/withmarfa/marfa/blob/main/packages/types/generated/icon-set-lucide.json) and [`icon-set-simple-icons.json`](https://github.com/withmarfa/marfa/blob/main/packages/types/generated/icon-set-simple-icons.json).
-- **An item is named** by the first of `title_field`, `title`, `name`, `body_field`, `body`, `text`, `filename`, `url` and `address` that holds text, never a body field where `name_from_body` is `false`, as its first line of at most 120 characters.
+- **The accepted icons** are in [`icon-set-lucide.json`](https://github.com/withmarfa/marfa/blob/v0.0.89/packages/types/generated/icon-set-lucide.json) and [`icon-set-simple-icons.json`](https://github.com/withmarfa/marfa/blob/v0.0.89/packages/types/generated/icon-set-simple-icons.json).
+- **An item is named** by the first of `title_field`, `title`, `name`, `body_field`, `body`, `text`, `filename`, `url` and `address` that holds text, never a body field where `name_from_body` is `false`, as its first line of at most 120 characters. An item with no title or `name` that is a part or an `excerpt-of` another is named `<edge label> <host name>` first, as "Excerpt from Thinking, Fast and Slow", and an item nothing names is `Untitled` ([`types/item-name-part`](https://github.com/withmarfa/marfa/blob/v0.0.89/conformance/spec/types.md#typesitem-name-part), [`types/item-name-empty`](https://github.com/withmarfa/marfa/blob/v0.0.89/conformance/spec/types.md#typesitem-name-empty)).
 
 ### The owner's icon
 
-The owner can choose the icon of any type, a shipped or connector type included. It replaces the author's icon in reads, survives a replacement and goes when the type is deleted.
-
-```bash
-marfa types set-icon user.recipe lucide:chef-hat
-marfa types clear-icon user.recipe
-```
-
-[Set a type's icon](/reference/api/types/setTypeIcon) and [clear a type's icon](/reference/api/types/clearTypeIcon) need a local process, or a key with `schema.write` and write on the type. An icon the sets lack is refused `400 invalid_schema`.
+The owner can choose the icon of any type, a shipped or connector type included, with `marfa types set-icon user.recipe lucide:chef-hat` and `marfa types clear-icon user.recipe`. It replaces the author's icon in reads, survives a replacement and goes when the type is deleted. [Set a type's icon](/reference/api/types/setTypeIcon) and [clear a type's icon](/reference/api/types/clearTypeIcon) need a local process, or a key with `schema.write` and write on the type. An icon the sets lack is refused `400 invalid_schema`.
 
 ## Roles
 
@@ -101,7 +94,7 @@ marfa types clear-icon user.recipe
 
 ## Merge policy
 
-`merge_policy` maps a field to a strategy, and `default` covers the rest. Left out, `default` is `last_writer_wins`.
+`merge_policy` maps a field to a strategy, and `default` covers the rest. Left out, `default` is the parent's, and `last_writer_wins` where no type above names one. The strategies settle a collision when a write asks for `conflict=auto` ([`versions/auto-keep-both`](https://github.com/withmarfa/marfa/blob/v0.0.89/conformance/spec/versions.md#versionsauto-keep-both)).
 
 | Strategy | When a later write collides with another on the field |
 | --- | --- |
@@ -110,7 +103,7 @@ marfa types clear-icon user.recipe
 
 ## Version policy
 
-`version_policy` sets how long Marfa keeps an item's earlier versions. The `version-thinning` [housekeeping job](/run/check-health) removes the rest, except from an item with two snapshots or fewer ([`housekeeping/thinning-minimum`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/housekeeping.md#housekeepingthinning-minimum)).
+`version_policy` sets how long Marfa keeps an item's earlier versions. The `version-thinning` [housekeeping job](/run/check-health) removes the rest, except from an item with two snapshots or fewer ([`housekeeping/thinning-minimum`](https://github.com/withmarfa/marfa/blob/v0.0.89/conformance/spec/housekeeping.md#housekeepingthinning-minimum)). The daily and weekly windows keep the latest snapshot of each UTC day or ISO week ([`housekeeping/thinning-daily`](https://github.com/withmarfa/marfa/blob/v0.0.89/conformance/spec/housekeeping.md#housekeepingthinning-daily)).
 
 | Key | Marfa keeps |
 | --- | --- |
@@ -119,7 +112,7 @@ marfa types clear-icon user.recipe
 | `weekly_snapshot_days` | One a week, back this many days. 0 removes none for its age. |
 | `max_versions` | At most this many, dropping the oldest first. |
 
-A window is a whole number from 0 to 36500 and `max_versions` one from 1 to 1,000,000. A window that ends sooner than the one above it is refused `400 invalid_schema`. **Marfa always keeps the newest version.** A key left out comes from the parent type, then the instance's defaults.
+A window is a whole number from 0 to 36500 and `max_versions` one from 1 to 1,000,000. A window that ends sooner than the one above it, among those the definition declares, is refused `400 invalid_schema`. **Marfa always keeps the newest version.** A key left out comes from the parent type, then the instance's defaults.
 
 ## Retention policy
 
@@ -127,7 +120,7 @@ A window is a whole number from 0 to 36500 and `max_versions` one from 1 to 1,00
 
 | `feed_days` | Effect |
 | --- | --- |
-| 1 to 36500 | The `feed-expiry` [housekeeping job](/run/check-health) moves the type's feed items to the bin once more than that many days have passed since their `created_at`. |
+| 1 to 36500 | The `feed-expiry` [housekeeping job](/run/check-health) moves the type's active feed items to the bin once more than that many days have passed since their `created_at`. An archived item, and one restored from the bin, stays ([`housekeeping/feed-expiry-archived`](https://github.com/withmarfa/marfa/blob/v0.0.89/conformance/spec/housekeeping.md#housekeepingfeed-expiry-archived)). |
 | `null` | The type keeps its feed items, whatever a parent sets. |
 | Left out | The type takes its parent's window. |
 
