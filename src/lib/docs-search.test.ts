@@ -111,7 +111,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
 const FIRST: [query: string, pages: string[]][] = [
   ['backup', ['/run/back-up-and-restore']],
   ['back up', ['/run/back-up-and-restore']],
-  // A hyphen or a small number is not a code, so the guide still comes first; `/reference/swift-sdk/server-calls` has a heading "Sign in" and the
+  // A hyphen or a small number is not a code, so the guide still comes first; `/reference/swift-sdk` has a heading "Sign in" and the
   // `restoreBackup` operation answers "restore from backup", but a reader asking for a task wants the guide.
   ['back-up', ['/run/back-up-and-restore']],
   ['restore from backup', ['/run/back-up-and-restore']],

@@ -1,184 +1,162 @@
 ---
-title: Items, edges and tables
-description: Read, search and write the items, edges, tags, extensions and table rows a working copy holds.
+title: Items, files and views in the Swift SDK
+sidebar_label: Items, files and views
+headTitle: Swift SDK items, files and views
+description: Read and write the items, edges, tags, table rows, files, saved views and folders that a working copy holds.
+job: A Swift builder looks up the calls that read and write items, edges, tags, rows, files, views and folder settings.
 ---
 
-A working copy answers reads from its store with no request, and **queues every write**, which shows in the copy at once and reaches the server on the next [drain](/reference/swift-sdk/queue). Each write returns its `QueuedWrite`. The parts are `copy.items`, `copy.edges`, `copy.tags`, `copy.metadata`, `copy.extensions` and `copy.tables`. [Write in a working copy](/build/write-in-a-working-copy) explains the model.
+A working copy answers reads from its store with no request and **queues every write,** which shows at once and reaches the server at the next [drain](/reference/swift-sdk/working-copy#the-queue). Each write returns its `QueuedWrite`. A view or folder write is the exception: it goes to the server at once. [Write in a working copy](/build/write-in-a-working-copy) explains the model. The [`Folders`](#folders) class, which works a Mac's directories, is on this page too.
 
 ## Read items
 
 | Call | Answers |
 | --- | --- |
-| `items.list(_ ListFilters, sort:)` | `Rows<Item>`, the held items the filters select. |
+| `items.list(_ ListFilters, sort:)` | `Rows<Item>` the filters select. |
 | `items.get(_ id)` | `Item?`: `nil` for an item in the bin or not held. **Throws `hydrationIncomplete`** while a hydration fills the copy. |
-| `items.get(_ ids, includingBin:)` | `Rows<Item>`, each held item once, in the order named, from one snapshot. It answers `.partial` during a hydration instead of throwing. |
-| `copy.search(_ text, filters:limit:)` | `Rows<SearchHit>`, each with `item`, `score` and `snippet`. `limit` defaults to 20. |
-| `items.links(in:)` | `BodyLinks`: each link and embed in the body, and what it names. Takes one ID or a list. |
-| `items.displays(of:)`, `items.displays(for:)` | An `ItemDisplay` for each item: `name`, `nil` where the server says "Untitled", and `preview`, at most 240 characters. |
-| `items.linkCandidates(of:in:)` | For each `[[link]]` target being typed, its `LinkState` and the held items it could name. |
-| `linkParts(in:)` | A free function: every `[[link]]` in a text, with the range of each part in UTF-16 units. |
-| `items.thumbnail(_:)` | The held row's `Thumbnail`, with no request. |
-| `items.original(ofConflictedCopy:)`, `items.conflictedCopies(of:)` | The two ends of a conflicted copy's `derived-from` edge. |
+| `items.get(_ ids, includingBin:)` | `Rows<Item>` in the order named, from one snapshot, `.partial` during a hydration. |
+| `copy.search(_ text, filters:limit:)` | `Rows<SearchHit>` with `item`, `score` and `snippet`. `limit` defaults to 20. |
+| `items.links(in:)`, `items.linkCandidates(of:in:)`, `linkParts(in:)` | Each link and embed in a body and what it names, the held items a `[[link]]` being typed could name, and a text's links with their UTF-16 ranges. |
+| `items.displays(of:)`, `items.displays(for:)` | An `ItemDisplay` each: `name`, `nil` where the server says "Untitled", and a `preview` of at most 240 characters. |
+| `items.thumbnail(_:)` | The held row's `Thumbnail`. |
+| `items.conflictedCopies(of:)`, `items.original(ofConflictedCopy:)` | The two ends of a `derived-from` edge. |
 | `copy.counts(of:_ Counted)` | An `ItemCount` for each ID. |
 
-An `Item` has the fields the API gives it, with `title` and `body` read from the type's fields. Two are the copy's own:
-
-- **`readOnly`** is the server's advice that the item can't be edited, such as an item a connector owns. **Neither the server nor the copy refuses a write for it.** The copy asks again at the end of a catch-up and when a held stream reaches the head, at most once every 15 minutes, so the value can be older. An item the server hasn't answered yet holds `false`.
-- **`unreadableProperties`** says why `properties` is empty where the store holds a row the copy can't read. A hydration replaces it.
-
-### Filters
+An `Item` has the API's fields, with `title` and `body` read from the type's fields, plus **`readOnly`** (advice, as [Working copy](/reference/swift-sdk/working-copy#declare-pin-catch-up) says) and `unreadableProperties`, which says why `properties` is empty where the copy can't read a row.
 
 `ListFilters` and `SearchFilters` share `types`, `states`, `allStates`, `tier`, `tags`, `occurredAfter`, `occurredBefore`, `filter` and `beneath`. A list adds `source`, `updatedAfter`, `updatedBefore`, `limit` and `offset`.
 
 | Filter | Rule |
 | --- | --- |
-| `types` | **Up to ten**, each with its subtree. Empty, more than ten, or a type the copy doesn't hold is refused. |
-| `states` | `nil` is active only. `[.trashed]` lists the bin from the copy, newest first. Empty, or beside `allStates`, is refused `validationError`. |
-| `filter` | The server's listing grammar, refused where the server refuses it. **A `backref` term is refused `invalid`.** |
-| `beneath` | An item and everything it reaches along `parent-of`, as far as the copy holds. |
-| `updatedAfter` | Orders by update time, oldest first. A `sort` naming another order is refused. |
+| `types` | **Up to ten,** each with its subtree, all held. |
+| `states` | `nil` is active only. `[.trashed]` lists the bin, newest first. Empty, or beside `allStates`, is refused. |
+| `filter` | The server's [listing grammar](/build/list-filter-search). **A `backref` term is refused `invalid`.** |
+| `beneath` | An item and what it reaches along `parent-of`, as far as the copy holds. |
+| `updatedAfter` | Orders by update time. A `sort` naming another order is refused. |
 
-`Sort(field:direction:)` takes `.createdAt`, `.updatedAt`, `.occurredAt` or `.property(name:)`. The default is `createdAt` descending. Ties go by ID. [List, filter and search](/build/list-filter-search) has the grammar.
-
-### Counts
-
-`Counted` is `.edge(edgeType:)` for items linking in, such as a collection's members, `.backref(edgeType:)` for items linked out to, such as `parent-of` children, or `.rows(table:)`.
-
-- Each `ItemCount` has `total`, `statusGroups` (`nil` for rows) and `held`, which says the copy answered. **Only active items count.**
-- The copy asks its server for what it can't be sure of, 100 IDs to a request.
-- Where neither can answer, it throws `CountError.unavailable(cause:)`. **Show no count, never 0.**
-- A call during `use(_:)` throws `keyChanging`.
-- `Server.itemCounts(of:_:)` asks the server directly, for an app with no copy.
-
-`copy.catalog.statusGroup(of:)` gives an item's `StatusGroup`: `.notStarted`, `.inProgress`, `.completed` or `.canceled`.
+`Sort(field:direction:)` takes `.createdAt` (the default, descending), `.updatedAt`, `.occurredAt` or `.property(name:)`. `Counted` is `.edge(edgeType:)` for items linking in, `.backref(edgeType:)` for items linked out to, or `.rows(table:)`. An `ItemCount` has `total`, `statusGroups` and `held`. **Only active items count.** Where neither the copy nor the server can answer, it throws `CountError.unavailable`: **show no count, never 0.** `Server.itemCounts(of:_:)` serves an app with no copy.
 
 ## Write items
 
-```swift
-let write = try await copy.items.create(Draft(
-    type: "core.bookmark",
-    properties: ["title": "Tide tables", "url": "https://tides.example.com/harbor"],
-    tags: ["coast"]))
+A file is the usual item to write: `addFile` queues the upload and the file item, as [Files](#files) covers. The item shows at once, and an edit names the version the copy holds.
 
-let bookmark = try await copy.items.get(write.itemId!)!
-try await copy.items.update(bookmark.id, Edit(properties: ["title": "Tide tables, harbor"], baseVersion: bookmark.version))
+```swift
+let added = try await copy.items.addFile(
+    pdfURL, Attachment(title: "Tide tables"), tags: ["coast"])
+let file = try await copy.items.get(added.item.itemId!)!
+try await copy.items.update(
+    file.id, Edit(properties: ["title": "Tide tables, 2027"], baseVersion: file.version))
 ```
+
+Call these on `copy.items`:
 
 | Call | Queues |
 | --- | --- |
-| `items.create(_ Draft)` | A create. **Each tag is a write of its own**, `addTag`. |
-| `items.update(_:_ Edit)` | An update. **Throws `invalid` unless `baseVersion` is the version the copy holds**, before anything is queued. |
-| `items.updateAsRead(_:_ Edit)` | An update based on an older version, which the server merges against what was read. Use it for an editor that held a row while the copy caught up. It takes version `0` for an item this copy created, once the server has answered the create. |
-| `items.delete(_:)` | A move to the bin. |
-| `items.restore(_:)` | A restore. An item the copy doesn't hold, such as one from the server's bin, is held once the server answers. |
-| `items.transition(_:to:)` | A change of `ItemState`: `.active`, `.archived`, `.trashed` or `.revoked`. |
+| `create(_ Draft)` | A create, then **one `addTag` write for each tag.** |
+| `update(_:_ Edit)` | An update. **Throws `invalid` unless `baseVersion` is the held version.** |
+| `updateAsRead(_:_ Edit)` | An update on an older version, merged against what was read. Takes version `0` for an item this copy created once the server answers. |
+| `delete(_:)`, `restore(_:)`, `transition(_:to:)` | A move to the bin, a restore, or a change to `.active`, `.archived`, `.trashed` or `.revoked`. |
+| `bin(type:after:limit:)` | One `BinPage` of the server's bin, read online. |
+| `purge(_:version:)` | **Destroys a binned item on the server now.** Never queued. Needs `items.purge`. |
 
-`Draft` takes `type`, `properties`, `tags`, `tier`, `state`, `id`, `source`, `sourceId`, `occurredAt`, `captureLatitude`, `captureLongitude` and `edges`.
-
-`Edit` takes `properties`, `replaceProperties`, `clearProperties`, `baseVersion`, `sourceId`, `type`, `tier`, `occurredAt` and `clearOccurredAt`:
-
-- **A `null` in `properties` clears nothing.** Name a property in `clearProperties` to remove it.
-- `type` moves the item to another type.
-- `clearOccurredAt` beside `occurredAt` is refused.
-
-**The copy checks properties against the type before it queues.** A value of the wrong kind throws `validation` with the code `invalid_properties`.
-
-### The bin
-
-| Call | Does |
-| --- | --- |
-| `items.bin(type:after:limit:)` | One `BinPage` of the server's bin, read online whatever the slice. `limit` is held to 1 through 100. A short page can still have a `nextCursor`. |
-| `items.purge(_:version:)` | **Destroys an item in the bin on the server now.** Never queued, so it needs the server. |
-
-`purge` is sent at `version`, or at the version the copy holds, so an item changed since throws `versionConflict`. Before sending, it throws:
-
-- `notFound` with `not_held`, for an item the copy doesn't hold and no `version`.
-- `validation` with `invalid_transition`, for an item the copy shows outside the bin.
-- `invalid`, for an item with a write still waiting.
-
-Offline it throws `network`, and with no server `noServer`. The key needs `items.purge`.
+`Draft` takes `type`, `properties`, `tags`, `tier`, `state`, `id`, `source`, `sourceId`, `occurredAt`, the capture coordinates and `edges`. `Edit` takes `properties`, `replaceProperties`, `clearProperties`, `baseVersion`, `sourceId`, `type`, `tier`, `occurredAt` and `clearOccurredAt`. **A `null` in `properties` clears nothing:** name the property in `clearProperties`. **The copy checks properties against the type** and throws `validation` with `invalid_properties`. `purge` throws `versionConflict` if the item changed since, `invalid` for an item with a write waiting, and `network` offline.
 
 ## Edges
 
 | Call | Does |
 | --- | --- |
-| `edges.from(_:)`, `edges.to(_:)` | The held edges at one end of an item, unsent ones included. |
-| `edges.ofType(_:)` | Every held edge of one type, oldest first. |
-| `edges.get(_:)` | One edge, or several in the order named. |
+| `edges.from(_:)`, `edges.to(_:)`, `edges.ofType(_:)`, `edges.get(_:)` | Held edges at one end of an item, of one type, or by ID. |
 | `edges.create(from:to:type:properties:id:)` | Queues an edge. |
-| `edges.check(from:to:type:properties:id:)` | Throws what `create` would throw now, and queues nothing. |
-| `edges.update(_:_ EdgeEdit)` | Changes properties, moves one end, or both. **Returns `nil` and queues nothing** for an edit that changes nothing. |
-| `edges.check(_:moving:)` | Throws what a move would throw now. A move onto the end the edge holds returns. |
+| `edges.update(_:_ EdgeEdit)` | Changes properties or moves one end with `.from(_ id)` or `.to(_ id)`. Returns `nil` for an edit that changes nothing. |
+| `edges.check(from:to:type:properties:id:)`, `edges.check(_:moving:)` | Throw what the write would now, and queue nothing. |
 | `edges.delete(_:)` | Queues a delete. |
 
-Every edge read and write **throws `hydrationIncomplete` until the copy is whole**: during a hydration, and while a stale copy refills.
+**Every edge read and write throws `hydrationIncomplete` until the copy is whole.** A move of the from end expires the copy once the server accepts it: the drain then throws `copyExpired` with `reach_changed`. A write refuses **in the server's order, with its code,** judged from what the copy holds: `edge_cycle`, `item_not_found` for an end in the bin, `edge_constraint_violation` for a type the edge type doesn't admit, and with `details.constraint` of `"duplicate"` or `"cardinality"`. **Returning isn't the server's verdict:** what the copy doesn't hold, such as a cycle outside its slice, reaches the server. [Write in a working copy](/build/write-in-a-working-copy) covers edges.
 
-An `Edge` has `fromId`, `toId`, `edgeType`, `properties` and `version`. A queued edge write names its from end in `itemId` and its to end in `toId`.
-
-`EdgeEdit(_ properties:baseVersion:move:)` moves one end with `.from(_ id)` or `.to(_ id)`. Each property given replaces its whole value.
-
-- **A move of the from end expires the copy** once the server accepts it. The drain sends the writes behind the move, then throws `copyExpired` with `reach_changed`, and the app hydrates again.
-- A move of the to end doesn't expire the copy.
-- A move to an item whose create is still queued waits for that create.
-
-### Refusals
-
-`create`, `check` and a move refuse **in the server's order, with the server's code**, judged from what the copy holds:
-
-| Refusal | Error and code |
-| --- | --- |
-| An edge from an item to itself | `validation`, `edge_cycle` |
-| An end in the bin | `notFound`, `item_not_found` |
-| An end of a type the edge type doesn't admit, then nesting under a flat type | `validation`, `edge_constraint_violation` |
-| The same type, from end and to end as an edge the copy shows | `edge_constraint_violation`, `details.constraint` is `"duplicate"` |
-| An end that already holds its one edge of the type, such as a second `parent-of` parent | `edge_constraint_violation`, `details.constraint` is `"cardinality"`, with `details.from_id` or `details.to_id` |
-| A cycle through held edges | `edge_cycle` |
-| A move where the end that stays may hold more than one edge, such as `about` | `validation_error` |
-
-```swift
-do {
-    try await copy.edges.check(from: note.id, to: note.id, type: "references")
-} catch MarfaError.validation(let code, _, let details, _) {
-    // code is "edge_cycle", details is ["edge_type": "references"]
-}
-```
-
-**Returning isn't the server's verdict.** Where the copy doesn't hold what decides a refusal, such as a cycle outside its slice, the check returns and the queued write meets the server. A type's `writtenFrom` says which end an edge is written from (`EdgeWrittenFrom` is `.from`, `.to` or `.none`). [Read and write in a working copy](/build/write-in-a-working-copy#write-items-and-edges) covers drag and drop.
-
-## Tags and extensions
+## Tags, extensions and tables
 
 | Call | Queues |
 | --- | --- |
-| `tags.add(_:to:)` | One tag, leaving the others. An item that would hold **more than 100 tags** throws `validation_error`, and earlier adds stay queued. |
-| `tags.remove(_:from:)` | One tag's removal. |
+| `tags.add(_:to:)`, `tags.remove(_:from:)` | One tag. An item with **more than 100 tags** throws `validation_error`. |
 | `metadata.replaceTags(of:with:)` | Every tag in one write. |
-| `extensions.write(_ namespace:_ body:on:)` | An extension's whole body. |
-| `extensions.delete(_ namespace:from:)` | An extension's removal. |
+| `extensions.write(_ namespace:_ body:on:)`, `extensions.delete(_ namespace:from:)` | An extension's whole body, or its removal. |
 
-## Tables
-
-An item of a type that declares a table, or one carrying its own `columns`, has rows in it. **A row is never an item**: it has no version, tags or edges. The copy holds a table **whole or not at all**, and reads one it doesn't hold from the server. [Tables](/build/tables) explains them.
+A [table](/build/tables) row is never an item. The copy holds a table **whole or not at all,** and reads others from the server.
 
 | Call | Does |
 | --- | --- |
-| `tables.hold(_ table:ofType:)` | Holds that table of every held item of the type, or a pattern of types, and fills it. Returns `TableHold` with `wasHeld` and `fill`, which is `nil` where another call holds the stream and fills it. Throws `invalid` for a table no such type declares. |
-| `tables.letGo(_:ofType:)` | Drops the choice, and the rows no other choice holds. **Queued writes stay queued.** |
-| `tables.held()` | `HeldTables`: the `choices`, and each held table's `state` and `rows`. |
-| `tables.fill()` | One pass over the tables not yet whole. `TableFill` counts `whole`, `online`, `unfilled` and `failed`, with the last `failure`. |
-| `tables.rows(of:in:_ RowsQuery)` | `TableAnswer<TableRowPage>`, with `rows` and `nextCursor`. |
-| `tables.row(_:of:in:)` | One `TableRow`. Throws `notFound` for a row the table doesn't hold. |
-| `tables.totals(of:in:filter:)` | `TableTotals`: `rowCount`, and each adding column's `sum`, `count`, `average`, `min` or `max`. |
-| `tables.write(_ [RowOperation]:to:of:)` | Queues one batch and shows it at once. |
-| `tables.undo(batch:in:of:)` | Queues the undo of a batch the server took. **No row changes until the server's event arrives.** |
+| `tables.hold(_ table:ofType:)`, `tables.letGo(_:ofType:)` | Hold that table of every held item of a type, or drop the choice. Queued writes stay. |
+| `tables.held()`, `tables.fill()` | The choices and each table's `state` (`.owed`, `.filling`, `.whole` or `.online`), and one fill pass. |
+| `tables.rows(of:in:_ RowsQuery)`, `tables.row(_:of:in:)`, `tables.totals(of:in:filter:)` | A `TableRowPage`, one `TableRow`, and `TableTotals`. |
+| `tables.write(_ [RowOperation]:to:of:)`, `tables.undo(batch:in:of:)` | One batch (`.put`, `.patch` or `.delete`), and its undo. **No row changes until the server's event arrives.** |
 
-`TableState` is `.owed`, `.filling`, `.whole`, or `.online` for a table past the cap on rows a copy holds. **A `TableAnswer` sets `held` when the copy answered it**, with waiting writes laid over the rows. Otherwise the server answered, which a copy offline can't reach. **Before each such request, the copy checks that the server is the instance it was built from.** If another instance answers at the address, the read throws `copyExpired`, the copy expires, and no item ID is sent. A lookup of a linked item by ID is checked the same way.
+**A `TableAnswer` sets `held` when the copy answered.** Otherwise the server did, after checking it is the instance the copy was built from, or the read throws `copyExpired`. **The server takes all of a batch or none of it,** and a drain gives each batch its own verdict. `RowsQuery` takes `limit` (1 to 1,000), `cursor`, `filter`, `sort` and `direction`.
 
-`RowsQuery` takes `limit` (1 through 1,000), `cursor`, `filter` (the item grammar, with `values.<column>`, `id` and `updated_at`), `sort` (`.id`, `.updatedAt` or `.column(_:)`) and `direction`. A `TableRow` has `id`, `values`, `updatedAt` and `withheld`, the columns naming an item the key can't read.
+## Files
 
-`RowOperation` is `.put(id:values:)`, which writes the whole row, `.patch(id:values:)`, where `null` clears a column, or `.delete(id:)`.
+A file is **a blob,** its bytes by hash, and **a file item** naming it, queued as separate writes with their own verdicts. [Files](/build/files) explains them.
 
-- **The server takes all of a batch or none of it.** A drain sends consecutive batches to one table in one request, each with its own verdict: `accepted`, `conflicted` with the replaced cells in `conflicts`, or `refused`.
-- The accepted write's `rowBatch` is the batch to pass to `undo`.
-- `write` throws `notFound` with `item_not_found` or `table_not_found`, or `validation`, and queues nothing.
+| Call | Queues |
+| --- | --- |
+| `items.addFile(_ file:_ Attachment, tags:)` | The upload, a file item, then each tag. |
+| `items.attach(to:file:_ Attachment)` | The upload, a file item and an `attached-to` edge to the item. |
+| `items.embed(file:in:_ Attachment)` | What `attach` does, and an edit adding `![[title]]` to the body's end. |
+| `blobs.put(file:mimeType:)` | The upload alone. |
 
-A held table is read and written offline. Changed tables arrive in `Reread.Parts.rows.tables` and `CatchUpReport.changedTables`, and a stream hears `.refreshed(.tables)`. The rules are in the contract's [tables](https://github.com/withmarfa/marfa/blob/main/conformance/spec/tables.md) chapter.
+`Attachment(mimeType:title:type:tier:)` sets the file item; an unset field takes the file's. **An embed reads back as a `references` edge.** `embed` bases its edit on the held body, so a body changed elsewhere meets the type's merge policy, and it throws `EmbedFailure` where the file attached but the body step failed. `items.embedText(of:in:)` gives the embed text.
+
+```swift
+let text = try await copy.blobs.withFile(hash) { url in
+    try String(contentsOf: url, encoding: .utf8)
+}
+```
+
+`blobs.withFile(_:_:)` gives `body` the bytes' local URL, **fetching them when the cache lacks them.** Copy the file out to keep it past `body`. A reader or a copy with no server throws `bytesAbsent`. `blobs.isHeld(_:)` asks with no request.
+
+### The file cache
+
+**Files attached to held items stay outside the budget,** so they are there offline once fetched.
+
+| Call | Does |
+| --- | --- |
+| `blobs.cache()` | The `FileCache`: `setting`, `budget`, `held`, and `attachments`, a `KeptAttachments` count with `notHeldByReason`. |
+| `blobs.setBudget(_ FileBudget)`, `blobs.trim()` | Set the budget and trim, or trim now. Return the bytes taken. |
+| `blobs.removeFetchedFiles()` | Removes every file the device can fetch again, keeping attachments, queued uploads and files being read. |
+| `blobs.fetchKept()` | Fetches every attachment not held, smallest first, resuming partial files. Run it after a hydration and a catch-up. |
+
+`FileBudget` is `.default` (the larger of 2 GiB and a tenth of the volume, leaving a twentieth free), `.bytes(bytes:)` or `.keepAll`. `fetchKept()` stops at a full disk, an unreachable server or a long rate-limit wait, and the files fetched stay. A reader or folder copy throws `readingHandle` from the clearing calls and `fetchKept()`. A `NotHeldReason` is `.notFetched`, `.noRoom`, `.unreachable`, `.rateLimited`, `.absent`, `.failed` or `.notInCopy`. [Keep files in a working copy](/build/keep-files-in-a-working-copy) shows them in use.
+
+## Saved views
+
+A saved view is a `system.view` item, a `SavedView`, never named `View`. **Hydrate with `system.view` in the slice, or pin a view,** to hold it.
+
+| Call | Answers |
+| --- | --- |
+| `items.views()`, `items.view(_:)` | The held views, or one. |
+| `items.list(inView:limit:offset:)`, `items.groups(inView:timeZone:)`, `copy.search(_:inView:limit:)` | The view's items in its sort order, its `ViewGroup`s, and a search narrowed to it. |
+| `copy.createView(_ ViewSettings, idempotencyKey:)`, `changeView(_:_ ViewSettingsChange, baseVersion:idempotencyKey:)`, `deleteView(_:idempotencyKey:)` | Write a view **at once, never through the queue.** A delete is for good. |
+
+**A view's reads never answer in part:** they throw `hydrationIncomplete` while the copy fills or is stale, `notFound` for a view not held, and `invalid` where the copy can't answer the whole view, such as a type outside the slice or a revoked view. `ViewSettings` holds `title`, `query` (`types`, `tier`, `states`, `filter`, `beneath`), `sort` and `group` (`by`, `bucket`, `order`, `hidden`). A `filter` takes `status_group`. With no server a write throws `noServer`. **After a `network` failure retry with the same `idempotencyKey`.** A setting changed since `baseVersion` throws `versionConflict`. [Save and read a view](/build/views) shows a view on screen.
+
+## Folders
+
+`items.folder(_:)` reads a held `Folder` (a `system.folder` item). Its `FolderSettings` hold `title`, `query`, `defaults` for a new file, `include` and `ignore` gitignore patterns (**`ignore` wins**), `firstPlacement`, `outsideQuery` (`.send` or `.hold`), and two thresholds that make a change wait for confirmation.
+
+| `FolderSettings` field | Default |
+| --- | --- |
+| `removalThreshold`: `RemovalThreshold(files:fraction:ceiling:)` | 10 files and 0.25 of the folder's files, and **more files than the `ceiling` of 100 wait whatever their share.** |
+| `additionThreshold`: `AdditionThreshold(files:fraction:)` | 50 files and 0.25. |
+
+`copy.createFolder(_:idempotencyKey:)`, `changeFolder(_:_:baseVersion:idempotencyKey:)` and `revokeFolder(_:idempotencyKey:)` write at once, as view writes do. **A revoked folder changes no more.**
+
+`Folders(server:)` works the Mac's directories through the same registry as the `marfa` command line.
+
+| Call | Does |
+| --- | --- |
+| `add(_ directory:following:)`, `list()`, `status(of:)` | Make a directory follow a `system.folder`, list the registry, and read a folder's `FolderStatus` with no request. |
+| `sync(_:)` | One pass: sends disk changes, catches up, writes out what the query matches, sends placements. Returns a `FolderSyncResult`. |
+| `confirmFirstSync(in:)`, `confirmRemoval(in:)`, `restoreRemoval(in:)` | Let a first sync or a held removal go, or cancel a removal and write the files back. |
+| `watch(_:)` | Keeps the folder in step while the app runs: a `FolderWatch` sequence of `FolderEvent`s. **Leaving a loop early doesn't stop it:** call `stop()`. |
+| `pause(_:)`, `resume(_:)`, `remove(_:)` | Pause or resume a directory, or take the folder off the Mac, leaving plain files. `remove` throws `invalid` while writes wait. |
+
+**A first sync waits for the person:** `sync(_:)` returns `.awaitingConfirmation(FirstSyncPlan)` with what it will write and send, and `watch(_:)` throws `firstSyncWaiting`. **A paused directory sends and writes nothing,** and its sync calls throw `syncPaused`. **One process works a folder at a time:** a call asks a watch to let go and waits 10 seconds, then throws `readingHandle`. A `StorageCause` on `AddedFolder.storage` warns about iCloud Drive, a cloud service or a network file system: show it once for each folder. A pass reports its `FolderScan` and `FolderPull` counts, and `FolderStatus` gives each file a `FileState` of `.inStep`, `.waiting`, `.held`, `.unmatched`, `.unreached` or `.outside`. [Folder sync status](/reference/folder-sync-status) and [How a synced folder treats files](/reference/folder-rules) hold the rules.

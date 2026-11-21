@@ -1,9 +1,11 @@
 ---
-title: How a folder treats files
+title: How a synced folder treats files
+sidebar_label: How a folder treats files
 description: Every rule a synced folder follows for a file, from what it takes in and what it keeps to what it removes, names and holds for you.
+job: Someone looks up every rule a synced folder follows for a file, from what it takes in to what it removes, names and holds.
 ---
 
-A folder syncs both ways, so **a file you delete can move its item to the bin, and an item that leaves the folder can remove its file.** These rules decide when.
+**A file you delete can move its item to the bin, and an item that leaves the folder can remove its file.** These rules decide when.
 
 ## What a folder takes in
 
@@ -11,14 +13,13 @@ The `include` and `ignore` lists, gitignore patterns, say which paths a folder r
 
 | Never taken in | Names |
 | --- | --- |
-| Secrets | `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, SSH keys such as `id_ed25519`, `.netrc`, `.npmrc`, `.pgpass`, `.git-credentials` and credential files |
-| Files a computer keeps for itself | `.DS_Store`, `Thumbs.db`, `._*`, `desktop.ini` and the like |
-| Temporary files | `*.swp`, `*~`, `*.tmp`, `*.part`, `*.crdownload` and the like |
-| Symbolic links | Neither taken in nor followed |
+| Secrets | `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, SSH keys such as `id_ed25519`, `.netrc`, `.npmrc`, `.pgpass`, `.git-credentials` |
+| Files a computer keeps | `.DS_Store`, `Thumbs.db`, `._*`, `desktop.ini` |
+| Temporary files | `*.swp`, `*~`, `*.tmp`, `*.part`, `*.crdownload` |
+| Symbolic links | Not followed |
+| Empty files | A file item holds bytes |
 
 The contract [lists every name](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-documents.md#folder-documentsbuiltin-secret-names).
-
-A file the lists stop reading keeps its item, sends no edits and counts as `unreached` until they read it again.
 
 ## What a folder does with each file
 
@@ -26,113 +27,54 @@ A file the lists stop reading keeps its item, sends no edits and counts as `unre
 
 | When | What the folder does |
 | --- | --- |
-| A new file matches the query | Creates its item, and writes `marfa_id` and any missing `type`, `tier` and `title` into a note |
-| A new note names a type, tier, state or tag the query doesn't hold | Creates the item and keeps the file as unmatched, unless `outside_query` is `hold` |
-| A photo, PDF or other file whose type the query doesn't hold | Sends nothing, unless a note embeds it or it's attached to one |
-| An item leaves the query's types, tiers, tags, filter or `beneath` | Keeps the file as unmatched, and still sends its edits |
-| An item leaves the query's states, or moves to the bin, or is purged | Removes the file at the next pull, unless it changed since Marfa wrote it |
+| A new file matches the query | Creates its item, and writes `marfa_id`, `marfa_version` and any missing `type`, `tier`, `title` and `tags` into a note |
+| A new note the query doesn't hold | Creates the item and keeps the file as unmatched, unless `outside_query` is `hold` |
+| A photo, PDF or other file the query doesn't hold | Sends nothing, unless a note embeds it or it's attached to one |
+| An item leaves the query's types, tiers, tags, filter or `beneath` | Keeps the file as unmatched, and sends its edits |
+| An item leaves the query's states, moves to the bin or is purged | Removes the file at the next pull, unless it changed since Marfa wrote it |
 
-### Unmatched files
-
-`marfa folders unmatched --remove` takes them off the disk once you confirm, and **the items stay**. Deleting one by hand moves its item to the bin.
-
-### Hold new files outside the query
-
-With `outside_query` set to `hold`, a new file the query wouldn't hold waits on disk, with no item and nothing written into it:
-
-<Terminal>
-
-```bash
-marfa folders push Notes
-```
-
-```text
-1 new file(s) held outside the query, not sent: the folder's outside_query is hold, so each is sent once it matches the query or the setting is send; `folders unmatched` lists them
-```
-
-</Terminal>
-
-`marfa folders status` flags it `outside_query`, and the next scan sends it once the query holds it or `outside_query` is `send`. It never counts toward a large addition.
+`marfa folders unmatched --remove` takes unmatched files off the disk once you confirm, keeping any changed since the folder wrote it. **The items stay.** With `outside_query` set to `hold`, a new file the query doesn't hold waits, flagged `outside_query`, with no item, until the query holds it or the setting is `send`.
 
 ## Deleting, moving and renaming
 
-- **You delete a file:** its item moves to the bin after a five-second grace, so a save that replaces the file isn't a delete. If another device changed the item, the file comes back with that change.
-- **You move or rename a file:** the item stays. Between two folders on one computer, the folders keep one item, following a note by its `marfa_id` and any other file by its identity or exact bytes.
-- **You rename a file to a name the folder doesn't send, or one held for a name clash:** the item stays with it, counted and flagged `carried`. A new file at the old path is held, flagged `waiting`, until that file takes a name the folder sends or goes. A backup name, the file's own plus a suffix such as `.bak`, carries nothing.
-- **The folder can't tell where a file went,** because another folder can't be read or several hold its bytes: the deletion waits, and a watch looks again each minute.
+- **You delete a file:** its item moves to the bin after a five-second grace, so a save that replaces a file isn't a delete. If another device changed the item, the file comes back.
+- **You move or rename a file:** the item stays, also between two folders on one computer.
+- **You rename a file to a name the folder doesn't send, or holds for a clash:** the item stays with it, flagged `carried`. A new file at the old path is held, flagged `waiting`, until the carrying file takes a name the folder sends or goes. A backup name, the file's own plus a suffix such as `.bak`, carries nothing.
+- **The folder can't tell where a file went,** because another folder can't be read or several hold its bytes: the deletion waits.
 
-### A file a program is writing
+**A pull never replaces or removes a file a program holds open for writing,** even to change its `marfa_` lines. It flags the file `busy` and writes it after the program closes it. On macOS, Marfa sees only your own programs.
 
-**A pull never replaces or removes a file a program holds open for writing.** It flags the file `busy` and writes it at the next pull after the program closes it. On macOS, Marfa sees only your account's programs.
-
-Where Marfa can't tell, as on a network disk, it keeps the file it replaced as `.marfa-kept-<id>.tmp`, flagged `kept`. If a program writes to it, it goes back at its path as an edit, or under the next numbered name if the path is taken. Unchanged, it is deleted once no program holds it, or after seven days. `marfa folders kept` lists kept files, and `--discard` settles them now.
-
-### A folder added again over its files
-
-Added again, such as after a restore, a folder takes each file back as the item it was.
+**A save made as Marfa writes goes back at the path,** or, where the path is taken, under a numbered name flagged `kept` ([Conflicts](/use/conflicts#a-save-made-as-marfa-writes)). Where Marfa can't tell, as on a network disk, it keeps the replaced file as `.marfa-kept-<id>.tmp`, flagged `kept`, and a program's write to it goes back the same way. Unchanged, it is deleted once no program holds it, or after seven days. `marfa folders kept` lists them, and `--discard` settles them now.
 
 ## File names
 
-A new item's file is named from its title: `/`, `\` and `:` become `-`, a control character becomes a blank, whitespace at either end and leading periods go, and an empty name is `untitled`. A name is cut to 255 bytes, keeping its extension.
+A new item's file is named from its title: `/`, `\` and `:` become `-`, control characters blanks, whitespace at either end and leading periods go, and an empty name is `untitled`. A name is cut to 255 bytes, keeping its extension.
 
-**A file item's title without an extension gets its type's,** as `Boiler receipt.pdf`, unless the type has none or is a document's, such as `.md`. The title stays.
+**A file item's title without an extension gets its type's,** as `Boiler receipt.pdf`, unless the type has none or is a document's, such as `.md`. The title stays, and a file already placed keeps its name. **A note new to a directory is written in the form the first directory wrote it,** held on its [`in-folder`](/catalog/edges/in-folder) edge.
 
-**A note new to a directory keeps the form it was written in,** its details in the same order and style, held on its [`in-folder`](/catalog/edges/in-folder) edge.
-
-**Names that differ only in case or Unicode form are the same name,** as a Mac's disk compares them: `Plan.md` and `plan.md` are one file.
+**Names that differ only in case or Unicode form are one name,** as a Mac's disk compares them:
 
 | When two items claim one name | Which keeps it |
 | --- | --- |
-| Neither has a file yet | The one created first. The other gets `Plan (2).md`, on every device |
+| Neither has a file yet | The one created first. The other gets `Plan (2).md` |
 | One already has its file there | That one |
-| Two files on disk differ only in case | The one already bound, or else the first. The other is held with the flag `name` until you rename it |
+| Two files on disk differ only in case | The one already bound, or else the first. The other is held, flagged `name`, until you rename it |
 
 ## Large changes
 
-A folder holds a large addition or removal until you [confirm it](/use/fix-a-folder#a-large-addition-waits). Set the thresholds with `--removal-threshold` and `--addition-threshold`:
+A folder holds a large addition or removal until you [confirm it](/use/fix-a-folder#a-large-addition-waits), and a confirmation lets go only of items no file carries. **Nothing moves to the bin while a removal waits.** The first sync isn't an addition, and edits go on while one waits. Set the thresholds with `--removal-threshold` and `--addition-threshold`:
 
 | Setting | Default | Pauses when |
 | --- | --- | --- |
-| `removal_threshold.files` and `.fraction` | `10` and `0.25` | One pass would remove over 10 files and over a quarter of the folder |
-| `removal_threshold.ceiling` | `100` | One pass would remove over 100 files, whatever share they are |
-| `addition_threshold.files` and `.fraction` | `50` and `0.25` | New files exceed both, counting the last ten minutes. An empty folder judges by count alone |
+| `removal_threshold.files` and `.fraction` | `10` and `0.25` | One pass would remove over 10 files and a quarter of the folder |
+| `removal_threshold.ceiling` | `100` | One pass would remove over 100 files, whatever the share |
+| `addition_threshold.files` and `.fraction` | `50` and `0.25` | New files of the last ten minutes exceed both. An empty folder judges by count alone |
 
-**Nothing moves to the bin while a removal waits.** The first sync isn't an addition, and while one waits, edits keep going and new files join it.
+## What it holds back
 
-<Terminal>
-
-```bash
-marfa folders push Notes
-```
-
-```text
-0 created, 0 updated, 0 renamed, 3 unchanged, 60 missing, 0 deleted, 0 skipped
-a large removal waits: 60 delete(s) not sent; `folders confirm` sends them, `folders restore` writes the files back
-```
-
-</Terminal>
-
-## A file too large to send
-
-A write larger than the server takes in one request is held, flagged `refused` with its size and the limit. The limit is 1 MiB unless [`MARFA_MAX_REQUEST_BYTES`](/reference/instance-settings#start-only-settings) sets another, and counts the JSON sent. A file at nine tenths of it gets a `size` warning.
-
-Make it smaller, or raise the limit, and the next sync sends it.
-
-## A directory Marfa can't read or write
-
-- **The folder's directory is missing,** as on a disk that isn't connected: nothing moves to the bin, and commands say so.
-- **A directory or file can't be read:** nothing in it moves to the bin, and `marfa folders status` flags it `unreadable`.
+- **A write larger than the server takes in one request** is held, flagged `refused` with its size and the limit. The limit is 1 MiB unless [`max_request_bytes`](/reference/instance-settings#stored-settings) sets another, and a file at nine tenths of it gets a `size` warning.
+- **The folder's directory is missing,** as on a disk that isn't connected, **or can't be read:** nothing in it moves to the bin, flagged `unreadable`.
 - **A volume can't rename safely,** such as exFAT on a Mac: Marfa replaces and removes no file there, and counts its item `unwritten`.
-- **A different directory stands at the folder's path:** the folder doesn't read it, and carries on when the original returns.
+- **A different directory stands at the folder's path:** the folder doesn't read it, and resumes when the original returns.
 
-## Know whether a push finished
-
-| Exit code | Meaning |
-| --- | --- |
-| `0` | The push finished. A refused edit stays in its file, flagged `refused`, until you change the file |
-| `3` | A write is left unsent, or catching up with the server failed. Push again |
-| `5` | The server refused the credential |
-
-**A push under a [rate limit](/use/fix-a-folder#the-server-asked-for-a-wait-before-more-is-sent) exits `3`;** a watch waits.
-
-The rules are in the contract's [folder-guards](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-guards.md), [folder-files](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-files.md), [folder-documents](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-documents.md) and [folder-sync](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-sync.md) chapters.
+A push ends with an [exit code](/reference/cli#exit-codes) that says whether it finished, left a write unsent, met a [rate limit](/use/fix-a-folder#the-server-asked-for-a-wait-before-more-is-sent) or was refused. The rules are in the contract's [folder-guards](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-guards.md), [folder-files](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-files.md), [folder-documents](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-documents.md) and [folder-sync](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-sync.md) chapters.
