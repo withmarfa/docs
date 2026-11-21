@@ -1,11 +1,14 @@
 ---
 title: Edit and find books in a Swift app
-description: Add editing to the Shelf app, see how the instance merges a change made offline, link books in their notes, and find books by title.
+sidebar_label: Edit and find in a Swift app
+description: Add editing to the Shelf app, see how the instance merges a change made offline, link books in a write-up, and find books by title.
+job: A builder adds editing, sees an offline merge, links books in a write-up and finds them by title.
+kind: tutorial
 ---
 
-- **You'll build** a book page for Shelf, where you change a book, write notes that link to other books, and find books by title.
-- **You need** the Shelf app from [Build an app with Swift](/build/swift-app), and your own Marfa instance, with the CLI signed in to it, as the [Quickstart](/quickstart) leaves you.
-- **You'll have** an app that edits offline, shows how the instance answered each change, and makes an [edge](/build/edges) for each link in a book's notes.
+- **You'll build** a book page for Shelf, where you change a book, write about it with links to other books, and find books by title.
+- **You need** the Shelf app from [Build an app with Swift](/build/swift-app), and your own Marfa instance with the CLI signed in, as the [Quickstart](/quickstart) leaves you.
+- **You'll have** an app that edits offline, shows how the instance answered each change, and makes an [edge](/build/edges) for each link in a book's write-up that names a book.
 
 <Steps paged>
 <Step>
@@ -22,9 +25,7 @@ Add an update to `Library`. It names the version of the book the change was base
     }
 ```
 
-**Send only the fields the person changed.** The instance merges a change made against an older version field by field, so a field sent unchanged can overwrite a newer value.
-
-Add a page for one book at the end of `ContentView.swift`:
+**Send only the fields the person changed:** the instance merges an older change field by field, so a field sent unchanged can overwrite a newer value. Add a page for one book at the end of `ContentView.swift`:
 
 ```swift title="ContentView.swift"
 struct BookView: View {
@@ -32,7 +33,6 @@ struct BookView: View {
     let book: Item
     @State private var title = ""
     @State private var progress = "planned"
-    @State private var text = ""
 
     var body: some View {
         Form {
@@ -42,37 +42,30 @@ struct BookView: View {
                 ForEach(["planned", "started", "finished", "abandoned"], id: \.self) { Text($0.capitalized) }
             }
             .onChange(of: progress) { if progress != book.properties["progress"]?.string { save(["progress": .string(progress)]) } }
-            Section("About the book") {
-                TextField("Notes, with links such as [[Middlemarch]]", text: $text, axis: .vertical)
-                Button("Save Notes") { save(["body": .string(text)]) }
-            }
         }
         .disabled(book.readOnly)
         .navigationTitle(book.title ?? "Untitled")
         .onAppear {
             title = book.title ?? ""
             progress = book.properties["progress"]?.string ?? "planned"
-            text = book.body ?? ""
         }
     }
 
-    private func save(_ properties: JSONObject) {
-        Task { await library.update(book, properties) }
-    }
+    private func save(_ properties: JSONObject) { Task { await library.update(book, properties) } }
 }
 ```
 
-`progress` is a status field, whose values the [Media](/catalog/media) type lists, and the notes go in the book's `body`. **`readOnly` is the instance's advice** that a connector keeps the item, so the page offers no editing. It's advice only: the copy takes the write either way.
+`progress` is a status field, whose values the [Media](/catalog/media) type lists. **`readOnly` is the instance's advice** that a connector keeps the item, so the page offers no editing. The copy takes the write either way.
 
-In `ContentView`, make each row a link to its book, and add the destination after `.navigationTitle("Shelf")`. The destination finds the book in the list each time, so the page always holds its current version:
+In `ContentView`, wrap each row in a link:
 
 ```swift title="ContentView.swift"
-                ForEach(library.books?.value ?? []) { book in
                     NavigationLink(value: book.id) {
                         LabeledContent(book.title ?? "Untitled", value: book.properties["author"]?.string ?? "")
                     }
-                }
 ```
+
+Add the destination after `.navigationTitle("Shelf")`. It finds the book again each time, so the page always holds its current version:
 
 ```swift title="ContentView.swift"
             .navigationDestination(for: String.self) { id in
@@ -82,7 +75,7 @@ In `ContentView`, make each row a link to its book, and add the destination afte
             }
 ```
 
-Run the app, open Bleak House and set **Progress** to Started. **Changes** shows Sent.
+Run the app, open Bleak House and set **Progress** to Started. Go back to the list: **Changes** shows Sent.
 
 </Step>
 <Step>
@@ -92,9 +85,17 @@ Run the app, open Bleak House and set **Progress** to Started. **Changes** shows
 Change the same book in two places, and the instance combines the changes by the type's rules.
 
 1. Stop the server with `marfa server stop`.
-2. In Shelf, change the title to `Bleak House (Penguin Classics)` and press Return. **Changes** shows Waiting to send.
+2. In Shelf, open Bleak House, change the title to `Bleak House (Penguin Classics)` and press Return. Go back to the list: **Changes** shows Waiting to send.
 3. Quit Shelf, so it can't send the change, and start the server with `marfa server start`.
-4. Change the title on the server. Use the book's ID from `marfa items list --type core.media.book`. The book is at version 2: the create, then the progress.
+
+Now change the same book's title on the server. Find its ID and version first. The version is 2 if you changed **Progress** once: the create, then the progress.
+
+```bash
+marfa items list --type core.media.book --sort created-at --direction asc --limit 1
+marfa items get <book-id>
+```
+
+Use the ID from the list and the version `items get` prints:
 
 <Terminal>
 
@@ -109,14 +110,14 @@ updated core.media.book 01a1f134-05b9-70a9-ae2b-43825493170b "Bleak House: A Nov
 
 </Terminal>
 
-Run Shelf again. It sends the rename, based on version 2, and **Changes** shows Merged title with a newer change. **The title is Bleak House (Penguin Classics)**: a book's `title` keeps the last change to reach the instance. A book's `body` and `notes` keep both instead, so two edits to the notes end `conflicted`, with yours in a conflicted copy. [Versions](/build/versions#when-two-apps-write-the-same-item) explains the rules.
+Run Shelf again. It sends the rename, based on version 2, and **Changes** shows Merged title with a newer change. **The title is Bleak House (Penguin Classics):** a book's `title` keeps the last change to reach the instance. A book's `body` and `notes` keep both, so two edits to them end `conflicted`, with yours in a conflicted copy. [Versions](/build/versions#when-two-apps-write-the-same-item) explains the rules.
 
 </Step>
 <Step>
 
 ### Link books
 
-Marfa reads links only from the field a type names as its body, which for a book is `body`, where Shelf keeps the notes. A link names another item in double brackets, such as `[[Middlemarch]]`, and **saving the `body` makes a `references` edge** to the item the link names, which is why Shelf asks for `edge.references:write`. A link in another field, such as a book's `notes`, makes none. Show what each link names as the person types. Add these inside `Library`:
+A link names another item in double brackets, such as `[[Middlemarch]]`. Marfa reads links only from a type's body field, which for a book is `body`, a longer write-up of the work. **Saving the `body` makes a `references` edge** to the item, which is why Shelf asked for `edge.references:write`. The `notes` field, your own comments, holds no links. Add a check that shows what each link names while the person types, inside `Library`:
 
 ```swift title="Library.swift"
     func links(in text: String, of book: Item) async -> [LinkCandidates] {
@@ -126,19 +127,23 @@ Marfa reads links only from the field a type names as its body, which for a book
     }
 ```
 
-`linkParts(in:)` finds the links in a text, and `linkCandidates(of:in:)` answers what each could name, from the copy alone. In `BookView`, add `@State private var links: [LinkCandidates] = []`, put a row for each link before the **Save Notes** button, and read the links again when the text or the book changes:
+`linkCandidates(of:in:)` answers what each link could name, from the copy alone. Add the write-up at the end of `ContentView.swift`, and put `WriteUpSection(library: library, book: book)` last inside `BookView`'s `Form`:
 
 ```swift title="ContentView.swift"
-                ForEach(links, id: \.target) { link in
-                    LabeledContent(link.target, value: describe(link))
-                }
-```
-
-```swift title="ContentView.swift"
+struct WriteUpSection: View {
+    let library: Library
+    let book: Item
+    @State private var text = ""
+    @State private var links: [LinkCandidates] = []
+    var body: some View {
+        Section("About the book") {
+            TextField("Write-up, with links such as [[Middlemarch]]", text: $text, axis: .vertical)
+            ForEach(links, id: \.target) { LabeledContent($0.target, value: describe($0)) }
+            Button("Save Write-up") { Task { await library.update(book, ["body": .string(text)]) } }
+        }
+        .onAppear { text = book.body ?? "" }
         .task(id: "\(text)\(book.version)") { links = await library.links(in: text, of: book) }
-```
-
-```swift title="ContentView.swift"
+    }
     private func describe(_ link: LinkCandidates) -> String {
         switch link.state {
         case .bound: "Linked"
@@ -146,11 +151,12 @@ Marfa reads links only from the field a type names as its body, which for a book
         case .unresolved: link.candidates.isEmpty ? "No book has this title" : "Links when you save"
         }
     }
+}
 ```
 
-A link is `bound` only once the copy knows its edge. One book with the title is `unresolved` until you save, because the copy holds only part of the instance and the instance decides.
+A link is `bound` only once the copy knows its edge. One matching book is `unresolved` until you save, because the instance decides.
 
-Run the app, open Bleak House, and type `Read after [[Middlemarch]], and compare [[Persuasion]].` Middlemarch shows Links when you save, and Persuasion shows No book has this title. Choose **Save Notes**. Middlemarch shows Linked, and the edge is on the instance:
+Run the app, open Bleak House, and type `Read after [[Middlemarch]], and compare [[Persuasion]].` Middlemarch shows Links when you save, and Persuasion shows No book has this title. Choose **Save Write-up**, then **Sync**. Go back to the list and open Bleak House again: Middlemarch shows Linked, and the edge is on the instance:
 
 <Terminal>
 
@@ -185,12 +191,14 @@ Add a filter to `Library`. Assigning `reading` makes the query read again:
     }
 ```
 
-In `ContentView`, keep the search text with `@AppStorage("search") private var search = ""`, add a search field after the destination, and apply the saved search once the copy opens:
+In `ContentView`, keep the search with `@AppStorage("search") private var search = ""` beside `session`. Add a search field after the destination:
 
 ```swift title="ContentView.swift"
             .searchable(text: $search, prompt: "Find by title")
             .onChange(of: search) { library.find(search) }
 ```
+
+Then apply the saved search once the copy opens, by replacing the view's `.task`:
 
 ```swift title="ContentView.swift"
         .task {
@@ -199,7 +207,7 @@ In `ContentView`, keep the search text with `@AppStorage("search") private var s
         }
 ```
 
-Run the app and search for `Bleak`. The list shows Bleak House (Penguin Classics), read from the copy with no request. Quit and run the app again: the search stays. [List, filter and search](/build/list-filter-search) lists the other conditions and fields.
+Run the app and search for `Bleak`. The list shows Bleak House (Penguin Classics), read from the copy with no request. Quit and run again: the search stays. [List, filter and search](/build/list-filter-search) lists the other conditions.
 
 <Cards>
   <Card title="Swift SDK" href="/reference/swift-sdk">Every call on a working copy, with its errors.</Card>

@@ -1,11 +1,16 @@
 ---
 title: Build an app with Swift
+sidebar_label: Build a Swift app
 description: Build an iPhone and Mac app that lists and adds the books in your library, keeps working without a connection, and sends its changes when the server is back.
+job: A builder makes an iPhone and Mac app that lists and adds books and keeps working offline.
+kind: tutorial
 ---
+
+An app built with the [Swift SDK](/reference/swift-sdk) signs in as itself, keeps a **working copy** of part of your instance on the device, and reads from that copy, so it works without a connection.
 
 - **You'll build** Shelf, a SwiftUI app for iPhone and Mac that lists and adds the books in your library.
 - **You need** your own Marfa instance at `http://localhost:8600` with the CLI signed in, as the [Quickstart](/quickstart) leaves you, and Xcode 27 on a Mac with Apple silicon.
-- **You'll have** an app that reads from a working copy on the device, so it keeps working when the server can't be reached.
+- **You'll have** an app that adds a book with no connection and sends it when the server is back.
 
 <Steps paged>
 <Step>
@@ -13,19 +18,20 @@ description: Build an iPhone and Mac app that lists and adds the books in your l
 ### Create the project
 
 1. In Xcode, choose **File** > **New** > **Project**, then **Multiplatform** > **App**. Name it `Shelf`, and leave **Storage** set to **None**.
-2. Choose **File** > **Add Package Dependencies**, enter `https://github.com/withmarfa/marfa-swift`, and add the `Marfa` product to the `Shelf` target.
-3. In the target's **Build Settings**, set **Excluded Architectures** for **Any iOS Simulator SDK** to `x86_64`. Marfa's core is built for Apple silicon only.
-4. In the target's **Signing & Capabilities**, under **App Sandbox**, turn on **Outgoing Connections (Client)**, so the Mac app can reach the server.
-5. In the target's **Info** tab, under **URL Types**, add a type with **URL Schemes** set to `com.example.shelf`, where the browser hands the sign-in back to the app.
+2. Choose **File** > **Add Package Dependencies**, enter `https://github.com/withmarfa/marfa-swift`, set **Dependency Rule** to **Exact Version** with the [latest release](https://github.com/withmarfa/marfa-swift/releases/latest), and add the `Marfa` product to the `Shelf` target.
+3. In the target's **Build Settings**, choose **All** above the list, then set **Excluded Architectures** to `x86_64`. Marfa's core is built for Apple silicon only, so without this the simulator build fails to link.
+4. In **Signing & Capabilities**, choose your **Team**. The Mac app keeps its sign-in in your login keychain, and an app signed only to run locally can make macOS ask for your password after a rebuild.
+5. In the same tab, under **App Sandbox**, turn on **Outgoing Connections (Client)**, so the Mac app reaches the server.
+6. In the **Info** tab, under **URL Types**, add a type with **Identifier** and **URL Schemes** both set to `com.example.shelf`, so the sign-in can return to the app.
 
-Press Command-B to check that the project builds.
+Press Command-B to build.
 
 </Step>
 <Step>
 
-### Open the working copy
+### Sign in and open the working copy
 
-Choose **File** > **New** > **File from Template**, choose **Swift File**, and name it `Library.swift`. Add the class that holds the app's state:
+Add a Swift file, `Library.swift`, that holds the app's state. It signs in first, as the app and not as you, so it never holds a key:
 
 ```swift title="Library.swift"
 import AuthenticationServices
@@ -39,27 +45,34 @@ final class Library {
     private(set) var message = ""
     private var copy: WorkingCopy?
     private var opening = false
+    private let serverURL = URL(string: "http://localhost:8600")!
 
+    private func signIn(with session: WebAuthenticationSession) async throws -> Credential {
+        let auth = try Authorization(
+            server: serverURL,
+            client: .init(
+                name: "Shelf",
+                redirect: URL(string: "com.example.shelf:/signed-in"),
+                scopes: ["core.media.book:read", "core.media.book:write", "edge.references:write"]),
+            service: "com.example.shelf")
+        if let kept = try auth.credential() { return kept }
+        return try await auth.signIn(using: session)
+    }
+}
+```
+
+The app asks to read and write books, and to link them for the next tutorial. The owner approves in the browser, and the keychain keeps the sign-in. [Sign in](/reference/swift-sdk/server-calls#sign-in) lists the other ways.
+
+Add the function that opens the copy, inside `Library`:
+
+```swift title="Library.swift"
     func open(signingInWith session: WebAuthenticationSession) async {
         // Each Mac window runs this; only the first opens the store.
         guard copy == nil, !opening else { return }
         opening = true
         defer { opening = false }
         do {
-            let serverURL = URL(string: "http://localhost:8600")!
-            let auth = try Authorization(
-                server: serverURL,
-                client: .init(
-                    name: "Shelf",
-                    redirect: URL(string: "com.example.shelf:/signed-in"),
-                    scopes: ["core.media.book:read", "core.media.book:write", "edge.references:write"]),
-                service: "com.example.shelf")
-            let credential: Credential
-            if let kept = try auth.credential() {
-                credential = kept
-            } else {
-                credential = try await auth.signIn(using: session)
-            }
+            let credential = try await signIn(with: session)
             let folder = URL.applicationSupportDirectory.appending(path: "Shelf")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let copy = try await WorkingCopy.open(
@@ -71,7 +84,11 @@ final class Library {
             await sync()
         } catch { message = error.localizedDescription }
     }
+```
 
+The [working copy](/build/working-copies) is a SQLite file in Application Support. Each `LiveQuery` **reads the copy again whenever it changes**, so a view that shows it stays current. While one is held, the copy follows the instance by itself. Add the sync that fills the copy and sends waiting writes:
+
+```swift title="Library.swift"
     func sync() async {
         guard let copy else { return }
         do {
@@ -82,12 +99,9 @@ final class Library {
             message = ""
         } catch { message = error.localizedDescription }
     }
-}
 ```
 
-**The app signs in as itself and never holds a key.** It asks to read and write books, and to link them for the next tutorial; the owner approves those scopes in the browser, and the keychain keeps the sign-in. [Sign in](/reference/swift-sdk/server-calls#sign-in) lists the other ways.
-
-`open()` keeps the [working copy](/build/working-copies) in a SQLite file in Application Support. The first `sync()` fills the empty copy with every book in your library, and each `sync()` sends the writes waiting in the queue. Each `LiveQuery` **reads the copy again whenever it changes**, so a view that shows it stays current, and while one is held, the copy follows the instance by itself.
+The first `sync()` fills the empty copy with your books. Each one sends the writes waiting in the queue.
 
 </Step>
 <Step>
@@ -109,7 +123,7 @@ struct ShelfApp: App {
 }
 ```
 
-Replace the contents of `ContentView.swift` with a list of the books, a **Sync** button and a line for errors, which opens the copy when it appears:
+Replace the contents of `ContentView.swift` with a list of books and a **Sync** button, which opens the copy when it appears:
 
 ```swift title="ContentView.swift"
 import AuthenticationServices
@@ -131,18 +145,14 @@ struct ContentView: View {
             .toolbar {
                 Button("Sync", systemImage: "arrow.clockwise") { Task { await library.sync() } }
             }
-            .safeAreaInset(edge: .bottom) {
-                Text(library.message).font(.caption).foregroundStyle(.secondary)
-            }
+            .safeAreaInset(edge: .bottom) { Text(library.message).font(.caption) }
         }
         .task { await library.open(signingInWith: session) }
     }
 }
 ```
 
-Each row shows a book's `title` and `author`, two fields of the `core.media.book` [type](/build/items-and-types).
-
-Choose **My Mac** or an iPhone simulator as the run destination, and press Command-R. A simulator reaches `localhost` on your Mac; an iPhone needs an address it reaches over HTTPS, set as `serverURL` ([Give your instance an address](/run/address)). Your instance's sign-in page opens: sign in as the owner, and approve Shelf. The list shows your books, read from the working copy. The next run signs in by itself.
+Choose **My Mac** or an iPhone simulator, which reaches `localhost`, and press Command-R. An iPhone needs [an address it reaches](/run/address) over HTTPS, set as `serverURL`. Your instance's sign-in page opens: sign in as the owner, and approve Shelf. The list shows your instance's books, read from the copy; it is empty until the next step if there are none. The next run signs in by itself.
 
 </Step>
 <Step>
@@ -170,9 +180,7 @@ Add these two functions inside `Library`:
     }
 ```
 
-`items.create` **returns at once**: the book is in the working copy, and the write waits in the queue until `drain()` sends it.
-
-Add fields for a book at the end of `ContentView.swift`, and put `NewBookFields(library: library)` first inside the `List`:
+`items.create` **returns at once**: the book is in the copy, and its write waits in the queue until `drain()`. Add fields at the end of `ContentView.swift`, and put `NewBookFields(library: library)` first inside the `List`:
 
 ```swift title="ContentView.swift"
 struct NewBookFields: View {
@@ -195,7 +203,7 @@ struct NewBookFields: View {
 }
 ```
 
-Run the app, add `Bleak House` by `Charles Dickens`, and choose **Add to Shelf**. The book appears at once. List the newest book in a terminal to see that it reached your instance:
+Run the app, add `Bleak House` by `Charles Dickens`, and choose **Add to Shelf**. The book appears at once. A terminal shows that it reached your instance:
 
 <Terminal>
 
@@ -206,7 +214,6 @@ marfa items list --type core.media.book --limit 1
 ```text
 id                                    type             when                      title
 01a1f134-05b9-70a9-ae2b-43825493170b  core.media.book  2026-11-19T00:28:00.830Z  Bleak House
-more: --cursor c86jpjaS6z81M2O6cBwIHAQYYMjAyNi0xMS0xOVQwMDoyODowMC44MzBaCQGh8TQFuXCprkOCVJMXCw
 ```
 
 </Terminal>
@@ -228,9 +235,7 @@ Add the answered writes and a function that takes them, inside `Library`:
     }
 ```
 
-`takeAnswered()` returns the answered writes and clears them from the queue **in one step**, so the app shows each answer once, even with two windows open. A refused write that carried content stays in the queue until you discard it.
-
-Add a section for the queue and one for the answers at the end of `ContentView.swift`, and put `ChangesSection(library: library)` last inside the `List`:
+`takeAnswered()` returns the answered writes and clears them from the queue **in one step**, so the app shows each answer once, even with two windows open. Add a section for each at the end of `ContentView.swift`, and put `ChangesSection(library: library)` last inside the `List`:
 
 ```swift title="ContentView.swift"
 struct ChangesSection: View {
@@ -261,18 +266,18 @@ struct ChangesSection: View {
 
 A write has no `verdict` until the instance answers it. [Verdicts](/build/working-copies#verdicts) explains each one.
 
-Run the app. **Changes** shows Bleak House as Sent; choose **Take Answers**, and it moves to **Answered**. Then stop the server:
+Run the app. **Changes** shows Sent; choose **Take Answers**, and it moves to **Answered**. Then stop the server:
 
 ```bash
 marfa server stop
 ```
 
-Add `Middlemarch` by `George Eliot`. It appears in the list, and **Changes** shows Waiting to send. Start the server with `marfa server start`: **the copy sends the write by itself** once the server answers, and **Changes** shows Sent. **Sync** sends it at once.
+Add `Middlemarch` by `George Eliot`. It appears in the list, and **Changes** shows Waiting to send. Start the server with `marfa server start`: **the copy sends the write by itself**, retrying after 5 seconds and then waiting longer, up to 5 minutes. Choose **Sync** to send it at once, and **Changes** shows Sent.
 
 <Cards>
   <Card title="Edit and find books in a Swift app" href="/build/swift-app-edit">Change a book, see a merge, link books and find them by title.</Card>
   <Card title="Swift SDK" href="/reference/swift-sdk">Sign in from a device with no browser, handle each error, and declare your own types.</Card>
-  <Card title="Devices" href="/build/working-copies">How a working copy stays current, and what each verdict means.</Card>
+  <Card title="Working copies" href="/build/working-copies">How a working copy stays current, and what each verdict means.</Card>
 </Cards>
 
 </Step>
