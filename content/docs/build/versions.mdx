@@ -1,41 +1,45 @@
 ---
 title: Versions
-description: How an item's version counts its changes, so that two apps writing the same item never silently overwrite each other.
+description: How an item's version counts its changes, so that two apps writing the same item never silently overwrite each other, and what Marfa does when they collide.
+job: A builder learns why every write names a version and what happens when two apps write one item.
+kind: concept
 ---
 
-Many apps write to the same items, and a device may send a write it made offline hours earlier. **Marfa keeps that safe with a version on every item.** A write names the version it read, and Marfa checks what has changed since before it applies anything.
+Many apps write to the same items, and a working copy may send a write made offline hours earlier. **A version on every item keeps that safe.**
 
 ## Optimistic concurrency
 
-Marfa takes no lock when you read an item, and checks the version when you write. The `version` does the job an `ETag` and `If-Match` do in other HTTP APIs, but it travels in the request body or query, never in a header. **A write the check refuses answers `409 version_conflict`, not `412 Precondition Failed`**, and carries the item as it is now.
+A write names the version it read, and Marfa checks what changed since before it applies anything. The `version` does the job an `ETag` and `If-Match` do in other HTTP APIs, but travels in the body or query, never in a header, and **a refused write answers `409 version_conflict`, not `412 Precondition Failed`.**
+
+**By default a write can't overwrite a change it never saw;** `conflict=auto` lets the item type's merge policy settle a collision instead ([below](#let-marfa-settle-it)).
 
 ## What the version counts
 
-An item's `version` starts at 1 and goes up by one with each change to the item's own fields: its properties, its type, its tier, its `occurred_at` or its `source_id`.
+An item's `version` starts at 1 and rises by one with each change to the item's own fields: its properties, type, **tier** (the library or the feed, [Items and types](/build/items-and-types#library-and-feed)), `occurred_at` or `source_id`. **Everything else leaves it alone:** tags, extensions, edges, rows, and moves between active, archived and the bin.
 
-**Everything else leaves the version alone**: tags, extensions, edges, rows, and moves between active, archived and the bin. So a tag added in one app never makes another app's edit stale. Edges have versions of their own.
-
-A write that would leave the item exactly as it stands changes nothing: Marfa answers `200` with the item at its version and `acknowledged: true`, and sends no event. A retry of a write that already landed is safe for the same reason.
+A write that would change nothing answers `200` with `acknowledged: true` and sends no event, so retrying a landed write is safe.
 
 ## When two apps write the same item
 
-A write based on an older version isn't refused for that alone. Marfa compares the fields your write changes with the fields changed since the version you read.
+A write based on an older version isn't refused for that alone: Marfa compares the fields it changes with those changed since.
 
-- **If they don't overlap, both changes stand**, and the item moves to its next version.
-- **If they overlap**, Marfa refuses your write with `409 version_conflict`. The answer names the `conflicting_fields`, and carries the item as it is now in `current` and as you read it in `ancestor`, so you can combine the two and write again.
+- **If they don't overlap, both changes stand,** and the item moves on.
+- **If they overlap,** Marfa refuses the write with `409 version_conflict`. The answer names the `conflicting_fields` and carries the item as it is now (`current`) and as you read it (`ancestor`), so you can combine them.
 
-Say you read a note about a lease at version 1. Another app changes its title, making version 2, and a third changes its body, making version 3. If you now send a new body based on version 1, Marfa refuses it, naming `body`. Had your write changed only a property neither of them touched, Marfa would have laid it over version 3.
+You read a note at version 1, then another app changes its title and a third its body. Your new body collides on `body`.
 
 <VersionOutcome />
 
-A write can ask Marfa to settle a collision for it, with `conflict=auto`, by the merge policy of the item's type. For a note, the later title wins, and **both bodies are kept**: the note keeps the body it holds, and yours goes into a **conflicted copy**, a new note tagged `conflicted-copy` and linked to the original by a `derived-from` edge, so neither writer's text is lost. The answer's `conflict_resolution` says what was done to each field. A [device](/build/devices) sends every update with `conflict=auto`, and [Write safely](/build/write-safely) shows both ways.
+Where a write depends on a field it reads and doesn't change, send `version_match: exact`: Marfa then refuses any write whose version isn't current, with no merge. [Update items without losing changes](/build/write-safely) shows both.
 
-Some writes depend on a field they read but don't change, such as who an item is assigned to. Name `version_match: exact`, and Marfa refuses any write whose version isn't current, with no merge.
+## Let Marfa settle it
+
+A write sent with `conflict=auto` is settled by the **merge policy** of the item's type, field by field: `last_writer_wins`, or `keep_both_copies`. For a note's body, **both texts are kept:** the note keeps the body it holds, and yours goes into a **conflicted copy**, a new note with the original's tags plus `conflicted-copy`, linked to the original by a `derived-from` edge. A [working copy](/build/working-copies) sends every update this way.
 
 ## History
 
-Each time an item's version moves, Marfa keeps a **snapshot** of the item as it was. A stale write is compared against the snapshot of the version it names, and [List item versions](/reference/api/items/listItemVersions) reads them, oldest first. Each version records its **writer**: the owner's browser, an app, a key or the local command on the server's machine.
+Each time the version moves, Marfa keeps a **snapshot** of the item as it was, with the **writer** of that version: the key, app or other sign-in that sent it. [List item versions](/reference/api/items/listItemVersions) reads them.
 
-**Marfa doesn't keep every snapshot forever.** It keeps every recent one and fewer as they age. A write based on a version whose snapshot is gone can't be compared, so Marfa answers `409 ancestor_unavailable` with `current`, and the app reads the item again.
+**Marfa keeps every recent snapshot and fewer as they age:** by default every one for 30 days, then one a day, then one a week, for a year in all, and never more than the newest 500 of one item. A write based on a version whose snapshot is gone is answered `409 ancestor_unavailable` with `current`, and the app reads the item again.
 
 The rules behind this page are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md) chapter of the contract.

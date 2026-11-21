@@ -1,15 +1,14 @@
 ---
 title: Swift SDK
-description: Give an iPhone, iPad or Mac app a working copy of an instance that reads offline, queues its writes and keeps itself current.
+description: Install the Swift package, sign an app in with the owner's approval, and look up the calls only the instance answers.
+job: A Swift builder installs the package, signs an app in, and looks up the calls only the server answers.
 ---
 
-The Swift SDK is the `marfa-swift` package. **An app built on it is a [device](/build/devices)**: it keeps a working copy of part of an instance on the machine, reads it with or without a connection, and sends its writes when it reaches the server.
-
-Use it for an app that must keep working offline. A script or a server needs no working copy: use the [TypeScript SDK](/reference/typescript-sdk) or the [HTTP API](/reference/api). [Build an app with Swift](/build/swift-app) builds a SwiftUI app on the SDK, step by step.
+The Swift SDK is the `marfa-swift` package. **An app built on it is a [device](/build/working-copies)**: it keeps a working copy of part of an instance, reads it offline, and sends its writes when it reaches the server. A script or a server needs no copy: use the [TypeScript SDK](/reference/typescript-sdk). [Build an app with Swift](/build/swift-app) builds one.
 
 ## Install
 
-The SDK supports iOS 27 and macOS 27 and builds with Xcode 27 on a Mac with Apple silicon. In Xcode, choose **File** > **Add Package Dependencies**, enter `https://github.com/withmarfa/marfa-swift`, set **Dependency Rule** to **Exact Version**, and enter the version of the [latest release](https://github.com/withmarfa/marfa-swift/releases/latest). In a `Package.swift`:
+The SDK supports iOS 27 and macOS 27 and builds with Xcode 27 on a Mac with Apple silicon. Choose **File** > **Add Package Dependencies**, enter `https://github.com/withmarfa/marfa-swift`, set **Dependency Rule** to **Exact Version**, and enter the [latest release](https://github.com/withmarfa/marfa-swift/releases/latest). In a `Package.swift`:
 
 ```swift title="Package.swift"
 .package(url: "https://github.com/withmarfa/marfa-swift", exact: "<latest release>"),
@@ -17,19 +16,25 @@ The SDK supports iOS 27 and macOS 27 and builds with Xcode 27 on a Mac with Appl
 .product(name: "Marfa", package: "marfa-swift"),
 ```
 
-- **Update deliberately.** Every release adds 0.0.1, whatever it changes, and until 0.1 any release can rename a call or add an enum case. Read the [release notes](https://github.com/withmarfa/marfa-swift/releases), then change the version.
-- **The SDK's enums are exhaustive.** Switch over them without `@unknown default`, so a case a later release adds stops the build where it must be handled.
-- **Each release carries the core of one Marfa release,** already built, so the app needs no Rust toolchain. Update the SDK when you upgrade the instance.
-- **The core is built for Apple silicon only.** In the app target's build settings, set **Excluded Architectures** for **Any iOS Simulator SDK** to `x86_64`, or some simulator builds fail to link.
+- **Update deliberately.** Until 0.1 any release can rename a call or add an enum case, so read the [release notes](https://github.com/withmarfa/marfa-swift/releases) and switch over the SDK's enums without `@unknown default`.
+- **Each release carries one core,** already built, so the app needs no Rust toolchain. Its notes name the Marfa commit the core came from: update the SDK when you upgrade the instance.
+- **The core is built for Apple silicon only.** In **Build Settings**, choose **All**, then set **Excluded Architectures** to `x86_64`, or a simulator build fails to link.
 
-## A first run
+| Product | Holds |
+| --- | --- |
+| `Marfa` | The SDK. |
+| `MarfaAPI` | `Client`, for [operations the copy doesn't make](#the-api-client). |
+| `MarfaTypes` | The wire types. |
+| `MarfaTesting` | A [fake copy](/reference/swift-sdk/errors-and-testing#test-against-a-fake-copy) and an in-memory keychain. Empty in a release build: wrap it in `#if DEBUG`. |
+| `MarfaIcons`, `MarfaBrandIcons` | [Type icons](#draw-a-types-icon), and the brand marks they can name. |
 
-This signs the app in with the owner's approval, opens a working copy and fills it with the person's files. On a later launch the sign-in comes from the keychain and the copy opens with what it holds:
+## Sign in
+
+A `Server` is an address and a credential. A working copy, [`Folders`](/reference/swift-sdk/items#folders) and `Client` each take one. **`Authorization` signs an app in with the owner's approval** and keeps the sign-in in the keychain, so the app never sees the owner's password.
 
 ```swift
 import Marfa
 
-let serverURL = URL(string: "https://marfa.example.com")!
 let auth = try Authorization(
     server: serverURL,
     client: .init(
@@ -44,32 +49,113 @@ if let kept = try auth.credential() {
 } else {
     credential = try await auth.signIn(presentingFrom: window)
 }
-
 let server = try Server(url: serverURL, credential: credential)
-let store = URL.applicationSupportDirectory.appending(path: "marfa.sqlite")
-let copy = try await WorkingCopy.open(store: store, server: server)
-if try await copy.status().hydration == .never {
-    _ = try await copy.hydrate(types: ["core.file"], tier: .library)
-}
+let copy = try await WorkingCopy.open(store: storeURL, server: server)
 ```
 
-[Sign-in and server calls](/reference/swift-sdk/server-calls#sign-in) covers `Authorization`, and [Working copy](/reference/swift-sdk/working-copy) opening and filling the copy.
-
-## Products
-
-| Product | Holds |
+| Make a `Server` with | For |
 | --- | --- |
-| `Marfa` | **The SDK:** the working copy, sign-in, server calls and folders. Add it to the app target. |
-| `MarfaAPI` | `Client`, for the [operations the working copy doesn't make](/reference/swift-sdk/server-calls#the-api-client), such as registering a type. It includes `MarfaTypes`. |
-| `MarfaTypes` | The server's wire types, generated from the API description, and `marfaContractVersion`. |
-| `MarfaTesting` | A [fake working copy](/reference/swift-sdk/errors-and-testing#test-against-a-fake-copy) and a keychain and key store in memory. It compiles empty in a release build, so wrap its uses in `#if DEBUG`. |
-| `MarfaIcons` | `TypeIcon`, which [draws a type's icon](/reference/swift-sdk/server-calls#draw-a-types-icon). |
-| `MarfaBrandIcons` | The brand marks a type's icon can name. An app that doesn't add it ships none of the artwork. |
+| `Server(url:credential:)` | A sign-in from `Authorization`. Throws `SignInError.otherServer`, `.notSignedIn`, or `.notAServer` for an address holding a user or password. |
+| `Server(url:key:)` | An API key. Throws `AddressError.userInfo` for an address holding a user or password. |
+| `Server.fromEnvironment()` | `MARFA_API_URL` and `MARFA_API_KEY`, or `nil` when neither is set. **Throws `Server.EnvironmentError` when only one is set,** or when the address names no server. |
 
-## What the SDK decides
+`Server.description` never shows the key, and `plainHTTPOrigin` is set for a plain `http` address to another machine: show it as a warning. **Every request names the contract the build was made for,** and a server on another contract answers `412 contract_mismatch`, which throws `contractMismatch`.
 
-- **Marfa decides what things mean:** an item's name and preview, what a link points to, whether an edge is allowed, what a filter matches. The SDK passes on the answers of Marfa's core, so every app agrees.
-- **The SDK does what every Swift app needs:** keeping the copy in step, retrying with back-off, sorting errors into kinds, keeping keys, reading dates and drawing icons.
-- **The app decides the rest:** its screens, its words, and choices such as what to call an item with no name.
+- **`redirect` is a private-use address:** a reverse domain name you control, with a path and no host, claimed in `CFBundleURLTypes`.
+- **`scopes` are what the app asks for,** and `permissions:` adds [instance permissions](/catalog/permissions). **The owner may approve fewer:** check `credential.grants(_:)` before offering a control.
+- **A new sign-in ends the grant it replaces,** leaving one approval among the [connected apps](/use/see-and-revoke-access). Where `Credential.replacedGrantStands` is `true`, tell the person to remove the old one.
+- **The SDK reads sign-in metadata only at `/.well-known/oauth-authorization-server`,** and refuses an `issuer` or endpoint outside the instance's origin.
 
-The rules behind the SDK are in the contract's [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md), [stores](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md) and [folder sync](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-sync.md) chapters. The source is in the [marfa-swift repository](https://github.com/withmarfa/marfa-swift).
+| `Authorization` call | Does |
+| --- | --- |
+| `credential()` | The kept sign-in, or `nil`. |
+| `signIn(presentingFrom:prefersEphemeralWebBrowserSession:)`, `signIn(using:)` | The browser sign-in, from a window or SwiftUI's `webAuthenticationSession`. |
+| `startDeviceSignIn()` | A `DeviceSignIn` for a device with no browser: show its `userCode` and `verificationURL`, then wait on its `credential()`. |
+| `signOut()` | Deletes the sign-in, then revokes it. Returns `.endedAtServer`, `.nothingKept` or `.notConfirmed`. |
+
+A sign-in throws a `SignInError`: `.canceled`, `.denied` or `.expired` for the person's choice, `.stateMismatch` or `.issuerMismatch` for an approval it didn't ask for, `.notSignedIn`, `.otherServer`, `.notAServer` or `.noRedirect` for an address or keychain that can't serve it, `.refused`, `.unavailable` or `.unreadable` for the server's answer, and `.heldElsewhere` when another process held the keychain too long.
+
+Once the server ends a sign-in, calls throw `signedOut`. [Connect an app with OAuth](/build/connect-an-app) explains the flow.
+
+### Confirm it's you
+
+Some acts need a sign-in from the last fifteen minutes: restoring an archive or backup, moving the sign-in address, changing `allow_private_addresses`, and changing where files and backups go.
+
+```swift
+let server = try Server(url: serverURL, credential: credential).confirming(from: { window })
+```
+
+**A server made with `confirming(from:)` or `confirming(using:)` signs the owner in again and resends the call,** one sheet at a time. Without it, or at a second challenge, the call throws `confirmationRequired`. **A key can't make these calls** and throws `appSignInRequired`.
+
+## Calls on the server
+
+Each is sent at once, never queued, and **throws `noConnection` offline.** A `Server` waits 20 seconds in all, then throws `network`.
+
+| `Server` call | Does |
+| --- | --- |
+| `instanceDescription()` | The `name`, `version`, `instanceId`, `contract` and `features`, read without the key. |
+| `snapshots(ofItem:after:limit:)` | A page of an item's earlier versions, oldest first. |
+| `sources()`, `source(_:)`, `updateSource(_:name:mark:)` | The `ItemSource`s the key can see, and a rename. |
+| `itemCountsBySource(type:state:tier:filter:)`, `itemCounts(of:_:)` | Counts by source, and for up to 100 IDs. |
+| `setTypeIcon(_:ofType:expecting:)` | The owner's icon for a type. Needs `schema.write` and write on the type. |
+
+**Pass `expecting:` the instance ID** when a change must reach the instance the person saw: another instance throws `instanceChanged`. A history page's `next` is `nil` only at the end: a short page can have more.
+
+## The API client
+
+**`Client` from `MarfaAPI` makes the operations the working copy doesn't**, with the same `Server`. Every other operation is a method named after its operation ID. A refusal throws a `MarfaError`, so read a success from `ok`: `try await api.listAuditLog().ok.body.json`.
+
+```swift
+import MarfaAPI
+
+let api = Client(server)
+let title = Components.Schemas.FieldDefinition(_type: .string, required: true)
+let entry = Components.Schemas.TypeDefinitionInput(
+    fields: .init(additionalProperties: ["title": title]), id: "app.readinglist.entry")
+_ = try await api.check(itemType: entry)
+_ = try await api.register(itemType: entry)
+```
+
+- **Types:** `check(itemType:)`, `register(itemType:)`, `replace(itemType:with:)`, `delete(itemType:force:)`, `register(edgeType:)`, `edgeTypes()` and `delete(edgeType:force:)`.
+- **A call waits 30 seconds** for the answer to start, then throws `network`. `Client(server, timeout:)` changes it.
+- **A delete of a type something names** throws `server` with `type_in_use`.
+
+### Owner operations
+
+| Calls | Do | Needs |
+| --- | --- | --- |
+| `getConfig`, `updateConfig` | Read and change the [settings](/run/settings). `updateConfig` can name `X-Marfa-Instance-Id` in `headers:`. | `config.manage` |
+| `check(_ AddressChange)`, `apply(_:expecting:)` | Check a [change of address](/run/address), then make exactly that change. Show the check's `consequences` first. | `config.manage` |
+| `listAppGrants`, `narrowAppGrant`, `revokeAppGrant` | List, narrow or end the apps the owner approved. | `grants.manage` |
+| `restoreBackup` | [Restore a backup](/run/back-up-and-restore). | `backups.manage` |
+| `changePassword(from:to:)` | Replace the owner's password once the current one proves right. Ends every browser sign-in of the owner, keeps keys and apps. | `sign_ins.manage` |
+
+The restore and address calls need a [recent sign-in](#confirm-its-you). `changePassword(from:to:)` returns a `PasswordChangeOutcome`: `.changed`, `.currentPasswordWrong`, `.newPasswordRefused`, `.notPermitted(requiredScope:)` or `.tooManyAttempts(retryAfterSeconds:)`. **A wrong current password counts as an attempt at the owner's sign-in.** A failure with no answer to read throws a `MarfaError`, and the password may or may not have changed.
+
+### Move the items of a type
+
+A type's ID never changes, so renaming one means registering the new type, moving the items and deleting the old type. **The move is a job on the instance**, so a call that starts it returns before the items have moved.
+
+| Call | Does |
+| --- | --- |
+| `previewMove(ofType:to:properties:)` | Counts what the move would take, and writes nothing. |
+| `startMove(ofType:to:properties:)` | Starts the job, merging `properties` into each item (`null` removes one). |
+| `follow(moveJob:every:)` | Polls the job until it ends. |
+| `cancel(moveJob:)` | Stops the job. |
+
+**Check the job's `result` before deleting the old type:** `remaining` counts what is left, and `remainingHidden` says some are out of the credential's sight. A setting the move can't rewrite throws `type_move_blocked`. [Change, rename or delete a type](/build/change-a-type) has the sequence and its code.
+
+## Draw a type's icon
+
+A type's icon is an Iconify ID from one of two pinned sets, such as `lucide:book-open` or `simple-icons:github`. **`ItemType.icon` is the one the type resolves to** ([display hints](/catalog/type-definition)).
+
+```swift
+import MarfaIcons
+
+TypeIcon(type)                   // from an ItemType
+TypeIcon(id: "lucide:book-open") // from an ID
+```
+
+**Brand marks need `MarfaBrandIcons.register()`** once at launch. A `nil` or unknown ID draws a fallback. `LucideIconSet.ids` and `MarfaBrandIcons.ids` list every ID the instance accepts.
+
+The rules are in the contract's [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [stores](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md) and [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) chapters.

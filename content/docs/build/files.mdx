@@ -1,11 +1,11 @@
 ---
 title: Files
 description: How Marfa keeps a file's bytes once, however many items name them, who may read them, and how long they stay.
+job: A builder learns how a file's bytes are kept once, who may read them and how long they stay.
+kind: concept
 ---
 
-A file in Marfa comes in two parts. The bytes are a **blob**, stored once under a hash of their content. The file itself is an **item**, which names the blob by that hash and carries everything else: a title, a media type, the size of an image.
-
-Keeping them apart stores the same bytes once however many items use them, and keeps an item small enough for every device to hold.
+**A file in Marfa is two things.** The bytes are a **blob**, stored once under a hash of their content. The file itself is an **item**, which names the blob by that hash and holds everything else: a title, a media type, an image's size. The same bytes uploaded twice are stored once, and an item stays small enough for every working copy to hold.
 
 ## A blob and the item that names it
 
@@ -23,7 +23,7 @@ stored sha256:7fc0ba0d4e6818ccf1f3eae53ed1ce059625672ff5438d0ab59b12ab6e0305ef (
 
 </Terminal>
 
-A file item is an item of `core.file` or a type that inherits from it, such as `core.file.image` for a photo or `core.file.webpage` for a saved page. Its `blob_ref` is the hash, always written `sha256:` and 64 hex digits:
+A file item is an item of `core.file` or a type beneath it, such as `core.file.image` for a photo. Its `blob_ref` is the hash, always `sha256:` and 64 hex digits:
 
 ```http title="Request"
 POST /items
@@ -40,28 +40,22 @@ Content-Type: application/json
 }
 ```
 
-Marfa sets the item's `size_bytes` from the bytes it holds, so no writer has to. The same bytes uploaded again answer the same hash and are stored once, so two items can name one blob. [Handle files](/build/handle-files) walks through uploading, downloading and replacing a file, and attaching one to another item.
+Marfa sets `size_bytes` from the bytes it holds. [Upload and download files](/build/files-upload-download) walks through the rest.
 
 ## Find a file by what it says
 
-**Marfa reads the text inside files**: a PDF's pages, a document's words, a scanned receipt. It writes what it reads onto the file item as `extracted_text`, where the item holds none, and search matches it. Seconds after the upload above, a search for `oak` finds the inventory. An image also gains its `width` and `height`, and a recording its `duration`, unless the writer set them. [Replacing the bytes](/build/handle-files#replace-a-files-bytes) clears all four.
-
-The owner can turn text reading off, or OCR on images alone, in [Settings](/run/settings).
+**Marfa reads the text inside files,** such as a PDF's pages, and the text in images by OCR. It writes what it reads onto the item as `extracted_text`, and search matches it. An image also gains its `width` and `height`, and a recording its `duration`. Marfa does this for the file kinds and sizes it supports. Replacing the bytes clears a field the replacement doesn't set. The owner can turn text reading, or OCR alone, off in [Settings](/run/settings).
 
 ## Who may read a blob
 
-**Knowing a hash isn't enough** to read the bytes. A credential reads a blob through an item that names it: if you can read a file item, you can read its blob. A hash elsewhere in an item counts too, such as an image embedded in a note's Markdown body.
+**Knowing a hash isn't enough.** A credential reads a blob through an item it can read that names it: a file item, or an item with the hash in its text, such as an image in a note's body. A reference lends its read only if its writer had uploaded the bytes or could already read them, so a hash found somewhere grants nothing. A write that gives a file item a new `blob_ref` naming a hash its writer can't prove is refused `404 blob_not_found`.
 
-A reference counts only if whoever wrote it had uploaded the bytes or could already read them, so naming a hash you found somewhere gives you nothing. A file item can't name such a hash at all: the write is refused with `404 blob_not_found`. Upload the bytes with the same credential first, as [Handle files](/build/handle-files#point-an-item-at-the-bytes) shows.
+A read of a blob no readable item names is `404 blob_not_found`, the answer for a blob you may not read and for one that doesn't exist, **even one you just uploaded.** Create the item straight after uploading: a blob no item names is purged at least a day after the upload, by default. A credential holding `blobs.manage` reads every blob.
 
-A blob you may not read answers `404 blob_not_found`, as a missing one does. That holds even for a blob you uploaded, until an item names it.
-
-[Download a blob](/reference/api/blobs/downloadBlob) answers the bytes, and takes a `Range` for part of them. For a page or a player that can't send a credential, `marfa blobs url` or [Get a blob URL](/reference/api/blobs/getBlobUrl) answers a **signed link** that works without one. It lasts an hour by default, and `ttl_seconds` sets up to seven days.
+A page or player that can't send a credential uses a **signed link**: `marfa blobs url` answers one that works without a credential, for an hour by default and up to seven days.
 
 ## How long a blob stays
 
-A blob stays as long as something names it, including an item in the bin or an earlier version of an item. Once nothing does, a later [housekeeping](/run/housekeeping) run purges it, at least `blob_cleanup_grace_seconds` after it was found unnamed, a day by default, and never while a backup Marfa keeps still names it.
-
-Every instance keeps its blobs on the disk beside the server, and can keep further copies in the backup folder and an object store, as [Back up and restore](/run/back-up-and-restore#use-an-object-store) explains.
+A blob stays while something names it, including an item in the bin or an earlier version of an item. Once nothing does, a later [housekeeping](/run/check-health) run purges it, at least a day after it was found unnamed by default, and never while a backup Marfa keeps still names it. Every instance keeps its blobs on the disk beside the server, and can keep further copies, as [Back up and restore](/run/back-up-and-restore#use-an-object-store) explains.
 
 The rules behind this page are in the [blobs](https://github.com/withmarfa/marfa/blob/main/conformance/spec/blobs.md) and [stores](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md) chapters of the contract.

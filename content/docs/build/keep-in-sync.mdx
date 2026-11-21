@@ -1,17 +1,16 @@
 ---
-title: Keep a copy in sync
+title: Keep a copy in sync with the event stream
+sidebar_label: Keep a copy in sync
 description: Follow an instance's event stream from a cursor, so a copy of your data stays current and picks up where it stopped after a break.
+job: A builder follows the event stream from a cursor so their copy stays current and resumes after a break.
+kind: tutorial
 ---
 
-A search index, a cache or a report keeps its own copy of an instance's data. Read it once, then apply each change from the [event stream](/build/events) and save a cursor, so after a break you receive everything you missed and nothing twice. The [Swift SDK](/reference/swift-sdk) does this for you ([Devices](/build/devices)).
+- **You'll build** a script that keeps a copy of an instance's files current and resumes after a break.
+- **You need** Node.js 22.18 or later, a key that reads `core.file` and its subtypes ([Manage keys](/use/manage-keys)) in `MARFA_API_KEY`, and the instance's address in `MARFA_API_URL`.
+- **You'll have** a `files-copy.json` that follows every change, whatever breaks.
 
-You need your own Marfa instance, with the CLI signed in to it, as the [Quickstart](/quickstart) leaves you. This guide keeps a copy of files, so make a key that reads `core.file` and its subtypes:
-
-```bash
-marfa keys create --label "File copy" --source file-copy --type-permission "core.file.*=read"
-```
-
-Set `MARFA_API_URL` to your instance's address, such as `http://localhost:8600`, and `MARFA_API_KEY` to the key.
+A search index, a cache or a report keeps its own copy of an instance's data. Read it once, then apply each change from the [event stream](/build/events) and save a cursor, so a break loses nothing. Swift apps use a [working copy](/build/working-copies).
 
 ## What the stream sends
 
@@ -27,224 +26,163 @@ marfa events --type core.file --edges none --cursor 21
 -  stream_cursor  25
 22  item.created  01a1f126-5ad1-7029-8f69-a66a15ee406d
 23  item.trashed  01a1f124-12c1-7762-af28-52450dd463af
-24  item.updated  01a1f126-5ad1-7029-8f69-a66a15ee406d
 25  item.purged  01a1f124-12c1-7762-af28-52450dd463af
 -  stream_live  25
 ```
 
 </Terminal>
 
-Over HTTP, the [stream](/reference/api/event-stream/streamEvents) takes your cursor in the `Last-Event-ID` header and answers server-sent events. Here it is from cursor `24`, with the item cut short:
-
-```http title="Request"
-GET /events?type=core.file&edges=none
-Authorization: Bearer $MARFA_API_KEY
-Last-Event-ID: 24
-```
-
-```sse title="Response" status="200" note="Server-sent events"
-event: stream_cursor
-data: {"event_type":"stream_cursor","cursor":"25"}
-
-id: 25
-event: item.purged
-data: {"event_type":"item.purged","item":{"id":"01a1f124-12c1-7762-af28-52450dd463af","type":"core.file","state":"trashed",...},"metadata":{...}}
-
-event: stream_live
-data: {"event_type":"stream_live","cursor":"25"}
-```
-
-The stream opens with `stream_cursor`, which names the **head of the log**, the latest event, then replays every event after your cursor, sends `stream_live` once caught up, and sends each new event. Only events carry an `id:` line, so **the last `id:` you received is always a cursor you can resume from**. While the stream is quiet, Marfa sends a `:ping` comment every 30 seconds.
+Over HTTP, [the stream](/reference/api/event-stream/streamEvents) takes your cursor in `Last-Event-ID` and answers server-sent events. It opens with `stream_cursor`, the **head of the log**, replays every event after your cursor, sends `stream_live` once caught up, then each new one. **The last `id:` you received is always a cursor you can resume from.**
 
 ## Build the sync
 
-`sync.ts` keeps a copy of every file item in a JSON file.
-
-<Steps>
-<Step>
-
-### Read the frames
-
-A browser `EventSource` can't send an `Authorization` header, and the [TypeScript SDK](/reference/typescript-sdk) doesn't read streams, so read the stream with `fetch`:
+A browser `EventSource` can't send an `Authorization` header and the [TypeScript SDK](/reference/typescript-sdk) doesn't read streams, so read it with `fetch`, taking each frame as it arrives: Marfa closes a reader that takes nothing for 30 seconds. A refusal keeps its status and its `Retry-After`, which the loop at the end reads:
 
 ```ts title="sync.ts"
-import { readFile, writeFile } from "node:fs/promises";
-import { createClient, pages, type components } from "@withmarfa/client";
-
 const baseUrl = process.env.MARFA_API_URL!;
 const credential = process.env.MARFA_API_KEY!;
-const marfa = createClient({ baseUrl, credential });
 
-type Frame = { id?: string; event: string; data: string };
-
-async function* readFrames(body: ReadableStream<Uint8Array<ArrayBuffer>>): AsyncGenerator<Frame> {
-  let buffer = "";
-  for await (const text of body.pipeThrough(new TextDecoderStream())) {
-    buffer += text;
-    const blocks = buffer.split("\n\n");
-    buffer = blocks.pop() ?? "";
-    for (const block of blocks) {
-      const frame: Frame = { event: "message", data: "" };
-      for (const line of block.split("\n")) {
-        if (line.startsWith(":")) continue; // a comment, such as the ping
-        const colon = line.indexOf(":");
-        const field = colon === -1 ? line : line.slice(0, colon);
-        const value = colon === -1 ? "" : line.slice(colon + 1).replace(/^ /, "");
-        if (field === "id") frame.id = value;
-        else if (field === "event") frame.event = value;
-        else if (field === "data") frame.data += (frame.data ? "\n" : "") + value;
-      }
-      if (frame.data !== "") yield frame;
-    }
-  }
-}
-
-async function open(cursor?: string): Promise<ReadableStream<Uint8Array<ArrayBuffer>>> {
-  const response = await fetch(`${baseUrl}/events?type=core.file&edges=none`, {
-    headers: {
-      Authorization: `Bearer ${credential}`,
-      ...(cursor === undefined ? {} : { "Last-Event-ID": cursor }),
-    },
-  });
-  if (!response.ok || response.body === null) {
-    throw new Error(`The stream answered ${response.status}`);
-  }
-  return response.body;
+function refusal(what: string, response: Response) {
+  const retryAfter = Number(response.headers.get("Retry-After")) || undefined;
+  return Object.assign(new Error(`${what} answered ${response.status}`), { status: response.status, retryAfter });
 }
 ```
 
-Take each frame as it arrives: Marfa closes a reader that takes nothing for 30 seconds while a frame waits.
-
-</Step>
-<Step>
-
-### Keep the copy and its cursor together
-
-Save the cursor **in the same place as the copy, in step with what you apply**: here, one file written after each event. An item event carries the item as it stands after the change, so `apply` replaces what the copy holds, or removes it for `item.purged`; `item.trashed` keeps it, in the bin. `metadata.changed` carries the item too.
+`frames` yields each frame of the stream:
 
 ```ts title="sync.ts"
-type Item = components["schemas"]["Item"];
-type Copy = { cursor?: string; files: Record<string, Item> };
-const file = "files-copy.json";
-let copy: Copy = await readFile(file, "utf8").then(JSON.parse, () => ({ files: {} }));
-
-function apply(event: { event_type: string; item: Item }) {
-  if (event.event_type === "item.purged") delete copy.files[event.item.id];
-  else if (event.event_type.startsWith("item.") || event.event_type === "metadata.changed") {
-    copy.files[event.item.id] = event.item;
+async function* frames(cursor?: string, signal?: AbortSignal) {
+  const response = await fetch(`${baseUrl}/events?type=core.file&edges=none`, {
+    headers: { Authorization: `Bearer ${credential}`, ...(cursor && { "Last-Event-ID": cursor }) },
+    signal,
+  });
+  if (!response.ok || !response.body) throw refusal("The stream", response);
+  let buffer = "";
+  for await (const text of response.body.pipeThrough(new TextDecoderStream())) {
+    const blocks = (buffer + text).split("\n\n");
+    buffer = blocks.pop() ?? "";
+    for (const block of blocks) {
+      const frame = { id: "", event: "message", data: "" };
+      for (const line of block.split("\n")) {
+        const [, field, value] = /^([^:]+):\s?(.*)$/.exec(line) ?? [];
+        if (field === "id" || field === "event" || field === "data") frame[field] = value;
+      }
+      if (frame.data) yield frame;
+    }
   }
+}
+```
+
+**Save the cursor in the same place as the copy, in step with what you apply.** Every item event, and `metadata.changed`, carries the item as it stands after the change and its `metadata`, the tags and extensions the key may read. So `apply` replaces both together, or removes them for `item.purged`. `item.trashed` keeps the item, in the bin:
+
+```ts title="sync.ts"
+import { readFile, rename, writeFile } from "node:fs/promises";
+import { createClient, pages, type components } from "@withmarfa/client";
+
+const marfa = createClient({ baseUrl, credential });
+type Entry = { item: components["schemas"]["Item"]; metadata: unknown };
+let copy: { cursor?: string; files: Record<string, Entry> } =
+  await readFile("files-copy.json", "utf8").then(JSON.parse, () => ({ files: {} }));
+
+function apply(files: typeof copy.files, event: { event_type: string } & Entry) {
+  if (event.event_type === "item.purged") delete files[event.item.id];
+  else files[event.item.id] = { item: event.item, metadata: event.metadata };
 }
 
 async function saveCursor(cursor: string) {
   copy.cursor = cursor;
-  await writeFile(file, JSON.stringify(copy));
+  await writeFile("files-copy.tmp", JSON.stringify(copy));
+  await rename("files-copy.tmp", "files-copy.json"); // a crash never leaves half a file
 }
 ```
 
-`apply` passes over `rows.changed`, which names its item only by `id`, `type` and `source` ([Tables](/build/tables)).
-
-</Step>
-<Step>
-
-### Follow the stream
-
-`follow` applies each event, saves its ID, and returns the frame that ended the stream, or `closed`:
+`follow` applies each event, saves its ID, and returns the frame that ended the stream. It saves the `cursor` of `stream_live` too: on a narrow stream the last event can be far behind the head. When its `signal` ends the stream on purpose, it returns `reconcile`:
 
 ```ts title="sync.ts"
-async function follow(cursor: string): Promise<string> {
-  for await (const frame of readFrames(await open(cursor))) {
-    const data = JSON.parse(frame.data);
-    switch (frame.event) {
-      case "stream_cursor":
-        break;
-      case "stream_live":
-        await saveCursor(data.cursor);
-        break;
-      case "stream_incomplete":
-      case "catchup_too_old":
-      case "cursor_ahead":
-        return frame.event;
-      default:
-        apply(data);
-        await saveCursor(frame.id!);
+async function follow(cursor: string, signal: AbortSignal): Promise<string> {
+  try {
+    for await (const frame of frames(cursor, signal)) {
+      const data = JSON.parse(frame.data);
+      if (frame.event === "stream_cursor") continue;
+      if (frame.event === "stream_live") await saveCursor(data.cursor);
+      else if (["stream_incomplete", "catchup_too_old", "cursor_ahead"].includes(frame.event)) return frame.event;
+      else {
+        apply(copy.files, data);
+        await saveCursor(frame.id);
+      }
     }
+  } catch (error) {
+    if (!signal.aborted) throw error;
+    return "reconcile";
   }
   return "closed";
 }
 ```
 
-It saves the `cursor` of `stream_live` too, because on a narrow stream the last event can be far behind the head. Marfa sends each event after your cursor exactly once, even across a server restart.
-
-</Step>
-<Step>
-
-### Start from the head of the log
-
-`rebuild` takes the head from the first frame, lists every file in every state, then saves the head as the cursor, so every change made while it lists waits in the log. The listing and the stream ask for the same items, so the copy holds exactly what the stream keeps current.
+`rebuild` takes the head of the log from the first frame and **refuses to go on without it**: with no cursor to resume from, a new stream sends only what is written from then on, and the changes between would be lost. It lists every file in every state with its metadata into a new copy, then saves the head as the cursor, so changes made meanwhile wait in the log. A failed listing leaves the old copy as it was:
 
 ```ts title="sync.ts"
 async function rebuild(): Promise<string> {
-  let head: string | undefined;
-  for await (const frame of readFrames(await open())) {
+  let head = "";
+  for await (const frame of frames()) {
     if (frame.event === "stream_cursor") head = JSON.parse(frame.data).cursor;
-    break; // closes the stream
+    break; // the first frame names the head, and breaking closes the stream
   }
-  if (head === undefined) throw new Error("The stream didn't name the head of the log");
-  copy = { files: {} };
-  const files = pages(async (cursor) => {
-    const { data, error } = await marfa.GET("/items", {
-      params: { query: { type: "core.file", state: "any", cursor } },
+  if (!head) throw new Error("The stream didn't name the head of the log");
+  const files: typeof copy.files = {};
+  const listing = pages(async (cursor) => {
+    const { data, error, response } = await marfa.GET("/items", {
+      params: { query: { type: "core.file", state: "any", include: "metadata", cursor } },
     });
-    if (error) throw new Error(error.error.message);
+    if (error) throw refusal("The listing", response);
     return data;
   });
-  for await (const item of files) apply({ event_type: "item.created", item: item as Item });
+  for await (const row of listing) apply(files, { event_type: "item.created", ...(row as Entry) });
+  copy = { files };
   await saveCursor(head);
   return head;
 }
 ```
 
-When Marfa can't read the head, the first frame is `stream_incomplete` with the reason `read_failed`, and `rebuild` throws.
-
-</Step>
-<Step>
-
-### Run it
-
-The loop resumes from the saved cursor after a break, and rebuilds when the cursor can't be used:
+The loop resumes from the saved cursor after a break and rebuilds when the cursor can't be used. A refusal that a retry can't change stops it; `429` waits as long as `Retry-After` says, and a network fault waits five seconds. Once a day it ends the stream and rebuilds, because **a file retyped out of `core.file` is never announced on this stream**, and a key that reads only files wouldn't hear of it on any. The rebuild drops it:
 
 ```ts title="sync.ts"
-let cursor = copy.cursor; // undefined on the first run
+const reconcileEvery = 24 * 60 * 60 * 1000;
+let cursor = copy.cursor;
 for (;;) {
-  cursor ??= await rebuild();
-  const ended = await follow(cursor);
-  cursor = ended === "catchup_too_old" || ended === "cursor_ahead" ? undefined : copy.cursor;
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  let wait = 1000;
+  try {
+    cursor ??= await rebuild();
+    const ended = await follow(cursor, AbortSignal.timeout(reconcileEvery));
+    cursor = ["catchup_too_old", "cursor_ahead", "reconcile"].includes(ended) ? undefined : copy.cursor;
+  } catch (error) {
+    const { status = 0, retryAfter } = error as { status?: number; retryAfter?: number };
+    if (status >= 400 && status < 500 && status !== 429) throw error; // a fault in the key or request
+    wait = retryAfter ? retryAfter * 1000 : 5000;
+    cursor = copy.cursor; // resume from what the copy holds; none rebuilds
+    console.error(`${error}; trying again in ${wait / 1000}s`);
+  }
+  await new Promise((resolve) => setTimeout(resolve, wait));
 }
 ```
 
-Run it as an ES module. Add a file with `marfa items add`, move it to the bin, and `files-copy.json` follows each change.
-
-</Step>
-</Steps>
+Run it as a module and add a file with `marfa items add`: the copy follows. Stop the server and start it again: the loop reports the fault, waits and resumes from the saved cursor.
 
 ## When the stream ends
 
 | You see | It means | What to do |
 | --- | --- | --- |
-| The connection closes with no frame | A network fault, or your reader took nothing for 30 seconds. | Wait a moment, then resume from your saved cursor. |
-| `stream_incomplete` | The stream couldn't go on, for its `reason`: `server_stopping`, `read_failed` or `credential_ended`. | Resume from your saved cursor; for `credential_ended`, with a valid key. |
-| `catchup_too_old` | The log no longer holds the events after your cursor. It keeps them 30 days by default (`event_log_retention_days`). | Rebuild from the head of the log. |
-| `cursor_ahead` | Your cursor is past the log's head, as after a restore from a backup. | Discard the cursor and rebuild from the head of the log. |
+| The connection closes with no frame | A network fault, or your reader took nothing for 30 seconds. | Resume from your saved cursor. |
+| `stream_incomplete` | The stream couldn't go on, for its `reason`. | Resume from your cursor; for `credential_ended`, with a valid key. |
+| `catchup_too_old` | The log no longer holds the events after your cursor (30 days by default). | Rebuild from the head of the log. |
+| `cursor_ahead` | Your cursor is past the head, as after a restore from a backup. | Discard the cursor and rebuild. |
 
-`marfa events` exits `1` for `cursor_ahead` and `catchup_too_old`, `3` for a `stream_incomplete` a new stream can mend, and `5` for `credential_ended` ([Exit codes](/reference/cli#exit-codes)).
+A refusal before the stream opens is a fault in the key or request, except `429 rate_limited`, which names the seconds to wait in `Retry-After`, and `503 stream_capacity_exhausted`, which asks you to try later.
 
-If the stream is refused before it opens, `open` throws. After `429 rate_limited`, wait the seconds `Retry-After` names. After `503 stream_capacity_exhausted`, the instance is serving all the streams it allows: try again later. Any other refusal, such as `403 type_not_permitted` or `400 validation_error` for a cursor the log didn't write, is a fault in the key or the request to fix, not retry. [Stream change events](/reference/api/event-stream/streamEvents) lists every answer.
+## Narrow the stream, or catch up by listing
 
-## Narrow the stream
+`type` takes up to ten types or patterns, each with its subtypes, and a cursor works under any filter. Edge events come whatever `type` says, so `sync.ts` sends `edges=none`.
 
-`type` takes up to ten types or patterns, such as `app.*`, each with its subtypes: repeat `--type` in the CLI, or separate them with commas over HTTP. Edge events come whatever `type` says, so `sync.ts` sends `edges=none`. A stream that names a `type` never carries `attention.raised`.
+To catch up without the stream, [list items](/reference/api/items/listItems) with `updated_after`, or `--updated-after` in the CLI, set to the latest `updated_at` you hold. **Add `state=any`** (`--state any`), since a listing answers only active items, and `include=metadata`. The bound includes items changed at that instant, so **replace each item you hold by its `id`**: two changes to one item can share an instant, and skipping it would lose the second. A listing can't report a purged item, or one retyped out of your types; the stream can report a purge.
 
-A cursor works under any filter, so you can change filters between connections.
-
-The rules behind this guide are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) chapter of the contract.
+The rules are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) chapter of the contract.

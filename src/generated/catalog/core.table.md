@@ -8,10 +8,10 @@
 
 ## Settings
 
-| Setting                                            | Value                              |
-| -------------------------------------------------- | ---------------------------------- |
-| `plural`                                           | Tables                             |
-| [`title_field`](/catalog/type-rules#display-hints) | `title`                            |
-| [`body_field`](/catalog/type-rules#display-hints)  | `description`                      |
-| [`icon`](/catalog/type-rules#display-hints)        | `lucide:table`                     |
-| [`merge_policy`](/catalog/type-rules#merge-policy) | `last_writer_wins` for every field |
+| Setting                                                 | Value                              |
+| ------------------------------------------------------- | ---------------------------------- |
+| `plural`                                                | Tables                             |
+| [`title_field`](/catalog/type-definition#display-hints) | `title`                            |
+| [`body_field`](/catalog/type-definition#display-hints)  | `description`                      |
+| [`icon`](/catalog/type-definition#display-hints)        | `lucide:table`                     |
+| [`merge_policy`](/catalog/type-definition#merge-policy) | `last_writer_wins` for every field |

@@ -1,0 +1,104 @@
+---
+title: Manage keys for scripts and agents
+sidebar_label: Manage keys
+description: Give a script, agent or service a key that reaches only what it needs, then narrow, expire, rotate or revoke it.
+job: Someone gives a script, agent or service a key that reaches only what it needs, then narrows, expires, rotates or revokes it.
+kind: how-to
+---
+
+A key is the credential for a script, an agent that runs on its own or a service. **It reaches only what you made it with:** a photo import gets images and nothing else. A program that people sign in to asks you to approve it instead, as [Connect your agent](/connect-your-agent#approve-what-it-may-reach) shows.
+
+You need the `marfa` CLI signed in with **Full access**, as the [Quickstart](/quickstart) sets it up. [Access](/build/access) explains the maps and permissions a key holds.
+
+## Make a key
+
+This key reads and writes images and nothing else:
+
+<Terminal>
+
+```bash
+marfa keys create --label "Photo import" --source photo-import --type-permission core.file.image=write
+```
+
+```text
+marfa_k1_…
+key 01a1fc38-bdf1-7519-a7dc-01f465cd925e (Photo import); the plaintext is shown once, keep it now
+  core.file.image  Read and edit
+```
+
+</Terminal>
+
+<Callout type="warn" title="Copy the key now">The key, which begins `marfa_k1_`, appears once. If you lose it, make a new one.</Callout>
+
+`--label` and `--source` are required. **Name what the key holds.** A key made with none of `--type-permission`, `--permission` or `--edge-permission` takes everything the sign-in that made it holds, which for the CLI with Full access is everything on your instance.
+
+The key's **default source** stamps every item it creates, so you can tell its work from yours, and it can't change later. **One live key holds a source:** a second key naming it is refused, as is a bookmark from the photo key. [Fix a refused key or sign-in](/run/troubleshooting/credentials-and-access#403-type_not_permitted) shows both.
+
+## Give a key a limited life
+
+Add `--expires-in 7d` to `keys create`, or a time with `--expires-at`. **Once the time passes, the key is gone:** a request with it is refused `401 unauthorized`, it leaves `marfa keys list`, and its source is free for a new key. Any key it makes ends no later than it does.
+
+## Narrow a key
+
+`marfa keys list` shows each key's access, its last use and when it ends. Name the part to change, which replaces that part and leaves the rest. This makes the photo key read-only for 30 days:
+
+<Terminal>
+
+```bash
+marfa keys update 01a1fc38-bdf1-7519-a7dc-01f465cd925e --type-permission core.file.image=read --expires-in 30d
+```
+
+```text
+01a1fc38-bdf1-7519-a7dc-01f465cd925e  Photo import  tier library  expires 2026-12-21T03:49:02.000Z
+  core.file.image  Read only
+```
+
+</Terminal>
+
+**A key an app made can only be narrowed:** to give it more, make a new key. A key you made from the CLI with Full access can also be widened with `marfa keys update`, but never past what that sign-in holds.
+
+## Replace or revoke a key
+
+**Revoke a key that may have leaked before you make its replacement:**
+
+<Terminal>
+
+```bash
+marfa keys revoke 01a1fc38-bdf1-7519-a7dc-01f465cd925e
+```
+
+```text
+revoked key 01a1fc38-bdf1-7519-a7dc-01f465cd925e
+```
+
+</Terminal>
+
+Its next request is refused, and what it wrote stays. A key it made keeps working: find those with `marfa audit --action key.create --query <key-id>` and revoke them too.
+
+For a planned change, make the new key first with the same access and its own `--source`, switch the script, check that `marfa keys list` shows the old key unused, then revoke it. Items the old key wrote keep the old source.
+
+## Give a key to a program
+
+### A key for a connector
+
+**A connector needs an owner's key,** one that no change to an app's access ends. A key made from the CLI signed in with Full access is one. Each connector's [Catalog page](/catalog/connectors) gives the command, and [Connect a service](/use/connect-a-service#make-its-key) walks through one.
+
+### A key for a folder watch
+
+A watch that starts at login reads its key from the keychain. Where nobody signs in to unlock it, give it a key file that only you can read, kept outside every folder you sync.
+
+```bash title="marfa-watch.env"
+MARFA_API_URL=https://marfa.example.com
+MARFA_API_KEY=marfa_k1_…
+```
+
+```bash
+chmod 600 ~/.config/marfa-watch.env
+marfa folders autostart on --key-file ~/.config/marfa-watch.env
+```
+
+**Make the key reach only what the folders carry:** each synced type as `--type-permission` (`write` for two-way sync), plus `--type-permission system.folder=read` and `--edge-permission in-folder=write`. Links and attachments need their own grants. `system.folder=write` is only for changing a folder's settings, such as [holding it beneath a file](/use/sync-a-folder#hold-one-project).
+
+### A key for a script or an agent
+
+Set `MARFA_NO_KEYCHAIN=1`, pass the key in `MARFA_API_KEY` from a secrets manager and the address in `MARFA_API_URL`. [Work from an agent](/use/from-an-agent#an-agent-that-runs-on-its-own) shows an agent's setup.

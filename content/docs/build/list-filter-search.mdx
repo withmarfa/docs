@@ -1,16 +1,19 @@
 ---
-title: List, filter and search
-description: Read the items you need from an instance, a page at a time, narrowed by type, tags and properties, or found by the words they hold.
+title: List, filter and search items
+sidebar_label: List, filter and search
+description: Read the items you need a page at a time, narrowed by type, tags and properties, found by the words they hold, or looked up by title.
+job: A builder finds the items an app needs among those a credential can read.
+kind: how-to
 ---
 
-An app reads most of what it shows as a listing, which holds only what its credential can read. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/reference/typescript-sdk#create-a-client) shows. Three jobs have guides of their own: [save a view](/build/save-a-view), [read a calendar](/build/read-a-calendar) and [look up items by title](/build/look-up-items-by-title).
+A listing holds only what its credential can read. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/reference/typescript-sdk#create-a-client) shows.
 
 ## List a page at a time
 
-[List items](/reference/api/items/listItems) answers one page: 50 items, or up to 500 if you ask. This lists the files tagged `home`, 20 at a time:
+[List items](/reference/api/items/listItems) answers 50 items, or up to 500 if you ask. This lists the files tagged `home`, 20 at a time:
 
 ```bash tab="CLI" tab-group="client"
-marfa items list --type core.file --tag home --limit 20
+marfa items list --type core.file --tag home --limit 20 --all
 ```
 
 ```http tab="HTTP"
@@ -19,115 +22,72 @@ Authorization: Bearer <key>
 ```
 
 ```ts tab="TypeScript"
-const { data } = await marfa.GET("/items", {
-  params: { query: { type: "core.file", tags: "home", limit: 20 } },
-});
-```
-
-The answer holds the page in `data` and a cursor in `next_cursor`. Send `next_cursor` back as `cursor`, with the same query, for the next page.
-
-**Stop only when `next_cursor` is `null`**: a page can be short, even empty, with more after it. A search and a view's items page the same way. The CLI's `--all` follows the cursor for you, and in TypeScript, `pages` does:
-
-```ts
 import { pages } from "@withmarfa/client";
 
-const photos = pages(async (cursor) => {
+const files = pages(async (cursor) => {
   const { data, error } = await marfa.GET("/items", {
-    params: { query: { type: "core.file.image", cursor } },
+    params: { query: { type: "core.file", tags: "home", limit: 20, cursor } },
   });
   if (error) throw new Error(error.error.message);
   return data;
 });
-
-for await (const entry of photos) {
-  const photo = "item" in entry ? entry.item : entry;
-  console.log(photo.properties.title);
-}
+for await (const file of files) console.log(file);
 ```
+
+The answer holds the page in `data` and a cursor in `next_cursor`. Send `next_cursor` back as `cursor`, with the same query, for the next page.
+
+**Stop only when `next_cursor` is `null`**: a page can be short, even empty, with more after it. `--all` and `pages` follow the cursor for you. A search and a view's items page the same way.
 
 ## Narrow a listing
 
-With no parameters, a listing holds the **active items** of every type you can read, in both tiers. These narrow it, in any combination:
+With no parameters, a listing holds the **active items** of every type you can read, in both tiers, newest first by `created_at`. These narrow it, in any combination:
 
 | Parameter | Keeps |
 | --- | --- |
 | `type` | Up to 10 types, each with every type beneath it. A pattern such as `core.*` matches every type under the prefix. |
-| `tags` | Items that carry every tag named: `tags=home,outdoor` needs both. |
+| `tags` | Items that carry every tag named. |
 | `state` | One or more states, such as `active` and `archived`, or `any` on its own. |
 | `tier` | `library` or `feed` items. |
 | `source` | Items one writer created. |
-| `occurred_after`, `occurred_before` | Items whose `occurred_at`, or `created_at` for an item without one, falls strictly between two times. An item exactly on a bound is left out. |
-| `backref[<edge type>]` | The items a given item points to by that edge: `backref[parent-of]=<id>` lists a task's subtasks. |
-| `beneath` | An item and everything under it by `parent-of`. Needs read on `parent-of`. |
+| `occurred_after`, `occurred_before` | Items whose `occurred_at`, or `created_at` without one, falls strictly between two times. |
+| `backref[<edge type>]` | The items a given item points to by that edge: `backref[parent-of]=<id>` lists an item's children. |
+| `beneath` | An item and everything under it by `parent-of`. |
 
-A parameter with several values takes a comma-separated list over HTTP, as in `type=core.file,core.note`. In the CLI, repeat the option, as in `--type core.file --type core.note`.
-
-`include=metadata` adds each item's tags and extensions, so each entry becomes `{ item, metadata }`, and `include=edges` adds its edges.
+Over HTTP a parameter with several values takes a comma-separated list. In the CLI, repeat the option. `include=metadata` adds each item's tags and extensions, and `include=edges` its edges. **`sort`** orders by `created_at`, `updated_at`, `occurred_at`, `last_activity_at` or `properties.<name>`, with `direction` as `asc` or `desc`, and items that lack a sorted property come last either way.
 
 ## Filter by properties
 
-A `filter` narrows by the values items hold: one or more conditions of the form `<field> <operator> <value>`, **joined by `AND` or by `OR`, not both**. A property is `properties.<name>`. This finds the high-priority tasks tagged `home`:
+A `filter` is one or more conditions of the form `<field> <operator> <value>`, **joined by `AND` or by `OR`, not both**. A property is `properties.<name>`. This finds the images tagged `home`:
 
 ```bash tab="CLI" tab-group="client"
-marfa items list --type core.task \
-  --filter 'properties.priority eq "high" AND tags contains "home"'
+marfa items list --type core.file \
+  --filter 'properties.mime_type starts_with "image/" AND tags contains "home"'
 ```
 
-```bash tab="HTTP"
-curl -G "$MARFA_API_URL/items" -H "Authorization: Bearer $MARFA_API_KEY" \
-  --data-urlencode "type=core.task" \
-  --data-urlencode 'filter=properties.priority eq "high" AND tags contains "home"'
+```http tab="HTTP"
+GET /items?type=core.file&filter=properties.mime_type%20starts_with%20%22image%2F%22%20AND%20tags%20contains%20%22home%22
+Authorization: Bearer <key>
 ```
 
 ```ts tab="TypeScript"
 const { data } = await marfa.GET("/items", {
   params: {
     query: {
-      type: "core.task",
-      filter: 'properties.priority eq "high" AND tags contains "home"',
+      type: "core.file",
+      filter: 'properties.mime_type starts_with "image/" AND tags contains "home"',
     },
   },
 });
 ```
 
-The operators are `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `starts_with`, `exists` and `not_exists`. Strings go in double quotes, with `\"` for a double quote and `\\` for a backslash inside one. For a property that is missing or `null`, use `not_exists`: Marfa refuses a comparison with `null`.
+The operators are `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `starts_with`, `exists` and `not_exists`. Strings take double quotes. For a property that is missing or `null`, use `not_exists`: Marfa refuses a comparison with `null`. Four fields reach further:
 
-Four fields reach further:
+- **`status_group`** tests the group of an item's [status word](/catalog/field-kinds): `not_started`, `in_progress`, `completed` or `canceled`.
+- **`edge[<edge type>]`** finds the items with that edge to a given item, such as a collection's members.
+- **`properties.<field>.<member>`** matches any entry of a list, with `eq` only.
+- **`part`** tests whether an item is a [part](/build/edges) of another, such as an attached file.
 
-- **`status_group`** tests the group of an item's [status word](/catalog/field-kinds), so `status_group eq "completed"` finds the tasks done and the books finished. It takes `not_started`, `in_progress`, `completed` or `canceled`.
-- **`edge[<edge type>]`** finds the items with that edge to a given item: `edge[in-collection] eq "<collection id>"` lists a collection's members.
-- **`properties.<field>.<member>`** matches any entry of a list, with `eq` only, such as `properties.emails.value eq "priya@example.com"`.
-- **`part`** tests whether an item is a [part](/build/edges) of another, such as an attached file: `part eq false` leaves parts out.
-
-A filter holds at most 10 conditions in 2,048 characters, and works the same in a [saved view](/build/save-a-view), a search and a working copy. The [search and filters](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md) chapter of the contract has the whole grammar.
-
-## Sort
-
-A listing comes **newest first**, by `created_at`. `sort` orders it by `created_at`, `updated_at`, `occurred_at`, `last_activity_at` (the last time the item or one of its rows changed), or `properties.<name>`, and `direction` takes `asc` or `desc`. Items that lack a sorted property come last either way.
-
-```bash tab="CLI" tab-group="client"
-marfa items list --type core.task --sort properties.due_at --direction asc
-```
-
-```http tab="HTTP"
-GET /items?type=core.task&sort=properties.due_at&direction=asc
-Authorization: Bearer <key>
-```
-
-## Find what changed
-
-To catch up, list with `updated_after` set to the latest `updated_at` you hold:
-
-```bash tab="CLI" tab-group="client"
-marfa items list --updated-after 2026-11-19T00:11:32.554Z
-```
-
-```http tab="HTTP"
-GET /items?updated_after=2026-11-19T00:11:32.554Z
-Authorization: Bearer <key>
-```
-
-The bound includes items changed at that instant, so **skip the ones you already hold by `id`**. This listing is always oldest change first, `sort=updated_at` with `direction=asc`, and refuses any other `sort` or `direction`. A listing can't report a purged item; the event stream can, as [Keep a copy in sync](/build/keep-in-sync) shows.
+A filter holds at most 10 conditions in 2,048 characters, and works the same in a [saved view](/build/views) and a [working copy](/build/write-in-a-working-copy). The [search and filters](https://github.com/withmarfa/marfa/blob/main/conformance/spec/search-and-filters.md) chapter of the contract has the grammar. Marfa refuses a query it can't answer exactly, so a typo can't return everything: [Errors](/reference/errors) lists each refusal.
 
 ## Search
 
@@ -148,15 +108,37 @@ const { data } = await marfa.GET("/search", {
 });
 ```
 
-Each entry holds the `item`, its `metadata`, a `relevance_score` and a `snippet_html`, such as `Service the <mark>boiler</mark>`. The snippet escapes the item's text and marks each match, so **it's safe to show as HTML**.
+Each entry holds the `item`, its `metadata`, a `relevance_score` and a `snippet_html`, such as `Service the <mark>boiler</mark>`, which escapes the item's text and **is safe to show as HTML**.
 
-**Every word** in `q` must match, in any order, in the item's [searched fields](/catalog/items#searched-fields) or its tags. Words match by their stem, and the last word matches as a prefix, so `servic boi` finds results as someone types. Double quotes match a phrase. A search answers 20 entries, or up to 100 if you ask, and never matches an item in the bin.
+**Every word** in `q` must match, in any order, in the item's [searched fields](/catalog/items#searched-fields) or its tags. Words match by stem, the last word matches as a prefix, and double quotes match a phrase. A search answers 20 entries, or up to 100, never matches an item in the bin, and takes a listing's narrowing parameters and `filter`, except `beneath` and `backref[]`.
 
-A search takes a listing's narrowing parameters and `filter`, except `beneath` and `backref[]`, which it refuses with `400 validation_error`; an `edge[]` term in `filter` still works. `sort` orders it by `relevance`, the default, or by any field a listing sorts by. In the CLI, a field's underscores become hyphens, as in `--sort updated-at`.
+## Look up items by title
+
+[Find items by title](/reference/api/items/findItemsByTitle) turns up to 200 names a person typed, such as the target of `[[Reading list]]`, into items, and answers one entry for each name, in order:
+
+```bash tab="CLI" tab-group="client"
+marfa items titles "Reading list" Plans
+```
+
+```http tab="HTTP"
+POST /items/titles
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "names": ["Reading list", "Plans"] }
+```
+
+```ts tab="TypeScript"
+const { data } = await marfa.POST("/items/titles", {
+  body: { names: ["Reading list", "Plans"] },
+});
+```
+
+A name that titles nothing gets no `items`, and one that titles several gets them all, so the person can choose. **The whole title must match**, ignoring case and blank characters at either end. Only items the credential can list count, in the bin or not. A name that matches more than 20 items answers the first 20 with `more` set to `true`, so treat it as naming no one item.
 
 ## Count items
 
-[Get item counts](/reference/api/items/getItemStats) counts the items a listing would match, by state, or by type or [source](/build/items-and-types) with `by`:
+[Get item counts](/reference/api/items/getItemStats) counts what a listing would match, by state, or by type or source with `by`. It **counts every state unless you name one**, the bin included, in the CLI too: only HTTP takes `state` to name one.
 
 <Terminal>
 
@@ -168,35 +150,8 @@ marfa items stats --by type
 core.bookmark      1
 core.media.book    3
 core.note          7
-core.task          4
 ```
 
 </Terminal>
 
-Over HTTP, a count takes a listing's narrowing parameters, and **counts every state unless you name one**, the bin included.
-
-To count what sits under each of up to 100 items by an edge type, such as the members of each collection, use [Count item links](/reference/api/items/countItemLinks). Each count gives a `total`, and in `status_groups` the number in each status group:
-
-```bash tab="CLI" tab-group="client"
-marfa items counts --edge in-collection <collection-id>
-```
-
-```http tab="HTTP"
-POST /items/counts
-Authorization: Bearer <key>
-Content-Type: application/json
-
-{ "ids": ["<collection-id>"], "edge": "in-collection" }
-```
-
-## When a query is refused
-
-Marfa refuses a query it can't answer exactly, rather than answer a different one, with `400 validation_error` unless noted:
-
-- **A parameter the operation doesn't take**, such as `tag` for `tags`, is listed in `details.unknown_parameters`. Marfa ignores a parameter that starts with `_`, so use that prefix for your own.
-- **A parameter sent empty**, such as `type=`, is listed in `details.empty_parameters`, so an unset variable doesn't read everything.
-- **More than 10 types, or `any` beside another state.**
-- **A filter that doesn't parse**, mixes `AND` and `OR`, or compares with `null`. The message names the fault and, for an unknown field, the fields you can use.
-- **A cursor sent with another `sort`, `direction` or bound** than the query that gave it.
-- **A `type` nothing registers** answers `400 unknown_type`.
-- **A `type` you can't read** answers `403 type_not_permitted`, and `details.grant` names the type and level.
+[Count item links](/reference/api/items/countItemLinks) counts what sits under each of up to 100 items by an edge type, such as the members of each collection.

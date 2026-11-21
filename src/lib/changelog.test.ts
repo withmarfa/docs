@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { remarkStructure } from 'fumadocs-core/mdx-plugins';
 import { createSearchAPI } from 'fumadocs-core/search/server';
 import { tokenizeSearchText } from './docs-tools';
-import { changelogMarkdown, formatDate, headingId, parseInline, parseNotes, partsOf, releaseRows, releaseToc, remarkChangelogIndex, type Release } from './changelog';
+import { changelogMarkdown, formatDate, headingId, parseInline, parseNotes, partsOf, releaseRows, releaseToc, remarkChangelogIndex, unlinkMissingPages, type Release } from './changelog';
+import { getLLMText, source } from './source';
 
 const NOTES = `Marfa now keeps a task's repeats on the server.
 
@@ -204,5 +205,47 @@ describe('the search rows', () => {
       expect(found.every((r) => r.url === '/changelog#v0052'), query).toBe(true);
     }
     expect(await api.search('narwhal')).toEqual([]);
+  });
+});
+
+describe('links to pages the site no longer has, in the Markdown copy', () => {
+  const pages = new Set(['/', '/use/fix-a-folder', '/reference/api/items/listItems']);
+
+  it('shows a link to a page the site lacks as its text, as the page does', () => {
+    const notes = [
+      'See [the old page](https://docs.marfa.so/use/claude-and-chatgpt#steps) and [Fix a folder](https://docs.marfa.so/use/fix-a-folder#waiting).',
+      'The [list operation](https://docs.marfa.so/reference/api/items/listItems/) and [the home page](https://docs.marfa.so/).',
+    ].join('\n');
+    expect(unlinkMissingPages(notes, pages)).toBe(
+      [
+        'See the old page and [Fix a folder](https://docs.marfa.so/use/fix-a-folder#waiting).',
+        'The [list operation](https://docs.marfa.so/reference/api/items/listItems/) and [the home page](https://docs.marfa.so/).',
+      ].join('\n'),
+    );
+  });
+
+  it('unlinks a link to a missing page whose text holds code', () => {
+    const notes = 'Use [`marfa keys`](https://docs.marfa.so/run/manage-keys) or [`Fix`](https://docs.marfa.so/use/fix-a-folder).';
+    expect(unlinkMissingPages(notes, pages)).toBe('Use `marfa keys` or [`Fix`](https://docs.marfa.so/use/fix-a-folder).');
+  });
+
+  it('leaves other addresses, code spans and code blocks as written', () => {
+    const notes = [
+      '[GitHub](https://github.com/withmarfa/marfa) and `[x](https://docs.marfa.so/run/manage-keys)` and [a path](/run/manage-keys).',
+      '```md',
+      '[kept](https://docs.marfa.so/run/manage-keys)',
+      '```',
+    ].join('\n');
+    expect(unlinkMissingPages(notes, pages)).toBe(notes);
+  });
+
+  it('leaves no link to a missing page in the real Changelog copy', async () => {
+    const page = source.getPage(['changelog'])!;
+    const text = await getLLMText(page);
+    const pagesOnSite = new Set(source.getPages().map((p) => p.url));
+    const missing = [...text.matchAll(/\]\(https:\/\/docs\.marfa\.so(\/[^\s)#?]*)/g)]
+      .map((m) => m[1].replace(/(.)\/$/, '$1'))
+      .filter((path) => !pagesOnSite.has(path));
+    expect(missing).toEqual([]);
   });
 });

@@ -6,12 +6,12 @@
 
 ## Settings
 
-| Setting                                            | Value                              |
-| -------------------------------------------------- | ---------------------------------- |
-| `plural`                                           | Conversations                      |
-| [`title_field`](/catalog/type-rules#display-hints) | `title`                            |
-| [`icon`](/catalog/type-rules#display-hints)        | `lucide:messages-square`           |
-| [`merge_policy`](/catalog/type-rules#merge-policy) | `last_writer_wins` for every field |
+| Setting                                                 | Value                              |
+| ------------------------------------------------------- | ---------------------------------- |
+| `plural`                                                | Conversations                      |
+| [`title_field`](/catalog/type-definition#display-hints) | `title`                            |
+| [`icon`](/catalog/type-definition#display-hints)        | `lucide:messages-square`           |
+| [`merge_policy`](/catalog/type-definition#merge-policy) | `last_writer_wins` for every field |
 
 ## Tables
 

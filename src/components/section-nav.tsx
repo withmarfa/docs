@@ -17,7 +17,7 @@ const OTHER_TABS = ['/use', '/run', '/build', '/catalog', '/reference'];
 export const SECTIONS: { label: string; href: string; matches: (pathname: string) => boolean }[] = [
   { label: 'Home', href: '/', matches: (pathname) => !OTHER_TABS.some((tab) => isUnder(pathname, tab)) },
   { label: 'Use', href: '/use/from-an-agent', matches: (pathname) => isUnder(pathname, '/use') },
-  { label: 'Run', href: '/run/memory-cpu-and-disk', matches: (pathname) => isUnder(pathname, '/run') },
+  { label: 'Run', href: '/run/choose-where-to-run', matches: (pathname) => isUnder(pathname, '/run') },
   { label: 'Build', href: '/build/architecture', matches: (pathname) => isUnder(pathname, '/build') },
   { label: 'Catalog', href: '/catalog/items', matches: (pathname) => isUnder(pathname, '/catalog') },
   { label: 'Reference', href: '/reference/api', matches: (pathname) => isUnder(pathname, '/reference') },

@@ -7,11 +7,11 @@
 
 ## Settings
 
-| Setting                                            | Value                              |
-| -------------------------------------------------- | ---------------------------------- |
-| `plural`                                           | Collections                        |
-| [`title_field`](/catalog/type-rules#display-hints) | `title`                            |
-| [`body_field`](/catalog/type-rules#display-hints)  | `description`                      |
-| [`icon`](/catalog/type-rules#display-hints)        | `lucide:layers`                    |
-| [`merge_policy`](/catalog/type-rules#merge-policy) | `last_writer_wins` for every field |
-| [`roles`](/catalog/type-rules#roles)               | `container`                        |
+| Setting                                                 | Value                              |
+| ------------------------------------------------------- | ---------------------------------- |
+| `plural`                                                | Collections                        |
+| [`title_field`](/catalog/type-definition#display-hints) | `title`                            |
+| [`body_field`](/catalog/type-definition#display-hints)  | `description`                      |
+| [`icon`](/catalog/type-definition#display-hints)        | `lucide:layers`                    |
+| [`merge_policy`](/catalog/type-definition#merge-policy) | `last_writer_wins` for every field |
+| [`roles`](/catalog/type-definition#roles)               | `container`                        |

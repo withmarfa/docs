@@ -1,9 +1,11 @@
 ---
 title: Access
-description: How a key or an app is limited to the data and operations it needs, and how each one gets its access.
+description: How a key or an app is limited to the data and operations it needs, how each gets its access, and what a refusal does and doesn't reveal.
+job: A builder learns how keys and app sign-ins are limited, and what a refusal does and does not reveal.
+kind: concept
 ---
 
-**Each credential reaches only what it was given.** A photo app can write images, read the rest, and see nothing of the owner's messages.
+**Each credential reaches only what it was given.** A photo app can write images, read the rest, and see no messages.
 
 ## Credentials
 
@@ -14,15 +16,15 @@ Two kinds of credential call the API, each sent as `Authorization: Bearer <crede
 | A key | `marfa_k1_…` | What it was made with |
 | An app's access token | `marfa_at_…` | What the owner approved for the app |
 
-The owner's browser session is neither. **It counts only on the sign-in and approval pages**: it never reads an item or changes a setting, so a page that rides on the owner's cookie reaches nothing. [What the owner's browser reaches](/run/sign-in-as-the-owner#what-the-owners-browser-reaches) lists those pages.
+An agent connecting over MCP uses the same two, and **MCP does what the API lets the same credential do.** The server's own machine has one more authority, the [private socket](/run/run-on-a-server#the-private-socket).
 
-The server's own machine has one more authority, the [private socket](/run/run-on-a-server#the-private-socket), which the CLI uses to claim an instance and recover the owner's password.
+### What the owner's browser reaches
+
+The owner's browser session **counts only on the sign-in and approval pages:** claiming the instance, signing in and out, the screens that approve an app or a device, and the page for the password and passkeys. It never reads an item or changes a setting, so a browser left signed in, a copied cookie or a page that rides on it reaches no data.
 
 ## What a credential reaches
 
-A credential's **maps** say which data it reads and writes, and its **permissions** which other operations it may use.
-
-The photo app's key, made from the CLI:
+A credential's **maps** say which data it reads and writes, and its **permissions** which other operations it may use. The photo app's key:
 
 <Terminal>
 
@@ -45,38 +47,20 @@ key 01a1f1a2-a184-736a-b69c-1e18d5770812 (Photo app); the plaintext is shown onc
 
 </Terminal>
 
-A map names things at a level, `read` or `write`, and `write` includes reading. Anything a map doesn't name is out of reach. A credential has five maps: **types** of item, **edge** types, **extension** namespaces, **metadata** (registering types and edge types) and the owner's **profile**.
+A map names things at a level, `read` or `write`, and `write` includes reading. Anything a map doesn't name is out of reach. A credential has five maps: **types** of item, **edge** types, **extension** namespaces, **metadata** (registering types and edge types) and the owner's **profile**. Only the type map takes a third level, `none`, which shuts out a type its wildcard covers.
 
-The type map matters most, and only it takes a third level, `none`, which shuts out a type its wildcard covers. The Catalog's [Permissions](/catalog/permissions#the-five-maps) page lists each map's field, flag and entries, and the rules that apply to each.
+**A permission opens a group of operations, such as making keys, and no items:** a key with no type map reads no item, whatever permissions it holds. The one exception is `blobs.manage`, which reads file bytes ([Files](/build/files#who-may-read-a-blob)). The Catalog's [Permissions](/catalog/permissions) page lists the maps, the fourteen permissions and the rules for each.
 
 ## What a refusal reveals
 
-An item of a type the credential **can't read** answers `404 item_not_found`, as an item that doesn't exist does, so a refusal reveals nothing. So do its edges, and a blob only such items name. An item the credential can read but not write is refused with `403 type_not_permitted`.
-
-So the photo app's key reads a message as missing, reads a note, and is refused when it changes the note.
+An item of a type the credential **can't read** answers `404 item_not_found`, as an item that doesn't exist does, so a refusal reveals nothing. So do its edges, and a blob only such items name. An item the credential can read but not write is refused `403 type_not_permitted`. The photo app's key reads a message as missing, reads a note, and is refused when it changes the note.
 
 <KeyReach />
 
-## Permissions
+## How a credential gets its access
 
-A permission opens a group of operations, such as making keys. **It opens no items:** a key with every permission and no type map reads nothing. The Catalog's [Permissions](/catalog/permissions) page lists all fourteen.
+**An app signs in with OAuth.** The instance is its own authorization server, and every app is a public client that holds no secret. The app names the **scopes** it wants, the access it asks for, and the owner approves **Full access** or **Choose access** to give it less. An app that names none is registered for items of the types outside `system` and `marfa`, and for their edges. The app then holds a **grant**, exactly what the owner approved, and each item it writes carries the **source** `oauth:` followed by the app's client ID. The owner can narrow it, which revokes each key the app made that holds more. A grant lasts until the owner disconnects the app or it goes unused for `grant_inactivity_days`, a year by default. [Connect an app with OAuth](/build/connect-an-app) shows the app's side, and [Manage apps](/use/see-and-revoke-access#give-less-access-instead) the owner's.
 
-## How an app gets access
-
-**Signing in with OAuth is how an app reaches Marfa.** The instance is its own authorization server: its address is the issuer, the endpoints live under `/oauth`, and `/.well-known/oauth-authorization-server` lists them. Every app is a public client, holding no secret, and proves itself with PKCE. An AI agent connecting to the [MCP server](/reference/marfa-mcp-server) signs in the same way.
-
-1. The app registers itself and names the scopes it wants. One that names none asks to read and write every type outside `system` and `marfa`, and the edges between items, with `offline_access`.
-2. It sends the owner to the approval page, where the owner chooses **Full access**, or **Choose access** to give it less.
-3. The app exchanges the code for an access token and a refresh token.
-
-The app then holds a **grant**, exactly what the owner approved, and writes under the source `oauth:<client_id>`. A grant outlives the browser session that approved it. The owner can narrow it, which revokes each key the app made that holds more, and it lasts until the owner disconnects the app or the app goes unused for `grant_inactivity_days`, a year by default.
-
-A web page connects the same way. Once the owner approves it, its address may call the instance from a browser, and `cors_origins` adds others. No answer allows credentials, so a page reaches only what its token holds.
-
-[Authenticate](/build/authenticate) and [Connect a web page](/build/connect-a-web-page) show the app's side, and [Manage apps](/run/manage-apps#narrow-or-disconnect-an-app) the owner's.
-
-## How a key gets access
-
-A key suits a script, your own agent or a [connector](/build/connectors). The owner makes one from the CLI, and any key or app holding `keys.mint` can make another. A made key holds only the maps and permissions its maker holds, and its expiry is never later than its maker's. A key an app makes stays within the app's grant, can name no extension namespace, and carries the app's `oauth_client_id`. [Manage keys](/run/manage-keys) shows how.
+**A key suits a script, your own agent or a [connector](/build/connectors).** The owner makes one from the CLI, and any key or app holding `keys.mint` can make another. A made key holds only what its maker holds, and expires no later. A key an app makes stays within the app's grant and can name no extension namespace. [Manage keys](/use/manage-keys) shows how.
 
 The rules behind this page are in the [keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md) and [authentication](https://github.com/withmarfa/marfa/blob/main/conformance/spec/authentication.md#where-a-browser-session-counts) chapters of the contract.

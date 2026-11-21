@@ -17,12 +17,12 @@
 
 ## Settings
 
-| Setting                                            | Value                              |
-| -------------------------------------------------- | ---------------------------------- |
-| `plural`                                           | Files                              |
-| [`title_field`](/catalog/type-rules#display-hints) | `title`                            |
-| [`icon`](/catalog/type-rules#display-hints)        | `lucide:file`                      |
-| [`merge_policy`](/catalog/type-rules#merge-policy) | `last_writer_wins` for every field |
+| Setting                                                 | Value                              |
+| ------------------------------------------------------- | ---------------------------------- |
+| `plural`                                                | Files                              |
+| [`title_field`](/catalog/type-definition#display-hints) | `title`                            |
+| [`icon`](/catalog/type-definition#display-hints)        | `lucide:file`                      |
+| [`merge_policy`](/catalog/type-definition#merge-policy) | `last_writer_wins` for every field |
 
 ## Subtypes
 
@@ -30,10 +30,10 @@
 
 A recording, a music file or a voice memo.
 
-| Setting                                     | Value               |
-| ------------------------------------------- | ------------------- |
-| `plural`                                    | Audio               |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:file-music` |
+| Setting                                          | Value               |
+| ------------------------------------------------ | ------------------- |
+| `plural`                                         | Audio               |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:file-music` |
 
 | Field      | Kind               | Description                                                                  |
 | ---------- | ------------------ | ---------------------------------------------------------------------------- |
@@ -44,10 +44,10 @@ A recording, a music file or a voice memo.
 
 A photo, a screenshot or a diagram.
 
-| Setting                                     | Value               |
-| ------------------------------------------- | ------------------- |
-| `plural`                                    | Images              |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:file-image` |
+| Setting                                          | Value               |
+| ------------------------------------------------ | ------------------- |
+| `plural`                                         | Images              |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:file-image` |
 
 | Field       | Kind        | Description                                                                 |
 | ----------- | ----------- | --------------------------------------------------------------------------- |
@@ -62,10 +62,10 @@ A photo, a screenshot or a diagram.
 
 A video file, such as a clip or a screen recording.
 
-| Setting                                     | Value                      |
-| ------------------------------------------- | -------------------------- |
-| `plural`                                    | Videos                     |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:file-video-camera` |
+| Setting                                          | Value                      |
+| ------------------------------------------------ | -------------------------- |
+| `plural`                                         | Videos                     |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:file-video-camera` |
 
 | Field       | Kind               | Description                                                                  |
 | ----------- | ------------------ | ---------------------------------------------------------------------------- |
@@ -81,7 +81,7 @@ A video file, such as a clip or a screen recording.
 
 A web page saved as an HTML file, such as a report an agent wrote.
 
-| Setting                                     | Value          |
-| ------------------------------------------- | -------------- |
-| `plural`                                    | Web Pages      |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:globe` |
+| Setting                                          | Value          |
+| ------------------------------------------------ | -------------- |
+| `plural`                                         | Web Pages      |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:globe` |
