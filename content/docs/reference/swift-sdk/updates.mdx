@@ -1,16 +1,19 @@
 ---
-title: Updates and live queries
+title: Updates and live queries in the Swift SDK
+sidebar_label: Updates and live queries
+headTitle: Swift SDK updates and live queries
 description: Keep a working copy following its server, and keep an app's screens current as the copy changes.
+job: A Swift builder looks up how a copy follows its server and how screens stay current.
 ---
 
-A working copy follows its server's events **only while the app holds a stream**: `updates()` for an app that shows the copy, or `changes()` for code that needs each change as it happens. `LiveQuery` builds on `updates()` to keep one read current in SwiftUI.
+A working copy follows its server's events **only while the app holds a stream.**
 
 | Call | Gives | Use it for |
 | --- | --- | --- |
 | `LiveQuery(_:reading:)` | An `@Observable` value that rereads itself | A SwiftUI screen |
 | `updates()` | `CopyUpdates`, coalesced, with the connection | An app's own read model |
-| `changes()` | `AsyncStream<Change>`, every change uncoalesced | Logs, tests and code reacting to one kind of change |
-| `changes(since:most:)` | `CopyChanges`, what changed since a cursor | Rereading only what changed after a relaunch |
+| `changes()` | `AsyncStream<Change>`, every change | Logs, tests and one kind of change |
+| `changes(since:most:)` | `CopyChanges`, what changed since a cursor | Rereading after a relaunch |
 
 ## Live queries
 
@@ -22,32 +25,16 @@ var body: some View {
 }
 ```
 
-`LiveQuery` is a `@MainActor` class. It reads at once, then reads again after each update that could change its answer, and holds a stream while it lives, so the copy follows its server.
+`LiveQuery` is a `@MainActor` class. It reads at once, again after each update that could change its answer, and holds a stream while it lives.
 
 | Property | Holds |
 | --- | --- |
-| `value` | The last successful answer, or the reading's placeholder before one. |
-| `isLoading` | Whether a read is running, from creation until the first read ends and during each later one. |
-| `error` | Why the last read failed, `nil` after one succeeds. `value` keeps the last good answer. |
-| `connection` | The copy's [connection](#the-connection), `.connecting` until the first update. |
-| `reading` | What it reads. **Assigning it starts a new read at once** and drops any read still running. |
+| `value` | The last successful answer, or the placeholder before one. |
+| `isLoading`, `error` | Whether a read runs, and why the last failed. `value` keeps the last good answer. |
+| `connection` | The copy's [connection](#the-connection). |
+| `reading` | What it reads. **Assigning it starts a new read** and drops one still running. |
 
-`refresh()` reads now and returns after a read that began after the call.
-
-A `Reading` is a read and its placeholder. Make your own with `Reading(placeholder:_:)`, or use one of these:
-
-| Reading | Value |
-| --- | --- |
-| `.list(_:sort:)` | `Rows<Item>` |
-| `.search(_:filters:limit:)` | `Rows<Item>` |
-| `.item(_:)` | `Item?` |
-| `.queue` | `[QueuedWrite]` |
-| `.views` | `Rows<SavedView>` |
-| `.view(_:)` | `SavedView?` |
-| `.list(inView:limit:offset:)` | `Rows<Item>` |
-| `.groups(inView:timeZone:)` | `Rows<ViewGroup>` |
-
-`Rows` is a collection of the rows with a `completeness`: `.complete`, `.partial` while a hydration fills the copy, or `.stale` while a stale copy refills.
+`refresh()` reads now. A `Reading` is a read and its placeholder: make one with `Reading(placeholder:_:)`, or use `.list(_:sort:)`, `.search(_:filters:limit:)`, `.item(_:)`, `.queue`, `.views`, `.view(_:)`, `.list(inView:limit:offset:)` or `.groups(inView:timeZone:)`. `Rows` carries a `completeness`: `.complete`, `.partial` during a hydration, or `.stale`.
 
 ## Copy updates
 
@@ -61,75 +48,54 @@ for await update in copy.updates() {
 }
 ```
 
-**The first update asks to read everything** and gives the connection. Each later one names what changed since the one before. At most one update waits while the app reads, holding every pending change. Iterate a sequence once; ask again for another consumer.
+**The first update asks to read everything.** Each later one names what changed since the one before, and at most one waits while the app reads. Iterate a sequence once.
 
-| `CopyUpdate` field | Holds |
-| --- | --- |
-| `reread` | `.everything`, or `.parts(Parts)`. |
-| `connection` | What the copy is doing with its server. |
-| `fill` | A running hydration's progress, `listed` against `expected`, with `fraction`. Read every half second. |
-| `lastSynced` | When the copy last finished a pull, as `Status.lastSynced` says. |
-
-`Reread.Parts` names what to read again. **Anything it doesn't name is unchanged.**
+A `CopyUpdate` holds `reread` (`.everything` or `.parts(Parts)`), `connection`, `fill` (a hydration's `listed` against `expected`, with `fraction`) and `lastSynced`. **A part a `Reread.Parts` doesn't name is unchanged:**
 
 | Part | Read again |
 | --- | --- |
-| `rows.items`, `rows.removedItems` | Items held, and items no longer held. Read the held ones with `items.get(_:includingBin:)`; one missing from the answer went to the bin. |
-| `rows.edges`, `rows.removedEdges` | Edges held, and edges no longer held. |
-| `rows.tables` | Each held table whose state or rows changed, as `itemId` and `table`. |
-| `queue` | `queue.all()`. |
+| `rows.items`, `rows.removedItems` | Items held, and no longer held. Read with `items.get(_:includingBin:)`; one missing went to the bin. |
+| `rows.edges`, `rows.removedEdges` | Edges held, and no longer held. |
+| `rows.tables` | Each held table that changed, as `itemId` and `table`. |
+| `queue`, `catalog` | `queue.all()`, `copy.catalog`. |
 | `views` | `items.views()`, after this copy wrote a view. A view another device writes arrives in `rows.items`. |
-| `catalog` | `copy.catalog`. |
 
-An update carries `.everything` when more than 1,000 items, 1,000 edges or 1,000 tables changed, and during a hydration as rows arrive. An update can carry no reread when only its connection, fill or `lastSynced` changed.
+An update carries `.everything` when more than 1,000 items, edges or tables changed, and while a hydration fills.
 
 ### The connection
 
-| `CopyConnection` | Means | What the copy does |
+| `CopyConnection` | Means | The copy |
 | --- | --- | --- |
-| `.connecting` | Asking the server, as updates begin, after `use(_:)`, or while a stale copy refills. | Waits for an answer. |
-| `.following` | The server answered and the copy follows its events. | |
-| `.offline(error)` | **A failure that may mend itself,** such as the network or a server error. | Retries after 5 seconds, doubling to 5 minutes, never sooner than a rate limit's `retryAfterSeconds`. |
-| `.stopped(error)` | An error that asking again may not clear, such as a refusal, a store fault, `noCatalog` or `wrongServer`. | Tries a catch-up every 5 minutes. |
-| `.keyRefused(error)` | **The server refused the key or sign-in.** | Nothing until [`use(_:)`](/reference/swift-sdk/working-copy#give-the-copy-a-new-key). |
-| `.needsHydration(error)` | The copy must be hydrated first: it expired, changed instance or never completed a hydration. | Nothing until the app hydrates. |
-| `.local` | No server, or a reader watching the writer's saves. | |
-| `.closed` | The copy was closed. It is the last update. | |
+| `.connecting` | Asking the server. | Waits. |
+| `.following` | The server answered. | Follows its events. |
+| `.offline(error)` | **A failure that may mend itself.** | Retries after 5 seconds, doubling to 5 minutes, never before a rate limit's `retryAfterSeconds`. |
+| `.stopped(error)` | An error asking again may not clear, such as `noCatalog` or `wrongServer`. | Tries a catch-up every 5 minutes. |
+| `.keyRefused(error)` | **The server refused the key or sign-in.** | Waits for [`use(_:)`](/reference/swift-sdk/working-copy#give-the-copy-a-new-key-and-close-it). |
+| `.needsHydration(error)` | The copy expired, changed instance or never completed a hydration. | Waits for a hydration. |
+| `.local`, `.closed` | No server, or a reader; the copy was closed, the last update. | |
 
-Only a catch-up or a hydration that succeeds, the app's or a retry's, makes a stopped or offline copy `.following`. An error the app's own arguments caused, such as `invalid` or `validation`, doesn't change the connection. While a sequence is held, a drain that left writes undelivered is made again after the same waits.
+Only a catch-up or hydration that succeeds makes a stopped or offline copy `.following`. An error the app's own arguments caused doesn't change the connection.
 
 ## Change streams
 
-`changes()` tells each change as it happens. Each `Change` has an `origin`, and `itemId` and `edgeId` where one row is named.
+`changes()` tells each `Change` as it happens, with an `origin` and an `itemId` or `edgeId` where one row is named.
 
 | `Change.Origin` | Means |
 | --- | --- |
-| `.local(WriteKind)` | The app queued a write of this kind. |
-| `.server(event:cursor:)` | The copy applied a server event, such as `item.updated`. With no `itemId`, rows' `readOnly` changed: read the copy again. |
-| `.serverUnreachable(error)` | The follow can't reach the server. Told once, however many fail. |
-| `.serverReachable` | A request reached the server again. **The held stream drains the queue itself.** |
-| `.queueDrained(DrainReport)` | That drain ended, after each write's `.answered`. |
-| `.queueNotDrained(error)` | That drain stopped. Answers it recorded stay recorded. |
-| `.answered(DrainVerdict)` | A drain answered this write. |
-| `.saved(dataVersion:)` | The writer saved; a reader reads again. A new stream on a reader hears one first. |
-| `.refreshed(Refresh)` | Many rows may have changed at once. |
+| `.local(WriteKind)` | The app queued a write. |
+| `.server(event:cursor:)` | The copy applied a server event. With no `itemId`, rows' `readOnly` changed. |
+| `.serverUnreachable(error)`, `.serverReachable` | The follow lost the server, told once, or a request reached it again: **the held stream then drains the queue.** |
+| `.queueDrained(DrainReport)`, `.queueNotDrained(error)`, `.answered(DrainVerdict)` | A drain ended, stopped, or answered a write. |
+| `.saved(dataVersion:)` | The writer saved; a reader reads again. |
+| `.refreshed(Refresh)` | Many rows may have changed. `Refresh` is `.hydrated`, `.unfinished`, `.caughtUp`, `.drained`, `.withdrawn`, `.forgotten`, `.pinned`, `.unpinned`, `.purged`, `.folderWritten`, `.viewWritten`, `.catalog` or `.tables`. |
 | `.stopped(error)` | What fed the stream stopped. Local writes are still told. |
 
-`Refresh` says why: `.hydrated`, `.unfinished` (a hydration failed part way; its rows stay), `.caughtUp`, `.drained`, `.withdrawn`, `.forgotten`, `.pinned`, `.unpinned`, `.purged`, `.folderWritten`, `.viewWritten`, `.catalog` or `.tables`.
+**A stream that stops stays stopped** until the next hydration or catch-up, or until one is asked for while none is held. Streams stop when the follow fails with an error other than the network, and when a stale copy can't refill in place.
 
-**A stream that stops stays stopped** until the app's next hydration or catch-up, or until a stream is asked for while none is held. Streams are told `.stopped` when the follow fails with an error other than the network, and when a stale copy can't refill in place: `instanceChanged`, or `copyExpired` with `reach_changed`, `slice_changed`, `head_past_log`, `not_stale`, or `catchup_too_old` for a copy that was already stale as the follow began.
-
-### A copy that falls behind
-
-When the server's event log lets the copy's cursor go, as it can while a Mac sleeps, **the copy refills itself over the slice it holds**, keeping every row, queued write and file, and tells `.refreshed(.hydrated)`. A refill the network or server fails is told `.refreshed(.unfinished)` and tried again after 1 second, further apart each time, up to 5 minutes apart. It refills only while the key is the one the follow used.
+**When the event log lets the copy's cursor go,** as while a Mac sleeps, **the copy refills over the slice it holds,** keeping every row, queued write and file, and tells `.refreshed(.hydrated)`. A failed refill is told `.unfinished` and retried after 1 second, up to 5 minutes apart.
 
 ## Read only what changed
 
-`changes(since:most:)` answers what changed in the copy since a `ChangeCursor`:
+`changes(since:most:)` answers `.named(ChangedRows, next:)`, the rows to read again and drop, or `.everything(next:)`: with no cursor, one from another store or before a type change, or when more than `most` (default 1,000) rows changed in one category. **Keep `next.rawValue` across launches,** and the cursor you passed until you have read what the answer names. It throws `hydrationIncomplete` during a hydration or while stale. A link that resolves differently only because another item changed isn't named: read `items.links(in:)` again.
 
-- **`.named(ChangedRows, next:)`** lists the rows to read again and drop, as `Reread.Parts.rows` does.
-- **`.everything(next:)`** asks for the whole copy to be read again: with no cursor, one from another store or from before a change to the types, or when more than `most` (default 1,000) rows changed in one category.
-
-Keep `next.rawValue` across launches. Keep the cursor you passed until you have read what the answer names. The call throws `hydrationIncomplete` while a hydration is part way or the copy is stale. An item whose body links resolve differently only because another item changed isn't named, so an app that shows links reads `items.links(in:)` again for the rows it shows.
-
-The rules are in the contract's [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) chapter, and [Keep in sync](/build/keep-in-sync) explains following a server.
+The rules are in the [device chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), and [Keep a copy in sync](/build/keep-in-sync) explains following a server.
