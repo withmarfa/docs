@@ -405,8 +405,8 @@ note_expected="$(cat <<'EOF'
 
 ## Settings
 
-| Setting                                            | Value                                                                   |
-| -------------------------------------------------- | ----------------------------------------------------------------------- |
+| Setting                                                 | Value                                                                   |
+| ------------------------------------------------------- | ----------------------------------------------------------------------- |
 | [`title_field`](/catalog/type-definition#display-hints) | `title`                                                                 |
 | [`body_field`](/catalog/type-definition#display-hints)  | `body`                                                                  |
 | [`icon`](/catalog/type-definition#display-hints)        | `sticky-note`                                                           |
@@ -418,8 +418,8 @@ note_expected="$(cat <<'EOF'
 
 A memo (for a team) with a level.
 
-| Setting                                     | Value          |
-| ------------------------------------------- | -------------- |
+| Setting                                          | Value          |
+| ------------------------------------------------ | -------------- |
 | [`icon`](/catalog/type-definition#display-hints) | `notebook-pen` |
 | [`roles`](/catalog/type-definition#roles)        | `container`    |
 
