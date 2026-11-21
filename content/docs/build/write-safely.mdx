@@ -2,14 +2,14 @@
 title: Update items without losing changes
 sidebar_label: Write safely
 description: Write safely by changing an item without overwriting anyone's change, settling a conflict, creating an item only once, and retrying a write without making it twice.
-job: A builder changes items without overwriting anyone, settles a conflict, creates an item once and retries without writing twice.
+job: A builder writes items so that no write overwrites another and none is lost or made twice.
 ---
 
-Another app, agent or device may change an item between your read and your write. **Every update names the version it read,** so Marfa never lets a stale write overwrite a newer change unseen ([Versions](/build/versions)). In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/reference/typescript-sdk#create-a-client) shows. An app on the Swift SDK writes through a [working copy](/build/working-copies), which settles conflicts for you.
+Another app, agent or device may change an item between your read and your write. **Every update names the version it read,** so a stale write never overwrites a newer change unseen ([Versions](/build/versions)). In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/reference/typescript-sdk#create-a-client) shows. An app on the Swift SDK writes through a [working copy](/build/working-copies), which settles conflicts for you.
 
 ## Send the version you read
 
-Send the `version` you read with **only the properties you changed**:
+Send the version you read with **only the properties you changed**:
 
 ```bash tab="CLI" tab-group="client"
 marfa items update <id> --version 1 --prop body="Take the train from Porto, then the tram."
@@ -30,7 +30,7 @@ const { data, error } = await marfa.PATCH("/items/{id}", {
 });
 ```
 
-An update with no version is refused `400 missing_required_field`. Marfa answers in one of four ways:
+Marfa answers in one of four ways:
 
 | Answer | When | What to do |
 | --- | --- | --- |
@@ -38,8 +38,6 @@ An update with no version is refused `400 missing_required_field`. Marfa answers
 | `200` further along | Someone changed other fields, and Marfa laid your change over theirs. | Keep the item in the answer. |
 | `200` with `acknowledged: true` | The write would leave the item as it is. | Nothing: Marfa stores no version. |
 | `409 version_conflict` | Someone changed a field you changed. | Settle it, as below. |
-
-[Errors](/reference/errors) says what any other refusal means.
 
 ## Settle a conflict yourself
 
@@ -54,9 +52,9 @@ The `409` carries **`current`**, the item as it stands, **`ancestor`**, the item
 }
 ```
 
-For each conflicting field, compare your value with `ancestor` and `current`. Keep one, combine them, or show both to the person. Then **send your choice at the version in `current`**. If someone writes first again, try a few times, then show the person the conflict.
+For each conflicting field, compare your value with `ancestor` and `current`. Keep one, combine them, or show both to the person. The `409` wrote nothing, not even a field that didn't collide, so **send every field you changed, with your choice for each conflicting one, at the version in `current`**. If someone writes first again, try a few times, then show the person.
 
-Marfa thins old snapshots, so a long-held edit can name a version it no longer has and is refused `409 ancestor_unavailable`, whatever `conflict` says. **Make your change again on top of `current`** and send it at that version: sending your old values would undo whatever arrived since.
+Marfa thins old snapshots, so a long-held edit can be refused `409 ancestor_unavailable`, whatever `conflict` says. **Make your change again on top of `current`** and send it at that version: your old values would undo what arrived since.
 
 ## Let Marfa settle it
 
@@ -81,11 +79,11 @@ const { data, error } = await marfa.PATCH("/items/{id}", {
 });
 ```
 
-A field takes **`last_writer_wins`**, which takes your value, or **`keep_both_copies`**, which keeps the item's value and writes yours to a **conflicted copy**: another item of the same type, tagged `conflicted-copy`, with a `derived-from` edge to the original. `core.note` keeps both copies of its `body` and `notes`. The `200` answer's `conflict_resolution` names the strategy and, in `conflicted_copy_id`, the copy: **the only place its ID appears**, so keep it. A collision that also moves the item to another type isn't settled: it's refused `409 version_conflict`.
+A field takes **`last_writer_wins`**, which takes your value, or **`keep_both_copies`**, which keeps the item's value and writes yours to a **conflicted copy**: another item of the same type, tagged `conflicted-copy`, with a `derived-from` edge to the original. `core.note` keeps both copies of its `body` and `notes`. The `200` answer's `conflict_resolution` names the strategy and, in `conflicted_copy_id`, the copy, so keep it. A collision that also moves the item to another type isn't settled: it's refused `409 version_conflict`.
 
 ## Create an item only once
 
-A create that names a `source_id` its source already holds **updates that item**. To create the item or change nothing, as an agent that may repeat itself should, add `mode: "create_only"`:
+An item's **source** is the app or key that wrote it, and its `source_id` is its ID there. A create that names a `source_id` its source already holds **updates that item, with no version check**, and can overwrite another writer's change: change an item you hold with `PATCH` and a version. To create the item or change nothing, as an agent that may repeat itself should, add `mode: "create_only"`:
 
 ```bash tab="CLI" tab-group="client"
 marfa items create --type core.bookmark --source-id lisbon-guide --create-only \
@@ -120,7 +118,7 @@ If an item holds that `source_id` or `id`, live or in the bin, Marfa **writes no
 
 ## Retry with an Idempotency-Key
 
-When you can't tell whether a write landed, send it again with an `Idempotency-Key` header whose value is unique, such as a UUID, and **send the same key with the retry**:
+When you can't tell whether a write landed, send it again with an `Idempotency-Key` header, a unique value such as a UUID, and **send the same key with the retry**:
 
 ```bash tab="CLI" tab-group="client"
 marfa items update <id> --version 2 --idempotency-key 0199a9d1-4e5f-7a6b-9c7d-8e9f0a1b2c3d \
@@ -147,6 +145,6 @@ const send = () =>
   });
 ```
 
-If Marfa already answered that request, it **returns the first answer again** with `Idempotency-Replayed: true` and writes nothing. It keeps the answer as long as the event log, 30 days by default, but none of `401`, `403` or `5xx`. **A key names one request:** the same key on another is refused `422 idempotency_key_reused`, and a repeat while the first still runs `409 idempotency_key_in_flight`. [Errors](/reference/errors#retrying) says which refusals to retry. [Upsert items in bulk](/reference/api/items/bulkUpsertItems) takes no key: give each entry a `source_id`.
+If Marfa already answered that request, it **returns the first answer again** with `Idempotency-Replayed: true` and writes nothing. It keeps the answer as long as the event log, 30 days by default, but not a `401`, `403` or `5xx`. **A key names one request:** the same key on another is refused `422 idempotency_key_reused`. [Errors](/reference/errors#retrying) says which refusals to retry.
 
 The rules are in the contract's [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md) chapter and its [idempotency keys](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md#idempotency-keys).
