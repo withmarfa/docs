@@ -11,7 +11,7 @@ To upload, your key needs write on a type outside `system.*`, or `blobs.manage`,
 
 ## Upload the bytes
 
-[Upload a blob](/reference/api/blobs/uploadBlob) takes the bytes as the request body, **as they are rather than as a form**, with their media type as the `Content-Type`. Marfa answers the blob's `hash`, `mime_type` and `size_bytes`:
+[Upload a blob](/reference/api/blobs/uploadBlob) takes the bytes as the request body, **as they are rather than as a form**, with their media type as the `Content-Type`. Marfa answers the blob's `hash`, `mime_type` and `size_bytes`. **The hash comes from your file's own bytes:** wherever a later step shows `<hash>`, use the one your upload returned.
 
 ```bash tab="CLI" tab-group="client"
 marfa blobs upload reading-list.txt
@@ -44,11 +44,11 @@ The same bytes always give the same hash, so uploading them again **stores nothi
 
 ## Point an item at the bytes
 
-Create a file item whose **`blob_ref`** is the hash. `core.file` takes any file, and `core.file.image`, `core.file.audio`, `core.file.video` and `core.file.webpage` fit their kinds.
+Create a file item whose **`blob_ref`** is the hash the upload returned. `core.file` takes any file, and `core.file.image`, `core.file.audio`, `core.file.video` and `core.file.webpage` fit their kinds.
 
 ```bash tab="CLI" tab-group="client"
 marfa items create --type core.file --prop title=reading-list.txt \
-  --prop blob_ref=sha256:4b140644d197859760a999df9121a6a840edd1dadc6142a413f6dcd108c898a0 \
+  --prop blob_ref=<hash> \
   --prop mime_type=text/plain
 ```
 
@@ -61,7 +61,7 @@ Content-Type: application/json
   "type": "core.file",
   "properties": {
     "title": "reading-list.txt",
-    "blob_ref": "sha256:4b140644d197859760a999df9121a6a840edd1dadc6142a413f6dcd108c898a0",
+    "blob_ref": "<hash>",
     "mime_type": "text/plain"
   }
 }
@@ -80,9 +80,10 @@ const { data: created } = await marfa.POST("/items", {
 _ = try await copy.items.create(Draft(
     type: "core.file",
     properties: ["title": "reading-list.txt", "blob_ref": .string(hash), "mime_type": "text/plain"]))
+_ = try await copy.drain()
 ```
 
-`marfa items add reading-list.txt` uploads and creates in one command. A housekeeping job then reads the bytes and adds what the item lacks, such as `extracted_text`, so [a search](/build/list-filter-search#search) finds the file by its words.
+In Swift, `put` and `create` only queue: **drain the queue** before another client reads the blob or the item. `marfa items add reading-list.txt` uploads and creates in one command. A housekeeping job then reads the bytes and adds what the item lacks, such as `extracted_text`, so [a search](/build/list-filter-search#search) finds the file by its words.
 
 **Until an item names the hash, the bytes can't be read**, even with the key that uploaded them. A file item may name only bytes its writer uploaded or can already read, so upload with **the same key** that writes the item: any other hash is refused `404 blob_not_found`.
 
@@ -92,14 +93,14 @@ To attach a file to a note or any other item, link them with an `attached-to` ed
 
 ## Download the bytes
 
-[Download a blob](/reference/api/blobs/downloadBlob) answers the bytes as they were uploaded. Marfa sends them as an attachment named after the hash, so take the file's name from the item's **`title`**. A `Range` header such as `bytes=0-1023` gets part of a blob.
+[Download a blob](/reference/api/blobs/downloadBlob) answers the bytes as they were uploaded. Marfa sends them as an attachment named after the hash, so take the file's name from the item's **`title`**, and **write to a path other than the file you uploaded**: `--output` and `writeFile` replace what is there. A `Range` header such as `bytes=0-1023` gets part of a blob.
 
 ```bash tab="CLI" tab-group="client"
-marfa blobs download sha256:4b140644d197859760a999df9121a6a840edd1dadc6142a413f6dcd108c898a0 --output reading-list.txt
+marfa blobs download <hash> --output reading-list-downloaded.txt
 ```
 
 ```http tab="HTTP"
-GET /blobs/sha256:4b140644d197859760a999df9121a6a840edd1dadc6142a413f6dcd108c898a0
+GET /blobs/<hash>
 Authorization: Bearer <key>
 ```
 
@@ -110,7 +111,7 @@ const { data: bytes } = await marfa.GET("/blobs/{hash}", {
   params: { path: { hash: blob.hash } },
   parseAs: "arrayBuffer",
 });
-await writeFile("reading-list.txt", Buffer.from(bytes!));
+await writeFile("reading-list-downloaded.txt", Buffer.from(bytes!));
 ```
 
 ```swift tab="Swift"
@@ -124,11 +125,11 @@ A blob you may not read answers `404 blob_not_found`, like a missing one, and `5
 An image element in a web page can't send your key. [Get a blob URL](/reference/api/blobs/getBlobUrl) answers a link that serves the bytes to anyone who has it. `ttl_seconds` is **an hour by default, and at most seven days**:
 
 ```bash tab="CLI" tab-group="client"
-marfa blobs url sha256:4b140644d197859760a999df9121a6a840edd1dadc6142a413f6dcd108c898a0 --ttl-seconds 900
+marfa blobs url <hash> --ttl-seconds 900
 ```
 
 ```http tab="HTTP"
-GET /blobs/sha256:4b140644d197859760a999df9121a6a840edd1dadc6142a413f6dcd108c898a0/url?ttl_seconds=900
+GET /blobs/<hash>/url?ttl_seconds=900
 Authorization: Bearer <key>
 ```
 
@@ -142,12 +143,11 @@ Marfa checks your read **when it makes the link**, so revoking your key doesn't 
 
 ## Replace a file's bytes
 
-Upload the replacement, then update the file item's `blob_ref` to its hash, **naming the version you read**, as [Update items without losing changes](/build/write-safely) shows:
+Upload the replacement, then update the file item's `blob_ref` to the hash that upload returned, **naming the version you read**, as [Update items without losing changes](/build/write-safely) shows:
 
 ```bash
 marfa blobs upload reading-list.txt
-marfa items update <id> --version 2 \
-  --prop blob_ref=sha256:7623dfe0bbb9b127e9d68350ac7d9168fecfb3ac404778057b116315d3205780
+marfa items update <id> --version <version> --prop blob_ref=<new-hash>
 ```
 
 Marfa clears what it read from the old bytes, such as `extracted_text`, unless the same write names it, and reads the new bytes. The old blob stays **as long as an earlier version** of the item names it.
