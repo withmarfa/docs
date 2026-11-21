@@ -224,6 +224,11 @@ describe('links to pages the site no longer has, in the Markdown copy', () => {
     );
   });
 
+  it('unlinks a link to a missing page whose text holds code', () => {
+    const notes = 'Use [`marfa keys`](https://docs.marfa.so/run/manage-keys) or [`Fix`](https://docs.marfa.so/use/fix-a-folder).';
+    expect(unlinkMissingPages(notes, pages)).toBe('Use `marfa keys` or [`Fix`](https://docs.marfa.so/use/fix-a-folder).');
+  });
+
   it('leaves other addresses, code spans and code blocks as written', () => {
     const notes = [
       '[GitHub](https://github.com/withmarfa/marfa) and `[x](https://docs.marfa.so/run/manage-keys)` and [a path](/run/manage-keys).',

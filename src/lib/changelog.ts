@@ -246,7 +246,9 @@ export function changelogMarkdown(releases: Release[]): string {
     .join('\n\n');
 }
 
-const DOCS_LINK = /\[([^\]]*)\]\(https:\/\/docs\.marfa\.so(\/[^\s)]*)\)/g;
+// A code span is matched as a whole, so a link written inside one stays as written,
+// while a link whose text holds one is still matched as a link.
+const DOCS_LINK_OR_CODE = /\[((?:`[^`]*`|[^\]`])*)\]\(https:\/\/docs\.marfa\.so(\/[^\s)]*)\)|`[^`]*`/g;
 
 /**
  * Older notes link pages the site has since removed. The page shows such a
@@ -268,17 +270,11 @@ export function unlinkMissingPages(markdown: string, pages: ReadonlySet<string>)
         if (marker === fence) fence = null;
         return line;
       }
-      return line
-        .split(/(`[^`]*`)/)
-        .map((part, index) =>
-          index % 2 === 1
-            ? part
-            : part.replace(DOCS_LINK, (link, text: string, path: string) => {
-                const page = path.replace(/[#?].*$/, '').replace(/(.)\/$/, '$1');
-                return pages.has(page) ? link : text;
-              }),
-        )
-        .join('');
+      return line.replace(DOCS_LINK_OR_CODE, (match, text: string | undefined, path: string | undefined) => {
+        if (path === undefined) return match;
+        const page = path.replace(/[#?].*$/, '').replace(/(.)\/$/, '$1');
+        return pages.has(page) ? match : (text as string);
+      });
     })
     .join('\n');
 }
