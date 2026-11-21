@@ -5,14 +5,14 @@ export type TreeNode = {
   id: string;
   /** The types whose `parent` is this one. */
   children?: readonly TreeNode[];
-  /** A type that names the listing's type in `compatible_with`, so the listing leaves it out. */
+  /** A type above the listing's type, which the listing leaves out. */
   left?: boolean;
 };
 
 /**
  * Two listings, each with the types it returns. A listing of a type returns
  * every type whose chain of `parent` reaches it (`types/listing-subtree`),
- * and not a type that only names it in `compatible_with`.
+ * and not the type's own parent.
  */
 export const listings: readonly { title: string; nodes: readonly TreeNode[] }[] = [
   {
@@ -20,8 +20,8 @@ export const listings: readonly { title: string; nodes: readonly TreeNode[] }[] 
     nodes: [{ id: 'core.file', children: [{ id: 'core.file.image', children: [{ id: 'app.example.receipt' }] }] }],
   },
   {
-    title: 'List notes',
-    nodes: [{ id: 'core.note' }, { id: 'user.recipe', left: true }],
+    title: 'List images',
+    nodes: [{ id: 'core.file', left: true, children: [{ id: 'core.file.image', children: [{ id: 'app.example.receipt' }] }] }],
   },
 ];
 
@@ -36,7 +36,7 @@ function Node({ node }: { node: TreeNode }): ReactNode {
     <li>
       <span className="marfa-ti-node" data-returned={!node.left || undefined} data-left={node.left || undefined}>
         <code>{node.id}</code>
-        {node.left ? <span className="marfa-ti-note">Compatible, not returned</span> : null}
+        {node.left ? <span className="marfa-ti-note">Parent, not returned</span> : null}
       </span>
       {node.children?.length ? (
         <ul role="list">
@@ -51,8 +51,8 @@ function Node({ node }: { node: TreeNode }): ReactNode {
 
 /**
  * Two small trees side by side: what listing files returns, the type and
- * every type beneath it, and what listing notes returns, which leaves out a
- * type that is only compatible with notes.
+ * every type beneath it, and what listing images returns, which leaves out
+ * the file type above it.
  */
 export function TypeInheritance({ caption }: { caption?: ReactNode }) {
   return (
