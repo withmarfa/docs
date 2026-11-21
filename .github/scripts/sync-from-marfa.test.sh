@@ -407,10 +407,10 @@ note_expected="$(cat <<'EOF'
 
 | Setting                                            | Value                                                                   |
 | -------------------------------------------------- | ----------------------------------------------------------------------- |
-| [`title_field`](/catalog/type-rules#display-hints) | `title`                                                                 |
-| [`body_field`](/catalog/type-rules#display-hints)  | `body`                                                                  |
-| [`icon`](/catalog/type-rules#display-hints)        | `sticky-note`                                                           |
-| [`merge_policy`](/catalog/type-rules#merge-policy) | `keep_both_copies` for `body`; `last_writer_wins` for every other field |
+| [`title_field`](/catalog/type-definition#display-hints) | `title`                                                                 |
+| [`body_field`](/catalog/type-definition#display-hints)  | `body`                                                                  |
+| [`icon`](/catalog/type-definition#display-hints)        | `sticky-note`                                                           |
+| [`merge_policy`](/catalog/type-definition#merge-policy) | `keep_both_copies` for `body`; `last_writer_wins` for every other field |
 
 ## Subtypes
 
@@ -420,8 +420,8 @@ A memo (for a team) with a level.
 
 | Setting                                     | Value          |
 | ------------------------------------------- | -------------- |
-| [`icon`](/catalog/type-rules#display-hints) | `notebook-pen` |
-| [`roles`](/catalog/type-rules#roles)        | `container`    |
+| [`icon`](/catalog/type-definition#display-hints) | `notebook-pen` |
+| [`roles`](/catalog/type-definition#roles)        | `container`    |
 
 | Field   | Kind                | Description                        |
 | ------- | ------------------- | ---------------------------------- |
@@ -1228,7 +1228,7 @@ catalog_with 'c["types"][0]["merge_policy"] = {"default": "keep_both_copies", "f
 sync shapes
 check "a default of both copies and a subtype with no field to add: the script succeeds" 0 "${status}"
 check "a default of both copies names the fields that do not keep both, as values" 1 \
-  "$(grep -cF '| [`merge_policy`](/catalog/type-rules#merge-policy) | `last_writer_wins` for `title` and `language`; `keep_both_copies` for every other field |' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
+  "$(grep -cF '| [`merge_policy`](/catalog/type-definition#merge-policy) | `last_writer_wins` for `title` and `language`; `keep_both_copies` for every other field |' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
 check "an edge type that constrains its source adds a From types column, and several types are joined with or" \
   "$(printf '%s\n%s\n%s\n%s\n%s' '| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | `cascade_on_delete` | `written_from` | From types                      | To types                           |' '| --------------- | ------------- | --------------- | ------------ | -------------- | ------------------- | -------------- | ------------------------------- | ---------------------------------- |' '| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`            | `from`         | Any type                        | Any type with the role `container` |' '| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade`           | `to`           | Any type                        | Any type                           |' '| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`            | `none`         | `core.note` or `core.note.memo` | `system.folder`                    |')" \
   "$(cat "${work}/shapes/docs/src/generated/catalog/edge-types.md")"
@@ -1248,7 +1248,7 @@ check "a subtype equal to its parent says nothing of hints or merge policy" \
   "$(printf '### core.note.same [#core-note-same]\n\nSays what the parent says.')" \
   "$(sed -n '/^### core.note.same/,/^### core.note.drift/p' "${drift_file}" | sed '$d')"
 check "a subtype that differs says its hints and merge policy as values" \
-  "$(printf '%s\n%s' '| [`title_field`](/catalog/type-rules#display-hints) | `language`                         |' '| [`merge_policy`](/catalog/type-rules#merge-policy) | `keep_both_copies` for every field |')" \
+  "$(printf '%s\n%s' '| [`title_field`](/catalog/type-definition#display-hints) | `language`                         |' '| [`merge_policy`](/catalog/type-definition#merge-policy) | `keep_both_copies` for every field |')" \
   "$(sed -n '/^### core.note.drift/,$p' "${drift_file}" | grep '^| \[`')"
 check "the parent says its own hints once, and a subtype equal to it adds none" 1 \
   "$(grep -cE '^\| \[`title_field`\].*\| `title` +\|$' "${drift_file}")"

@@ -18,13 +18,13 @@
 
 ## Settings
 
-| Setting                                            | Value                                                                               |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `plural`                                           | Media                                                                               |
-| [`title_field`](/catalog/type-rules#display-hints) | `title`                                                                             |
-| [`body_field`](/catalog/type-rules#display-hints)  | `body`                                                                              |
-| [`icon`](/catalog/type-rules#display-hints)        | `lucide:library-big`                                                                |
-| [`merge_policy`](/catalog/type-rules#merge-policy) | `keep_both_copies` for `body` and `notes`; `last_writer_wins` for every other field |
+| Setting                                                 | Value                                                                               |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `plural`                                                | Media                                                                               |
+| [`title_field`](/catalog/type-definition#display-hints) | `title`                                                                             |
+| [`body_field`](/catalog/type-definition#display-hints)  | `body`                                                                              |
+| [`icon`](/catalog/type-definition#display-hints)        | `lucide:library-big`                                                                |
+| [`merge_policy`](/catalog/type-definition#merge-policy) | `keep_both_copies` for `body` and `notes`; `last_writer_wins` for every other field |
 
 ## Subtypes
 
@@ -32,11 +32,11 @@
 
 A music album, EP or single.
 
-| Setting                                     | Value           |
-| ------------------------------------------- | --------------- |
-| `plural`                                    | Albums          |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:disc-3` |
-| [`roles`](/catalog/type-rules#roles)        | `container`     |
+| Setting                                          | Value           |
+| ------------------------------------------------ | --------------- |
+| `plural`                                         | Albums          |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:disc-3` |
+| [`roles`](/catalog/type-definition#roles)        | `container`     |
 
 | Field          | Kind      | Description                                       |
 | -------------- | --------- | ------------------------------------------------- |
@@ -47,10 +47,10 @@ A music album, EP or single.
 
 An article, such as a blog post or a news story.
 
-| Setting                                     | Value              |
-| ------------------------------------------- | ------------------ |
-| `plural`                                    | Articles           |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:newspaper` |
+| Setting                                          | Value              |
+| ------------------------------------------------ | ------------------ |
+| `plural`                                         | Articles           |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:newspaper` |
 
 | Field        | Kind      | Description                                        |
 | ------------ | --------- | -------------------------------------------------- |
@@ -63,10 +63,10 @@ An article, such as a blog post or a news story.
 
 A book, with details such as its ISBN and page count.
 
-| Setting                                     | Value              |
-| ------------------------------------------- | ------------------ |
-| `plural`                                    | Books              |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:book-open` |
+| Setting                                          | Value              |
+| ------------------------------------------------ | ------------------ |
+| `plural`                                         | Books              |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:book-open` |
 
 | Field        | Kind      | Description                                                 |
 | ------------ | --------- | ----------------------------------------------------------- |
@@ -78,10 +78,10 @@ A book, with details such as its ISBN and page count.
 
 One episode of a TV show, a podcast or another series.
 
-| Setting                                     | Value                |
-| ------------------------------------------- | -------------------- |
-| `plural`                                    | Episodes             |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:circle-play` |
+| Setting                                          | Value                |
+| ------------------------------------------------ | -------------------- |
+| `plural`                                         | Episodes             |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:circle-play` |
 
 | Field            | Kind      | Description                                                                                                                                           |
 | ---------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -96,10 +96,10 @@ One episode of a TV show, a podcast or another series.
 
 A film.
 
-| Setting                                     | Value         |
-| ------------------------------------------- | ------------- |
-| `plural`                                    | Films         |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:film` |
+| Setting                                          | Value         |
+| ------------------------------------------------ | ------------- |
+| `plural`                                         | Films         |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:film` |
 
 | Field            | Kind     | Description                                                                                                                                           |
 | ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -113,10 +113,10 @@ A film.
 
 A video game, board game or card game.
 
-| Setting                                     | Value              |
-| ------------------------------------------- | ------------------ |
-| `plural`                                    | Games              |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:gamepad-2` |
+| Setting                                          | Value              |
+| ------------------------------------------------ | ------------------ |
+| `plural`                                         | Games              |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:gamepad-2` |
 
 | Field         | Kind                   | Description                                                          |
 | ------------- | ---------------------- | -------------------------------------------------------------------- |
@@ -128,11 +128,11 @@ A video game, board game or card game.
 
 A TV show, podcast, radio serial or video series that is made of episodes.
 
-| Setting                                     | Value       |
-| ------------------------------------------- | ----------- |
-| `plural`                                    | Series      |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:tv` |
-| [`roles`](/catalog/type-rules#roles)        | `container` |
+| Setting                                          | Value       |
+| ------------------------------------------------ | ----------- |
+| `plural`                                         | Series      |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:tv` |
+| [`roles`](/catalog/type-definition#roles)        | `container` |
 
 | Field    | Kind   | Description                                                                                 |
 | -------- | ------ | ------------------------------------------------------------------------------------------- |
@@ -143,10 +143,10 @@ A TV show, podcast, radio serial or video series that is made of episodes.
 
 A song.
 
-| Setting                                     | Value                |
-| ------------------------------------------- | -------------------- |
-| `plural`                                    | Songs                |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:audio-lines` |
+| Setting                                          | Value                |
+| ------------------------------------------------ | -------------------- |
+| `plural`                                         | Songs                |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:audio-lines` |
 
 | Field          | Kind      | Description                                                                                                                                           |
 | -------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -598,7 +598,7 @@ CARDINALITIES = {"one-to-one", "one-to-many", "many-to-one", "many-to-many"}
 CASCADES = {"orphan", "cascade", "block", "with-hosts"}
 ROLES = {"container"}
 HINT_KEYS = ("title_field", "body_field", "name_from_body", "icon")
-RULES = "/catalog/type-rules"
+RULES = "/catalog/type-definition"
 
 
 def kind(field):
