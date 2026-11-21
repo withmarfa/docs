@@ -79,12 +79,22 @@ The server writes only into a folder it marked as its own, so on a new disk ever
 
 **What you need is the backup place:** the folder, or the bucket with its prefix and credentials. Nothing else, not even the server's secrets.
 
+**A restore brings back the last backup, so work written after it is lost:** up to an hour by default, and longer if `backup_interval_seconds` is `0` or a backup failed. If the old instance still runs, take a last one first with `marfa backups run`. What survives is what your devices and synced directories still hold, which [On each device](#on-each-device) settles.
+
 <Steps>
 <Step>
 
-### Make a new instance
+### Make a new instance and sign in to it
 
-[Install](/run/install) one and claim it. Point it at the same place: the same `backup_path`, or the same bucket, prefix and credentials, set as above.
+[Install](/run/install) one and claim it. Then [sign the CLI in](/run/sign-in-as-the-owner#sign-in-the-cli) to the new instance's address, with `marfa login --url <address>`: the restore needs a sign-in from the last fifteen minutes, and this one is. Or, on the new install's computer, put `--socket` and the full path of its [private socket](/run/run-on-a-server#the-private-socket) before each command below, written out because a path through a symbolic link is refused.
+
+**Check that `marfa status` names the new instance:** its `instance` line shows an ID that is not the `instance_id` of the backups in the next step, and its `server` line shows the new address.
+
+Point it at the same place: the same `backup_path`, or the same bucket, prefix and credentials, set as above. **Set `trash_retention_days` now,** to how many days you want binned items kept: the instance takes a setting it hasn't set from the backup, and a short one makes the next purge delete items for good.
+
+```bash
+marfa config set trash_retention_days 60
+```
 
 </Step>
 <Step>
@@ -98,17 +108,14 @@ The server writes only into a folder it marked as its own, so on a new disk ever
 
 ### Restore it
 
-A restore writes into whichever instance the CLI reaches, so **check that `marfa status` names the new one.** It needs [a recent sign-in](/run/sign-in-as-the-owner#confirm-its-you), or the private socket on the new instance's computer:
-
 ```bash
-marfa login --fresh-sign-in
 marfa backups restore 01a1fc38-a2fc-74d9-aa20-7b4106ff9242 20261121T034911.289Z.json
 ```
 
 </Step>
 </Steps>
 
-**A restore adds what the instance lacks and changes nothing it holds.** It carries no key, sign-in, app, webhook or address. A setting the new instance hasn't set is taken from the backup, so **a short `trash_retention_days` makes its next bin purge delete items for good:** check `marfa config get` afterward, and see [what a restore changes](/run/export-and-restore#what-a-restore-changes). A file the backup names that no store holds makes the restore refuse and name it: `--allow-missing-files` restores without it.
+**A restore adds what the instance lacks and changes nothing it holds.** It carries no key, sign-in, app, webhook or address: see [what a restore changes](/run/export-and-restore#what-a-restore-changes). A file the backup names that no store holds makes the restore refuse and name it: `--allow-missing-files` restores without it.
 
 The answer names what the old instance left in the backup place, such as `backups/<id>` and `files/<id>`. Delete them once nothing restores from them, and **never delete a bucket's `blobs/`,** which every instance on the prefix shares.
 
@@ -116,12 +123,70 @@ The answer names what the old instance left in the backup place, such as `backup
 
 ### On each device
 
-The old keys and sign-ins are refused, so connect each device to the new instance:
+The old keys and sign-ins are refused, so connect each device to the new instance. Do the files first:
 
+- **Synced folders.** The watch stops each directory, saying its server now answers as another Marfa instance. A directory with edits not yet sent needs [the steps below](#bring-back-a-directorys-unsent-edits). One with nothing unsent follows [Fix a folder](/use/fix-a-folder#now-answers-as-another-marfa-instance).
 - **The address.** On the server's computer, give the new install the old one's `--access` and `--address`. Elsewhere, [set the sign-in address](/run/address#move-the-address).
 - **The CLI.** Run `marfa login --url <address>`, or give a script [a new key](/use/manage-keys).
-- **Synced folders.** The watch stops each folder, saying its server now answers as another Marfa instance: [Fix a folder](/use/fix-a-folder#now-answers-as-another-marfa-instance) says how to follow it again.
 - **Agents, Claude and ChatGPT.** Remove Marfa and add it again, as [Connect your agent](/connect-your-agent) shows.
 - **Connectors.** Give each [a new key](/use/manage-keys).
+
+### Bring back a directory's unsent edits
+
+**A directory that held edits the old server never received can't send them to the new one.** Its push is refused `instance_changed`, and `marfa folders remove` refuses it while edits wait ([withmarfa/marfa#3402](https://github.com/withmarfa/marfa/issues/3402) tracks this). Take the files out instead, and let a new directory send them. Do it once for each directory, with the CLI signed in to the new instance:
+
+<Steps>
+<Step>
+
+### Move the directory aside
+
+Note the folder's ID in `marfa folders list`, then move the directory away. Never edit or copy its `.marfa` folder.
+
+```bash
+marfa folders list
+mv ~/Documents/Home ~/Documents/Home.old
+```
+
+</Step>
+<Step>
+
+### Take it off the list
+
+The path is gone, so `remove` only forgets it and deletes nothing. Name the path as `folders list` shows it.
+
+```bash
+marfa folders remove ~/Documents/Home
+```
+
+</Step>
+<Step>
+
+### Add a new directory and let it write
+
+Add the folder again by its ID, which the restore kept. The plan should say how many files it writes into the directory and that it sends none: answer yes, then push. **The new directory must hold the folder's files before you copy anything in:** a file copied in earlier that is not a note comes back as a new item beside the old one.
+
+```bash
+marfa folders add ~/Documents/Home --folder 01a1f46f-bed0-7310-bb7c-840868eb64ac
+marfa folders push ~/Documents/Home
+```
+
+</Step>
+<Step>
+
+### Copy in what changed
+
+Copy the files you added or changed out of `Home.old`, never its `.marfa`, and push again:
+
+```bash
+cp ~/Documents/Home.old/"Packing list.md" ~/Documents/Home.old/"New idea.md" ~/Documents/Home/
+marfa folders push ~/Documents/Home
+```
+
+Delete `Home.old` once `marfa folders status` shows every file in step.
+
+</Step>
+</Steps>
+
+**What each file becomes:** a changed note or file updates its item, a new file becomes a new item, and a note that carries an ID the backup never held becomes a new item under a new ID. A file you deleted in the directory is not deleted in Marfa: its item stays until you bin it.
 
 To bring back the same instance with its keys, from a copy of its data folder, see [Restore a copy of the data directory](/run/restore-the-data-directory).
