@@ -49,7 +49,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['hmac', ['/build/receive-webhooks']],
 
   // Sign-in, keys and the command line.
-  ['oauth device flow', ['/build/authenticate']],
+  ['oauth device flow', ['/build/connect-an-app']],
   ['marfa login', ['/reference/cli', '/run/sign-in-as-the-owner']],
   ['create type scaffold', ['/reference/cli', '/build/define-a-type']],
   ['MARFA_API_KEY', ['/reference/cli', '/run/manage-keys']],
@@ -77,8 +77,8 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['restore', ['/run/back-up-and-restore', '/run/export-and-restore']],
 
   // Files.
-  ['blob upload', ['/build/handle-files', '/reference/api/blobs/uploadBlob']],
-  ['attach a file to a note', ['/build/handle-files']],
+  ['blob upload', ['/build/files-upload-download', '/reference/api/blobs/uploadBlob']],
+  ['attach a file to a note', ['/build/files-upload-download']],
 
   // A dotted type key, and a word that is the end of one.
   ['core.task', ['/catalog/task']],
