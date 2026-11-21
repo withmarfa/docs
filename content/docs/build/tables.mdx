@@ -1,91 +1,53 @@
 ---
 title: Tables
-description: How an item holds rows in a table its type declares, with typed columns, totals and changes you can undo.
+description: How one item holds many small records as rows in typed columns, and why a row is not an item.
+job: A builder learns how an item holds rows in typed columns and why a row is not an item.
+kind: concept
 ---
 
-Some things a person keeps are many small records under one heading: the bottles in a wine cellar, the lines of a budget, the messages of a conversation. Making each one an item would bury the item list. Instead, **one item holds them as the rows of a table**, and the item stays one thing to find, tag, link and move to the bin.
+Some things are many small records under one heading: the bottles in a wine cellar, the lines of a budget, the messages of a conversation. Making each an item would bury the item list, so **one item holds them as the rows of a table**, and stays one thing to find, tag, link and move to the bin.
 
 ## Where a table comes from
 
-**A type declares the tables its items hold**, each with named, typed columns. `core.conversation` declares a `messages` table, so every conversation holds its messages as rows, in the order they were sent.
+**A type declares the tables its items hold,** each with named, typed columns: `core.conversation` declares a `messages` table. **A `core.table` item chooses its own columns,** in its `columns` property, for a table a person keeps by hand, such as a reading log.
 
-**A `core.table` item chooses its own columns.** It's a table a person keeps by hand, such as a reading log or a list of contacts, and its `columns` property holds the column definitions. Other items of that type can hold quite different tables.
-
-A column has a type, such as `string`, `integer`, `date`, `enum` or `item`, which holds the ID of another item. A column can be required, can say how it **adds up** (`sum`, `average`, `min`, `max` or `count`), and can be **searchable**, so search finds the rows that mention a word. [Define a type](/build/define-a-type#give-it-a-table) shows how a type declares one, and the contract's [tables](https://github.com/withmarfa/marfa/blob/main/conformance/spec/tables.md) chapter has the limits.
+A column has a type, such as `string`, `integer`, `date`, `enum` or `item`, which holds another item's ID. It can be required, can say how it **adds up** (`sum`, `average`, `min`, `max` or `count`), and can be **searchable**. The contract's [tables](https://github.com/withmarfa/marfa/blob/main/conformance/spec/tables.md) chapter has the limits.
 
 ## A row is not an item
 
-A row is its `id`, its `values` keyed by column, and when it last changed. **It has no version, tags, edges or history of its own.** It belongs to its item: a key that may read the item's type reads its rows, a key that may write the type writes them, and an item in the bin takes its rows with it.
-
-Writing rows leaves the item's own `version` and `updated_at` alone. It moves the item's `last_activity_at` instead, so a list sorted by `last_activity_at` puts the conversation with the latest message first.
+A row is its `id`, its `values` keyed by column, and when it last changed. **It has no version, tags, edges or history of its own.** It belongs to its item: a key that may read the item's type reads its rows, a key that may write the type writes them, and an item in the bin takes its rows with it. Writing rows leaves the item's `version` alone and moves its `last_activity_at`.
 
 ## Write rows in batches
 
-Every write to a table is a **batch**: a list of operations on one table of one item, applied in order, all or none.
+Every write is a **batch**: a list of operations on one table of one item, applied in order, **all or none.** `put` creates a row or replaces the whole row its `id` names, `patch` sets the columns it names, and `delete` removes a row.
 
-- **`put`** creates a row, or replaces the whole row its `id` names.
-- **`patch`** sets the columns it names and leaves the others.
-- **`delete`** removes a row.
-
-This batch adds a bottle of Chablis to a cellar and corrects the count of another wine:
-
-```http title="Request"
-POST /items/01a1f141-38d8-7757-b9c1-b2e60b992c63/tables/table/rows
-Authorization: Bearer <key>
-Content-Type: application/json
-
-{
-  "operations": [
-    { "op": "put", "values": { "wine": "Chablis Premier Cru", "vintage": 2021, "bottles": 3 } },
-    { "op": "patch", "id": "01a1f141-4d6a-7062-b447-f6ee16739f0e", "values": { "bottles": 2 } }
-  ]
-}
-```
-
-```json title="Response" status="200"
-{
-  "batch": "01a1f141-ad55-7133-88ce-e6fd8377da7f",
-  "last_activity_at": "2026-11-19T00:42:55.701Z",
-  "results": [
-    { "id": "01a1f141-ad55-7133-88ce-e6fe9959a339", "outcome": "created" },
-    { "id": "01a1f141-4d6a-7062-b447-f6ee16739f0e", "outcome": "patched" }
-  ]
-}
-```
-
-The item is a `core.table`, so its one table is named `table`. **When two writers change the same row, the later write wins**: a row has no version to compare. Send an `Idempotency-Key` with a batch you may retry, so a repeat is answered rather than written twice. From the CLI, `marfa rows write` sends a batch, and `marfa rows put`, `marfa rows patch` and `marfa rows delete` send one operation.
-
-## Take a batch back
-
-Each table keeps a **change log**: every batch that changed a row, with each row as it stood before. **Undoing a batch puts those rows back**, as a new batch of its own, so undoing the undo redoes it. An undo is refused with `undo_conflict` when a later batch has changed one of the same rows since; undo that one first.
-
-The log keeps each batch for `row_log_retention_days`, 30 days by default. It's for taking back a recent mistake, not a history: `marfa rows batches` lists what it holds, and `marfa rows undo` takes one back.
-
-## Read rows
-
-A table's rows come a page at a time, in the order of the column the table names in `order`, or by row ID where it names none. **A read can filter and sort by any column** with the same filter grammar items use, written as `values.<column>`.
-
-**Totals** answer how many rows a filter selects and what each column that adds up comes to, without reading the rows. For the cellar, that's how many bottles there are in all:
+**When two writers change the same column, the later write wins:** a row has no version to compare. Send an `Idempotency-Key` with a batch you may retry, so a repeat is answered, not written twice. This adds two wines and reads the total:
 
 <Terminal>
 
 ```bash
-marfa rows totals 01a1f141-38d8-7757-b9c1-b2e60b992c63 table
+marfa rows put 01a1fc3d-d23c-71c5-876c-0959f5a1e4c1 table --values '{"wine":"Chablis","vintage":2021,"bottles":3}'
+marfa rows put 01a1fc3d-d23c-71c5-876c-0959f5a1e4c1 table --values '{"wine":"Barolo","vintage":2018,"bottles":8}'
+marfa rows totals 01a1fc3d-d23c-71c5-876c-0959f5a1e4c1 table
 ```
 
 ```text
-row_count           3
+created row 01a1fc3d-d9c0-75c8-9a57-fb4a71c8da7c in table as batch 01a1fc3d-d9c0-75c8-9a57-fb49d3f24bcf
+created row 01a1fc3d-e0ec-77c3-aa10-596d0afd8ca8 in table as batch 01a1fc3d-e0ec-77c3-aa10-596c031600b8
+row_count           2
 totals.bottles.sum  11
 ```
 
 </Terminal>
 
-## Find and follow rows
+The item is a `core.table`, so its one table is named `table`. Agents use the MCP tools `marfa_read_rows` and `marfa_write_rows`.
 
-**Search matches rows as well as items.** A hit for a row names its item and, beside it, the table, the row and the column the match came from.
+## Take a batch back
 
-**A link can point at one row**, written `[[Wine cellar#^<row id>]]` in a note's text. It stays a link to the item, with the row named.
+Each table keeps a **change log:** every batch that changed a row, with each row as it stood before. **Undoing a batch puts those rows back,** as a new batch, so undoing the undo redoes it. An undo is refused with `undo_conflict` when a later batch has changed one of the same rows. The log keeps each batch for `row_log_retention_days`, 30 days by default, to take back a recent mistake. `marfa rows undo` takes one back.
 
-**A batch that changes rows sends one `rows.changed` event**, with each row as the batch left it, so an app that follows the [event stream](/build/events) keeps its rows current without reading the table again. A device can hold a table in its [working copy](/build/devices) the same way, whole, and queue batches while offline.
+## Read and follow rows
 
-Agents read and write rows through the MCP tools `marfa_read_rows` and `marfa_write_rows`. An [archive](/run/export-and-restore) carries every row.
+**A read can filter and sort by any column,** and totals answer how many rows a filter selects and what each adding-up column comes to. **Search matches rows as well as items.** A link can point at one row: `[[Wine cellar#^<row id>]]`.
+
+**A batch that changes rows sends one `rows.changed` event,** so an app that follows the [event stream](/build/events) keeps its rows current. A [working copy](/build/working-copies) holds a table only when the app asks.

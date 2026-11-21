@@ -1,75 +1,57 @@
 ---
 title: Edges
-description: How one item links to another, what each edge type means, and what the bin does across a link.
+description: How one item links to another, how to choose an edge type, and what the bin does across a link.
+job: A builder learns how items link, how to choose an edge type, and what the bin does across a link.
+kind: concept
 ---
 
-An **edge** links one item to another: it points **from** one item **to** another, such as a comment to the lease it's about. It's a record of its own, with an `id`, properties and a [version](/build/versions), so writing an edge never moves either item's version.
+An **edge** links one item to another: it points **from** one item **to** another, such as a comment to the lease it's about. It's a record of its own, with an `id`, properties and a [version](/build/versions), so **writing an edge never moves either item's version.**
 
-```http title="Request"
-POST /edges
-Authorization: Bearer <key>
-Content-Type: application/json
+<Terminal>
 
-{
-  "from_id": "01a1f144-e102-7276-97a9-e93846d7cf4e",
-  "to_id": "01a1f144-e0da-77a3-a1c4-ead9c1e9d53c",
-  "edge_type": "comments-on"
-}
+```bash
+marfa edges create --from-id 01a1fc3e-34fa-7062-8de7-da8fc361f12c --to-id 01a1fc3e-34ea-7771-b388-9b9b48bfd87c --type comments-on
 ```
 
-A new item can carry its edges: `POST /items` takes `edges`, an object from each edge type to the IDs it points to. If Marfa refuses any edge, it creates neither the item nor its edges.
+```text
+linked 01a1fc3e-34fa-7062-8de7-da8fc361f12c -> 01a1fc3e-34ea-7771-b388-9b9b48bfd87c with comments-on edge 01a1fc3e-4469-7373-a946-538fc308c747
+```
+
+</Terminal>
 
 ## Edge types
 
-Every edge has an **edge type**, and the type sets the rules:
+Every edge has an **edge type**, which sets the rules: which item types each end can be, how many edges an end holds, whether edges can loop, and what the bin does across it. `many-to-one` lets each from item hold at most one edge of the type, so a comment is on one item. `one-to-many` lets each to item hold at most one, so a child has one parent. No edge links an item to itself, and `parent-of` and `supersedes` refuse any loop.
 
-- **Which types each end can be.** An `in-collection` edge points to a container, and an `in-folder` edge to a folder.
-- **How many edges an end holds**, its cardinality. `many-to-one` lets each from item hold at most one edge of the type, so a comment is on one item and a message in one thread. `one-to-many` lets each to item hold at most one, so a child has one parent. `one-to-one` limits both ends, and `many-to-many` neither.
-- **Whether its edges can loop.** No edge links an item to itself, and `parent-of` and `supersedes` refuse any loop.
-- **What the bin does across it**, as [Moving an item to the bin](#moving-an-item-to-the-bin) shows.
-- **Its labels**, the headings an app shows at each end.
-
-A write that breaks one is refused with `400 edge_constraint_violation`, or `400 edge_cycle` for a loop. Marfa ships eleven, which the Catalog's [Edges](/catalog/edges) page lists with each one's limits and how a [synced folder](/use/sync-a-folder) writes it. A key whose metadata map holds `edge_types=write` can [register more](/reference/api/edge-types/registerEdgeType).
+A write that breaks a rule is refused `400 edge_constraint_violation`, or `400 edge_cycle` for a loop. Marfa ships eleven edge types, listed on the Catalog's [Edges](/catalog/edges) page, and a key can [register more](/reference/api/edge-types/registerEdgeType).
 
 ### Choose an edge type
 
 Start from what the link means to a person:
 
-- **One item sits under another**, as a subtask under its task: `parent-of`. Its children go to the bin with it. To gather items without owning them, as recipes in a collection, use `in-collection`, and an item can be in many collections.
-- **An item exists only for another**, as a comment, a reply or a receipt photo for an expense: `comments-on` or `attached-to`, which make it a [part](#parts). For an item that stands alone, as a note about a film, use `about`.
-- **A message belongs to a thread**, as an email to its thread: `in-thread`, with `position` for its order. A conversation that holds its messages as [table rows](/build/tables) needs no edges.
-- **One item's text links to another**, a **mention**: `references`. A device reads `[[Plan]]` in a note and writes a `references` edge to Plan.
-- **An item was taken or made from another**: `excerpt-of` for a passage taken from it, as a highlight from a book, which carries its own text and stays when the book goes. Use `derived-from` for something made from it, as a summary from an article.
-- **A new item replaces an old one**, as this year's lease replaces last year's: `supersedes`. Each item replaces at most one and is replaced by at most one.
-
-Marfa writes `in-folder` itself, for the files a synced folder places.
+- **One item sits under another,** as a subtask under its task: `parent-of`. To gather items without owning them, use `in-collection`.
+- **An item exists only for another,** as a comment or a receipt photo: `comments-on` or `attached-to`, which make it a [part](#parts). For one that stands alone, as a note about a film, use `about`.
+- **A message belongs to a thread:** `in-thread`.
+- **One item's text links to another:** `references`.
+- **An item comes from another:** `excerpt-of` for a passage, `derived-from` for a summary.
+- **A new item replaces an old one:** `supersedes`.
 
 ## Parts
 
-Some items exist only for another: a comment, a reply, a scan's pages, a receipt attached to an expense. Such an item is a **part**, and the item it belongs to is its **host**. `attached-to` and `comments-on` make parts, and a registered edge type can too.
-
-**Would you look for it on its own?** If not, make it a part. If you would, as with a photo in an album, use another edge type.
-
-A part follows its host into the bin: it goes once its last host goes, and comes back when any host is restored. Listings still include parts, so an app that wants them out filters with `part eq false`. Archiving a host, or deleting the edge, leaves the part where it is.
-
-## Read an item's edges
-
-An item read carries its outbound edges in `edges`, up to 50 of each type. Add `include=backrefs` for the edges that point to it, and `include=neighbors` for the items at the other ends. [List an item's edges](/reference/api/edges/listItemEdges) and [List an item's backrefs](/reference/api/edges/listItemBackrefs) page through the rest.
-
-A key reads an edge only when it may read the edge type, which its [edge map](/build/access#what-a-credential-reaches) grants, and the item it points from.
+An item that exists only for another, such as a comment or a receipt attached to an expense, is a **part**, and the item it belongs to is its **host**. **Would you look for it on its own?** If not, make it a part; if you would, as with a photo in an album, use another edge type. Listings still include parts: filter with `part eq false` to leave them out.
 
 ## Moving an item to the bin
 
 An edge type's `cascade_on_delete` decides what the bin does across its edges:
 
-- **`cascade`, on `parent-of`.** Moving a parent to the bin takes its children with it, at every depth, and never the other way.
-- **`with-hosts`, on `attached-to` and `comments-on`.** A part goes with its last host, as [Parts](#parts) explains.
-- **`orphan`, on the other eight.** The other item stays active, and so does the edge.
+- **`cascade`, on `parent-of`:** a parent takes its children with it, at every depth, and never the other way.
+- **`with-hosts`, on `attached-to` and `comments-on`:** a part goes once its last host goes, and comes back when any host is restored.
+- **`orphan`, on the other eight:** the other item stays active, and so does the edge.
 
 So a note moved to the bin takes its child note and its comments, and leaves the book it's `about` where it is.
 
 <BinCascade />
 
-A registered edge type can also choose **`block`**: while such an edge holds an item, at either end, moving that item to the bin is refused with `400 edge_constraint_violation`, and `details.blocking_edges` names the edges. So is a delete that would take it there along a cascade. Delete the edge first. A purge is never blocked: it deletes the item's edges.
+A registered edge type can also choose **`block`:** while such an edge holds an item, moving it to the bin is refused with `400 edge_constraint_violation`, naming the edges in `details.blocking_edges`. Delete the edge first. A purge is never blocked.
 
 The rules behind this page are in the [edges](https://github.com/withmarfa/marfa/blob/main/conformance/spec/edges.md) chapter of the contract.

@@ -1,26 +1,19 @@
 ---
-title: Change or delete a type
-description: Check a change to a registered type, replace its definition, and delete a type nothing uses.
+title: Change, rename or delete a type
+sidebar_label: Change or delete a type
+headTitle: Change, rename or delete a type, step by step
+description: Check a change to a registered type, replace its definition, move its items to another type to rename it, and delete a type nothing uses.
+job: A builder changes, renames or deletes a type without losing items or breaking what names it.
+kind: how-to
 ---
 
-The examples change the receipt type from [Define a type](/build/define-a-type). Each call sends `receipt.json` as that guide left it, and `definition` is that file read in, as [Register the type](/build/define-a-type#register-the-type) shows. In the TypeScript examples, `marfa` is a client made as [the TypeScript SDK](/reference/typescript-sdk#create-a-client) shows. In the Swift examples, `api` is a `Client` made as [the Swift SDK](/reference/swift-sdk/server-calls#the-api-client) shows, and `receiptURL` is the file's location. [What your key needs](/build/define-a-type#what-your-key-needs) lists the permissions each call takes.
+**Changing, renaming or deleting a type moves or removes its items,** so each step starts with a check. The examples change the receipt type from [Define a type](/build/define-a-type): each call sends `receipt.json`, and `definition` is that file read in. `marfa` in the TypeScript tabs is a client from [the TypeScript SDK](/reference/typescript-sdk#create-a-client), and `api` in the Swift tabs a `Client` from [the Swift SDK](/reference/swift-sdk/server-calls#the-api-client).
 
-The key that guide made can check a change and make the one below, which only adds an optional field. Removing a field, making one required and deleting the type need `schema.write`, which an app's everyday key shouldn't hold. Make a key for those changes alone, and revoke it when you're done:
-
-```bash
-marfa keys create --label "Receipt types" --source receipt-types \
-  --type-permission "app.example.*=write" --permission schema.write
-```
+That guide's key can check a change and add an optional field. **Removing a field, making one required and deleting a type need `schema.write`,** which an app's everyday key shouldn't hold: make a key with `--permission schema.write` for those changes alone, and revoke it afterwards.
 
 ## Check the change
 
-A replacement **sends the whole definition**, so change the file and send all of it. To add an optional category, add `"version": 1` and this field to `receipt.json`:
-
-```json
-"category": { "type": "enum", "enum_values": ["travel", "meals", "supplies"] }
-```
-
-To see what would change first, normalize the file. Normalizing changes nothing, and any key can do it, so a connector uses it to decide whether its type needs registering or replacing:
+A replacement **sends the whole definition.** To add an optional category, add `"version": 1` and a `category` field of type `enum`, with its `enum_values`, to `receipt.json`. Normalizing shows what would change and changes nothing, and any key can do it:
 
 ```bash tab="CLI" tab-group="client"
 marfa types normalize --file receipt.json
@@ -42,7 +35,7 @@ const { data, error } = await marfa.POST("/types/normalize", { body: definition 
 let normalized = try await api.check(itemType: definition)
 ```
 
-The answer's `type` is your definition with its defaults written out, such as `required: false` and `searchable: true`, and `registered_type` is the registered one in the same form. Compare those two, not `resolved_type`, which adds every field the registered type inherits. Both registered forms are `null` when the identifier isn't registered. A key Marfa doesn't read, anywhere in a definition, is refused `400 invalid_schema`, naming it.
+The answer's `type` is your definition with its defaults written out, and `registered_type` the registered one in the same form, `null` if there is none. Compare those two, not `resolved_type`, which adds inherited fields.
 
 ## Replace the type
 
@@ -74,37 +67,76 @@ let update = try JSONDecoder().decode(
 _ = try await api.replace(itemType: "app.example.receipt", with: update)
 ```
 
-Marfa answers `200` with the type as it stored it. **Send the `version` every time:** a replacement without one sets it back to 0. You can't replace or delete a type Marfa ships: that's refused `403 core_type_immutable`.
+**Send the `version` every time:** a replacement without one sets it back to 0. A type Marfa ships can't be replaced or deleted: `403 core_type_immutable`.
 
-A replacement **changes no item you already hold**:
+**A replacement changes no item you already hold.** A property you made required is checked the next time an item's properties are written, a property you removed leaves the items' values in place, and a rule you tightened refuses only a write that changes that property. A change to `title_field` or `body_field` changes how items are [named and previewed](/catalog/display-hints#names-and-previews).
 
-- **A property you made required** is checked the next time the item's properties are written.
-- **A property you removed** is gone from the type, but items keep their values for it, and a later write isn't refused for them.
-- **A rule you tightened,** such as a lower `maximum`, leaves the values items hold. A write is refused only when it changes that property.
+A type can't reshape a field it inherits: `400 inheritance_violation`. **A new Marfa release can still leave a clash,** by giving a built-in type a field your type declares in another shape. Your type keeps working, and `marfa types list --json` gives it a `conflicts` list: declare the field as `inherited` says, or leave it out.
 
-**A replacement keeps the icon the owner chose** for the type ([the owner's icon](/catalog/display-hints#the-owners-icon)). Sending back what [Get a type](/reference/api/types/getType) answered changes only what you changed: a display hint you send with the value the type inherits isn't stored, so the type keeps following its parent.
+## Rename a type by moving its items
 
-A change to `title_field` or `body_field` changes how the server and every device [name and preview](/catalog/display-hints#names-and-previews) the type's items. The body field holds up to 1,000,000 characters by default ([Field kinds](/catalog/field-kinds#kinds)), so moving the hint to another field gives that field the limit. A longer value the old body field holds stays readable, but the item's next write of it is refused `400 invalid_properties` until it's shortened.
+**A type's identifier never changes.** To rename a type, or fold one into another, register the new type, move the items to it, then delete the old type. Each item keeps its ID, edges, tags and files. The examples move `app.example.receipt` to `app.example.expense`, which requires a `paid` property.
 
-## When a field clashes with its parent
+**Preview first** with `--dry-run`, or `dry_run: true` over HTTP. It changes nothing and lists the items it would move, the settings that name the type, and the keys and apps whose type map names it. A move takes every item of exactly that type your key can see, in any state; an item in the bin stays there.
 
-A type can't reshape a field it inherits: give it another `type`, `format` or `enum_values`, loosen its range, or make a required field optional. Marfa refuses such a definition with `400 inheritance_violation`, naming the field, and refuses a change to a parent that would clash with a field a child declares the same way.
+**Marfa checks each item against the new type,** as it checks any write. To add a property the new type requires, send it in `properties`, merged into every item:
 
-**A new Marfa release can still leave a clash**, by giving a built-in type a field that your type, beneath it, declares in another shape. Your type and its items keep working, and `marfa types list --json` ([List types](/reference/api/types/listTypes)) gives your type a `conflicts` list, one entry for each field:
+```bash tab="CLI" tab-group="client"
+marfa types move app.example.receipt app.example.expense --properties '{"paid":false}'
+```
 
-- `field` and the first `attribute` that differs
-- `inherited_from`, the type that gives the field
-- `inherited`, what that type gives, and `declared`, what yours declares
+```http tab="HTTP"
+POST /types/app.example.receipt/move
+Authorization: Bearer $MARFA_API_KEY
+Content-Type: application/json
 
-Declare the field as `inherited` says, or leave it out, and replace the type: the conflict clears at once. Until you do, registering the old definition again, on another instance or after a restore, is refused `inheritance_violation`.
+{ "to": "app.example.expense", "properties": { "paid": false } }
+```
 
-## Rename a type
+```ts tab="TypeScript"
+const { data: job, error } = await marfa.POST("/types/{id}/move", {
+  params: { path: { id: "app.example.receipt" } },
+  body: { to: "app.example.expense", properties: { paid: false } },
+});
+```
 
-**A type's identifier never changes.** To rename a type, register the new one, [move the items](/build/move-items-to-another-type) to it, then delete the old one. A move also changes the folders, views and webhooks that name the old type.
+```swift tab="Swift"
+import Marfa // the JSON values in `properties`
+import MarfaAPI
 
-## Delete the type
+let started = try await api.startMove(ofType: "app.example.receipt", to: "app.example.expense", properties: ["paid": false])
+let job = try await api.follow(moveJob: started.id)
+```
 
-Marfa deletes a type that **no item holds**, in any state, the bin included; that no folder, view, webhook or [table](/build/tables) column names; and that no other type names as its parent or in `compatible_with`:
+Over HTTP, Marfa answers `202` with a [bulk-action job](/reference/api/bulk-actions/getBulkActionJob) to read until it is `completed`. The CLI and Swift's `follow(moveJob:)` wait. An agent previews and confirms the move in two calls of `marfa_move_items`. Each moved item sends an `item.updated` [event](/build/events).
+
+**An item the new type refuses stays where it is.** Without `properties`, the CLI says which and exits `1`:
+
+<Terminal>
+
+```bash
+marfa types move app.example.receipt app.example.expense
+```
+
+```text
+moved 0 of 2 items from app.example.receipt to app.example.expense
+it couldn't move 2 items:
+  01a1fc3b-36d3-74ad-bbfa-f682c179286f invalid_properties: Cannot move item to "app.example.expense": paid: Required field is missing
+  01a1fc3b-36e3-7447-aa10-6469c0ad6d0f invalid_properties: Cannot move item to "app.example.expense": paid: Required field is missing
+2 items you can see are still app.example.receipt
+```
+
+</Terminal>
+
+The finished job's `result.remaining` counts the items of the old type your key can see, and `result.remaining_hidden` is `true` when one it can't see remains. Deal with them and run the move again.
+
+**Once every item has moved, Marfa changes the folders, views and webhooks that name the old type** to name the new one: a folder's `query.types`, `defaults.type` and `first_placement`, a view's `query.types`, each `type eq` or `type neq` filter term, and a webhook's `type_filter` when it is exactly the type. A folder keeps its files where they are. While any item of the old type remains, Marfa changes no setting. A move never changes a key's or an app's type map: [give them](/run/manage-keys) the new type before you delete the old one.
+
+Marfa refuses a move with `409 type_move_blocked`, naming each setting and a `reason`, when it can't rewrite a setting: a `filter_term` such as `type starts_with "acme.d"`, a folder's `placement_conflict`, a webhook on a type with `subtypes`, or one your key can't change, `not_permitted`. Change that setting, then move again. A move needs write on both types and on each setting, and only the key or app that made a webhook, with `webhooks.manage`, can change it.
+
+## Delete a type
+
+Marfa deletes a type that **no item holds,** in any state, the bin included, that no folder, view, webhook or [table](/build/tables) column names, and that no type names as its parent or in `compatible_with`:
 
 ```bash tab="CLI" tab-group="client"
 marfa types delete app.example.receipt
@@ -125,18 +157,10 @@ await marfa.DELETE("/types/{id}", {
 try await api.delete(itemType: "app.example.receipt")
 ```
 
-Otherwise Marfa refuses it:
-
-| Refusal | When | What's in `details` |
-| --- | --- | --- |
-| `409 type_has_subtypes` | Another type names it as its parent. | `subtype_ids` |
-| `422 compatible_with_violation` | Another type names it in `compatible_with`. | `dependent_type_ids` |
-| `409 type_in_use` | Items hold it, or a folder, view, webhook or table column names it. | `item_count`, `settings` and `columns` |
-
-For `type_in_use`, **[move the items to another type](/build/move-items-to-another-type) first:** the move changes the folders, views and webhooks too. A setting your key can't read is named by its `kind` and `field` alone, without its `id`. A key or app whose type map names the type doesn't stop a delete.
+Otherwise Marfa refuses it: `409 type_has_subtypes` names the `subtype_ids`, `422 compatible_with_violation` the `dependent_type_ids`, and `409 type_in_use` the `item_count`, `settings` and `columns`. For `type_in_use`, move the items first.
 
 <Callout type="warn" title="A forced delete blocks writes to the items">
-`force=true` (the CLI's `--force`) deletes a type that items still hold or a setting names. A subtype or a `compatible_with` claim still blocks it. The items and settings stay, and the items are still read, listed and found. But a write of an item's properties, tier or time is refused `400 unknown_type` until the type is registered again. You can still tag the items, archive them or move them to the bin.
+`force=true` (the CLI's `--force`) deletes a type that items still hold or a setting names, though a subtype or a `compatible_with` claim still blocks it. The items stay, and are still read, listed and found, but a write of an item's properties, tier or time is refused `400 unknown_type` until the type is registered again. You can still tag them, archive them or move them to the bin.
 </Callout>
 
 The rules behind this guide are in the [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) chapter of the contract.
