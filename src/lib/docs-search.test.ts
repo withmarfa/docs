@@ -41,7 +41,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   // Reading and listing.
   ['pagination cursor', ['/reference/api', '/build/list-filter-search']],
   ['next_cursor', ['/build/list-filter-search', '/reference/api']],
-  ['list items by tag', ['/build/list-filter-search']],
+  ['list items by tag', ['/build/list-filter-search', '/use/command-line']],
   ['filter items by property', ['/build/list-filter-search']],
 
   // Webhooks and connectors.
@@ -52,8 +52,8 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['oauth device flow', ['/build/authenticate']],
   ['marfa login', ['/reference/cli', '/run/sign-in-as-the-owner', '/run/troubleshooting/credentials-and-access']],
   ['create type scaffold', ['/reference/cli', '/build/define-a-type']],
-  ['MARFA_API_KEY', ['/reference/cli', '/run/manage-keys']],
-  ['rotate a key', ['/run/manage-keys']],
+  ['MARFA_API_KEY', ['/reference/cli', '/use/manage-keys']],
+  ['rotate a key', ['/use/manage-keys']],
   ['passkey', ['/run/sign-in-as-the-owner']],
   ['json output', ['/reference/cli', '/use/command-line']],
   ['exit code 5', ['/reference/cli']],
@@ -127,11 +127,11 @@ const FIRST: [query: string, pages: string[]][] = [
   // No command pauses one folder yet, and the page that says what to do instead is the one to find.
   ['pause a folder', ['/use/change-or-stop-a-folder']],
   ['what is an item', ['/how-marfa-works']],
-  ['connect claude', ['/connect-your-agent', '/use/claude-and-chatgpt']],
-  ['chatgpt', ['/use/claude-and-chatgpt']],
+  ['connect claude', ['/connect-your-agent', '/connect-your-agent']],
+  ['chatgpt', ['/connect-your-agent']],
   ['upgrade', ['/run/upgrade']],
-  ['make a key', ['/run/manage-keys']],
-  ['narrow a key', ['/run/manage-keys']],
+  ['make a key', ['/use/manage-keys']],
+  ['narrow a key', ['/use/manage-keys']],
   ['get help', ['/get-help']],
   // The top-bar page for a reader with a problem ranks as a guide, as when it sat in Use, over the pages that repeat its words.
   ['report a bug', ['/get-help']],
@@ -417,7 +417,7 @@ describe('snippets', () => {
 
   it('say something about the match, in a short passage', async () => {
     const { hits } = await searchDocs('rotate a key');
-    const keys = hits.find((h) => h.url === '/run/manage-keys')!;
+    const keys = hits.find((h) => h.url === '/use/manage-keys')!;
     expect(keys.snippets[0]).not.toBe('Rotate a key');
     expect(keys.snippets[0].length).toBeGreaterThan(30);
     for (const hit of hits) for (const snippet of hit.snippets) expect(snippet.length).toBeLessThanOrEqual(400);
