@@ -1,74 +1,56 @@
 ---
 title: Fix a working copy that can't catch up
-description: Fix a working copy that can't catch up, belongs to another instance, needs a newer server, was made by another build or has no room to open.
+sidebar_label: Fix a working copy
+description: Find the message a working copy shows when it can't catch up, belongs to another instance, was made by another build or has no room, and fix it.
+job: A builder whose working copy can't catch up, or was made by another instance or build, finds the message and fixes it.
 ---
 
-A working copy follows one instance through its event log. [Devices](/build/devices) explains what the copy holds and when it falls behind.
-
-## 409 reach_changed
-
-What your credential may read changed since the copy was built, such as by a narrowed key or an item moved to another type, so the copy can't resume.
-
-Build the working copy again. [When the copy falls behind](/build/devices#when-the-copy-falls-behind) explains when a copy starts over.
+A working copy follows one instance through its event log: [Working copies](/build/working-copies) says what it holds and when it falls behind. Every message below keeps the writes not yet sent. The CLI names the code and exits `4`, except where a section says otherwise.
 
 ## this working copy can no longer be kept current
 
-The CLI's device commands report `catchup_too_old`, `reach_changed` and `instance_changed` this way, with the code `copy_expired` and exit code `4`. Each call that sends what the copy holds first confirms the instance, so `instance_changed` can end any of them unsent. The message ends `rebuild the copy from the server`. Queued writes are kept.
+```text
+this working copy can no longer be kept current (reach_changed): what the credential may read, or how the server arranges items and types, has changed; rebuild the copy from the server (changes not yet sent are kept)
+```
 
-A write that moves an item to another type, or an edge to another source, can change the device's reach: it reports `reach_changed` after sending the writes queued behind it.
+The code in brackets says why: `reach_changed`, `instance_changed`, `catchup_too_old`, `credential_ended`, `slice_changed` or `head_past_log`. Run `marfa device hydrate` again, and leave out of `--type` any type the credential no longer reads. After `catchup_too_old` the copy is `stale` and answers reads until the hydrate fills it. After `credential_ended`, sign in or use a new key first.
 
-Run `marfa device hydrate` again. Leave out of `--type` any type the credential no longer reads, or it's refused `type_not_permitted`. Until it finishes:
+## blocked, with the reason instance_changed
 
-- **After `catchup_too_old`,** `marfa device status` reports the copy `stale`, and it answers reads, marked `stale`, while the hydrate fills it in place. `marfa device drain` and `marfa device catch-up` keep answering `copy_expired`.
-- **After `instance_changed`,** the hydrate builds the copy from the new instance, and holds each waiting write `blocked` with the reason `instance_changed`, so none reaches that instance unasked. Check `marfa device queue`, then send those you want with `marfa device release --reason instance_changed`, or drop one with `marfa device withdraw <id>`.
+Another Marfa now answers at the copy's address. The hydrate builds the copy from it and holds each waiting write `blocked`, so none reaches that instance unasked. Check `marfa device queue`, then send each write you want with `marfa device release <id> --reason instance_changed`, or drop one with `marfa device withdraw <id>`.
 
-`marfa device hydrate --in-place-only` gives the same error where it can't fill the copy in place, with the reason `instance_changed`, `reach_changed`, `slice_changed` or `head_past_log`. It changes nothing: run `marfa device hydrate` without the option.
+## this working copy is not waiting to be filled again in place
 
-If the instance refuses the credential or its reach meanwhile, the stale copy ends, keeping the queued writes: `marfa device status` reports it `expired`, and only `marfa device hydrate` without the option rebuilds it.
+```text
+this working copy is not waiting to be filled again in place (not_stale)
+```
 
-For a folder, run `marfa folders push`, which rebuilds the copy itself.
-
-## this working copy is not waiting to be filled again in place (not_stale)
-
-`marfa device hydrate --in-place-only` fills only a copy whose cursor the instance's event log let go. This copy is whole, or was never built, and nothing changed.
-
-Run `marfa device catch-up` to bring a whole copy up to date, or `marfa device hydrate` without the option to build it again.
+`marfa device hydrate --in-place-only` fills only a copy whose cursor the event log let go. This one is whole, or was never built. Run `marfa device catch-up` to bring it up to date, or `marfa device hydrate` without the option to build it again.
 
 ## wrong_server
 
-Before it sends a credential or a write, a device checks that the address still answers as the copy's instance. Another instance answered, so the device refused and named both. **Nothing was sent**, and the copy and its queued writes are kept.
+Another instance answered at the address, so the device refused before it sent a credential or a write, and named both. **Nothing was sent.** Point the device back at the copy's instance. To work with the other, open a new working copy. In Swift, `wrongServer` carries `expected` and `got`, and a store given a new address of its own instance follows it without an error.
 
-Point the device back at the copy's instance. To work with the other instance, open a new working copy for it.
+## was made by another build of the core
 
-An app on the Swift SDK gets `wrongServer` from its first call to the server, with the server the store belongs to in `expected` and the one that answered in `got`. A store given a new address of its own instance follows it without an error. To start again on the other instance, close the copy, show the person the writes that would be lost with `WorkingCopy.unsentWrites(in:)`, and pass them to `WorkingCopy.remove(store:confirming:)`, as [A store the copy refuses](/reference/swift-sdk/working-copy#a-store-the-copy-refuses) describes.
+```text
+copy.sqlite was made by another build of the core (last saved by release 0.0.86): …
+```
 
-## wrong_schema: made by another build of the core
-
-The message says the file `was made by another build of the core`, and names it, such as `last saved by release 0.0.86`. A build with another schema won't open it, even to read. The CLI exits with `4`. **Nothing is deleted or changed.** It happens after a move to a release that changed the working copy's tables, which the [changelog](/changelog) names.
-
-The message counts the writes in the file that the server hasn't taken: waiting, blocked, refused or dead. Only the build that made the file can send them.
-
-- **None.** Run `marfa device hydrate` to build a new copy.
-- **Some.** List them with `marfa device unsent`. Install the release the message names (`MARFA_VERSION=<release>` with the install script), open the file with it, run `marfa device drain`, and `marfa device discard` any refused write you don't want. Then hydrate a new copy with the newer build. Keep the old file until then: deleting it loses those writes.
-
-A write of kind `merge_metadata` is a tag merge the server no longer takes: read its tags with `marfa device queue`, and add them with `marfa items tags add`.
-
-An app on the Swift SDK opens a refused copy with `ifRefused: .replace`, which replaces it when it holds no unsent writes, or removes it, as [Open a copy](/reference/swift-sdk/working-copy#open-a-copy) and [A store the copy refuses](/reference/swift-sdk/working-copy#a-store-the-copy-refuses) describe. [A folder replaces its own store](/use/fix-a-folder#was-made-by-another-build-of-marfa) the same way.
+A build with another schema won't open the file, even to read, and **nothing is deleted.** The message counts the writes the server hasn't taken. With none, run `marfa device hydrate` for a new copy. With some, list them with `marfa device unsent`, install the release it names (`MARFA_VERSION=<release>` with the install script), run `marfa device drain` with it, and discard what you don't want. Then hydrate a new copy. A Swift app opens it with `ifRefused: .replace`.
 
 ## storage_full
 
-The working copy's volume is full, so the copy didn't open, even to read. The CLI exits `3`, and a Swift app gets `storageFull`. Free room and open it again.
+The volume is full, so the copy didn't open, even to read. The CLI exits `3` and Swift throws `storageFull`. Free room and open it again.
 
 ## A declared type is in unreplacedTypes
 
-An app declared an `app.*` type that the instance holds in another definition, and the instance refused to replace it. The hydration finished, and **the type stays as the instance holds it**, so a write that relies on the new definition may be refused. A key without `schema.write` can add optional fields and change a label, but not make a field required or remove one.
-
-Hydrate again with a credential that may change the type, or change the declaration to match what the instance holds. [Declare types](/reference/swift-sdk/working-copy#declare-types) says what a hydration does with each declared type.
+An app declared an `app.*` type that the instance holds in another definition, and a key without `schema.write` can't replace it. The hydration finished, and **the type stays as the instance holds it**, so a write that relies on the new definition may be refused. Hydrate again with a credential that may change the type, or change the declaration to match.
 
 ## Covered in their guides
 
 | What you see | Guide |
 | --- | --- |
-| `server_too_old`: the server is older than 0.0.86, the oldest a device works with. The copy and its queue are kept | [Upgrade an instance](/run/upgrade) |
+| `This server runs Marfa …. Update the server to Marfa … or later to use this app.` | [Upgrade an instance](/run/upgrade) |
 | An event stream ends with `catchup_too_old` or `cursor_ahead` | [When the stream ends](/build/keep-in-sync#when-the-stream-ends) |
-| A Swift app's copy is `.stale` | [Fill the copy](/reference/swift-sdk/working-copy#fill-the-copy). A held `updates()` or `changes()` refills it by itself |
+| A Swift app's copy is `.stale` | [Fill the copy](/reference/swift-sdk/working-copy#fill-the-copy) |
