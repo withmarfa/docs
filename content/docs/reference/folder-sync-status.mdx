@@ -1,25 +1,16 @@
 ---
-title: Folder sync status
+title: Folder sync status file
 description: Read whether folders are syncing from the file a running folder watch keeps for other programs on the computer.
+job: A builder reads the file a folder watch keeps, to show whether folders are syncing.
 ---
 
-While `marfa folders watch` runs, it keeps the state of its folders in `folder-watch.json`. Any program on the computer, such as a menu bar app, can read it **without a credential, the network or a folder's store.** [Keep folders syncing](/use/keep-folders-syncing) covers the watch itself.
+While `marfa folders watch` runs, it keeps the state of its folders in `folder-watch.json`. Any program on the computer, such as a menu bar app, can read it **without a credential, the network or a store.** [Keep folders syncing](/use/keep-folders-syncing) covers the watch.
 
 ## Where it is
 
-The file sits beside the folder registry, `folders.json`:
-
-| System | Directory |
-| --- | --- |
-| macOS | `Library/Application Support/Marfa` under the home directory |
-| Elsewhere | `$XDG_DATA_HOME/marfa`, or `.local/share/marfa` under the home directory |
-| Either, with `MARFA_FOLDER_REGISTRY` set | The directory of the file it names |
-
-**Parse the whole file on each read.** A watch replaces it in one step. It holds no credential or item content: a folder's directory and ID are the only names in it.
+The file sits beside the folder registry, `folders.json`: in `Library/Application Support/Marfa` under the home directory on macOS, and in `$XDG_DATA_HOME/marfa` or `.local/share/marfa` elsewhere. **Parse the whole file on each read:** a watch replaces it in one step.
 
 ## The shape
-
-A watch of every folder, with `<notes-directory>` for the folder's absolute path:
 
 ```json
 {
@@ -27,7 +18,7 @@ A watch of every folder, with `<notes-directory>` for the folder's absolute path
   "processes": [
     {
       "pid": 72786,
-      "build_version": "0.0.80",
+      "build_version": "0.0.89",
       "started_at": "2026-11-19T00:05:50.939Z",
       "heartbeat_at": "2026-11-19T00:06:13.980Z",
       "heartbeat_interval_seconds": 5,
@@ -52,35 +43,30 @@ A watch of every folder, with `<notes-directory>` for the folder's absolute path
 }
 ```
 
-`processes` has one entry for each watch on the computer, of every folder or of one directory, and a watch rewrites only its own.
+`processes` holds one entry for each watch on the computer.
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `pid` | `number` | The watch's process ID. |
-| `build_version` | `string` | The version of the CLI that runs the watch, as `marfa --version` prints it. One that differs from the installed CLI's is an earlier build still running. |
-| `started_at` | `string` | When the watch started. |
-| `heartbeat_at` | `string` | When the watch last wrote its entry. |
-| `heartbeat_interval_seconds` | `number` | A running watch writes its entry at least this often: `5`. |
-| `ended_at` | `string` or `null` | When the watch stopped. `null` while it runs. |
-| `folders` | `object[]` | The folders the watch was asked to hold: for a watch of every folder, all the registry lists. |
+| `build_version` | `string` | The CLI version running the watch. One that differs from the installed CLI's is an earlier build still running. |
+| `started_at`, `ended_at` | `string`, `string` or `null` | When the watch started, and stopped (`null` while it runs). |
+| `heartbeat_at`, `heartbeat_interval_seconds` | `string`, `number` | When the watch last wrote its entry, and how often it does: at least every `5` seconds. |
+| `folders` | `object[]` | The folders the watch was asked to hold. |
 
 Each folder holds:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `dir` | `string` | The folder's directory. |
-| `folder` | `string` | The ID of its `system.folder` item. |
-| `watching` | `boolean` | Whether the watch holds the folder now. A folder tried again after a failure counts once its watch has lasted about 10 seconds. |
-| `reason` | `string` or `null` | Why the folder isn't watched. `null` while it is, and for a folder not yet tried. |
+| `dir`, `folder` | `string` | The folder's directory, and its ID. |
+| `watching` | `boolean` | Whether the watch holds the folder now. A folder tried again after a failure counts after about 10 seconds. |
+| `reason` | `string` or `null` | Why the folder isn't watched. `null` while it is, and before a first try. |
 | `paused` | `boolean` | Whether the directory's sync is paused. Missing means `false`. |
-| `last_success_at` | `string` or `null` | When a complete sync last finished with nothing pending and no blocking problem. `null` until one does. |
-| `first_sync_waiting` | `boolean` or `null` | Whether the first sync waits for `marfa folders confirm`. |
+| `last_success_at` | `string` or `null` | When a sync last finished with nothing pending and no blocking problem. |
+| `first_sync_waiting` | `boolean` or `null` | Whether the first sync waits for you. |
 | `problems` | `object[]` or `null` | The current problems, each a `code` with its `count`. |
-| `pending_uploads` | `number` or `null` | Files with changes waiting to be scanned or sent. |
-| `pending_downloads` | `number` or `null` | Files the latest pull couldn't write. |
-| `paused_removals` | `number` or `null` | Removals waiting for confirmation, from the disk and from the server. |
+| `pending_uploads`, `pending_downloads`, `paused_removals` | `number` or `null` | Files waiting to be sent, files the last pull couldn't write, and removals waiting for confirmation. |
 
-**The last six fields are the folder's latest report to the server,** the one `marfa folders health` reads ([how a report is counted](https://github.com/withmarfa/marfa/blob/main/core/marfa-cli/FOLDER-HEALTH.md)). They keep their last values while the folder isn't watched. Until this watch has read a report for the folder, all six are `null`, so `null` in `problems` means unknown and `[]` means none, except that `first_sync_waiting` is `true` while that is the `reason`.
+**The last six fields are the folder's latest report to the server,** the one `marfa folders health` reads ([how a report is counted](https://github.com/withmarfa/marfa/blob/main/core/marfa-cli/FOLDER-HEALTH.md)). They keep their last values while the folder isn't watched, and are `null` until this watch has read a report: `null` in `problems` means unknown, `[]` none.
 
 ## Reasons
 
@@ -89,12 +75,12 @@ A watch of every folder tries an unwatched folder again, and `reason` changes wi
 | `reason` | Meaning |
 | --- | --- |
 | `first_sync_waiting` | The first sync waits for `marfa folders confirm`. |
-| `paused` | Paused with `marfa folders pause`. |
-| `missing` | The folder's directory can't be found, as on a disk that isn't connected. `marfa folders remove` takes the folder off the list. |
-| `handed_over` | A command such as `marfa folders confirm` holds the folder until it ends. |
-| `instance_changed` | Another Marfa instance answers at the folder's address. Tried again when its key, server or settings change, or hourly for its own instance. |
-| `signed_out` | The folder's sign-in has ended. It's watched again once `marfa login` keeps a new credential. |
-| `no_credential`, `no_keychain`, `unauthorized` | The watch has no credential it can use for the folder's server. |
+| `paused` | Paused with `marfa folders pause`. A running watch of one directory keeps running and records it. |
+| `missing` | The directory can't be found, as on a disk that's away. |
+| `handed_over` | A command such as `marfa folders confirm` holds the folder. |
+| `instance_changed` | Another Marfa instance answers at the folder's address. Tried again when its key, server or settings change, or hourly. |
+| `signed_out` | The sign-in ended. Watched again after `marfa login`. |
+| `no_credential`, `no_keychain`, `unauthorized` | The watch has no credential it can use. |
 | Another code | The error that keeps the folder out, such as `io`. |
 
 ## Problem codes
@@ -103,32 +89,21 @@ A watch of every folder tries an unwatched folder again, and `reason` changes wi
 
 | `code` | Counts |
 | --- | --- |
-| `conflict` | Conflicted copies not yet resolved. |
-| `refused` | Files with a write the server refused. |
-| `credential_refused` | `1` when the server refused the credential. |
-| `unreadable` | Files and directories that can't be read. A file under an unreadable directory isn't counted again. |
-| `held_file` | Files held for any other reason, such as a name clash or a paused addition. |
-| `unavailable` | `1` when the server can't be reached, or answers the folder's changes with `403`, `429` or a `5xx`. |
-| `root_gone` | `1` when the folder's directory is missing. |
-| `settings_invalid` | `1` when the folder's settings file can't be used or written. |
-| `unwatched` | Directories the system's file watch can't register, which the watch reads on a short interval. |
+| `conflict` | Unresolved conflicted copies. |
+| `refused` | Files whose write the server refused. |
+| `credential_refused`, `unavailable` | `1` when the credential is refused, or the server can't be reached or answers `403`, `429` or a `5xx`. |
+| `unreadable` | Files and directories that can't be read. |
+| `held_file` | Files held for another reason, such as a name clash. |
+| `root_gone`, `settings_invalid` | `1` when the directory is missing, or the settings file can't be used or written. |
+| `unwatched` | Directories the system's file watch can't register. |
 | `paused` | `1` while paused. |
-
-**While a folder's copy fills,** as a new folder's does, it reports no problem for the fill itself. `unavailable` then means the latest attempt couldn't reach the server, and goes once a retry is filling ([`folder-sync/health-hydrating`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-sync.md#folder-synchealth-hydrating)).
 
 ## Decide whether an entry is current
 
-An entry is **current** when `ended_at` is `null`, and `heartbeat_at` is no later than now and less than three `heartbeat_interval_seconds` before it. A folder is watched now when a current entry lists it with `watching: true`.
+An entry is **current** when `ended_at` is `null` and `heartbeat_at` is no later than now and less than three `heartbeat_interval_seconds` before it. A folder is watched when a current entry lists it with `watching: true`.
 
-- **A watch that stops** sets `ended_at` and marks each folder `watching: false`.
-- **A watch that's killed,** or whose computer loses power, can't, so its heartbeat ages past three intervals.
-- **A process ID can be reused,** so `pid` is only a hint; the heartbeat decides.
-- **One folder can appear in two entries.** A watch of every folder lists a folder that a watch of its directory holds as not watched.
+- **A watch that's killed** can't set `ended_at`; its heartbeat ages instead. `pid` is only a hint, since IDs are reused.
+- **One folder can appear in two entries:** a watch of every folder lists a folder that a watch of its directory holds as not watched.
+- A watch drops other processes' entries whose heartbeat is an hour old or in the future.
 
-A watch drops the entries of other processes whose heartbeat is an hour old or lies in the future.
-
-## When the file can't be written
-
-A watch writes under a lock on `folder-watch.lock`, beside the file, and never waits for it. When the lock stays held past three intervals, or the file can't be written, the watch says so once and goes on syncing, while its entry ages.
-
-The rules are in the contract's [record of folder watches](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-setup.md#the-record-of-folder-watches), and the CLI's [guide to the file](https://github.com/withmarfa/marfa/blob/main/core/marfa-cli/FOLDER-WATCH-RECORD.md).
+When the file's lock stays held past three intervals, or the file can't be written, the watch says so once and goes on syncing while its entry ages. The rules are in the contract's [record of folder watches](https://github.com/withmarfa/marfa/blob/main/conformance/spec/folder-setup.md#the-record-of-folder-watches).
