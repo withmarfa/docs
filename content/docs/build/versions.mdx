@@ -5,28 +5,28 @@ job: A builder learns why every write names a version and what happens when two 
 kind: concept
 ---
 
-Many apps write to the same items, and a working copy may send a write made offline hours earlier. **Marfa keeps that safe with a version on every item.**
+Many apps write to the same items, and a working copy may send a write made offline hours earlier. **A version on every item keeps that safe.**
 
 ## Optimistic concurrency
 
 A write names the version it read, and Marfa checks what changed since before it applies anything. The `version` does the job an `ETag` and `If-Match` do in other HTTP APIs, but travels in the body or query, never in a header, and **a refused write answers `409 version_conflict`, not `412 Precondition Failed`.**
 
-A write can't overwrite a change it never saw.
+**By default a write can't overwrite a change it never saw;** `conflict=auto` lets the item type's merge policy settle a collision instead ([below](#let-marfa-settle-it)).
 
 ## What the version counts
 
-An item's `version` starts at 1 and rises by one with each change to the item's own fields: its properties, type, tier, `occurred_at` or `source_id`. **Everything else leaves it alone:** tags, extensions, edges, rows, and moves between active, archived and the bin. A tag added in one app never makes another app's edit stale.
+An item's `version` starts at 1 and rises by one with each change to the item's own fields: its properties, type, **tier** (the library or the feed, [Items and types](/build/items-and-types#library-and-feed)), `occurred_at` or `source_id`. **Everything else leaves it alone:** tags, extensions, edges, rows, and moves between active, archived and the bin.
 
-A write that would leave the item exactly as it stands changes nothing. Marfa answers `200` with `acknowledged: true` and sends no event, so retrying a landed write is safe.
+A write that would change nothing answers `200` with `acknowledged: true` and sends no event, so retrying a landed write is safe.
 
 ## When two apps write the same item
 
-A write based on an older version isn't refused for that alone. Marfa compares the fields it changes with those changed since.
+A write based on an older version isn't refused for that alone: Marfa compares the fields it changes with those changed since.
 
-- **If they don't overlap, both changes stand,** and the item moves to its next version.
-- **If they overlap,** Marfa refuses the write with `409 version_conflict`. The answer names the `conflicting_fields` and carries the item as it is now (`current`) and as you read it (`ancestor`), so you can combine them and write again.
+- **If they don't overlap, both changes stand,** and the item moves on.
+- **If they overlap,** Marfa refuses the write with `409 version_conflict`. The answer names the `conflicting_fields` and carries the item as it is now (`current`) and as you read it (`ancestor`), so you can combine them.
 
-Say you read a note at version 1, then another app changes its title and a third its body. Your new body collides on `body`.
+You read a note at version 1, then another app changes its title and a third its body. Your new body collides on `body`.
 
 <VersionOutcome />
 
@@ -38,8 +38,8 @@ A write sent with `conflict=auto` is settled by the **merge policy** of the item
 
 ## History
 
-Each time the version moves, Marfa keeps a **snapshot** of the item as it was, with its **writer**: the key, app or other sign-in that sent the change. [List item versions](/reference/api/items/listItemVersions) reads them.
+Each time the version moves, Marfa keeps a **snapshot** of the item as it was, with the **writer** of that version: the key, app or other sign-in that sent it. [List item versions](/reference/api/items/listItemVersions) reads them.
 
-**Marfa keeps every recent snapshot and fewer as they age:** by default every one for 30 days, then one a day, then one a week, for a year in all. A write based on a version whose snapshot is gone can't be compared, so Marfa answers `409 ancestor_unavailable` with `current`, and the app reads the item again.
+**Marfa keeps every recent snapshot and fewer as they age:** by default every one for 30 days, then one a day, then one a week, for a year in all, and never more than the newest 500 of one item. A write based on a version whose snapshot is gone is answered `409 ancestor_unavailable` with `current`, and the app reads the item again.
 
 The rules behind this page are in the [versions](https://github.com/withmarfa/marfa/blob/main/conformance/spec/versions.md) chapter of the contract.
