@@ -405,12 +405,12 @@ note_expected="$(cat <<'EOF'
 
 ## Settings
 
-| Setting                                            | Value                                                                   |
-| -------------------------------------------------- | ----------------------------------------------------------------------- |
-| [`title_field`](/catalog/type-rules#display-hints) | `title`                                                                 |
-| [`body_field`](/catalog/type-rules#display-hints)  | `body`                                                                  |
-| [`icon`](/catalog/type-rules#display-hints)        | `sticky-note`                                                           |
-| [`merge_policy`](/catalog/type-rules#merge-policy) | `keep_both_copies` for `body`; `last_writer_wins` for every other field |
+| Setting                                                 | Value                                                                   |
+| ------------------------------------------------------- | ----------------------------------------------------------------------- |
+| [`title_field`](/catalog/type-definition#display-hints) | `title`                                                                 |
+| [`body_field`](/catalog/type-definition#display-hints)  | `body`                                                                  |
+| [`icon`](/catalog/type-definition#display-hints)        | `sticky-note`                                                           |
+| [`merge_policy`](/catalog/type-definition#merge-policy) | `keep_both_copies` for `body`; `last_writer_wins` for every other field |
 
 ## Subtypes
 
@@ -418,10 +418,10 @@ note_expected="$(cat <<'EOF'
 
 A memo (for a team) with a level.
 
-| Setting                                     | Value          |
-| ------------------------------------------- | -------------- |
-| [`icon`](/catalog/type-rules#display-hints) | `notebook-pen` |
-| [`roles`](/catalog/type-rules#roles)        | `container`    |
+| Setting                                          | Value          |
+| ------------------------------------------------ | -------------- |
+| [`icon`](/catalog/type-definition#display-hints) | `notebook-pen` |
+| [`roles`](/catalog/type-definition#roles)        | `container`    |
 
 | Field   | Kind                | Description                        |
 | ------- | ------------------- | ---------------------------------- |
@@ -452,6 +452,18 @@ catalog_edges_expected="$(cat <<'EOF'
 
 Member of a container.
 
+| Setting             | Value                              |
+| ------------------- | ---------------------------------- |
+| `label`             | In collection                      |
+| `reverse_label`     | In collection                      |
+| `cardinality`       | `many-to-many`                     |
+| `cascade_on_delete` | `orphan`                           |
+| `written_from`      | `from`                             |
+| From types          | Any type                           |
+| To types            | Any type with the role `container` |
+| `flat`              | `false`                            |
+| `acyclic`           | `false`                            |
+
 | Property   | Kind     | Description |
 | ---------- | -------- | ----------- |
 | `position` | `number` | Ordering.   |
@@ -460,13 +472,34 @@ Member of a container.
 
 Source is the parent of the target: once.
 
-**written_from:** `to`
+| Setting             | Value         |
+| ------------------- | ------------- |
+| `label`             | Children      |
+| `reverse_label`     | Parent        |
+| `reverse_name`      | `child-of`    |
+| `cardinality`       | `one-to-many` |
+| `cascade_on_delete` | `cascade`     |
+| `written_from`      | `to`          |
+| From types          | Any type      |
+| To types            | Any type      |
+| `flat`              | `false`       |
+| `acyclic`           | `false`       |
 
 ## in-folder
 
 Placement of an item in a folder.
 
-**written_from:** `none`
+| Setting             | Value           |
+| ------------------- | --------------- |
+| `label`             | In folder       |
+| `reverse_label`     | Folder contents |
+| `cardinality`       | `many-to-many`  |
+| `cascade_on_delete` | `orphan`        |
+| `written_from`      | `none`          |
+| From types          | Any type        |
+| To types            | `system.folder` |
+| `flat`              | `false`         |
+| `acyclic`           | `false`         |
 EOF
 )"
 
@@ -833,7 +866,7 @@ check "a system type's file has its fields, as a core type's does" \
   "${folder_expected}" "$(cat "${catalog_dir}/system.folder.md")"
 check "the edge types are a table, with a From types column only when an edge type constrains its source, a label, a reverse label that is the label where none is named, a reverse name or None, and the contract's wording for a target" \
   "${edge_table_expected}" "$(cat "${catalog_dir}/edge-types.md")"
-check "each edge type is a section with its properties, and where it is written only when that is its target" \
+check "each edge type is a section with a table of its settings, a reverse name only where it has one, and its properties" \
   "${catalog_edges_expected}" "$(cat "${catalog_dir}/edges.md")"
 check "the index lists each family's top-level types, linked to their pages, in two columns, with a pipe escaped" \
   "${types_index_expected}" "$(cat "${catalog_dir}/types.md")"
@@ -1228,7 +1261,7 @@ catalog_with 'c["types"][0]["merge_policy"] = {"default": "keep_both_copies", "f
 sync shapes
 check "a default of both copies and a subtype with no field to add: the script succeeds" 0 "${status}"
 check "a default of both copies names the fields that do not keep both, as values" 1 \
-  "$(grep -cF '| [`merge_policy`](/catalog/type-rules#merge-policy) | `last_writer_wins` for `title` and `language`; `keep_both_copies` for every other field |' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
+  "$(grep -cF '| [`merge_policy`](/catalog/type-definition#merge-policy) | `last_writer_wins` for `title` and `language`; `keep_both_copies` for every other field |' "${work}/shapes/docs/src/generated/catalog/core.note.md")"
 check "an edge type that constrains its source adds a From types column, and several types are joined with or" \
   "$(printf '%s\n%s\n%s\n%s\n%s' '| Edge type       | Label         | Reverse label   | Reverse name | Cardinality    | `cascade_on_delete` | `written_from` | From types                      | To types                           |' '| --------------- | ------------- | --------------- | ------------ | -------------- | ------------------- | -------------- | ------------------------------- | ---------------------------------- |' '| `in-collection` | In collection | In collection   | None         | `many-to-many` | `orphan`            | `from`         | Any type                        | Any type with the role `container` |' '| `parent-of`     | Children      | Parent          | `child-of`   | `one-to-many`  | `cascade`           | `to`           | Any type                        | Any type                           |' '| `in-folder`     | In folder     | Folder contents | None         | `many-to-many` | `orphan`            | `none`         | `core.note` or `core.note.memo` | `system.folder`                    |')" \
   "$(cat "${work}/shapes/docs/src/generated/catalog/edge-types.md")"
@@ -1248,7 +1281,7 @@ check "a subtype equal to its parent says nothing of hints or merge policy" \
   "$(printf '### core.note.same [#core-note-same]\n\nSays what the parent says.')" \
   "$(sed -n '/^### core.note.same/,/^### core.note.drift/p' "${drift_file}" | sed '$d')"
 check "a subtype that differs says its hints and merge policy as values" \
-  "$(printf '%s\n%s' '| [`title_field`](/catalog/type-rules#display-hints) | `language`                         |' '| [`merge_policy`](/catalog/type-rules#merge-policy) | `keep_both_copies` for every field |')" \
+  "$(printf '%s\n%s' '| [`title_field`](/catalog/type-definition#display-hints) | `language`                         |' '| [`merge_policy`](/catalog/type-definition#merge-policy) | `keep_both_copies` for every field |')" \
   "$(sed -n '/^### core.note.drift/,$p' "${drift_file}" | grep '^| \[`')"
 check "the parent says its own hints once, and a subtype equal to it adds none" 1 \
   "$(grep -cE '^\| \[`title_field`\].*\| `title` +\|$' "${drift_file}")"
@@ -1268,7 +1301,7 @@ check "a range is in the kind" 1 "$(grep -cF '`integer` (1 to 5)' "${labels_file
 check "a status field's words are listed with their groups" 1 "$(grep -cF 'Progress. Values: `planned` (group `not_started`), `done` (group `completed`).' "${labels_file}")"
 check "words named as their own groups say the groups once" 1 "$(grep -cF 'Stage. Values: `not_started`, `completed`, each in the group of the same name.' "${labels_file}")"
 check "a member of a list of entries follows its field, with its label" 1 "$(grep -cE '^\| `links\[\]\.value` +\| `url`, required +\| The link\. Label: Link\. +\|$' "${labels_file}")"
-check "an acyclic edge type says so" 1 "$(grep -cF '**acyclic:** `true`' "${work}/labels/docs/src/generated/catalog/edges.md")"
+check "an acyclic edge type says so" 1 "$(grep -cE '^\| `acyclic` +\| `true` +\|$' "${work}/labels/docs/src/generated/catalog/edges.md")"
 refuse_catalog "a field with an empty label" "${cat_file} has a field core.note.body whose label is not a label. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["label"] = ""')"
 refuse_catalog "a status with no words" "${cat_file} has a status core.note.body whose status_values are not a list of values and groups. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["type"] = "status"; c["types"][0]["fields"]["body"]["status_values"] = []')"
 refuse_catalog "status words on a field that is not a status" "${cat_file} has status_values on core.note.body, which is not a status. Nothing has changed." "$(catalog_with 'c["types"][0]["fields"]["body"]["status_values"] = []')"

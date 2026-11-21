@@ -254,7 +254,7 @@ const missingPage = (type: CatalogType) =>
 const CORE_SLUGS = CORE_TYPES.map(slugOf);
 const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
 /** The pages that are not the page of one type. */
-const OTHER_PAGES = ['items', 'types', 'field-kinds', 'type-rules', 'display-hints', 'edges', 'events', 'permissions', 'connectors'];
+const OTHER_PAGES = ['items', 'types', 'field-kinds', 'type-definition', 'edges', 'events', 'permissions', 'connectors'];
 /** The connectors Marfa ships, one page each beneath the Connectors page. */
 const CONNECTORS_DIR = 'connectors';
 // A connector's page is named for it, and the list comes from the plugins repository (scripts/sync-from-plugins.sh).
@@ -264,7 +264,7 @@ const EDGES_DIR = 'edges';
 const EDGE_SLUGS = catalog.edge_types.map((edge) => edge.id);
 /** Where the pages about types sit: in the Types folder, with the two families of types inside it. */
 const TYPES_DIR = '(types)';
-const TYPES_PAGES = ['types', 'type-rules', 'display-hints', 'field-kinds'];
+const TYPES_PAGES = ['types', 'type-definition', 'field-kinds'];
 
 describe('the catalog the pages follow', () => {
   it('is the synced copy, with the types the pages cover', () => {
@@ -550,9 +550,9 @@ describe('the edge type table', () => {
     for (const row of rows) expect(row[4]).toMatch(/^`(one|many)-to-(one|many)`$/);
   });
 
-  it('is included by the Edges page, which says that any type is a source exactly when the table has no column for it', () => {
+  it('is included by the Edges page, which says no edge type limits its from item exactly when the table has no column for it', () => {
     expect(edgesPage).toContain('<include cwd>src/generated/catalog/edge-types.md</include>');
-    const sentence = 'Every shipped edge type takes any type as its from item';
+    const sentence = 'No shipped edge type limits its from item by type';
     expect(edgesPage.includes(sentence)).toBe(!header.includes('From types'));
   });
 });
@@ -569,19 +569,59 @@ describe('the edge sections', () => {
     expect([...sections.keys()]).toEqual(catalog.edge_types.map((edge) => edge.id));
   });
 
-  it('says which end writes each edge into a synced folder, and which edges are acyclic or flat, only where the catalog does', () => {
+  /** The settings table of a section: setting to value. */
+  function settings(section: string): Map<string, string> {
+    const rows = section
+      .split('\n\n')
+      .find((block) => block.startsWith('| Setting '))!
+      .trimEnd()
+      .split('\n')
+      .slice(2)
+      .map((line) => line.split('|').slice(1, -1).map((cell) => cell.trim()));
+    return new Map(rows.map(([name, value]) => [name, value]));
+  }
+
+  const end = (constraints: string[]) =>
+    constraints[0] === '*'
+      ? 'Any type'
+      : constraints
+          .map((value) => (value.startsWith('role:') ? `Any type with the role \`${value.slice(5)}\`` : `\`${value}\``))
+          .join(' or ');
+
+  it('gives each edge type a table of its settings, a reverse name only where the catalog names one', () => {
     for (const edge of catalog.edge_types) {
-      const section = sections.get(edge.id)!;
-      const written = /^\*\*written_from:\*\* `(\w+)`$/m.exec(section)?.[1];
-      expect(written, `${edge.id}: written_from`).toBe(edge.written_from === 'from' ? undefined : edge.written_from);
-      expect(/^\*\*acyclic:\*\* `true`$/m.test(section), `${edge.id}: acyclic`).toBe(edge.acyclic === true);
-      expect(/^\*\*flat:\*\* `true`$/m.test(section), `${edge.id}: flat`).toBe(edge.flat === true);
+      const table = settings(sections.get(edge.id)!);
+      expect([...table.keys()], edge.id).toEqual([
+        '`label`',
+        '`reverse_label`',
+        ...(edge.reverse_name ? ['`reverse_name`'] : []),
+        '`cardinality`',
+        '`cascade_on_delete`',
+        '`written_from`',
+        'From types',
+        'To types',
+        '`flat`',
+        '`acyclic`',
+      ]);
+      expect(Object.fromEntries(table), edge.id).toMatchObject({
+        '`label`': edge.label,
+        '`reverse_label`': edge.reverse_label ?? edge.label,
+        '`cardinality`': `\`${edge.cardinality}\``,
+        '`cascade_on_delete`': `\`${edge.cascade_on_delete}\``,
+        '`written_from`': `\`${edge.written_from}\``,
+        'From types': end(edge.from_type_constraints),
+        'To types': end(edge.to_type_constraints),
+        '`flat`': `\`${edge.flat === true}\``,
+        '`acyclic`': `\`${edge.acyclic === true}\``,
+      });
     }
   });
 
   it('lists each edge type\'s properties', () => {
     for (const edge of catalog.edge_types) {
-      const shown = [...sections.get(edge.id)!.matchAll(/^\| `([a-z_]+)` +\|/gm)].map((match) => match[1]);
+      const section = sections.get(edge.id)!;
+      const block = section.split('\n\n').find((candidate) => candidate.startsWith('| Property '));
+      const shown = [...(block ?? '').matchAll(/^\| `([a-z_]+)` +\|/gm)].map((match) => match[1]);
       expect(shown, edge.id).toEqual(Object.keys(edge.property_schema));
     }
   });
@@ -709,7 +749,7 @@ const RULE_LINK = /github\.com\/withmarfa\/marfa\/blob\/main\/conformance\/spec\
 
 // The pages that set out rules name the chapters behind them in a footer, in place of a link on each rule.
 describe('the rule pages', () => {
-  it.each(['type-rules', 'display-hints', 'field-kinds'])('%s ends with a footer naming the contract chapters behind its rules', (name) => {
+  it.each(['type-definition', 'field-kinds'])('%s ends with a footer naming the contract chapters behind its rules', (name) => {
     const text = PAGES.find((candidate) => candidate.slug === name)!.text;
     const footer = text.trimEnd().split('\n').at(-1)!;
     expect(footer).toMatch(/^The rules behind this page are in /);

@@ -11,10 +11,10 @@
 
 ## Settings
 
-| Setting                                               | Value                                                                   |
-| ----------------------------------------------------- | ----------------------------------------------------------------------- |
-| `plural`                                              | Highlights                                                              |
-| [`body_field`](/catalog/type-rules#display-hints)     | `text`                                                                  |
-| [`name_from_body`](/catalog/type-rules#display-hints) | `false`                                                                 |
-| [`icon`](/catalog/type-rules#display-hints)           | `lucide:highlighter`                                                    |
-| [`merge_policy`](/catalog/type-rules#merge-policy)    | `keep_both_copies` for `note`; `last_writer_wins` for every other field |
+| Setting                                                    | Value                                                                   |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `plural`                                                   | Highlights                                                              |
+| [`body_field`](/catalog/type-definition#display-hints)     | `text`                                                                  |
+| [`name_from_body`](/catalog/type-definition#display-hints) | `false`                                                                 |
+| [`icon`](/catalog/type-definition#display-hints)           | `lucide:highlighter`                                                    |
+| [`merge_policy`](/catalog/type-definition#merge-policy)    | `keep_both_copies` for `note`; `last_writer_wins` for every other field |
