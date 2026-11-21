@@ -1,29 +1,22 @@
 ---
-title: Send an instance's telemetry
-description: See an instance's faults where you already look, then send its traces, logs and metrics to an OpenTelemetry endpoint and a heartbeat to an address you choose.
-job: An owner who watches their instance from outside sends its reports to the services they choose.
+title: Send or turn off telemetry
+sidebar_label: Telemetry
+description: See your instance's faults where you already look, send its traces, logs and metrics where you choose, and see what the CLI sends.
+job: An owner sees an instance's faults, sends its traces, logs and errors where they choose, and sees what the CLI reports.
+kind: how-to
 ---
 
-**An instance tells you of its own faults first, in what needs your attention.** Everything else it can send about itself is off until you set a destination, so an instance that sets none sends nothing. The CLI, connectors and apps report apart from the instance: see [what they send](/run/client-telemetry).
+**Marfa sends nothing about itself until you set where.** An instance tells you of its own faults first, in places you already look. Sending anything further is your choice, to a destination you name, and each stored setting here applies from the next send, with no restart.
 
-| To get | Set |
-| --- | --- |
-| Each fault, as it happens | A [webhook](/build/receive-webhooks) on `attention.raised` |
-| Traces, logs and metrics over OTLP | `otel_exporter_otlp_endpoint` |
-| [Errors in PostHog](/run/send-errors-to-posthog) | `posthog_host` and `posthog_project_token` |
-| A heartbeat | `heartbeat_url` |
+## See a fault yourself
 
-Each is a [stored setting](/run/settings#change-settings-while-it-runs), set from any computer with `config.manage` and followed from the next send, with no restart. **`telemetry_enabled` set to `false` pauses traces, logs, metrics and PostHog reports together,** and keeps every setting as it was.
+When the server meets a fault of its own, such as a database failure, a panic or an internal error, `marfa attention` lists an entry of kind `fault`. Its reference names the kind and where, such as `internal:POST /items/{id}`, and never an item, and its title counts how often. The entry goes 24 hours after the fault last happened, or at a restart. **The server's log holds the detail,** which the entry points to: [where it is](/run/install#look-after-the-service) depends on how you installed it.
 
-## See a fault
-
-When the server meets a fault of its own, such as a database failure, a panic or an internal error, `marfa attention` lists an entry of kind `fault`. Its reference names the kind and where, such as `internal:POST /items/{id}`, never an item, and its title counts how often. The entry goes 24 hours after the fault last happened, or at a restart.
-
-To be told at once, subscribe a webhook to `attention.raised` with a key that holds `instance.read`. While the database fails, the server still sends a new fault's event to such a webhook, from memory. [Receive webhooks](/build/receive-webhooks) shows how.
+To be told at once, subscribe a [webhook](/build/receive-webhooks) to `attention.raised` with a key that holds `instance.read`. Even while the database fails, the server sends a new fault's event to such a webhook, from memory.
 
 ## Send traces, logs and metrics
 
-Marfa exports over OTLP, the OpenTelemetry protocol, to any receiver that takes it over HTTP, posting to `v1/traces`, `v1/logs` and `v1/metrics` under the address. The endpoints and headers are secrets, so `marfa config set` asks for each with no echo:
+The instance exports over OTLP, the OpenTelemetry protocol, to any receiver that takes it over HTTP. The endpoint and its headers are secrets, so `marfa config set` asks for each with no echo:
 
 ```bash
 marfa config set otel_exporter_otlp_endpoint
@@ -31,29 +24,26 @@ marfa config set otel_exporter_otlp_headers
 marfa config set otel_sample_ratio 0.1
 ```
 
-The headers are `key=value` pairs with percent-encoded values, such as `authorization=Bearer%20<token>`. `otel_sample_ratio` is `0.05` unless you set it, and **a trace that holds an error is always exported**. The traces, logs and metrics endpoints and headers send one signal elsewhere, and an endpoint of its own needs `otel_exporter_otlp_endpoint` set too.
+The headers are `key=value` pairs with percent-encoded values, such as `authorization=Bearer%20<token>`. **A trace that holds an error is always exported,** whatever `otel_sample_ratio` says. The endpoint must be public unless [`allow_private_addresses`](/run/settings#let-webhooks-reach-a-private-network) is on. Separate settings send one signal, traces, logs or metrics, elsewhere.
 
-**The server reads no `OTEL_*` variable.** It logs a warning naming each one it finds, without its value, so a variable a hosting platform sets can't move your telemetry. Each endpoint must be public unless [`allow_private_addresses`](/run/settings#let-webhooks-reach-a-private-network) is on.
+**The server reads no `OTEL_*` variable.** It logs a warning that names each one it finds, so a variable a hosting platform sets can't move your telemetry. A log record carries its message and a fixed list of fields, and a span names the route, so neither holds what you wrote, a file's name or a credential.
 
-**A log record carries its message and a fixed list of fields, and a span names the route,** never the path a request used, so neither holds what you wrote, a file's name or a credential. A `GET` or `HEAD` answered `2xx` or `304` in under a second has no log record, but keeps its line in the request log on standard output.
-
-### Metrics
-
-Every 60 seconds, and once more when it stops, the server exports two metrics:
-
-- **`http.server.request.duration`,** in seconds, for every request but the event stream, with `http.request.method`, `http.route`, such as `/items/{id}`, and `http.response.status_code`.
-- **`process.memory.usage`,** the server's resident memory in bytes.
-
-### Tell instances apart
-
-**Everything an instance exports names it by `service.instance.id`**, the `instance_id` that `GET /` answers, and its release by `service.version`. `otel_resource_attributes` adds attributes of your own, replacing the server's of the same name, and `otel_service_name` sets the service name, `marfa-server` by default. The server names no environment, so mark a test instance with `deployment.environment=test`.
-
-**A restore carries no telemetry secret.** Its answer names the settings to set again.
+**Everything an instance exports names it by `service.instance.id`** and its release by `service.version`. `otel_resource_attributes` adds attributes of your own: mark a test instance with `deployment.environment=test`.
 
 ## Send a heartbeat
 
-An instance can't report its own death. Set `heartbeat_url`: and the `heartbeat` [housekeeping job](/run/housekeeping) requests it with a `GET`, no body and no identity, every minute. Give it to an uptime monitor. `heartbeat_enabled` set to `false` pauses it.
+An instance can't report its own death. Set `heartbeat_url`, and the `heartbeat` job requests it with a `GET`, no body and no identity, every minute: give it to an uptime monitor.
 
-**`marfa config get` never shows a secret,** only that it's set, in `secrets_set`.
+## Send errors to PostHog
 
-The rules behind this page are in the [telemetry](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#telemetry) section of the instance chapter of the contract.
+PostHog is one optional route, never part of Marfa. If you already use it, a free PostHog Cloud project and two settings, `posthog_host` and `posthog_project_token`, send each unhandled error there: [Send an instance's errors to PostHog](/run/send-errors-to-posthog).
+
+## Pause or turn it off
+
+`telemetry_enabled` set to `false` pauses traces, logs, metrics and PostHog reports together and keeps every setting as it was. To stop for good, clear the endpoint, the heartbeat and the PostHog pair. A [restore](/run/export-and-restore#what-a-restore-changes) carries no telemetry secret: its answer names the settings to set again.
+
+## What the CLI, connectors and apps send
+
+**The CLI sends one trace for each command, and only when its environment names an OpenTelemetry collector,** in `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. With neither set, it sends nothing, and `OTEL_SDK_DISABLED=true` turns the trace off. The trace names the command and carries its exit code and the error code of a refusal, and **holds no argument, address, credential or item content.** A folder watch that starts at login carries the `OTEL_*` settings of the shell that turned it on. [The CLI's telemetry reference](https://github.com/withmarfa/marfa/blob/main/core/marfa-cli/COMMANDS.md#telemetry) lists every setting.
+
+**A connector sends nothing of its own** unless its environment sets `OTEL_EXPORTER_OTLP_ENDPOINT`; a failed run reaches you through `marfa attention` instead. **What an app sends is decided by the people who build it,** and its own settings say how to turn it off. The Swift SDK sends nothing itself.
