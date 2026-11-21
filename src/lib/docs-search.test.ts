@@ -36,7 +36,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
     ['/run/troubleshooting/credentials-and-access', '/reference/folder-rules', '/build/connector-holds-and-retries', '/run/settings'],
   ],
   ['retry-after', ['/build/connector-webhooks', '/build/connector-holds-and-retries', '/build/keep-in-sync']],
-  ['CORS', ['/run/settings']],
+  ['CORS', ['/run/settings', '/reference/instance-settings']],
 
   // Reading and listing.
   ['pagination cursor', ['/reference/api', '/build/list-filter-search']],
@@ -50,7 +50,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
 
   // Sign-in, keys and the command line.
   ['oauth device flow', ['/build/authenticate']],
-  ['marfa login', ['/reference/cli', '/run/sign-in-as-the-owner']],
+  ['marfa login', ['/reference/cli', '/run/sign-in-as-the-owner', '/run/troubleshooting/credentials-and-access']],
   ['create type scaffold', ['/reference/cli', '/build/define-a-type']],
   ['MARFA_API_KEY', ['/reference/cli', '/use/manage-keys']],
   ['rotate a key', ['/use/manage-keys']],
@@ -64,10 +64,10 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['edge_cycle', ['/build/edges', '/reference/errors']],
 
   // Running an instance.
-  ['environment variables', ['/run/settings']],
+  ['environment variables', ['/run/settings', '/reference/instance-settings']],
   ['docker compose', ['/run/install', '/run/run-on-a-server']],
   ['back up to a bucket', ['/run/back-up-and-restore']],
-  ['s3 bucket', ['/run/settings', '/run/run-on-a-server', '/run/install', '/run/back-up-and-restore']],
+  ['s3 bucket', ['/run/settings', '/reference/instance-settings', '/run/run-on-a-server', '/run/install', '/run/back-up-and-restore']],
   ['upgrade server', ['/run/upgrade']],
   ['folders autostart', ['/use/keep-folders-syncing']],
   ['watch key file', ['/use/keep-folders-syncing']],

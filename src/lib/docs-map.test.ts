@@ -47,8 +47,8 @@ describe('buildDocsMap', () => {
     expect(use.some((line) => line.startsWith('- [Sync a folder](/use/sync-a-folder)'))).toBe(true);
 
     const run = lines.slice(lines.indexOf('## Run'), lines.indexOf('## Build'));
+    expect(run.some((line) => line.startsWith('- Troubleshooting'))).toBe(true);
     expect(run.filter((line) => line.startsWith('### '))).toEqual(['### Set up', '### Look after it']);
-    expect(run.some((line) => line.startsWith('- [Troubleshooting](/run/troubleshooting)'))).toBe(true);
 
     const build = lines.slice(lines.indexOf('## Build'), lines.indexOf('## Catalog'));
     expect(build.filter((line) => line.startsWith('### '))).toEqual(['### Concepts', '### Tutorials', '### Build apps and agents', '### Build on a working copy', '### Build connectors']);
@@ -81,7 +81,7 @@ describe('buildDocsMap', () => {
 
     const groups = reference.filter((line) => line.startsWith('### '));
     expect(groups[0]).toBe('### HTTP API');
-    expect(groups.slice(-3)).toEqual(['### SDKs', '### CLI and MCP', '### Resources']);
+    expect(groups.slice(-4)).toEqual(['### SDKs', '### CLI and MCP', '### Instance', '### Resources']);
     expect(reference.some((line) => line.startsWith('- [TypeScript SDK](/reference/typescript-sdk)'))).toBe(true);
     expect(reference.some((line) => line.startsWith('- [Marfa MCP server](/reference/marfa-mcp-server)'))).toBe(true);
     expect(reference.some((line) => line.startsWith('- [Docs MCP server](/reference/docs-mcp-server)'))).toBe(true);
