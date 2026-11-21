@@ -11,9 +11,9 @@ The instance is its own authorization server. Its discovery document at `/.well-
 
 ## Register the app
 
-Registration needs no credential. A scope is a type and a level, such as `core.file.image:read`, a [permission](/build/access#what-a-credential-reaches), or `offline_access` for a refresh token:
+Registration needs no credential. A scope is a type and a level, such as `core.file.image:read`, a [permission](/build/access#what-a-credential-reaches), or `offline_access` for a refresh token. The grants say which flows the app uses:
 
-```http title="Request"
+```http tab="Code flow"
 POST /oauth/register
 Content-Type: application/json
 
@@ -26,19 +26,41 @@ Content-Type: application/json
 }
 ```
 
-Marfa answers `201` with the `client_id`; an app can instead name itself by the `https` address of a client ID metadata document ([Register an OAuth client](/reference/api/apps/registerOAuthClient)). **Name the scopes the app needs:** a registration with none gets the [default scopes](/catalog/permissions), read and write on all content and its edges.
+```http tab="Device flow"
+POST /oauth/register
+Content-Type: application/json
+
+{
+  "client_name": "Photo frame",
+  "application_type": "native",
+  "grant_types": ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"],
+  "scope": "core.file.image:read offline_access"
+}
+```
+
+Marfa answers `201` with the `client_id`; an app can instead name itself by the `https` address of a client ID metadata document ([Register an OAuth client](/reference/api/apps/registerOAuthClient)). **`offline_access` needs the `refresh_token` grant:** without it Marfa refuses the registration, or a device request for the scope with `400 invalid_scope`. **Name the scopes the app needs:** a registration with none gets the [default scopes](/catalog/permissions), read and write on all content and its edges.
 
 The redirect address decides the kind. A **web** client, the default, takes `https` addresses with a real host name. A **native** client may also use `http://127.0.0.1` with any port, or a reverse domain name you control as a scheme, as above.
 
 ## Send the owner to approve
 
-Make a verifier with `randomBytes(32).toString("base64url")` from `node:crypto` and keep it. Its challenge is `createHash("sha256").update(verifier).digest("base64url")`, and Marfa takes only `S256`. Open the authorization endpoint in the owner's browser with the challenge and your own `state`:
+Make a fresh verifier and `state` for every attempt, and keep both until the exchange. Marfa takes only the `S256` challenge. This runs in a browser and in Node 22 or later, with `instance` set to your instance's address:
 
-```http title="Request"
-GET /oauth/authorize?response_type=code&client_id=<client_id>&redirect_uri=com.example.frame%3A%2Fcallback&scope=core.file.image%3Aread%20offline_access&code_challenge=<challenge>&code_challenge_method=S256&state=<state>
+```ts title="authorize.ts"
+const base64url = (bytes: Uint8Array) =>
+  btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+const random = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
+
+const verifier = random();
+const state = random();
+const challenge = base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+const authorizeUrl = `${instance}/oauth/authorize?` + new URLSearchParams({
+  response_type: "code", client_id: clientId, redirect_uri: redirectUri, scope: "core.file.image:read offline_access",
+  code_challenge: challenge, code_challenge_method: "S256", state,
+});
 ```
 
-The owner signs in if needed and approves the app, as [Connect your agent](/connect-your-agent#approve-what-it-may-reach) shows. The page may ask the owner to confirm it's them: a write or a permission needs a sign-in from the last fifteen minutes. Marfa sends the browser to your redirect address with `code`, `state` and `iss`. Check that **`state` is the one you sent** and `iss` is the `issuer` of the discovery document. A denial carries `error=access_denied` and no code.
+Open `authorizeUrl` in the owner's browser. The owner signs in if needed and approves the app, as [Connect your agent](/connect-your-agent#approve-what-it-may-reach) shows. A write or a permission the app doesn't already hold needs a sign-in from the last fifteen minutes, so the page may ask the owner to confirm it's them. Marfa sends the browser to your redirect address with `code`, `state` and `iss`; a denial carries `error=access_denied` and no code. **Before you exchange the code, check there is no `error`, that `state` is the one you sent, and that `iss` is the `issuer` of the discovery document.**
 
 ## Exchange the code for tokens
 
@@ -51,52 +73,82 @@ Content-Type: application/x-www-form-urlencoded
 grant_type=authorization_code&code=<code>&redirect_uri=com.example.frame%3A%2Fcallback&client_id=<client_id>&code_verifier=<verifier>
 ```
 
-Marfa answers `200` with an `access_token` that lasts `expires_in` seconds (3600), a `refresh_token` if the app asked for `offline_access`, and `scope`, which **can be less than you asked for**. A code works once: sending it again answers `400 invalid_grant` and ends the tokens it gave.
+Marfa answers `200` with an `access_token` that lasts `expires_in` seconds (3600), a `refresh_token` if the app asked for `offline_access`, and `scope`, which **can be less than you asked for**. A code works once: sending it again answers `400 invalid_grant` and, while the code is unexpired, ends the tokens it gave.
 
-Before the access token expires, post `grant_type=refresh_token`, the `refresh_token` and the `client_id` to the same endpoint. **Each exchange ends the refresh token you sent**, so store the new one first. A used refresh token answers `400 invalid_grant` and ends every token in its chain, with no grace, and the app asks the owner again. **Refresh from one place at a time:** two refreshes at once spend the same token and sign the owner out, so every caller shares the refresh already in flight.
+Before the access token expires, post `grant_type=refresh_token`, the `refresh_token` and the `client_id` to the same endpoint. **Each exchange ends the refresh token you sent**, and a used one answers `400 invalid_grant` and ends every token in its chain, with no grace. So every caller of one token shares one refresh, and saves the new refresh token at once. Processes that share a stored token also take a lock around reading, refreshing and saving it. After an answer that isn't a clear `200`, such as a timeout or a `5xx`, the token may be spent: **start the approval again**, since a retry would end the chain.
 
-To disconnect, post the refresh token to `POST /oauth/revoke`, which ends the app's tokens and the owner's approval. The owner can also cut an app off ([See and revoke access](/use/see-and-revoke-access)).
+```ts title="refresh.ts"
+let inFlight: Promise<string> | undefined;
+
+export function accessToken(): Promise<string> {
+  if (Date.now() < tokens.expires_at - 60_000) return Promise.resolve(tokens.access_token);
+  return (inFlight ??= refresh().finally(() => (inFlight = undefined)));
+}
+
+async function refresh(): Promise<string> {
+  const response = await fetch(`${instance}/oauth/token`, {
+    method: "POST",
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: tokens.refresh_token, client_id: clientId }),
+  }).catch(() => undefined);
+  if (response?.status !== 200) throw new Error("The refresh wasn't confirmed: start the approval again");
+  const next = await response.json();
+  tokens = { access_token: next.access_token, refresh_token: next.refresh_token, expires_at: Date.now() + next.expires_in * 1000 };
+  await saveTokens(tokens);
+  return tokens.access_token;
+}
+```
+
+To disconnect, post the refresh token as `token`, with the `client_id`, to `POST /oauth/revoke` as a form: it ends the app's tokens and the owner's approval. The owner can also cut an app off ([See and revoke access](/use/see-and-revoke-access)).
 
 ## Connect with the device flow
 
-A tool or device with no browser shows the owner a short code to approve elsewhere, as `marfa login` does. Register a native client with no redirect address and the grant `urn:ietf:params:oauth:grant-type:device_code`. Then ask for a code, naming the scopes, since a request with none answers `400 invalid_scope`:
+A tool or device with no browser shows the owner a short code to approve elsewhere, as `marfa login` does. Register as the Device flow tab shows, with no redirect address. Then ask for a code, naming the scopes, since a request with none answers `400 invalid_scope`:
 
 ```http title="Request"
 POST /oauth/device-authorization
 Content-Type: application/x-www-form-urlencoded
 
-client_id=<client_id>&scope=core.file%3Aread%20offline_access
+client_id=<client_id>&scope=core.file.image%3Aread%20offline_access
 ```
 
-Marfa answers `user_code`, `verification_uri` and `device_code`. Show the owner the first two, then post `grant_type=urn:ietf:params:oauth:grant-type:device_code` with the `device_code` and `client_id` to `/oauth/token`, **waiting `interval` seconds between requests**. Until the owner decides, Marfa answers `400 authorization_pending`: keep polling. `400 slow_down` means you polled sooner than `interval` seconds after your last poll, which restarts the wait: add five seconds, as `marfa login` does. **`400 access_denied` and `400 expired_token` end the polling**: the owner refused, or the code ran out after `expires_in` seconds. Approval gives the same tokens as the code exchange.
+Marfa answers `user_code`, `verification_uri` and `device_code`. Show the owner the first two, then post `grant_type=urn:ietf:params:oauth:grant-type:device_code` with the `device_code` and `client_id` to `/oauth/token`, **waiting `interval` seconds between requests and stopping after `expires_in` seconds**. Until the owner decides, Marfa answers `400 authorization_pending`: keep polling. `400 slow_down` means you polled too soon: add five seconds to `interval` **for this and every later poll**. **`access_denied`, `expired_token` and `invalid_grant` end the polling**: the owner refused, the code ran out, or the code was used already. Approval gives the same tokens as the code exchange.
 
 ## Connect a web page
 
-A web page takes the same steps in its own script, registered as a web client, with no key. It needs an `https` address with a real host name, so a page on `http://localhost` can't connect, and a callback page at its redirect address. Open the approval in a small window from a click, listen first for the callback, and keep only the answer that carries your `state`:
+A web page takes the same steps in its own script, registered as a web client, with no key. It needs an `https` address with a real host name, so a page on `http://localhost` can't connect, and a callback page at its redirect address. Open the approval in a small window from a click, listen first for the callback, and keep only the answer that carries your `state`. The callback page runs at the page's own origin, so it passes the result over the channel and closes:
 
-```ts title="connect.ts"
+```ts tab="Page"
+const discovery = await (await fetch(`${instance}/.well-known/oauth-authorization-server`)).json();
 const answered = new Promise<URLSearchParams>((resolve) => {
   const channel = new BroadcastChannel("marfa-approval");
   channel.onmessage = (event) => {
     const answer = new URLSearchParams(event.data);
-    if (answer.get("state") !== state) return;
+    if (answer.get("state") !== state) return; // not an answer to this request
     channel.close();
     resolve(answer);
   };
 });
 open(authorizeUrl, "marfa-approval", "popup,width=480,height=640");
+
+const answer = await answered;
+if (answer.get("error") || answer.get("iss") !== discovery.issuer) throw new Error("Not approved, or not from the instance");
+const response = await fetch(discovery.token_endpoint, {
+  method: "POST",
+  body: new URLSearchParams({
+    grant_type: "authorization_code", code: answer.get("code")!, redirect_uri: redirectUri, client_id: clientId, code_verifier: verifier,
+  }),
+});
+const tokens = await response.json();
 ```
 
-The callback page runs at the page's own origin, so it passes the result over the channel and closes:
-
-```html title="callback.html"
+```html tab="Callback page"
 <script>
   new BroadcastChannel("marfa-approval").postMessage(location.search);
   close();
 </script>
 ```
 
-The page then exchanges the code as above, with `fetch`. **Don't send `credentials: "include"`:** Marfa allows no credentials on a cross-origin answer, so the access token is the page's only authority. Let the page cancel the wait: an owner who closes the window sends nothing. For a browser that blocks windows, redirect the whole page instead and keep the verifier and `state` in `sessionStorage`. Keep the tokens in the page's memory, or in `sessionStorage` if a reload must keep the owner signed in, and never in a URL.
+**Don't send `credentials: "include"`:** Marfa allows no credentials on a cross-origin answer, so the access token is the page's only authority. Let the page cancel the wait: an owner who closes the window sends nothing. For a browser that blocks windows, redirect the whole page instead and keep the verifier and `state` in `sessionStorage`. Keep the tokens in the page's memory, or in `sessionStorage` if a reload must keep the owner signed in, and never in a URL. Refresh them as above.
 
 Approving the page lets the origin of each redirect address it registered call the instance from a browser until the last app approved there is disconnected; an owner can name an origin earlier with the `cors_origins` [setting](/run/settings). A registration nobody approves is removed after an hour idle.
 
