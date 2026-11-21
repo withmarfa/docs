@@ -49,14 +49,15 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['hmac', ['/build/receive-webhooks']],
 
   // Sign-in, keys and the command line.
-  ['oauth device flow', ['/build/authenticate']],
+  ['oauth device flow', ['/build/connect-an-app']],
   ['marfa login', ['/reference/cli', '/run/sign-in-as-the-owner', '/run/troubleshooting/credentials-and-access']],
   ['create type scaffold', ['/reference/cli', '/build/define-a-type']],
   ['MARFA_API_KEY', ['/reference/cli', '/use/manage-keys']],
   ['rotate a key', ['/use/manage-keys']],
   ['passkey', ['/run/sign-in-as-the-owner']],
   ['json output', ['/reference/cli', '/use/command-line']],
-  ['exit code 5', ['/reference/cli']],
+  // Exit code 5 is a missing or refused credential, which the fix page for a refused key answers too.
+  ['exit code 5', ['/reference/cli', '/run/troubleshooting/credentials-and-access']],
   ['print-token', ['/reference/cli']],
   ['--print-token', ['/reference/cli']],
 
@@ -77,8 +78,8 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['restore', ['/run/back-up-and-restore', '/run/export-and-restore']],
 
   // Files.
-  ['blob upload', ['/build/handle-files', '/reference/api/blobs/uploadBlob']],
-  ['attach a file to a note', ['/build/handle-files']],
+  ['blob upload', ['/build/files-upload-download', '/reference/api/blobs/uploadBlob']],
+  ['attach a file to a note', ['/build/files-upload-download']],
 
   // A dotted type key, and a word that is the end of one.
   ['core.task', ['/catalog/task']],

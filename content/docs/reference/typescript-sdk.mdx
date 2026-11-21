@@ -6,7 +6,7 @@ job: A builder installs the TypeScript client and looks up how it calls, pages a
 
 The TypeScript SDK, `@withmarfa/client`, is a typed client for the API, for a script, a server or a web page. **It's generated from Marfa's API description**, so a path the API doesn't serve, or a required parameter you leave out, fails to compile. Its version is the Marfa release it was generated from.
 
-Each call is one API request, and the SDK keeps nothing between them. An app that must work offline needs a [working copy](/build/working-copies), such as the [Swift SDK](/reference/swift-sdk) keeps.
+Each call is one API request, and the SDK keeps nothing between them. An app that must work offline needs a [working copy](/build/working-copies), which the [Swift SDK](/reference/swift-sdk) keeps.
 
 ## Install the SDK
 
@@ -39,44 +39,28 @@ export const marfa = createClient({
 
 ## Upload a file
 
-[Upload a blob](/reference/api/blobs/uploadBlob) takes a file's bytes, not JSON. Pass a `Blob`, an `ArrayBuffer`, a typed array such as a Node `Buffer`, or a `ReadableStream`, and name the file's type in `Content-Type`, which the instance keeps. Without it the client sends a `Blob`'s own type, or the one the operation declares. The answer is the blob's hash, type and size:
-
-<Terminal>
+[Upload a blob](/reference/api/blobs/uploadBlob) takes a file's bytes, not JSON, so `body` is a `Blob`, an `ArrayBuffer`, a typed array such as a Node `Buffer`, or a `ReadableStream`. **Name the file's type in a `Content-Type` header,** which the instance keeps: without one, the client sends a `Blob`'s own type, or the one the operation declares. The answer holds the blob's `hash`, `mime_type` and `size_bytes`.
 
 ```ts
-import { readFile } from "node:fs/promises";
-
 const { data: blob, error } = await marfa.POST("/blobs", {
   body: await readFile("tide-chart.png"),
   headers: { "Content-Type": "image/png" },
 });
-if (error) throw new Error(error.error.message);
-console.log(blob);
 ```
 
-```text
-{ hash: 'sha256:2bab…', mime_type: 'image/png', size_bytes: 69 }
-```
-
-</Terminal>
-
-[Upload and download files](/build/files-upload-download) covers the rest.
+[Upload and download files](/build/files-upload-download) goes on from there.
 
 ## Call an operation
 
-Name an operation by its method and path, as the [API reference](/reference/api) lists it. Path parameters go in `params.path`, query parameters in `params.query`, and a JSON body in `body`. Each call returns `data` on success, `error` when the server refuses, and the `response`. This one makes the blob above a file item and tags it:
+Name an operation by its method and path, as the [API reference](/reference/api) lists it. Path parameters go in `params.path`, query parameters in `params.query`, and a JSON body in `body`. Each call returns `data` on success, `error` when the server refuses, and the `response`:
 
 ```ts
-const { data, error } = await marfa.POST("/items", {
-  body: { type: "core.file", properties: { title: "Tide chart", blob_ref: blob.hash, mime_type: blob.mime_type } },
-});
-if (error) throw new Error(error.error.message);
-
-const { data: tagged } = await marfa.POST("/items/{id}/tags", {
-  params: { path: { id: data.item.id } },
+const { data: tagged, error } = await marfa.POST("/items/{id}/tags", {
+  params: { path: { id: itemId } },
   body: { tags: ["coast"] },
 });
-console.log(tagged?.tags); // [ 'coast' ]
+if (error) throw new Error(error.error.message);
+console.log(tagged.tags); // [ 'coast' ]
 ```
 
 After you check `error`, TypeScript knows `data` holds the answer. A path parameter of `.` or `..` throws before anything is sent, because it would name another route.
@@ -90,7 +74,7 @@ import { pages } from "@withmarfa/client";
 
 const files = pages(async (cursor) => {
   const { data, error } = await marfa.GET("/items", {
-    params: { query: { type: "core.file", cursor } },
+    params: { query: { type: "core.file", ...(cursor === undefined ? {} : { cursor }) } },
   });
   if (error) throw new Error(error.error.message);
   return data;
@@ -103,6 +87,7 @@ for await (const file of files) {
 
 - **`pages` follows `next_cursor` until it's `null`.** A page can be short, or empty, and still have more, so never stop early.
 - **It throws when a page has no `next_cursor`, or repeats a cursor,** rather than yield entries it can't trust or walk forever.
+- **The first `cursor` is `undefined`,** so the spread leaves the key out, as `exactOptionalPropertyTypes` requires.
 - The `"id" in file` check is there because a listing with `include=metadata` returns each item with its metadata instead.
 
 The rows of a [table](/build/tables) page the same way.
@@ -168,10 +153,10 @@ The error also holds `served`, the header as it arrived or `null`, and the answe
 | `pages` | Walks every page of a list |
 | `ContractMismatchError` | Thrown for an answer from another contract version |
 | `CONTRACT_VERSION`, `CONTRACT_HEADER` | The contract version the SDK was generated for, and the header that carries it |
-| `MarfaClient`, `Page` | The client's type, and one page of a list |
+| `MarfaClient`, `ClientOptions`, `Page` | The client's type, the options `createClient` takes, and one page of a list |
 | `paths`, `components`, `operations` | The types generated from the API description, such as `components["schemas"]["Item"]` |
 
-The client is an [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) client. Middleware you add with `client.use` sees each request without the credential, and each answer after the check.
+It is an [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) client. Middleware from `client.use` sees each request without the credential, and each answer after the check.
 
 ## What the SDK doesn't do
 

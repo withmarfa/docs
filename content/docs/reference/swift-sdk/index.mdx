@@ -30,7 +30,7 @@ The SDK supports iOS 27 and macOS 27 and builds with Xcode 27 on a Mac with Appl
 
 ## Sign in
 
-A `Server` is an address and a credential. A working copy, `Folders` and `Client` each take one. **`Authorization` signs an app in with the owner's approval** and keeps the sign-in in the keychain, so the app never sees the owner's password.
+A `Server` is an address and a credential. A working copy, [`Folders`](/reference/swift-sdk/items#folders) and `Client` each take one. **`Authorization` signs an app in with the owner's approval** and keeps the sign-in in the keychain, so the app never sees the owner's password.
 
 ```swift
 import Marfa
@@ -55,9 +55,9 @@ let copy = try await WorkingCopy.open(store: storeURL, server: server)
 
 | Make a `Server` with | For |
 | --- | --- |
-| `Server(url:credential:)` | A sign-in from `Authorization`. Throws `SignInError.otherServer` or `.notSignedIn`. |
+| `Server(url:credential:)` | A sign-in from `Authorization`. Throws `SignInError.otherServer`, `.notSignedIn`, or `.notAServer` for an address holding a user or password. |
 | `Server(url:key:)` | An API key. Throws `AddressError.userInfo` for an address holding a user or password. |
-| `Server.fromEnvironment()` | `MARFA_API_URL` and `MARFA_API_KEY`, or `nil` when neither is set. |
+| `Server.fromEnvironment()` | `MARFA_API_URL` and `MARFA_API_KEY`, or `nil` when neither is set. **Throws `Server.EnvironmentError` when only one is set,** or when the address names no server. |
 
 `Server.description` never shows the key, and `plainHTTPOrigin` is set for a plain `http` address to another machine: show it as a warning. **Every request names the contract the build was made for,** and a server on another contract answers `412 contract_mismatch`, which throws `contractMismatch`.
 
@@ -124,7 +124,7 @@ _ = try await api.register(itemType: entry)
 
 | Calls | Do | Needs |
 | --- | --- | --- |
-| `getConfig`, `updateConfig` | Read and change the [settings](/run/settings), naming `X-Marfa-Instance-Id` in `headers:`. | `config.manage` |
+| `getConfig`, `updateConfig` | Read and change the [settings](/run/settings). `updateConfig` can name `X-Marfa-Instance-Id` in `headers:`. | `config.manage` |
 | `check(_ AddressChange)`, `apply(_:expecting:)` | Check a [change of address](/run/address), then make exactly that change. Show the check's `consequences` first. | `config.manage` |
 | `listAppGrants`, `narrowAppGrant`, `revokeAppGrant` | List, narrow or end the apps the owner approved. | `grants.manage` |
 | `restoreBackup` | [Restore a backup](/run/back-up-and-restore). | `backups.manage` |
@@ -134,22 +134,16 @@ The restore and address calls need a [recent sign-in](#confirm-its-you). `change
 
 ### Move the items of a type
 
-A type's ID never changes, so renaming one means registering the new type, moving the items and deleting the old type. **The move is a job on the instance.**
+A type's ID never changes, so renaming one means registering the new type, moving the items and deleting the old type. **The move is a job on the instance**, so a call that starts it returns before the items have moved.
 
-```swift
-let started = try await api.startMove(
-    ofType: "app.deal", to: "app.contract", properties: ["stage": "signed"])
-let job = try await api.follow(moveJob: started.id)
-if job.status == .completed, job.result?.settingsRewritten == true {
-    try await api.delete(itemType: "app.deal")
-}
-```
+| Call | Does |
+| --- | --- |
+| `previewMove(ofType:to:properties:)` | Counts what the move would take, and writes nothing. |
+| `startMove(ofType:to:properties:)` | Starts the job, merging `properties` into each item (`null` removes one). |
+| `follow(moveJob:every:)` | Polls the job until it ends. |
+| `cancel(moveJob:)` | Stops the job. |
 
-`previewMove` writes nothing, `startMove` merges `properties` into each item (`null` removes one), `follow(moveJob:every:)` polls, and `cancel(moveJob:)` stops the job. **Check `result` before deleting the old type:** `remaining` counts what is left, and `remainingHidden` says some are out of the credential's sight. A setting the move can't rewrite throws `type_move_blocked`. [Change, rename or delete a type](/build/change-a-type) has the sequence.
-
-## Types and the catalog
-
-`copy.catalog` reads the types the copy holds **from the store with no request:** `itemTypes()`, `itemType(_:)`, `edgeTypes()` and `edgeType(_:)`, or `notFound`. `fromServer()` reads the server's catalog before a first hydration. An `ItemType` holds `fields` with inherited ones, display hints such as `titleField` and `icon`, and `statusWords`. An `EdgeType` holds `cardinality`, its end constraints and **`writtenFrom`, the end a folder writes it in** (`.from`, `.to` or `.none`).
+**Check the job's `result` before deleting the old type:** `remaining` counts what is left, and `remainingHidden` says some are out of the credential's sight. A setting the move can't rewrite throws `type_move_blocked`. [Change, rename or delete a type](/build/change-a-type) has the sequence and its code.
 
 ## Draw a type's icon
 

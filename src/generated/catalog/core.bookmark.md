@@ -16,10 +16,10 @@
 
 ## Settings
 
-| Setting                                            | Value                                                                               |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `plural`                                           | Bookmarks                                                                           |
-| [`title_field`](/catalog/type-rules#display-hints) | `title`                                                                             |
-| [`body_field`](/catalog/type-rules#display-hints)  | `body`                                                                              |
-| [`icon`](/catalog/type-rules#display-hints)        | `lucide:bookmark`                                                                   |
-| [`merge_policy`](/catalog/type-rules#merge-policy) | `keep_both_copies` for `body` and `notes`; `last_writer_wins` for every other field |
+| Setting                                                 | Value                                                                               |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `plural`                                                | Bookmarks                                                                           |
+| [`title_field`](/catalog/type-definition#display-hints) | `title`                                                                             |
+| [`body_field`](/catalog/type-definition#display-hints)  | `body`                                                                              |
+| [`icon`](/catalog/type-definition#display-hints)        | `lucide:bookmark`                                                                   |
+| [`merge_policy`](/catalog/type-definition#merge-policy) | `keep_both_copies` for `body` and `notes`; `last_writer_wins` for every other field |

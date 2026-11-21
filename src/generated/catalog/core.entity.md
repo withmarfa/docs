@@ -25,12 +25,12 @@
 
 ## Settings
 
-| Setting                                            | Value                              |
-| -------------------------------------------------- | ---------------------------------- |
-| `plural`                                           | Entities                           |
-| [`title_field`](/catalog/type-rules#display-hints) | `name`                             |
-| [`icon`](/catalog/type-rules#display-hints)        | `lucide:shapes`                    |
-| [`merge_policy`](/catalog/type-rules#merge-policy) | `last_writer_wins` for every field |
+| Setting                                                 | Value                              |
+| ------------------------------------------------------- | ---------------------------------- |
+| `plural`                                                | Entities                           |
+| [`title_field`](/catalog/type-definition#display-hints) | `name`                             |
+| [`icon`](/catalog/type-definition#display-hints)        | `lucide:shapes`                    |
+| [`merge_policy`](/catalog/type-definition#merge-policy) | `last_writer_wins` for every field |
 
 ## Subtypes
 
@@ -38,10 +38,10 @@
 
 A person, with their name, contact details and job.
 
-| Setting                                     | Value         |
-| ------------------------------------------- | ------------- |
-| `plural`                                    | People        |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:user` |
+| Setting                                          | Value         |
+| ------------------------------------------------ | ------------- |
+| `plural`                                         | People        |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:user` |
 
 | Field          | Kind     | Description                         |
 | -------------- | -------- | ----------------------------------- |
@@ -61,10 +61,10 @@ A person, with their name, contact details and job.
 
 A place, such as a cafe, an office or a city, with its address and coordinates.
 
-| Setting                                     | Value            |
-| ------------------------------------------- | ---------------- |
-| `plural`                                    | Places           |
-| [`icon`](/catalog/type-rules#display-hints) | `lucide:map-pin` |
+| Setting                                          | Value            |
+| ------------------------------------------------ | ---------------- |
+| `plural`                                         | Places           |
+| [`icon`](/catalog/type-definition#display-hints) | `lucide:map-pin` |
 
 | Field            | Kind                 | Description                         |
 | ---------------- | -------------------- | ----------------------------------- |

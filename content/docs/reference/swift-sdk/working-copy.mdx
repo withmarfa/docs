@@ -6,7 +6,7 @@ description: Open, fill, pin, catch up and close a working copy, recover a store
 job: A Swift builder looks up how to open, fill, pin, catch up and close a working copy, and drain and read its queue.
 ---
 
-`WorkingCopy` is the copy an app keeps on the device: one SQLite store that holds a slice of the instance, answers reads and **queues every write**, kept across launches, until a drain sends it. [Working copies](/build/working-copies) explains the slice, hydration and verdicts, and [Write in a working copy](/build/write-in-a-working-copy) when to drain.
+`WorkingCopy` is the copy an app keeps on the device: one SQLite store that holds a slice of the instance, answers reads and **queues every write** until a drain sends it. [Working copies](/build/working-copies) explains the slice, hydration and verdicts, and [Write in a working copy](/build/write-in-a-working-copy) when to drain.
 
 ## Open a copy
 
@@ -25,18 +25,13 @@ let copy = try await WorkingCopy.open(store: store, server: server)
 | `fileBudget` | `nil` | The [file cache](/reference/swift-sdk/items#the-file-cache) budget. `nil` keeps the store's. |
 | `ifRefused` | `.keep` | For a store another build of the core made. `.replace` replaces it with an empty one **only when it holds no unsent write.** |
 
-`open` throws `wrongSchema` for a store another build made, `storeDamaged` where SQLite can't read it, `store` where the lock file or write-ahead mode fails, `invalid` on a file system that doesn't lock files, `readingHandle` for a second opener that passes `fileBudget` or a `.replace` that finds another writer, and `SignInError.notSignedIn`. **A store made against another address keeps its writes:** the first call to the server asks which instance answers, then follows the same instance to the new address, or throws `wrongServer` and sends nothing.
+`open` throws `wrongSchema` for a store another build made, `storeDamaged` where SQLite can't read it, `store` where the lock file or write-ahead mode fails, `invalid` on a file system that doesn't lock files, `readingHandle` for a second opener that passes `fileBudget` or a `.replace`, and `SignInError.notSignedIn`. **A store made against another address keeps its writes:** the first call to the server asks which instance answers, then follows the same instance to the new address, or throws `wrongServer` and sends nothing.
 
-**The first process to open a store is its writer; `copy.handle` is `.writer` or `.reader`.** A reader opens the store read-only, writes nothing, and its `changes()` hears each of the writer's saves. `WorkingCopy.openReader(store:)` never takes the writer role.
+**The first process to open a store is its writer; `copy.handle` is `.writer` or `.reader`.** A reader writes nothing, and its `changes()` hears each of the writer's saves. `WorkingCopy.openReader(store:)` opens only as a reader.
 
 ## The copy's parts
 
-| Property | Type | Page |
-| --- | --- | --- |
-| `items`, `edges`, `tags`, `metadata`, `extensions`, `tables` | `Items`, `Edges`, `Tags`, `Metadata`, `Extensions`, `Tables` | [Items, files and views](/reference/swift-sdk/items) |
-| `blobs` | `Blobs` | [Items, files and views](/reference/swift-sdk/items#files) |
-| `queue` | `Queue` | [The queue](#the-queue) |
-| `catalog` | `Catalog` | [Types and the catalog](/reference/swift-sdk#types-and-the-catalog) |
+`copy` holds `items`, `edges`, `tags`, `metadata`, `extensions` and `tables` ([Items, files and views](/reference/swift-sdk/items)), `blobs` ([files](/reference/swift-sdk/items#files)), `queue` and `catalog`, both below.
 
 ## Fill the copy
 
@@ -44,45 +39,45 @@ let copy = try await WorkingCopy.open(store: store, server: server)
 let report = try await copy.hydrate(types: ["*"], tier: .all, edgeTypes: ["in-collection"])
 ```
 
-`hydrate(types:tier:edgeTypes:inPlaceOnly:)` replaces the copy with every item of `types` at `tier`, with their tags and outgoing edges. Each edge type in `edgeTypes` is held whole.
+`hydrate(types:tier:edgeTypes:inPlaceOnly:)` replaces the copy with every item of `types` at `tier`, with their tags and outgoing edges. Each of `edgeTypes` is held whole.
 
 - **`types`** names types or patterns. `["*"]` alone is every type except `system.*`.
 - **`tier`** is `.library`, `.feed` or `.all`.
 - **An interrupted hydration resumes** when its slice is unchanged. The report says `resumed`, or why it `restarted`.
-- **Reads during a fill answer what has arrived,** marked `.partial`, and a read of a view throws `hydrationIncomplete`. `status()` shows `itemsListed` against `itemsExpected`.
-- **One hydration runs at a time,** and every `changes()` stream hears `.refreshed(.hydrated)`, or `.unfinished` on failure.
+- **Reads during a fill answer what has arrived,** marked `.partial`, and a read of a view throws `hydrationIncomplete`.
+- **One hydration runs at a time;** every `changes()` stream hears `.refreshed(.hydrated)`, or `.unfinished`.
 
-A copy whose cursor the server's event log let go has `status().hydration` of `.stale`. **Hydrating it refills it in place:** reads answer the rows held, marked `.stale`, and the report says `inPlace`. Meanwhile item writes queue and edge writes throw `hydrationIncomplete`. **`inPlaceOnly: true` refills or does nothing,** throwing before it removes anything: `instanceChanged`, or `copyExpired` with `not_stale`, `reach_changed`, `slice_changed` or `head_past_log`. `.stale` is a copy kept, `.expired` a copy ended.
+A copy whose cursor the server's event log let go is `.stale`. **Hydrating it refills it in place:** reads answer the rows held, marked `.stale`, item writes queue and edge writes throw `hydrationIncomplete`. **`inPlaceOnly: true` refills or does nothing,** throwing before it removes anything: `instanceChanged`, or `copyExpired` with `not_stale`, `reach_changed`, `slice_changed` or `head_past_log`.
 
-The report holds the slice (`types`, `tier`, `edgeTypes`), `items` and `edges` held, `pages`, `resumed`, `restarted`, `inPlace`, `cursor`, and the declared types the instance now holds (`registeredTypes`, `replacedTypes`) or refused (`unregisteredTypes`, `unreplacedTypes`, each with `id`, `code` and `message`).
+The report holds the slice, `items`, `edges`, `pages`, `cursor`, `inPlace`, and the declared types the instance now holds (`registeredTypes`, `replacedTypes`) or refused (`unregisteredTypes`, `unreplacedTypes`, each with `id`, `code` and `message`).
 
 ### Declare, pin, catch up
 
-- **`declareTypes(_:)`** replaces the app's declared types, each a definition as a `JSONObject`. Offline creates are checked against them, and a hydration registers any the instance lacks. `declaredTypes()` reads them back. [Define a type](/build/define-a-type) shows a definition.
+- **`declareTypes(_:)`** replaces the app's declared types, each a definition as a `JSONObject`. Offline creates are checked against them, and a hydration registers any the instance lacks. `declaredTypes()` reads them back. [Define a type](/build/define-a-type) shows one.
 - **`pin(_:)`** holds one item whatever the slice says and returns a `PinReport`. An item in the bin throws `notFound` with `trashed`. `unpin(_:)` lets it go.
 - **`catchUp()`** reads the catalog again, then applies every event since the last hydration or catch-up. A held `changes()` stream does it by itself. Its `CatchUpReport` holds `applied`, `skipped`, `cursor`, `catalogChanged`, `changedTables`, and `readOnlyHeld`, the rows whose `readOnly` changed, which no event brings.
 
-**Every item carries `readOnly`:** the server's advice that a connector keeps it. **Neither the copy nor the server refuses a write for it.** The copy asks again at most every 15 minutes, so it can be older, and an item the server hasn't answered holds `false`.
+**Every item carries `readOnly`:** the server's advice that a connector keeps it. **Neither the copy nor the server refuses a write for it.** The copy asks again at most every 15 minutes, and an item the server hasn't answered holds `false`.
 
-`status()` returns a `Status` with `serverOrigin`, `instanceId`, the slice, `pinned`, `hydration` (`.never`, `.inProgress`, `.complete`, `.stale` or `.expired`), `items`, `edges`, `eventCursor`, `catalogVersion`, `fileCache` and `lastSynced`.
+`status()` returns a `Status`: `serverOrigin`, `instanceId`, the slice, `pinned`, `hydration` (`.never`, `.inProgress`, `.complete`, `.stale` or `.expired`), `items`, `itemsListed` and `itemsExpected`, `edges`, `eventCursor`, `catalogVersion`, `fileCache` and `lastSynced`.
 
 ## Give the copy a new key, and close it
 
-`use(_:)` gives an open copy a new sign-in or key for the same server, keeping the queue. Call it after `signedOut` or `.keyRefused`. **Every call throws `keyChanging` meanwhile:** ask again. A new reach shows as `.needsHydration` on [`updates()`](/reference/swift-sdk/updates#copy-updates). It throws `noServer`, `wrongServer`, `SignInError.notSignedIn` or `closed`, changing nothing.
+`use(_:)` gives an open copy a new sign-in or key for the same server, keeping the queue. Call it after `signedOut` or `.keyRefused`. **Every call throws `keyChanging` meanwhile:** ask again. A new reach shows as `.needsHydration` on [`updates()`](/reference/swift-sdk/updates#copy-updates). It throws `noServer`, `wrongServer`, `SignInError.notSignedIn` or `closed`.
 
-`close()` releases the store once running calls finish. **A later call throws `closed` at once,** and the last update is `.closed`.
+`close()` releases the store once running calls finish. **A later call throws `closed`,** and the last update is `.closed`.
 
 ## A store the copy refuses
 
-These static calls work on a store closed in this process, and throw `readingHandle` while another process writes it.
+These static calls need the store closed in this process, and throw `readingHandle` while another process writes it.
 
 | Call | What it does |
 | --- | --- |
 | `WorkingCopy.check(store:)` | Reads every page and index, changing nothing. Throws `storeDamaged` or `wrongSchema`. |
 | `WorkingCopy.unsentWrites(in:)` | Lists the writes the server hasn't taken, as `UnsentWrites`. |
-| `WorkingCopy.remove(store:confirming:)` | Removes the store, **losing exactly the writes it was shown.** Throws `unsentDiffers` if they changed since, and `invalid` for a folder's store. |
+| `WorkingCopy.remove(store:confirming:)` | Removes the store, its log and the files it fetched, **losing exactly the writes it was shown.** Throws `unsentDiffers` if they changed since, or if the queue can't be read, and `invalid` for a folder's store. |
 | `WorkingCopy.setAsideDamaged(store:)` | Moves a damaged store to `<store>.damaged-<n>` and makes a new one carrying every write it could read. Deletes nothing. |
-| `WorkingCopy.removeLosingAll(store:)` | Removes a damaged store, losing every unsent write. |
+| `WorkingCopy.removeLosingAll(store:)` | Removes a damaged store **only where its queue can't be read whole, or holds no write.** A queue that reads whole with a write in it stays, and the call throws `unsentDiffers` with the count: use `remove(store:confirming:)`. **Where it can't be read whole, the writes that did read are lost.** |
 
 ```swift
 let unsent = try await WorkingCopy.unsentWrites(in: store)
@@ -90,19 +85,24 @@ let unsent = try await WorkingCopy.unsentWrites(in: store)
 try await WorkingCopy.remove(store: store, confirming: unsent)
 ```
 
-The `SetAside` answer holds `setAside`, `carried`, `unread` and `unreadIds`, `whole` (where not, the cache keeps every file until the old store is removed), and `held` and `recordUnread`, carried writes blocked for those reasons. The new store holds no rows: hydrate, then drain. [Fix a working copy that can't catch up](/build/fix-a-working-copy) covers what a person sees, and the [stores chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md) the rules.
+`SetAside` holds `setAside`, `carried`, `unread`, `unreadIds`, `whole` (where not, the cache's files stay until the old store goes), and `held` and `recordUnread`, carried writes blocked for those reasons. The new store holds no rows: hydrate, then drain. [Fix a working copy that can't catch up](/build/fix-a-working-copy) covers what a person sees, and the [stores chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md) the rules.
+
+## The type catalog
+
+`copy.catalog` reads the types the copy holds **from the store with no request:** `itemTypes()`, `itemType(_:)`, `edgeTypes()` and `edgeType(_:)`, or `notFound`. `fromServer()` reads the server's catalog before a first hydration. An `EdgeType` holds, with the catalog's fields, **`writtenFrom`, the end a folder writes it from** (`.from`, `.to` or `.none`).
 
 ## The queue
 
-`copy.queue` reads and clears the queue. **`queue.drain()` sends it once, in order,** and returns a `DrainReport`. Nothing drains on its own unless the app holds a stream: `changes()` drains when the server is back, and `updates()` drains again while the copy follows.
+`copy.queue` reads and clears the queue. **`queue.drain()` sends it once, in order,** and returns a `DrainReport`. Nothing drains on its own unless the app holds a stream: `changes()` drains when the server is back, and `updates()` while the copy follows.
 
 | `DrainReport` field | Holds |
 | --- | --- |
 | `answered`, `held`, `undelivered`, `unsent`, `unmade` | Writes the server answered, the pass held back, that couldn't reach it (they wait), settled without a request, and whose request couldn't be made. |
 | `unavailable`, `stopped`, `retryAfterSeconds` | Why it ended early, the credential refusal that parked the queue, and the longest rate-limit wait. |
+| `unclaimedSources` | Sources the key doesn't claim: **each create naming one is blocked `credentialRefused` until it does.** |
 | `verdicts` | A `DrainVerdict` for each write: `id`, `kind`, `itemId`, `edgeId`, `verdict`, `refusals`, and `replayed`, answered from the idempotency key's record. |
 
-`queue.all()` lists each `QueuedWrite`: `id`, `kind` (a `WriteKind` such as `createItem` or `uploadBlob`), `itemId`, `toId` and `edgeId` (an edge write's ends), `baseVersion`, `idempotencyKey`, `dependsOn`, `follows`, `body`, `answer`, `refusals`, `lastFailure`, `queuedAt`, `answeredAt`, and **`verdict`, `nil` until the server answers.** `waiting` means it is held behind a write in `dependsOn` or `follows`, and has no verdict yet.
+`queue.all()` lists each `QueuedWrite`: `id`, `kind` (a `WriteKind`, such as `createItem`), `itemId`, `toId` and `edgeId` (an edge write's ends), `baseVersion`, `idempotencyKey`, `dependsOn`, `follows`, `body`, `answer`, `refusals`, `lastFailure`, `queuedAt`, `answeredAt`, and **`verdict`, `nil` until the server answers.** `waiting` means it is held behind a write in `dependsOn` or `follows`.
 
 | `Verdict` | Means |
 | --- | --- |
@@ -113,25 +113,25 @@ The `SetAside` answer holds `setAside`, `carried`, `unread` and `unreadIds`, `wh
 | `.blocked(reason:refusal:)` | **Stopped until something outside the queue changes.** |
 | `.dead` | Refused five times. Sent again only when released. |
 
-A `Refusal` holds `reason`, `code`, `message`, `fields`, `trashed` (**the row is in the bin and can be restored**), `grant` (`kind`, `name` and `level` the key lacks) and `requestLimit`. **A write over the server's request limit is never sent:** it is refused unsent with `over_request_limit`, and `requestLimit` holds its `size` and the `limit`.
+A `Refusal` holds `reason`, `code`, `message`, `fields`, `trashed` (**the row is in the bin and can be restored**), `grant` (what the key lacks) and `requestLimit`. **A write over the server's request limit is never sent:** it is refused with `over_request_limit`, and `requestLimit` holds its `size` and `limit`.
 
 | `BlockedReason` | Means | Clears |
 | --- | --- | --- |
 | `.credentialRefused` | The server refused the key. | **By itself,** at the next drain. |
 | `.keySpent` | `422 idempotency_contract_changed`. | Release, under a fresh key. |
 | `.ancestorUnavailable` | `409 ancestor_unavailable`. | Release, under a fresh key, or withdraw. |
-| `.conflictUnresolved` | `409 version_conflict` on a tag replace, which keeps the person's tags. | Release, which replaces the tags with the copy's, or withdraw. |
-| `.failingAlone` | It keeps meeting a failure that is no answer while other writes go. | Release or withdraw. |
+| `.conflictUnresolved` | `409 version_conflict` on a tag replace. | Release, which replaces the tags with the copy's, or withdraw. |
+| `.failingAlone` | It keeps failing with no answer while other writes go. | Release or withdraw. |
 | `.instanceChanged` | Queued against another instance than the copy's. | Release, to the instance there, or withdraw. |
-| `.recordUnread` | Carried from a set-aside store whose record of how to send it couldn't be read. | Release or withdraw. |
+| `.recordUnread` | Carried from a set-aside store, with no readable record of how to send it. | Release or withdraw. |
 | `.serverRestored` | Queued to put back what a restored server lost. | Release, keeping its key, or withdraw. |
 
 | Call | Does |
 | --- | --- |
 | `queue.release(_ id)`, `release(reason:)` | Queues a blocked or dead write, or every write blocked for one reason, for the next drain. A row write goes with its batch. |
-| `queue.withdraw(_ id)` | **Takes a write that can never be sent out** and puts its row back as the server holds it. Returns every ID it took. It needs the server, and answers an empty list if the copy moved during the read: ask again. |
+| `queue.withdraw(_ id)` | **Takes a write that can never be sent out** and puts its row back as the server holds it. Returns every ID it took, or an empty list if the copy moved during the read: ask again. |
 | `queue.discard(_ id)` | Takes a refused write and its content out. Returns `false` for another write or one a waiting write depends on. |
 | `queue.forgetAnswered()`, `forgetAnswered(ids:)` | Clears answered writes and returns how many. |
-| `queue.takeAnswered()` | Clears them and returns each write in one step: no two callers get one answer, and none is cleared unread. |
+| `queue.takeAnswered()` | Clears them and returns each write in one step, so none is cleared unread. |
 
-**The clearing calls keep what a person made:** a refused write that carried content until `discard`, blocked and dead writes until released or withdrawn, and an answered write a waiting write depends on. [Conflicts](/use/conflicts) explains what a person sees. The rules are in the [queue and verdicts chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md).
+**The clearing calls keep what a person made:** a refused write that carried content until `discard`, blocked and dead writes until released or withdrawn, and an answered write a waiting write depends on. [Conflicts](/use/conflicts) shows what a person sees; the rules are in the [queue and verdicts chapter](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md).

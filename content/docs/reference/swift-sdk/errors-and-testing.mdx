@@ -12,12 +12,12 @@ Every call on a working copy, `Folders`, a `Server` or a `Client` throws a `Marf
 
 | Member | Gives |
 | --- | --- |
-| `message` | **Text fit to show a person.** It can repeat a title, an ID or an address. |
+| `message` | **Text fit to show a person.** It can repeat a title or an address. |
 | `code()` | The stable name shared with the core and the command line, such as `not_found`. A case's own `code` is the server's refusal code. |
 | `server` | A `ServerAnswer?` with the `status`, `code` and `details` the server sent. **`nil` for a failure the device met itself.** |
 | `fixedText` | A `FixedErrorText` (`type`, `sentence`, `code`) holding no value the error carries: **safe to report.** The SDK sends nothing itself. |
 
-Four properties say what the app does next. **An error is at most one of a key refusal, transient or a need to hydrate.** `forbidden` is none: the key works but lacks a permission.
+Four properties say what the app does next. **An error is at most one of a key refusal, transient or a need to hydrate.**
 
 | Property | True for | The app |
 | --- | --- | --- |
@@ -35,18 +35,20 @@ Four properties say what the app does next. **An error is at most one of a key r
 | `notFound(code:message:server:)` | No such row, route or name (404). |
 | `unauthorized(code:message:server:)` | **The server doesn't accept the key or token** (401). |
 | `forbidden(code:message:server:)` | The key lacks the permission (403), such as `type_not_permitted`. |
-| `validation(code:message:details:server:)` | The server refused the values (400 or 422), or the copy did first. `details` is set only for the edge refusals the copy gives itself: otherwise read `server?.details`. |
+| `validation(code:message:details:server:)` | The server refused the values (400 or 422), or the copy did first. `details` holds only the copy's own edge refusals: otherwise read `server?.details`. |
 | `server(status:code:message:details:server:)` | Any other answer. |
 | `rateLimited(code:message:retryAfterSeconds:server:)` | The server asked for a wait (429). |
 | `versionConflict(message:server:)` | **The write's version is no longer current** (409). Read the row again. |
 | `unknownType`, `invalid` | No such type in the catalog, or an unusable value. |
+| `trashPlanChanged(message:server:)` | A trash's preview no longer matches (409). Nothing was trashed: preview again. |
+| `itemBeingRemoved(id:message:)` | A trash or purge holds the item, so the write queued nothing. Ask again once that call returns. |
 
 ### Sign-in and the owner
 
 | Case | Means |
 | --- | --- |
 | `signedOut(origin:message:)`, `noKeychain` | No sign-in for `origin`, or the server ended it: sign in again. The keychain can't be used. |
-| `renewalRefused(reason:message:)` | **The sign-in couldn't be renewed, and is kept.** Word it from `reason` (`.refused`, `.redirected` or `.unreadable`), since `message` can hold an address. |
+| `renewalRefused(reason:message:)` | **The sign-in couldn't be renewed, and is kept.** Word it from `reason` (`.refused`, `.redirected` or `.unreadable`). |
 | `confirmationRequired(maxAgeSeconds:message:server:)` | **The owner must sign in again** (401 `insufficient_user_authentication`). A [`confirming`](/reference/swift-sdk#confirm-its-you) server does it itself. |
 | `appSignInRequired(message:server:)` | A key made a call only an app signed in by the owner may make (403). |
 
@@ -54,13 +56,14 @@ Four properties say what the app does next. **An error is at most one of a key r
 
 | Case | Means |
 | --- | --- |
-| `network`, `noConnection` | The request didn't reach the server or its answer was late; the device is offline and sent nothing. |
-| `unnamed(status:message:server:)` | A proxy or the like answered without the server's contract. **Transient whatever its status.** |
+| `network`, `noConnection` | The request didn't reach the server, its answer was late, or the device is offline. |
+| `unnamed(status:message:server:)` | A proxy or the like answered without the server's contract. **Transient.** |
 | `redirected(origin:status:location:message:server:)` | A redirect, not followed. |
 | `contractMismatch(served:expected:status:writeSent:message:server:)` | The server speaks another contract. **Where `writeSent`, the write may have taken effect:** it stays queued and goes again under its key. |
-| `noServer`, `wrongServer(expected:got:message:)` | The copy was opened without a server, or the store belongs to another one ([`wrong_server`](/build/fix-a-working-copy#wrong_server)). |
+| `serverTooOld(served:oldest:message:)` | The server's release is older than this build works with. **Asking again can't clear it:** update the server. |
+| `noServer`, `wrongServer(expected:got:message:)` | The copy was opened without a server, or the store belongs to another one ([`wrong_server`](/build/fix-a-working-copy#this-file-belongs-to)). |
 | `instanceChanged(message:server:)` | Another instance answers (409). Hydrate from it. **The queue is kept.** |
-| `copyExpired(reason:message:server:)` | The copy needs a hydration for `reason`, such as `reach_changed` or `catchup_too_old`. **The queue is kept.** |
+| `copyExpired(reason:message:server:)` | The copy needs a hydration for `reason`. **The queue is kept.** |
 | `streamIncomplete(reason:message:server:)` | The event stream ended early. |
 
 A stale copy refuses a drain and a catch-up until hydrated: see [Fix a working copy that can't catch up](/build/fix-a-working-copy).
@@ -72,22 +75,21 @@ A stale copy refuses a drain and a catch-up until hydrated: see [Fix a working c
 | `hydrationIncomplete` | A read by ID, a view or an edge write came during a hydration. |
 | `noCursor`, `noCatalog` | No event position or catalog yet. Hydrate. |
 | `notAnswerable` | The copy lacks the data for a local count: [`counts`](/reference/swift-sdk/items#read-items) asks the server. |
-| `readingHandle` | Another process holds the writer role. |
-| `storeBusy` | **Another process held the store.** Ask later. |
+| `readingHandle`, `storeBusy` | Another process holds the writer role, or **held the store.** Ask later. |
 | `store`, `io`, `decoding`, `storageFull` | A local file couldn't be opened, read or written, or the device is full. |
-| `storeDamaged(path:reason:unsent:message:)` | SQLite can't read the store. `unsent` counts unsent writes, `nil` where the queue can't be read whole. |
+| `storeDamaged(path:reason:unsent:setAsideStopped:message:)` | SQLite can't read the store. `unsent` counts unsent writes, `nil` where the queue can't be read whole. **`setAsideStopped` blocks removal while a set-aside is unfinished:** call `setAsideDamaged(store:)` again. Test it, never `reason`. |
 | `wrongSchema(path:reason:unsent:message:)` | This build can't read the store's shape. |
-| `unsentDiffers(path:unsent:message:)` | A removal found other writes than those shown, and removed nothing. |
+| `unsentDiffers(path:unsent:message:)` | A removal found other writes than those shown, or a queue it can't read, and removed nothing. |
 | `keyChanging`, `closed` | [`use(_:)`](/reference/swift-sdk/working-copy#give-the-copy-a-new-key-and-close-it) is replacing the sign-in: ask again. The copy was closed: open it again. |
 | `firstSyncWaiting`, `syncPaused` | A folder's first sync waits, or its sync is paused. |
-| `bytesAbsent`, `noRoom(hash:size:free:message:)`, `canceled` | A file's bytes can't be fetched, the volume lacks room for one, or the caller canceled. |
-| `fault(message:)` | **The core itself went wrong,** such as a crash during the call. Report it. **A crash can leave the store unusable,** so every later call throws `fault`: close the copy and open it again. |
+| `bytesAbsent`, `noRoom(hash:size:free:message:)`, `canceled` | A file's bytes can't be fetched, there is no room for them, or the caller canceled. |
+| `fault(message:)` | **The core itself went wrong,** such as a crash. Report it. **Every later call throws `fault`:** close the copy and open it again. |
 
 [A store the copy refuses](/reference/swift-sdk/working-copy#a-store-the-copy-refuses) lists the calls that check, set aside or remove one. `Server` throws `Server.AddressError` and `Server.EnvironmentError`, and `Keychain` throws `Keychain.Failure`.
 
 ## Test against a fake copy
 
-`WorkingCopy.fake(items:edges:itemTypes:edgeTypes:views:displays:linkCandidates:)` from `MarfaTesting` returns a `FakeCopy`. **Its `copy` is a real `WorkingCopy`** over an in-memory engine, so argument checks, the change feed and value conversion are the app's own. It compiles empty in a release build.
+`WorkingCopy.fake(items:edges:itemTypes:edgeTypes:views:displays:linkCandidates:)` from `MarfaTesting` returns a `FakeCopy`. **Its `copy` is a real `WorkingCopy`** over an in-memory engine, so argument checks, the change feed and value conversion are the app's own.
 
 ```swift
 #if DEBUG
@@ -98,7 +100,7 @@ let model = NotesModel(copy: fake.copy)
 #endif
 ```
 
-The fake answers item, edge, tag, metadata and extension reads and writes (a create carries no `sourceId`), `search` with the core's index rules, view reads and writes, the whole queue, `changes()` and `updates()`. **Tables are never held.** **A call or input it can't match exactly throws `FakeCopyError.unsupported(call:)`:** a `filter`, `changes(since:most:)`, `counts`, body links, hydration, files and folders, other table calls, and `declareTypes(_:)` with status words. It refuses as the core does and knows only the types given and declared. **A row it makes is at version 0 until a drain takes its create.**
+The fake answers item, edge, tag, metadata and extension reads and writes, `search`, view reads and writes, the whole queue, `changes()` and `updates()`. **Tables are never held.** **A call or input it can't match exactly throws `FakeCopyError.unsupported(call:)`:** a `filter`, `changes(since:most:)`, `counts`, body links, hydration, files and folders, other table calls, and `declareTypes(_:)` with status words. It knows only the types given and declared. **A row it makes is at version 0 until a drain takes its create.**
 
 | Member | Does |
 | --- | --- |
@@ -107,4 +109,4 @@ The fake answers item, edge, tag, metadata and extension reads and writes (a cre
 | `displays`, `linkCandidates` | Script `displays(for:)`, `displays(of:)` and `linkCandidates(of:in:)`. Unscripted, they throw `unsupported`. |
 | `send(_:)`, `sendUpdate(_:)` | Tell every `changes()` stream a change, or every `updates()` sequence a `CopyUpdate`. |
 
-`MemoryKeychain()` keeps keychain items in memory, so a test never touches the system keychain: give its `keychain` to `KeychainKeyStore`, `Authorization` or `Server`. `failReads(with:)`, `failWrites(with:)` and `succeed()` act as a locked keychain, and `signIn(to:service:accessToken:refreshToken:scopes:)` keeps a sign-in with no browser or server. `MemoryKeyStore([URL: String])` is a `KeyStore` in memory.
+`MemoryKeychain()` keeps keychain items in memory, so a test never touches the system keychain: give its `keychain` to `KeychainKeyStore`, `Authorization` or `Server`. `failReads(with:)`, `failWrites(with:)` and `succeed()` act as a locked keychain, and `signIn(to:service:accessToken:refreshToken:scopes:)` keeps a sign-in with no browser. `MemoryKeyStore([URL: String])` is a `KeyStore` in memory.
