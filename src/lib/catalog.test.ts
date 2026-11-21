@@ -257,7 +257,7 @@ const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
 const OTHER_PAGES = ['items', 'types', 'field-kinds', 'type-rules', 'display-hints', 'edges', 'events', 'permissions', 'connectors'];
 /** The connectors Marfa ships, one page each beneath the Connectors page. */
 const CONNECTORS_DIR = 'connectors';
-// A connector's page is named for it, and the list is marfa-connectors' (scripts/sync-from-connectors.sh).
+// A connector's page is named for it, and the list comes from the plugins repository (scripts/sync-from-plugins.sh).
 const CONNECTOR_SLUGS = readConnectors(ROOT).map((connector) => connector.name);
 /** The edge types Marfa ships, one page each beneath the Edges page, named by the edge type's ID. */
 const EDGES_DIR = 'edges';

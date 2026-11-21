@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-/** One connector, as marfa-connectors' `connectors.json` lists it. */
+/** One connector, as the plugins repository's `connectors.json` lists it. */
 export interface Connector {
   directory: string;
   name: string;
@@ -16,7 +16,7 @@ export interface Connector {
 }
 
 /**
- * The synced copy of the list (`scripts/sync-from-connectors.sh`), in the order the
+ * The synced copy of the list (`scripts/sync-from-plugins.sh`), in the order the
  * sidebar lists the pages: by file name, which puts `readwise-reader` before `readwise`.
  */
 export function readConnectors(root: string = process.cwd()): Connector[] {

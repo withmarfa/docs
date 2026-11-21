@@ -1346,7 +1346,7 @@ check "with no copy of the connectors' list, the sync writes nothing for the con
   "$([ -e "${work}/good/docs/src/generated/connectors" ] && echo yes || echo no)"
 fixture connectors "${work}/untagged.json"
 mkdir -p "${work}/connectors/docs/src/generated/connectors"
-cp "${here}/../../scripts/sync-from-connectors.sh" "${work}/connectors/docs/scripts/sync-from-connectors.sh"
+cp "${here}/../../scripts/sync-from-plugins.sh" "${work}/connectors/docs/scripts/sync-from-plugins.sh"
 printf '%s\n' '{"schema":1,"connectors":[{"directory":"connectors/readwise","name":"readwise","description":"Sources.","source":"readwise","sourceName":"Readwise","types":["core.note"],"carriesBack":true,"carriesBackCanBeTurnedOff":true,"carriedTypes":["core.note"]}]}' \
   > "${work}/connectors/docs/src/generated/connectors/connectors.json"
 printf 'stale header\n' > "${work}/connectors/docs/src/generated/connectors/readwise.md"

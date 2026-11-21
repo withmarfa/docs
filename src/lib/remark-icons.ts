@@ -97,7 +97,7 @@ export function remarkIcons(read: () => IconSources = () => readIconSources()) {
         const connector = connectors.find((item) => item.name === connectorPage);
         if (!connector) {
           throw new Error(
-            `${page} is a connector page, but marfa-connectors lists no connector named "${connectorPage}". ` +
+            `${page} is a connector page, but the plugins repository lists no connector named "${connectorPage}". ` +
               'Name the page for a connector, or remove it.',
           );
         }

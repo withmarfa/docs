@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Sync what the docs take from marfa-connectors' generated list of connectors:
+# Sync what the docs take from the plugins repository's generated list of connectors:
 #   src/generated/connectors/connectors.json  a copy of the list, which the build
 #                                             reads for each connector's mark and
 #                                             for the pages it must have
 #   src/generated/connectors/source.json      where that copy came from: the
-#                                             marfa-connectors commit and the tag
+#                                             withmarfa/plugins commit and the tag
 #                                             that names it, if one does
 #   src/generated/connectors/index.md         the connector index: a table of each
 #                                             connector's mark, name and what it
@@ -27,12 +27,12 @@
 #                                             sidebar orders the pages by file name.
 #
 # Reads the committed `connectors.json` at HEAD of a checkout of
-# marfa-connectors, by default the sibling at ../marfa-connectors. Set
-# MARFA_CONNECTORS_ROOT to use another. Nothing is generated or run there: the
+# withmarfa/plugins, by default the sibling at ../plugins. Set
+# MARFA_PLUGINS_ROOT to use another. Nothing is generated or run there: the
 # repository's own check keeps the list current. The script fetches `origin`
 # and stops unless HEAD is the commit of `origin/main`, so a stale or
 # unmerged checkout never reaches the docs. To sync a release instead, set
-# MARFA_CONNECTORS_TAG to its tag: HEAD must be that tag's commit.
+# MARFA_PLUGINS_TAG to its tag: HEAD must be that tag's commit.
 #
 # `--relink` rewrites only the index and the headers, from the copy already in
 # src/generated/connectors and the current type catalog, and reads no checkout.
@@ -49,7 +49,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCS_ROOT="$(dirname "$SCRIPT_DIR")"
-CONNECTORS_ROOT="${MARFA_CONNECTORS_ROOT:-$DOCS_ROOT/../marfa-connectors}"
+PLUGINS_ROOT="${MARFA_PLUGINS_ROOT:-$DOCS_ROOT/../plugins}"
 GENERATED="$DOCS_ROOT/src/generated"
 PAGES="$DOCS_ROOT/content/docs/catalog/connectors"
 
@@ -68,8 +68,8 @@ if [ ! -s "$GENERATED/catalog/builtin-catalog.json" ]; then
   exit 1
 fi
 
-LIST="$(mktemp "${TMPDIR:-/tmp}/marfa-connectors.XXXXXX")"
-OUT="$(mktemp -d "${TMPDIR:-/tmp}/marfa-connectors-out.XXXXXX")"
+LIST="$(mktemp "${TMPDIR:-/tmp}/marfa-plugins.XXXXXX")"
+OUT="$(mktemp -d "${TMPDIR:-/tmp}/marfa-plugins-out.XXXXXX")"
 cleanup() { rm -rf "$LIST" "$OUT"; }
 trap cleanup EXIT
 
@@ -77,56 +77,56 @@ COMMIT=""
 TAG=""
 if [ "$MODE" = relink ]; then
   if [ ! -s "$GENERATED/connectors/connectors.json" ]; then
-    echo "No src/generated/connectors/connectors.json to relink. Run scripts/sync-from-connectors.sh first. Nothing has changed." >&2
+    echo "No src/generated/connectors/connectors.json to relink. Run scripts/sync-from-plugins.sh first. Nothing has changed." >&2
     exit 1
   fi
   cp "$GENERATED/connectors/connectors.json" "$LIST"
 else
-  if [ ! -d "$CONNECTORS_ROOT" ]; then
-    echo "marfa-connectors not found at $CONNECTORS_ROOT. Set MARFA_CONNECTORS_ROOT to its path." >&2
+  if [ ! -d "$PLUGINS_ROOT" ]; then
+    echo "The plugins repository was not found at $PLUGINS_ROOT. Set MARFA_PLUGINS_ROOT to its path." >&2
     exit 1
   fi
 
   # The committed list, never a working copy with edits in it.
-  if ! git -C "$CONNECTORS_ROOT" rev-parse --git-dir > /dev/null 2>&1; then
-    echo "Not a git checkout: $CONNECTORS_ROOT. Nothing has changed." >&2
+  if ! git -C "$PLUGINS_ROOT" rev-parse --git-dir > /dev/null 2>&1; then
+    echo "Not a git checkout: $PLUGINS_ROOT. Nothing has changed." >&2
     exit 1
   fi
 
   # The checkout must be the commit the list is published at, never a branch
   # that is behind, ahead or unmerged. The check reads origin as it is now.
-  if ! git -C "$CONNECTORS_ROOT" fetch --quiet --tags origin 2> /dev/null; then
-    echo "Could not fetch origin in $CONNECTORS_ROOT, so it cannot be checked against origin/main. Nothing has changed." >&2
+  if ! git -C "$PLUGINS_ROOT" fetch --quiet --tags origin 2> /dev/null; then
+    echo "Could not fetch origin in $PLUGINS_ROOT, so it cannot be checked against origin/main. Nothing has changed." >&2
     exit 1
   fi
-  COMMIT="$(git -C "$CONNECTORS_ROOT" rev-parse --verify HEAD 2> /dev/null || true)"
-  if [ -n "${MARFA_CONNECTORS_TAG:-}" ]; then
-    WANTED="$(git -C "$CONNECTORS_ROOT" rev-parse --verify --quiet "refs/tags/${MARFA_CONNECTORS_TAG}^{commit}" || true)"
+  COMMIT="$(git -C "$PLUGINS_ROOT" rev-parse --verify HEAD 2> /dev/null || true)"
+  if [ -n "${MARFA_PLUGINS_TAG:-}" ]; then
+    WANTED="$(git -C "$PLUGINS_ROOT" rev-parse --verify --quiet "refs/tags/${MARFA_PLUGINS_TAG}^{commit}" || true)"
     if [ -z "$WANTED" ]; then
-      echo "No tag ${MARFA_CONNECTORS_TAG} in $CONNECTORS_ROOT. Nothing has changed." >&2
+      echo "No tag ${MARFA_PLUGINS_TAG} in $PLUGINS_ROOT. Nothing has changed." >&2
       exit 1
     fi
     if [ "$COMMIT" != "$WANTED" ]; then
-      echo "$CONNECTORS_ROOT is not at ${MARFA_CONNECTORS_TAG}: check out the tag. Nothing has changed." >&2
+      echo "$PLUGINS_ROOT is not at ${MARFA_PLUGINS_TAG}: check out the tag. Nothing has changed." >&2
       exit 1
     fi
-    TAG="$MARFA_CONNECTORS_TAG"
+    TAG="$MARFA_PLUGINS_TAG"
   else
-    WANTED="$(git -C "$CONNECTORS_ROOT" rev-parse --verify --quiet refs/remotes/origin/main || true)"
+    WANTED="$(git -C "$PLUGINS_ROOT" rev-parse --verify --quiet refs/remotes/origin/main || true)"
     if [ -z "$WANTED" ]; then
-      echo "$CONNECTORS_ROOT has no origin/main to check against. Nothing has changed." >&2
+      echo "$PLUGINS_ROOT has no origin/main to check against. Nothing has changed." >&2
       exit 1
     fi
     if [ "$COMMIT" != "$WANTED" ]; then
-      echo "$CONNECTORS_ROOT is not at origin/main: check out an up-to-date main, or set MARFA_CONNECTORS_TAG to sync a tag. Nothing has changed." >&2
+      echo "$PLUGINS_ROOT is not at origin/main: check out an up-to-date main, or set MARFA_PLUGINS_TAG to sync a tag. Nothing has changed." >&2
       exit 1
     fi
     # The release tag that names this commit, if there is one.
-    TAG="$(git -C "$CONNECTORS_ROOT" tag --points-at HEAD --list 'v[0-9]*' | sort -V | tail -n 1)"
+    TAG="$(git -C "$PLUGINS_ROOT" tag --points-at HEAD --list 'v[0-9]*' | sort -V | tail -n 1)"
   fi
 
-  if ! git -C "$CONNECTORS_ROOT" show HEAD:connectors.json > "$LIST" 2> /dev/null || [ ! -s "$LIST" ]; then
-    echo "No committed connectors.json in $CONNECTORS_ROOT. Nothing has changed." >&2
+  if ! git -C "$PLUGINS_ROOT" show HEAD:connectors.json > "$LIST" 2> /dev/null || [ ! -s "$LIST" ]; then
+    echo "No committed connectors.json in $PLUGINS_ROOT. Nothing has changed." >&2
     exit 1
   fi
 fi
@@ -278,7 +278,7 @@ python3 - "$COMMIT" "$TAG" > "$GENERATED/connectors/source.json" <<'PY'
 import json, sys
 
 commit, tag = sys.argv[1:3]
-print(json.dumps({"repository": "withmarfa/marfa-connectors", "commit": commit, "tag": tag or None}, indent=2))
+print(json.dumps({"repository": "withmarfa/plugins", "commit": commit, "tag": tag or None}, indent=2))
 PY
 for file in "$OUT"/*.md; do
   mv "$file" "$GENERATED/connectors/"
@@ -288,4 +288,4 @@ for file in "$OUT"/pages/*.mdx; do
   mv "$file" "$PAGES/"
 done
 
-echo "the connectors' list, its source (${TAG:-$COMMIT}), index and headers in src/generated/connectors, and a page for each connector without one, synced from $CONNECTORS_ROOT"
+echo "the connectors' list, its source (${TAG:-$COMMIT}), index and headers in src/generated/connectors, and a page for each connector without one, synced from $PLUGINS_ROOT"
