@@ -6,9 +6,9 @@ job: A builder changes, renames or deletes a type without losing items or breaki
 kind: how-to
 ---
 
-**A replacement leaves your items alone, a move changes their type, and a delete removes a type nothing should still use,** so each step starts with a check. The examples change the receipt type from [Define a type](/build/define-a-type): `receipt.json` is its definition, `marfa` in the TypeScript tabs a [TypeScript SDK client](/reference/typescript-sdk#create-a-client), and `api` in the Swift tabs a [Swift SDK `Client`](/reference/swift-sdk/server-calls#the-api-client).
+**A replacement leaves your items alone, a move changes their type, and a delete removes a type nothing should still use,** so each step starts with a check. The examples change the receipt type from [Define a type](/build/define-a-type): `receipt.json` is its definition, and `marfa` and `api` in the tabs are a [TypeScript](/reference/typescript-sdk#create-a-client) and a [Swift](/reference/swift-sdk/server-calls#the-api-client) SDK client.
 
-The CLI signs in as you, the owner, which can do every step here. **A key needs more than an everyday app's:** write on the type for a replacement or a delete, and `schema.write` to remove a field, make one required or delete a type. A move also needs write on each folder, view or webhook that names the type, so run it as the owner. For the rest, make a key for the job with `--permission schema.write --type-permission "app.example.*=write" --metadata-permission types=write` ([Manage keys](/run/manage-keys)), run the CLI with `MARFA_API_KEY` set to it, and revoke it afterwards.
+The CLI signs in as you, the owner, which can do every step here except change a webhook it did not make. **A key needs more:** write on the type, `schema.write` to remove a field, make one required or delete a type, and for a move write on both types. [Make a key](/run/manage-keys) with `--permission schema.write --type-permission "app.example.*=write" --metadata-permission types=write`, run the CLI with `MARFA_API_KEY` set to it, and revoke it afterwards.
 
 ## Check the change
 
@@ -68,15 +68,13 @@ _ = try await api.replace(itemType: "app.example.receipt", with: update)
 
 **Send the `version` every time:** a replacement without one sets it back to 0. A type Marfa ships can't be replaced or deleted: `403 core_type_immutable`.
 
-**A replacement changes no item you already hold.** A property you made required is checked the next time an item's properties are written, a property you removed leaves the items' values in place, and a rule you tightened refuses only a write that changes that property. A replacement that removes a [table](/build/tables) or column that holds rows, or changes the kind of a column that holds values, is refused `409 type_in_use`. A change to `title_field` or `body_field` changes how items are [named and previewed](/catalog/display-hints#names-and-previews).
-
-A type can't reshape a field it inherits: `400 inheritance_violation`. If a new Marfa release leaves a clash, your type keeps working and `marfa types list --json` gives it a `conflicts` list.
+**A replacement changes no item you already hold,** and a property you made required is checked the next time an item's properties are written. One that removes a [table](/build/tables) or column that holds rows, or changes the kind of a column that holds values, is refused `409 type_in_use`. [Type rules](/catalog/type-rules#parent-and-inheritance) says what a subtype may not reshape.
 
 ## Rename a type by moving its items
 
-**A type's identifier never changes.** To rename a type, or fold one into another, register the new type, preview the move, give keys and apps reach to the new type, move the items, then delete the old type. Each item keeps its ID, edges, tags and files. The examples rename `app.example.receipt` to `app.example.expense`.
+**A type's identifier never changes.** To rename a type, or fold one into another, register the new type, preview the move, give keys and apps reach to the new type, move the items, then delete the old type. Each item keeps its ID, edges, tags and files. The examples rename `app.example.receipt` to `app.example.expense`; to fold one type into another, move the first type's items into the second the same way, and `properties` then replaces a value an item already holds, as a patch does.
 
-**Register the new type first,** as [Define a type](/build/define-a-type) shows, with the same parent so moved receipts stay file items. `expense.json` is `receipt.json` with `"id": "app.example.expense"` and one more field, `"paid": { "type": "boolean", "required": true }`.
+**Register the new type first,** as [Define a type](/build/define-a-type) shows, with the same parent so moved receipts stay file items. `expense.json` is `receipt.json` with a new `id` and one more field, `"paid": { "type": "boolean", "required": true }`.
 
 **Preview with `--dry-run`,** or `dry_run: true` over HTTP. It changes nothing and doesn't judge the items against the new type. It lists every item of exactly that type your key can see, in any state, the settings that name the type, and the keys and apps whose type map names it:
 
@@ -96,16 +94,20 @@ these keys and apps name the type and are left as they are:
 
 </Terminal>
 
-**Give each listed key and app the new type before you move.** A credential reaches an item and its version history by the item's current type, so one that names only the old type loses sight of the items the moment they move. A move never changes a type map, and a pattern such as `app.example.*` already covers both. Update a key you made, naming every entry it keeps, because an update replaces the whole map:
+**Give each listed key and app the new type before you move.** A credential reaches an item by its current type, so one that names only the old type loses sight of the items once they move. A move never changes a type map, and a pattern such as `app.example.*` already covers both. Update a key you made, naming every entry it keeps, because an update replaces the whole map:
 
 ```bash
 marfa keys update 01a1fc5e-d8b4-747a-90ea-bb3084b857e5 \
   --type-permission app.example.receipt=read --type-permission app.example.expense=read
 ```
 
-A key an app made can only be narrowed: make a new key and revoke the old one. An app's grant grows only when the app signs in again naming the new type and you approve it.
+A key an app made can only be narrowed: make a new key and revoke the old one. An app's grant grows when the app signs in again naming the new type and you approve it.
 
-**Move the items.** Marfa checks each against the new type, as it checks any write, so send a property the new type requires in `properties`. An item in the bin moves too, and stays in the bin:
+**Change your app to write the new type before you move.** An app still writing the old type makes new old-type items, so the delete is refused `type_in_use` and a [forced delete](#force-a-delete) strands them.
+
+**Settle what the move can't change.** A folder or view needs write on `system.folder` or `system.view`. **A webhook can be changed only by the key or app that made it,** so any other credential, the owner's included, is refused `409 type_move_blocked` on the preview and the move. Move with its maker, or have its maker delete it first. A [table](/build/tables) column's `type_constraints` still name the old type after a move, so row writes that reference moved items fail `400 validation_error`; edit those first.
+
+**Move the items.** Marfa checks each against the new type, as it checks any write, so send a property the new type requires in `properties`. They are merged into every item. An item in the bin moves too, and stays in the bin:
 
 ```bash tab="CLI" tab-group="client"
 marfa types move app.example.receipt app.example.expense --properties '{"paid":false}'
@@ -134,19 +136,19 @@ let started = try await api.startMove(ofType: "app.example.receipt", to: "app.ex
 let job = try await api.follow(moveJob: started.id)
 ```
 
-Over HTTP, Marfa answers `202` with a [bulk-action job](/reference/api/bulk-actions/getBulkActionJob); the CLI and Swift's `follow(moveJob:)` wait for it. An agent previews and confirms in two calls of `marfa_move_items`. Each moved item sends `item.updated` to [event](/build/events) streams, not to webhooks.
+Over HTTP, Marfa answers `202` with a [bulk-action job](/reference/api/bulk-actions/getBulkActionJob); the CLI and Swift's `follow(moveJob:)` wait for it. Each moved item writes an `item.updated` [event](/build/events).
 
-**Read the job to its end before you delete anything.** A job that reads `completed` can still have left items behind, and `failed` or `canceled` also ends one. Check that `result.remaining` is `0` and `result.settings_rewritten` is `true`; `result.settings` and `result.settings_error` say why not. Had you left out `properties`, the CLI would name each item the new type refused (`invalid_properties`: `paid` is missing), leave it where it is and exit `1`, as it does whenever it leaves a setting unchanged. Deal with them and run the move again: it moves what is left, then changes the settings. Until then, moved items drop out of folders and views that still name the old type.
+**Read the job to its end before you delete anything.** A job that reads `completed` can still have left items behind, and `failed` or `canceled` also ends one. Check that `result.remaining` is `0`, `result.remaining_hidden` is `false` and `result.settings_rewritten` is `true`. Had you left out `properties`, the CLI would name each item the new type refused (`invalid_properties`: `paid` is missing), leave it where it is and exit `1`. An item whose [edge types](/build/edges) don't admit the new type is refused too (`edge_constraint_violation`). Both count in `errored`. Deal with them and run the move again: it moves what is left, then changes the settings.
 
-**Once every item has moved, Marfa changes the folders, views and webhooks that name the old type** to name the new one, a webhook's `type_filter` only when it is exactly the type, never a pattern. A folder keeps its files where they are.
+**Once every item has moved, Marfa changes the folders, views and webhooks that name the old type** to name the new one, a webhook's `type_filter` only when it is exactly the type, never a pattern. Until then, moved items drop out of folders and views that still name the old type. A folder keeps its files where they are.
 
-**A parent's move leaves its subtypes' items where they are.** A folder or view keeps the old parent beside the new type, and the old parent can't be deleted until its subtypes have another parent or are deleted.
+**A parent's move leaves its subtypes' items where they are,** so the old parent can't be deleted until its subtypes have another parent or are deleted.
 
-A move, a preview included, is refused `409 type_move_blocked` when Marfa can't rewrite a setting or the new type lacks a table that items of the old one hold rows in. `details.settings` gives each setting a `reason`: `filter_term` (a term such as `type starts_with "acme.d"`), `placement_conflict`, `subtypes` (a webhook on a parent type) or `not_permitted`. `details.tables` names each missing table. Fix that, then move again.
+A move, a preview included, is refused `409 type_move_blocked` when Marfa can't rewrite a setting or the new type lacks a table that items of the old one hold rows in; `details.settings` and `details.tables` name each, with a `reason` for a setting. Fix that, then move again.
 
 ## Delete a type
 
-Marfa deletes a type that **no item holds,** in any state, the bin included, that no folder, view, webhook or [table](/build/tables) column names, and that no type names as its parent or in `compatible_with`. A move rewrites folders, views and webhooks but not a column's `type_constraints`: edit those first.
+Marfa deletes a type that **no item holds,** in any state, the bin included, that no folder, view, webhook or [table](/build/tables) column names, and that no type names as its parent or in `compatible_with`.
 
 ```bash tab="CLI" tab-group="client"
 marfa types delete app.example.receipt
@@ -167,12 +169,12 @@ await marfa.DELETE("/types/{id}", {
 try await api.delete(itemType: "app.example.receipt")
 ```
 
-Otherwise Marfa refuses it: `409 type_has_subtypes`, `422 compatible_with_violation` or `409 type_in_use`, which gives the `item_count`, `settings` and `columns` that hold it. For `type_in_use`, move the items first. A key holding `schema.write` alone is refused `403 type_not_permitted`.
+Otherwise Marfa refuses it: `409 type_has_subtypes`, `422 compatible_with_violation` or `409 type_in_use`, which gives the `item_count`, `settings` and `columns` that hold it. For `type_in_use`, move the items first.
 
 ### Force a delete
 
 <Callout type="warn" title="A forced delete blocks writes to the items">
-With `force=true` over HTTP, or `--force` in the CLI, Marfa deletes a type that items still hold or a setting names, though a subtype or a `compatible_with` claim still blocks it. The items stay and are still read, listed and found, but a write of an item's properties, tier or time is refused `400 unknown_type`, and table calls answer `404 table_not_found`, until the type is registered again. You can still tag them, archive them or move them to the bin.
+With `force=true` over HTTP, or `--force` in the CLI, Marfa deletes a type that items still hold or a setting names, though a subtype or a `compatible_with` claim still blocks it. The items stay and are still read, listed and found, but a write of an item's properties, tier or time is refused `400 unknown_type`, and table calls answer `404 table_not_found`, until the type is registered again.
 </Callout>
 
 The rules behind this guide are in the [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) chapter of the contract.
