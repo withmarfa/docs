@@ -39,7 +39,10 @@
 #                                     top-level types, linked to their pages),
 #                                     one Markdown file per top-level type with
 #                                     its subtypes inside (core.media.md,
-#                                     system.folder.md), edges.md, edge-types.md
+#                                     system.folder.md), edges.md (a section for
+#                                     each edge type: its description, a table of
+#                                     its settings and its properties),
+#                                     edge-types.md
 #                                     (a table of the edge types, with their
 #                                     cascade_on_delete and written_from, and a
 #                                     From types column only if one edge type
@@ -907,11 +910,7 @@ def constraint(edge, key, type_ids):
     return " or ".join(out)
 
 
-def edge_table(edges, type_ids):
-    """One row for each edge type. The From types column appears only when some edge type constrains its from end.
-    The reverse label is the label where an edge type names none, as the API answers it.
-    Cardinality, cascade_on_delete and written_from are values, so they are code: a code span keeps `many-to-many`
-    on one line. The last two are headed by their field names, which a reader looks up."""
+def check_edge_values(edges):
     for e in edges:
         if e.get("cardinality") not in CARDINALITIES:
             refuse(catalog_path, f"has the edge type {e['id']} with a cardinality the sync does not know")
@@ -923,8 +922,16 @@ def edge_table(edges, type_ids):
             refuse(catalog_path, f"has the edge type {e['id']} with no label")
         if "reverse_label" in e and not (isinstance(e["reverse_label"], str) and e["reverse_label"]):
             refuse(catalog_path, f"has the edge type {e['id']} with a reverse_label that is not a label")
-    sources = [constraint(e, "from_type_constraints", type_ids) for e in edges]
-    targets = [constraint(e, "to_type_constraints", type_ids) for e in edges]
+        for flag in ("acyclic", "flat"):
+            if not isinstance(e.get(flag, False), bool):
+                refuse(catalog_path, f"has the edge type {e['id']} with an {flag} that is not true or false")
+
+
+def edge_table(edges, sources, targets):
+    """One row for each edge type. The From types column appears only when some edge type constrains its from end.
+    The reverse label is the label where an edge type names none, as the API answers it.
+    Cardinality, cascade_on_delete and written_from are values, so they are code: a code span keeps `many-to-many`
+    on one line. The last two are headed by their field names, which a reader looks up."""
     constrained = any(source != "Any type" for source in sources)
     header = ["Edge type", "Label", "Reverse label", "Reverse name", "Cardinality", code("cascade_on_delete"), code("written_from"), *(["From types"] if constrained else []), "To types"]
     rows = [
@@ -935,8 +942,25 @@ def edge_table(edges, type_ids):
     return table(header, rows)
 
 
+def edge_settings(e, source, target):
+    """What an edge type sets, in a table of its own under its description. A reverse name appears only where the
+    edge type names one, and the reverse label is the label where it names none, as the API answers it."""
+    rows = [
+        [code("label"), e["label"]],
+        [code("reverse_label"), e.get("reverse_label", e["label"])],
+        *([[code("reverse_name"), code(e["reverse_name"])]] if e.get("reverse_name") else []),
+        [code("cardinality"), code(e["cardinality"])],
+        [code("cascade_on_delete"), code(e["cascade_on_delete"])],
+        [code("written_from"), code(e["written_from"])],
+        ["From types", source],
+        ["To types", target],
+        [code("flat"), code(str(e.get("flat", False)).lower())],
+        [code("acyclic"), code(str(e.get("acyclic", False)).lower())],
+    ]
+    return [table(["Setting", "Value"], rows), ""]
+
+
 def render_edges(edges, type_ids):
-    sections = []
     for e in edges:
         if not isinstance(e, dict) or not isinstance(e.get("id"), str) or not isinstance(e.get("description"), str):
             refuse(catalog_path, "has an edge type with no id or description")
@@ -946,14 +970,12 @@ def render_edges(edges, type_ids):
             refuse(catalog_path, f"has the edge type {e['id']} with a written_from the sync does not know")
         if e["written_from"] == "to" and not e.get("reverse_name"):
             refuse(catalog_path, f"has the edge type {e['id']} written from its to end with no reverse_name")
-        lines = [f"## {e['id']}", "", safe(plain(e["description"])), ""]
-        if e["written_from"] != "from":
-            lines += [f"**written_from:** {code(e['written_from'])}", ""]
-        for flag in ("acyclic", "flat"):
-            if not isinstance(e.get(flag, False), bool):
-                refuse(catalog_path, f"has the edge type {e['id']} with an {flag} that is not true or false")
-            if e.get(flag):
-                lines += [f"**{flag}:** {code('true')}", ""]
+    check_edge_values(edges)
+    sources = [constraint(e, "from_type_constraints", type_ids) for e in edges]
+    targets = [constraint(e, "to_type_constraints", type_ids) for e in edges]
+    sections = []
+    for e, source, target in zip(edges, sources, targets):
+        lines = [f"## {e['id']}", "", safe(plain(e["description"])), "", *edge_settings(e, source, target)]
         props = e.get("property_schema") or {}
         if props:
             check_fields(f"{e['id']} property", props, FIELD_KEYS)
@@ -961,7 +983,7 @@ def render_edges(edges, type_ids):
             lines += [table(["Property", "Kind", "Description"], rows), ""]
         sections += lines
     write("edges.md", sections)
-    write("edge-types.md", [edge_table(edges, type_ids)])
+    write("edge-types.md", [edge_table(edges, sources, targets)])
 
 
 def render_catalog():
