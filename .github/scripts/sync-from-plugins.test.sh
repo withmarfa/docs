@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Runs scripts/sync-from-connectors.sh against throwaway checkouts of the docs and
-# of marfa-connectors, and pins what it writes and when it refuses.
+# Runs scripts/sync-from-plugins.sh against throwaway checkouts of the docs and
+# of the plugins repository, and pins what it writes and when it refuses.
 #
-# It copies marfa-connectors' committed connectors.json into src/generated/connectors,
+# It copies the plugins repository's committed connectors.json into src/generated/connectors,
 # writes the connector index (a table of mark, name and what each brings in, ordered
 # by name) and a header for each connector (its source, its types, and whether it
 # carries changes back and can be turned off), and a page for each connector that has
 # none. A page that exists is never touched. A list that is missing, not committed,
 # not JSON, not schema 1, empty, with a connector that lacks a field, repeats a name
 # or has a mark that is not a Simple Icons ID, a docs checkout with no type
-# catalog, and a marfa-connectors checkout that is not at origin/main (or at the tag
-# MARFA_CONNECTORS_TAG names) must stop the script before it changes anything, with one
+# catalog, and a plugins checkout that is not at origin/main (or at the tag
+# MARFA_PLUGINS_TAG names) must stop the script before it changes anything, with one
 # line saying so. It records the commit and the tag the list came from in source.json,
 # leaves the folder's meta.json alone, writes a stub's description and job line from the
 # list's fields so they fit the page limits, and with --relink rewrites only the index
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-script="${here}/../../scripts/sync-from-connectors.sh"
+script="${here}/../../scripts/sync-from-plugins.sh"
 
 pass=0; fail=0
 check() { # check <label> <expected> <actual>
@@ -40,28 +40,28 @@ good_list='{"schema":1,"about":"x","connectors":[
 catalog='{"types":[{"id":"core.note"},{"id":"core.media"},{"id":"core.media.film"},{"id":"system.view"}]}'
 
 # fixture <name> <list>: <name>/docs holds the script, a stale copy of what it
-# writes and a page for readwise; <name>/connectors is a git checkout holding the list.
+# writes and a page for readwise; <name>/plugins is a git checkout holding the list.
 fixture() {
   local dir="${work}/$1"
-  mkdir -p "${dir}/docs/scripts" "${dir}/docs/src/generated/catalog" "${dir}/docs/src/generated/connectors" "${dir}/docs/content/docs/catalog/connectors" "${dir}/connectors"
-  cp "${script}" "${dir}/docs/scripts/sync-from-connectors.sh"
+  mkdir -p "${dir}/docs/scripts" "${dir}/docs/src/generated/catalog" "${dir}/docs/src/generated/connectors" "${dir}/docs/content/docs/catalog/connectors" "${dir}/plugins"
+  cp "${script}" "${dir}/docs/scripts/sync-from-plugins.sh"
   printf '%s\n' "${catalog}" > "${dir}/docs/src/generated/catalog/builtin-catalog.json"
   printf 'stale list\n' > "${dir}/docs/src/generated/connectors/connectors.json"
   printf 'stale old connector\n' > "${dir}/docs/src/generated/connectors/old.md"
   printf 'hand-written readwise\n' > "${dir}/docs/content/docs/catalog/connectors/readwise.mdx"
   printf '{\n  "title": "Connectors",\n  "defaultOpen": false\n}\n' > "${dir}/docs/content/docs/catalog/connectors/meta.json"
-  printf '%s\n' "$2" > "${dir}/connectors/connectors.json"
+  printf '%s\n' "$2" > "${dir}/plugins/connectors.json"
   git init -q --bare -b main "${dir}/origin.git"
-  git -C "${dir}/connectors" init -q -b main
-  git -C "${dir}/connectors" remote add origin "${dir}/origin.git"
-  git -C "${dir}/connectors" add -A
+  git -C "${dir}/plugins" init -q -b main
+  git -C "${dir}/plugins" remote add origin "${dir}/origin.git"
+  git -C "${dir}/plugins" add -A
   commit "$1" fixture
-  git -C "${dir}/connectors" push -q origin main
+  git -C "${dir}/plugins" push -q origin main
 }
 
-# commit <name> <message>: a commit in the fixture's marfa-connectors checkout.
+# commit <name> <message>: a commit in the fixture's plugins checkout.
 commit() {
-  git -C "${work}/$1/connectors" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false commit -q -m "$2"
+  git -C "${work}/$1/plugins" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false commit -q -m "$2"
 }
 
 everything() {
@@ -71,9 +71,9 @@ everything() {
   done)
 }
 
-sync() { # sync <name> [connectors root]
+sync() { # sync <name> [plugins root]
   status=0
-  out="$(TMPDIR="${work}/tmp" MARFA_CONNECTORS_ROOT="${2:-${work}/$1/connectors}" bash "${work}/$1/docs/scripts/sync-from-connectors.sh" 2>&1)" || status=$?
+  out="$(TMPDIR="${work}/tmp" MARFA_PLUGINS_ROOT="${2:-${work}/$1/plugins}" bash "${work}/$1/docs/scripts/sync-from-plugins.sh" 2>&1)" || status=$?
 }
 
 # ------------------------------------------------------------------ a good list
@@ -119,16 +119,16 @@ sync good
 check "syncing again changes nothing" "${first}" "$(everything good)"
 
 # A change in the working copy that is not committed is not read.
-printf '%s\n' '{"schema":2}' > "${work}/good/connectors/connectors.json"
+printf '%s\n' '{"schema":2}' > "${work}/good/plugins/connectors.json"
 sync good
 check "an uncommitted edit is ignored" 0 "${status}"
 check "and the committed list is still the one copied" "$(printf '%s\n' "${good_list}")" "$(cat "${docs}/connectors.json")"
 
 # Where the list came from.
-head_commit="$(git -C "${work}/good/connectors" rev-parse HEAD)"
-check "source.json records the marfa-connectors commit, and no tag when none names it" \
+head_commit="$(git -C "${work}/good/plugins" rev-parse HEAD)"
+check "source.json records the plugins commit, and no tag when none names it" \
 "{
-  \"repository\": \"withmarfa/marfa-connectors\",
+  \"repository\": \"withmarfa/plugins\",
   \"commit\": \"${head_commit}\",
   \"tag\": null
 }" "$(cat "${docs}/source.json")"
@@ -152,23 +152,23 @@ check "the stub has a job line of at most 30 words" "yes" "$([ -n "${stub_job}" 
 
 # A tag names the commit.
 fixture tagged "${good_list}"
-git -C "${work}/tagged/connectors" tag v0.0.9
-git -C "${work}/tagged/connectors" push -q origin v0.0.9
+git -C "${work}/tagged/plugins" tag v0.0.9
+git -C "${work}/tagged/plugins" push -q origin v0.0.9
 sync tagged
 check "a commit that a release tag names syncs" 0 "${status}"
 check "and source.json records the tag" '  "tag": "v0.0.9"' "$(grep '"tag"' "${work}/tagged/docs/src/generated/connectors/source.json")"
 
 # A tag can be named, and the checkout must be at it, even when main has moved on.
 fixture release "${good_list}"
-git -C "${work}/release/connectors" tag v0.0.7
-git -C "${work}/release/connectors" push -q origin v0.0.7
-printf '%s\n' "$(printf '%s' "${good_list}" | sed 's/Sources\./Sources and more./')" > "${work}/release/connectors/connectors.json"
-git -C "${work}/release/connectors" add -A
+git -C "${work}/release/plugins" tag v0.0.7
+git -C "${work}/release/plugins" push -q origin v0.0.7
+printf '%s\n' "$(printf '%s' "${good_list}" | sed 's/Sources\./Sources and more./')" > "${work}/release/plugins/connectors.json"
+git -C "${work}/release/plugins" add -A
 commit release later
-git -C "${work}/release/connectors" push -q origin main
-git -C "${work}/release/connectors" checkout -q v0.0.7
+git -C "${work}/release/plugins" push -q origin main
+git -C "${work}/release/plugins" checkout -q v0.0.7
 status=0
-out="$(TMPDIR="${work}/tmp" MARFA_CONNECTORS_ROOT="${work}/release/connectors" MARFA_CONNECTORS_TAG=v0.0.7 bash "${work}/release/docs/scripts/sync-from-connectors.sh" 2>&1)" || status=$?
+out="$(TMPDIR="${work}/tmp" MARFA_PLUGINS_ROOT="${work}/release/plugins" MARFA_PLUGINS_TAG=v0.0.7 bash "${work}/release/docs/scripts/sync-from-plugins.sh" 2>&1)" || status=$?
 check "a checkout at the named tag syncs, though main has moved on" 0 "${status}"
 check "and the list is the tag's" "$(printf '%s\n' "${good_list}")" "$(cat "${work}/release/docs/src/generated/connectors/connectors.json")"
 
@@ -179,7 +179,7 @@ sync relink
 before_relink="$(everything relink)"
 printf '%s\n' '{"types":[{"id":"core.note"},{"id":"readwise.source"}]}' > "${work}/relink/docs/src/generated/catalog/builtin-catalog.json"
 status=0
-out="$(TMPDIR="${work}/tmp" MARFA_CONNECTORS_ROOT="${work}/relink/nowhere" bash "${work}/relink/docs/scripts/sync-from-connectors.sh" --relink 2>&1)" || status=$?
+out="$(TMPDIR="${work}/tmp" MARFA_PLUGINS_ROOT="${work}/relink/nowhere" bash "${work}/relink/docs/scripts/sync-from-plugins.sh" --relink 2>&1)" || status=$?
 check "a relink needs no checkout" 0 "${status}"
 check "a relink links a type the catalog now has a page for" \
 '- **Source:** `readwise`, shown as Readwise
@@ -192,9 +192,9 @@ check "and leaves the list, where it came from, the pages and the sidebar alone"
 "$(everything relink | awk '/^== \.\/(src\/generated\/connectors\/(connectors|source)\.json|content\/)/{p=1;next} /^== /{p=0} p')"
 rm -f "${work}/relink/docs/src/generated/connectors/connectors.json"
 status=0
-out="$(TMPDIR="${work}/tmp" bash "${work}/relink/docs/scripts/sync-from-connectors.sh" --relink 2>&1)" || status=$?
+out="$(TMPDIR="${work}/tmp" bash "${work}/relink/docs/scripts/sync-from-plugins.sh" --relink 2>&1)" || status=$?
 check "a relink with no copy of the list stops" 1 "${status}"
-case "${out}" in *"Run scripts/sync-from-connectors.sh first"*) pass=$((pass+1)); printf '  ok    a relink with no copy says why\n' ;; *) fail=$((fail+1)); printf '  FAIL  a relink with no copy said %s\n' "${out}" ;; esac
+case "${out}" in *"Run scripts/sync-from-plugins.sh first"*) pass=$((pass+1)); printf '  ok    a relink with no copy says why\n' ;; *) fail=$((fail+1)); printf '  FAIL  a relink with no copy said %s\n' "${out}" ;; esac
 
 # ---------------------------------------------------------------------- refusals
 
@@ -221,18 +221,18 @@ refusal bool "a flag that is not a boolean" "$(printf '%s' "${good_list}" | sed 
 refusal types "types that are not a list" "$(printf '%s' "${good_list}" | sed 's/"types":\["todoist.task"\]/"types":"todoist.task"/')" "is not a list of type IDs"
 
 fixture ahead "${good_list}"
-printf '%s\n' '{"schema":1,"connectors":[]}' > "${work}/ahead/connectors/connectors.json"
-git -C "${work}/ahead/connectors" add -A
+printf '%s\n' '{"schema":1,"connectors":[]}' > "${work}/ahead/plugins/connectors.json"
+git -C "${work}/ahead/plugins" add -A
 commit ahead unmerged
 before="$(everything ahead)"
 sync ahead
 refuse "a checkout with a commit origin/main lacks" ahead "is not at origin/main"
 
 fixture behind "${good_list}"
-git -C "${work}/behind/connectors" checkout -q -b elsewhere
-printf '%s\n' "${good_list}" > "${work}/behind/connectors/connectors.json"
-git -C "${work}/behind/connectors" checkout -q main
-git -C "${work}/behind/connectors" clone -q "${work}/behind/origin.git" "${work}/behind/other"
+git -C "${work}/behind/plugins" checkout -q -b elsewhere
+printf '%s\n' "${good_list}" > "${work}/behind/plugins/connectors.json"
+git -C "${work}/behind/plugins" checkout -q main
+git -C "${work}/behind/plugins" clone -q "${work}/behind/origin.git" "${work}/behind/other"
 printf '%s\n' "$(printf '%s' "${good_list}" | sed 's/Sources\./Newer./')" > "${work}/behind/other/connectors.json"
 git -C "${work}/behind/other" add -A
 git -C "${work}/behind/other" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false commit -q -m newer
@@ -242,41 +242,41 @@ sync behind
 refuse "a checkout behind origin/main" behind "is not at origin/main"
 
 fixture branch "${good_list}"
-git -C "${work}/branch/connectors" checkout -q -b feature
-printf '%s\n' "$(printf '%s' "${good_list}" | sed 's/Sources\./Branch./')" > "${work}/branch/connectors/connectors.json"
-git -C "${work}/branch/connectors" add -A
+git -C "${work}/branch/plugins" checkout -q -b feature
+printf '%s\n' "$(printf '%s' "${good_list}" | sed 's/Sources\./Branch./')" > "${work}/branch/plugins/connectors.json"
+git -C "${work}/branch/plugins" add -A
 commit branch feature
 before="$(everything branch)"
 sync branch
 refuse "a checkout on a branch" branch "is not at origin/main"
 
 fixture no-origin "${good_list}"
-git -C "${work}/no-origin/connectors" remote remove origin
+git -C "${work}/no-origin/plugins" remote remove origin
 before="$(everything no-origin)"
 sync no-origin
 refuse "a checkout whose origin cannot be fetched" no-origin "Could not fetch origin"
 
 fixture wrong-tag "${good_list}"
-git -C "${work}/wrong-tag/connectors" tag v0.0.1
-printf '%s\n' "${good_list} " > "${work}/wrong-tag/connectors/connectors.json"
-git -C "${work}/wrong-tag/connectors" add -A
+git -C "${work}/wrong-tag/plugins" tag v0.0.1
+printf '%s\n' "${good_list} " > "${work}/wrong-tag/plugins/connectors.json"
+git -C "${work}/wrong-tag/plugins" add -A
 commit wrong-tag later
-git -C "${work}/wrong-tag/connectors" push -q origin main
+git -C "${work}/wrong-tag/plugins" push -q origin main
 before="$(everything wrong-tag)"
 status=0
-out="$(TMPDIR="${work}/tmp" MARFA_CONNECTORS_ROOT="${work}/wrong-tag/connectors" MARFA_CONNECTORS_TAG=v0.0.1 bash "${work}/wrong-tag/docs/scripts/sync-from-connectors.sh" 2>&1)" || status=$?
+out="$(TMPDIR="${work}/tmp" MARFA_PLUGINS_ROOT="${work}/wrong-tag/plugins" MARFA_PLUGINS_TAG=v0.0.1 bash "${work}/wrong-tag/docs/scripts/sync-from-plugins.sh" 2>&1)" || status=$?
 refuse "a checkout not at the tag named" wrong-tag "is not at v0.0.1"
 
 fixture no-tag "${good_list}"
 before="$(everything no-tag)"
 status=0
-out="$(TMPDIR="${work}/tmp" MARFA_CONNECTORS_ROOT="${work}/no-tag/connectors" MARFA_CONNECTORS_TAG=v9.9.9 bash "${work}/no-tag/docs/scripts/sync-from-connectors.sh" 2>&1)" || status=$?
+out="$(TMPDIR="${work}/tmp" MARFA_PLUGINS_ROOT="${work}/no-tag/plugins" MARFA_PLUGINS_TAG=v9.9.9 bash "${work}/no-tag/docs/scripts/sync-from-plugins.sh" 2>&1)" || status=$?
 refuse "a tag that does not exist" no-tag "No tag v9.9.9"
 
 fixture bad-arg "${good_list}"
 before="$(everything bad-arg)"
 status=0
-out="$(TMPDIR="${work}/tmp" bash "${work}/bad-arg/docs/scripts/sync-from-connectors.sh" --nope 2>&1)" || status=$?
+out="$(TMPDIR="${work}/tmp" bash "${work}/bad-arg/docs/scripts/sync-from-plugins.sh" --nope 2>&1)" || status=$?
 refuse "an argument the script does not know" bad-arg "Unknown argument"
 
 fixture no-catalog "${good_list}"
@@ -286,15 +286,15 @@ sync no-catalog
 refuse "no type catalog" no-catalog "Run scripts/sync-from-marfa.sh first"
 
 fixture no-file "${good_list}"
-git -C "${work}/no-file/connectors" rm -q connectors.json
+git -C "${work}/no-file/plugins" rm -q connectors.json
 commit no-file remove
-git -C "${work}/no-file/connectors" push -q origin main
+git -C "${work}/no-file/plugins" push -q origin main
 before="$(everything no-file)"
 sync no-file
 refuse "no committed list" no-file "No committed connectors.json"
 
 fixture no-git "${good_list}"
-rm -rf "${work}/no-git/connectors/.git"
+rm -rf "${work}/no-git/plugins/.git"
 before="$(everything no-git)"
 sync no-git
 refuse "a folder that is not a checkout" no-git "Not a git checkout"
@@ -305,7 +305,7 @@ sync missing "${work}/missing/nowhere"
 refuse "a missing checkout" missing "not found"
 
 check "no refusal left a temporary file" "" "$(ls -A "${work}/tmp")"
-check "CI runs this test" 1 "$(grep -cF 'run: bash .github/scripts/sync-from-connectors.test.sh' "${here}/../workflows/ci.yml")"
+check "CI runs this test" 1 "$(grep -cF 'run: bash .github/scripts/sync-from-plugins.test.sh' "${here}/../workflows/ci.yml")"
 
-printf '\nsync-from-connectors: %d passed, %d failed\n' "$pass" "$fail"
+printf '\nsync-from-plugins: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

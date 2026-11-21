@@ -216,7 +216,7 @@ export function checkStatementNumbers(file: string, text: string): Violation[] {
 }
 
 // A count of the connectors: the set grows, and its list is the Catalog's
-// (generated from marfa-connectors), so a page that says how many goes stale.
+// (generated from the plugins repository), so a page that says how many goes stale.
 const ONES = 'one|two|three|four|five|six|seven|eight|nine';
 const TEENS = 'ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen';
 const TENS = 'twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety';

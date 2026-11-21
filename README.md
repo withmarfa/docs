@@ -113,11 +113,11 @@ change lands in the monorepo; nothing runs it for you.
 Close a gap in the spec in the monorepo's generator, never by editing
 `openapi.json` here.
 
-The connector Catalog has its own sync, `./scripts/sync-from-connectors.sh`. It
-expects the `marfa-connectors` repository at `../marfa-connectors`; override
-with `MARFA_CONNECTORS_ROOT`. It writes `src/generated/connectors/` from that
+The connector Catalog has its own sync, `./scripts/sync-from-plugins.sh`. It
+expects the `plugins` repository at `../plugins`; override with
+`MARFA_PLUGINS_ROOT`. It writes `src/generated/connectors/` from that
 repository's committed `connectors.json`, and stops unless the checkout is at
-`origin/main` (or at the tag `MARFA_CONNECTORS_TAG` names).
+`origin/main` (or at the tag `MARFA_PLUGINS_TAG` names).
 
 The Changelog page comes from the GitHub release notes of the monorepo:
 

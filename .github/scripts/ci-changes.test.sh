@@ -70,8 +70,8 @@ syncs() {
 # What the sync script's test needs to run for.
 syncs "the sync script" true scripts/sync-from-marfa.sh
 syncs "the sync script's test" true .github/scripts/sync-from-marfa.test.sh
-syncs "the connectors' sync script" true scripts/sync-from-connectors.sh
-syncs "the connectors' sync script's test" true .github/scripts/sync-from-connectors.test.sh
+syncs "the connectors' sync script" true scripts/sync-from-plugins.sh
+syncs "the connectors' sync script's test" true .github/scripts/sync-from-plugins.test.sh
 syncs "the workflow that runs it" true .github/workflows/ci.yml
 syncs "a docs page" false content/docs/build/items.mdx
 syncs "the API spec, which the test does not read" false openapi.json

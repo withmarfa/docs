@@ -1,5 +1,5 @@
 /**
- * Holds the connector Catalog to marfa-connectors' list. A page is keyed by a
+ * Holds the connector Catalog to the list in the plugins repository. A page is keyed by a
  * connector's name, not its source, because two connectors can share a source.
  * The sync writes the list, where it came from, the index and each header, and
  * a page for any connector that has none; a page for a name the list lacks
@@ -115,9 +115,9 @@ describe('connectors', () => {
     expect(catalogPages.has('readwise.source')).toBe(false);
   });
 
-  it('records the marfa-connectors commit the list came from, and the tag that names it if one does', () => {
+  it('records the plugins commit the list came from, and the tag that names it if one does', () => {
     const origin = JSON.parse(read(path.join(GENERATED, 'source.json'))) as { repository: string; commit: string; tag: string | null };
-    expect(origin.repository).toBe('withmarfa/marfa-connectors');
+    expect(origin.repository).toBe('withmarfa/plugins');
     expect(origin.commit).toMatch(/^[0-9a-f]{40}$/);
     expect(origin.tag === null || /^v\d+\.\d+\.\d+$/.test(origin.tag)).toBe(true);
   });
