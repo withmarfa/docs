@@ -550,9 +550,9 @@ describe('the edge type table', () => {
     for (const row of rows) expect(row[4]).toMatch(/^`(one|many)-to-(one|many)`$/);
   });
 
-  it('is included by the Edges page, which says that any type is a source exactly when the table has no column for it', () => {
+  it('is included by the Edges page, which says no edge type limits its from item exactly when the table has no column for it', () => {
     expect(edgesPage).toContain('<include cwd>src/generated/catalog/edge-types.md</include>');
-    const sentence = 'Every shipped edge type takes any type as its from item';
+    const sentence = 'No shipped edge type limits its from item by type';
     expect(edgesPage.includes(sentence)).toBe(!header.includes('From types'));
   });
 });

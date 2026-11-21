@@ -1,57 +1,56 @@
 ---
-title: Write in a working copy
-description: Keep part of an instance on your machine with marfa device, read and write it with no connection, and send the writes when you can.
+title: Read and write in a working copy
+sidebar_label: Use a working copy
+description: Fill a working copy with marfa device, read it and its views with no connection, write items and edges, and send the queue when you can.
+job: A builder keeps working in a working copy without a connection and sends its writes when one returns.
 ---
 
-`marfa device` keeps a [working copy](/build/working-copies) of part of an instance in one file. Reads come from the copy, and each write waits in a queue until you send it. Use it for a script or an agent that must keep working offline. An app built on the [Swift SDK](/reference/swift-sdk) keeps the same kind of copy.
+`marfa device` keeps a [working copy](/build/working-copies) of part of an instance in one file. Reads come from the copy, and each write waits in a queue until you send it, so a script or an agent keeps working offline.
 
-Every `marfa device` command names the file with `--db`, or with `MARFA_DB` for a whole shell. The commands that reach the server, `hydrate`, `catch-up`, `follow` and `drain`, use the CLI's server and key, as [Connect to a server](/reference/cli#connect-to-a-server) shows. Reads and queued writes need only the file.
+Every `marfa device` command names the file with `--db`, or `MARFA_DB` for a shell. A command reaches the server only to fetch or send, such as `hydrate`, `catch-up`, `follow`, `drain`, `pin`, `withdraw` and the blob fetches, as [Connect to a server](/reference/cli#connect-to-a-server) shows.
 
 ## Fill the copy
 
-Choose the types and the [tier](/build/items-and-types) to keep, then fill the copy. Repeat `--type` for each type; the types beneath each come too:
+Choose the types and the [tier](/build/items-and-types) to keep. Repeat `--type` for each; the types beneath each come too. **Name `system.view` to read views with no connection**, and a tier that holds each view's query: a view that names no tier holds `all`:
 
 <Terminal>
 
 ```bash
 export MARFA_DB=./copy.sqlite
-marfa device hydrate --type core.media --type core.file --tier library
+marfa device hydrate --type core.media --type core.file --type system.view --tier all
 ```
 
 ```text
-hydrated 6 item(s) and 1 edge(s) of core.media,core.file at library in 2 page(s); cursor 20
+hydrated 5 item(s) and 0 edge(s) of core.media,core.file,system.view at all in 3 page(s); cursor 35
 ```
 
 </Terminal>
 
-`--type '*'` keeps every type except `system.*`, and `--tier all` keeps the library and the feed. `--edge-type` keeps every edge of a type the key reads; repeat it for more. A hydration that stops part way carries on from where it stopped when you run it again.
-
-`marfa device status` says how the copy stands:
-
-- **Whether it's whole:** the hydration is `never`, `in_progress`, `complete`, `stale` or `expired`.
-- **When it last synced:** `synced_at` is when the copy last finished a pull from the server, by this machine's clock.
-- **Its files:** the file budget and the attached files the copy holds, as [Keep files on a device](/build/keep-files-on-a-device) explains.
+`--type '*'` keeps every type except `system.*`, so a copy for views still names `system.view`. `--tier all` keeps the library and the feed, and `--edge-type` keeps every edge of a type. **Hold the whole query of any view you will read:** its tier, and the edge types of its group, `backref` filter or `beneath`. `marfa device pin <id>` holds one item, or one view, whatever the slice says, but not what the view's query needs. `marfa device status` says whether the copy is whole and when it last synced.
 
 ## Read from the copy
 
-`marfa device items get`, `items list` and `search` answer as the server does, from the copy. Under `--json`, a list prints `data` and `next_cursor` as the server's lists do, and adds `completeness`: `complete`, `partial` while the copy fills, or `stale` when it's behind the server.
+`marfa device items get`, `items list` and `search` answer as the server does. With `--json`, a list adds `completeness`: `complete`, `partial` while the copy fills, or `stale`. **Every item carries `read_only`**: a connector keeps it, so don't offer to edit it.
 
-```bash
-marfa device items list --type core.media.book --sort updated-at --direction desc
-marfa device search "Warden"
+A copy answers a view with no connection, sorting its items as the server would and counting its groups. It can't sort by `last_activity_at`:
+
+```bash tab="CLI" tab-group="client"
+marfa device items list --view <view-id> --limit 50
+marfa device views groups <view-id> --time-zone Europe/London
 ```
 
-**Every item carries `read_only`**, the server's advice that a connector keeps the item and an app shouldn't offer to edit it. The copy refreshes it at most every 15 minutes, and it's advice only: the copy and the server both take a write to a read-only item. An item not yet sent reads `false`.
+```swift tab="Swift"
+let page = try await copy.items.list(inView: viewID, limit: 50)
+let groups = try await copy.items.groups(inView: viewID, timeZone: .current)
+```
 
-**The copy keeps the items in its slice that go to the bin.** `--state trashed` lists them with no connection, and `--state any` lists every state. `marfa device items bin` reads the instance's whole bin instead; it needs the server and keeps nothing.
+**An item counts once in each group it belongs to**, so counts can add up to more than the items. A view is never answered in part: if the copy can't answer the whole query or grouping, the read is refused with the reason, and you hydrate what it names.
 
-### Read while another process writes
+One process at a time writes a copy; a second opens it with `--reader`.
 
-One process at a time writes a copy. A second process, such as a menu bar helper beside an app, opens the same file with `--reader`. **A reading handle writes nothing**, not even housekeeping, and a write through it is refused `reading_handle`. Where no copy exists yet, `--reader` is refused `no_store` instead of making one.
+## Write items and edges
 
-## Write to the copy
-
-A write shows in the copy at once and waits in the queue:
+A write shows in the copy at once and waits in the queue. The first ID is the item's, the second the queued write's:
 
 <Terminal>
 
@@ -66,23 +65,19 @@ queued create_item 01a1f125-00cb-7296-929b-adf702216fa1 as 01a1f125-00cd-71d9-81
 
 </Terminal>
 
-The first ID is the item's, the second the queued write's. A create is one write: `--state`, the capture location (`--capture-latitude` and `--capture-longitude`) and `--edges` go in its body, and each `--tag` follows as a write of its own. If the instance refuses any edge in it, it creates neither the item nor the edges.
-
-An update names the version it was based on, as it does at the server. **An item created here is at version `0` until the server answers its create.** An edit read at `0` and saved after that answer, such as from an editor left open, still goes with `--as-read`, on the version the create made.
+An update names the version it was based on, as it does at the server. **If the copy has moved on since the person read the item, send the version they read with `--as-read`.** The copy refuses an older version than it holds, and the version it holds would make the edit count as newer than changes that arrived since; with `--as-read` the server merges the edit against the version read. An item created here is at version `0` until the server answers its create, and an edit read at `0` goes with `--as-read` too. `items trash` and `items restore` move an item to the bin and back.
 
 ```bash
 marfa device items update <id> --version 1 --properties '{"progress": "started"}'
-marfa device items trash <id>
-marfa device items restore <id>
+marfa device edges create --from-id <series-id> --to-id <book-id> --type parent-of
+marfa device edges update <edge-id> --version 1 --from-id <other-series-id>
 ```
 
-`--clear-property <name>` removes one property, and `--replace` makes `--properties` the whole set. `--occurred-at` sets the item's own time, and `--clear-occurred-at` removes it. Edges have commands of their own: [Write edges in a working copy](/build/edges-in-a-working-copy).
-
-**The copy refuses at once a write the instance would refuse as malformed,** with the instance's code, and queues nothing. A write larger than the instance's request limit, which the copy reads at each drain, is refused with the device's own code, `over_request_limit`, and the write's size and the limit in bytes ([request limit rules](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#a-body-over-the-servers-request-limit)).
+**The copy refuses at once a write the instance would refuse as malformed**, with the instance's code, and queues nothing. An edge is judged by what the copy holds, and needs a copy that is whole and current, or it's refused `hydration_incomplete`. `marfa device edges check` and `check-move` answer what an edge write would, and queue nothing. What the copy doesn't hold, the instance judges when the write is sent. The [contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md#an-edge-the-server-would-refuse) gives each refusal.
 
 ## Send the queue
 
-`marfa device drain` sends the queued writes in order and records each answer. A write that meets a network error stays for the next drain.
+`marfa device drain` sends the queued writes in order and records each answer. A write that meets a network error stays for the next drain:
 
 <Terminal>
 
@@ -91,57 +86,25 @@ marfa device drain
 ```
 
 ```text
-marfa: writing to http://localhost:8600
 merged update_item 01a1f122-697a-7360-a04e-48120ed3a8b5 merged title
 the server answered 1 write(s)
 ```
 
 </Terminal>
 
-`marfa device queue` lists every write, its body and its [verdict](/build/working-copies#verdicts). `accepted` and `merged` need nothing; a merge is the server combining your change with a newer one, by the type's rules. Act on the three that need you:
+`marfa device queue` lists every write with its [verdict](/build/working-copies#verdicts), and `--json` adds the server's answer. `accepted` and `merged` need nothing. Act on the other four:
 
 | Verdict | What to do |
 | --- | --- |
-| `refused` | Read the body, fix it in a new write, then take the refused one out with `marfa device discard <id>`. |
-| `blocked` | Do what its reason needs, as [Verdicts](/build/working-copies#verdicts) lists. `marfa device release <id>` sends it again, and `marfa device withdraw <id>` takes it out and puts the copy back to what the instance holds. A write blocked `server_restored` was never sent: it puts back what a restored server lost. |
-| `dead` | `marfa device release <id>` sends it again. |
+| `conflicted` | The item holds the other writer's value, and your edit went into a **conflicted copy**, a new item tagged `conflicted-copy`. The queue's `conflicted_copy_id` names it: show the person both. |
+| `refused` | Read the server's answer in `marfa device queue --json`, fix it in a new write, then remove the refused one with `marfa device discard <id>`. A write refused **unsent**, because the write it followed was refused, goes again once that one is fixed: `marfa device release <id>`, then `drain`. |
+| `blocked` | Do what the reason `marfa device queue` names needs, then `marfa device release <id>` puts the write back and `marfa device drain` sends it. A `conflict_unresolved` write meets the same refusal again, and so does an `ancestor_unavailable` one unless the credential now reads its snapshot. **Note the edit first**, then `marfa device withdraw <id>` takes the write out and puts the copy back to what the instance holds, and you make the edit again on that item. |
+| `dead` | `marfa device release <id>` and `drain` send it again, or `marfa device withdraw <id>` gives it up, with the edit noted first. |
 
-`marfa device forget` clears the writes the instance has answered, which keeps later writes fast. It keeps each refused write that carried content until you discard it.
+`marfa device forget` clears the answered writes, and keeps each refused write that carried content until you discard it.
 
 ## Keep it current
 
-`marfa device catch-up` applies what changed on the instance since the last hydration or catch-up, and `marfa device follow` holds the event stream open and applies each change as it comes. `--for-seconds` stops following after a while.
+`marfa device catch-up` applies what changed since the last hydration or catch-up, and `marfa device follow` holds the event stream open and applies each change until `--for-seconds` ends it. A copy away longer than the instance keeps events is `stale`, and one whose instance or reach changed has expired: hydrate it again, and unsent writes stay. [Fix a working copy](/build/fix-a-working-copy) says what to run for each message.
 
-<Terminal>
-
-```bash
-marfa device catch-up --json
-```
-
-```json
-{
-  "applied": 0,
-  "skipped": 0,
-  "read_only_held": 0,
-  "cursor": "8",
-  "catalog_changed": false,
-  "tables": {
-    "whole": 0,
-    "online": 0,
-    "unfilled": 0,
-    "pages": 0,
-    "rows": 0,
-    "failed": 0,
-    "failure": null
-  },
-  "changed_tables": []
-}
-```
-
-</Terminal>
-
-**`applied` counts events; `read_only_held` counts items whose `read_only` the refresh changed,** which no event brings. The plain output adds `N item(s) took a new read_only` when it isn't zero.
-
-A copy away longer than the instance keeps events becomes `stale`. One whose instance or reach changed expires, and so does a copy after a drain that moved an edge's from item: hydrate it again, and the writes not yet sent stay. Every read that goes to the server first checks it's the instance the copy was built from, and ends `copy_expired` if another answers. [Fix a working copy that can't catch up](/build/fix-a-working-copy) says what to run for each.
-
-The rules behind this guide are in the [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) and [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) chapters of the contract.
+The rules are in the contract's [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md) and [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) chapters.
