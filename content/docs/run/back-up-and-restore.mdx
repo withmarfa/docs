@@ -6,7 +6,7 @@ job: An owner turns on backups, checks they work, and restores after a lost disk
 kind: how-to
 ---
 
-**The server backs itself up.** Give it one place outside its own disk, and it takes a backup each hour that anything changed and keeps a second copy of every file there. With no place set, it keeps none, and `marfa attention` says so.
+**The server backs itself up.** Give it one place outside its own disk, and it takes a backup each hour that anything changed and keeps a second copy of every file there. With no place set it keeps none, and `marfa attention` says so.
 
 | Where the instance runs | Back it up to |
 | --- | --- |
@@ -14,22 +14,22 @@ kind: how-to
 | A [container you run](/run/run-on-a-server#in-a-container) | A second volume mounted outside `/data`, or an object store. |
 | [Railway](/run/run-on-a-server#on-railway) | An object store. The template also keeps a daily Railway volume backup for six days. |
 
-To carry your data to another instance by hand, [move it with an archive](/run/export-and-restore) instead.
+To carry your data by hand, [move it with an archive](/run/export-and-restore).
 
 ## Turn on backups
 
-Set **one** place. The folder must already exist: the server makes only the folders inside it, and refuses one inside its own data folder, where a backup would be lost with the data. **Changing where backups go needs [a recent sign-in](/run/sign-in-as-the-owner#confirm-its-you):** a key is refused `403 app_sign_in_required`.
+Set **one** place. The folder must already exist, and can't be inside the server's own data folder, where a backup would be lost with the data. **Changing where backups go needs [a recent sign-in](/run/sign-in-as-the-owner#confirm-its-you):** a key is refused `403 app_sign_in_required`.
 
 ```bash
 marfa login --fresh-sign-in
 marfa config set backup_path /Volumes/Backup/marfa
 ```
 
-On the server's own computer, [the private socket](/run/run-on-a-server#the-private-socket) does the same with no sign-in. `backup_interval_seconds` sets how often a backup runs, `3600` by default, and `0` turns the schedule off.
+On the server's own computer, [the private socket](/run/run-on-a-server#the-private-socket) does the same with no sign-in. `backup_interval_seconds` sets how often (`3600`), and `0` turns it off.
 
 ## Use an object store
 
-An S3-compatible bucket, such as Amazon S3, Cloudflare R2 or Backblaze B2, keeps the backups and a copy of every file. It needs the same recent sign-in. **Set the secret key last,** because changing the bucket or the endpoint removes the stored one:
+An S3-compatible bucket, such as Amazon S3, Cloudflare R2 or Backblaze B2, keeps the backups and a copy of every file, and needs the same sign-in. **Set the secret key last,** because changing the bucket or endpoint removes the stored one:
 
 ```bash
 marfa config set object_store_endpoint https://<account>.r2.cloudflarestorage.com
@@ -39,20 +39,19 @@ marfa config set object_store_bucket marfa-backups
 marfa config set object_store_secret_access_key
 ```
 
-- **The endpoint is the store's own host,** without the bucket. For a store that puts the bucket before its host, set `object_store_path_style` to `false`.
-- **The prefix, `marfa` by default, holds one instance's backups and files.** An instance that replaces another takes the old one's prefix and finds them there. Give an instance beside yours, such as a trial, a prefix of its own.
-- **Share a bucket only between instances of one owner:** a prefix keeps instances apart, not access.
-- **Serve the bucket from a different site from the instance,** so an uploaded HTML file can't run as one of the instance's pages.
+- **The endpoint is the store's own host,** without the bucket.
+- **The prefix, `marfa` by default, holds one instance's backups and files.** An instance that replaces another takes the old one's prefix and finds them there; give one beside yours a prefix of its own. A prefix keeps instances apart, not access, so share a bucket only between instances of one owner.
+- **Serve the bucket from a different site from the instance,** so an uploaded HTML file can't run as one of its pages.
 
 [Instance settings](/reference/instance-settings) lists every `object_store_` setting.
 
 ## What a backup holds
 
-A backup holds what an [archive](/run/export-and-restore) holds: every item and its history, the bin included, links, types and the settings you chose. Each file's bytes are kept once in the backup place while any backup names them. **It never holds a key, an app's token, the owner's password or passkeys, or a secret,** so a backup that leaks opens nothing. The server keeps every backup from the last 24 hours and the newest of each of the 31 days before.
+A backup holds what an [archive](/run/export-and-restore) holds, with each file's bytes kept once in the backup place. **It never holds a key, an app's token, the owner's password or passkeys, or a secret,** so a backup that leaks opens nothing. The server keeps every backup from the last 24 hours and the newest of each of the 31 days before.
 
 ## Check that backups work
 
-`marfa attention` names a place that isn't set, a backup that failed, a folder whose disk isn't there, and files still waiting for their copy. To take one now and see what exists:
+`marfa attention` names a place that isn't set, a failed backup, a missing disk and files waiting for their copy. To take a backup now and see what exists:
 
 <Terminal>
 
@@ -69,31 +68,38 @@ name                       instance_id                           created_at     
 
 </Terminal>
 
-Both need `backups.manage`. **A wrong or missing place stops the backups, never the instance,** and the next run tries again.
+Both need `backups.manage`. **A wrong place stops the backups, never the instance.**
 
 ### When the backup disk was replaced
 
-The server writes only into a folder it marked as its own, so on a new disk every backup fails. Once the new folder is there, `marfa backups folder adopt` starts afresh on it, and the next backup copies every file again.
+The server writes only into a folder it marked as its own, so every backup to a new disk fails. `marfa backups folder adopt` starts afresh on the new folder, and the next backup copies every file again.
 
 ## Restore a backup
 
-**What you need is the backup place:** the folder, or the bucket with its prefix and credentials. Nothing else, not even the server's secrets.
+**You need only the backup place:** the folder, or the bucket with its prefix and credentials, and not even the server's secrets.
 
-**A restore brings back the last backup, so work written after it is lost:** up to an hour by default, longer if the schedule is off or a backup failed. If the old instance still runs, take a last backup first. Only what your devices and synced directories hold survives.
+**A restore brings back the last backup, so work written after it is lost:** up to an hour by default. If the old instance still runs, take a last backup first. Only what your devices hold survives.
 
 <Steps>
 <Step>
 
 ### Make a new instance and sign in to it
 
-[Install](/run/install) one and claim it. Then run `marfa login --url <address>` for its address, which also gives the sign-in from the last fifteen minutes that the restore needs. Or, on its computer, put `--socket` and the full path of its [private socket](/run/run-on-a-server#the-private-socket) before each command.
+[Install](/run/install) one and claim it. Then run `marfa login --url <address> --fresh-sign-in`: a plain `marfa login` can reuse an older browser session, and the restore needs a sign-in from the last fifteen minutes. Or, on its computer, put `--socket` and the path of its [private socket](/run/run-on-a-server#the-private-socket) before each command.
 
-**Check that `marfa status` names the new instance:** its `instance` line shows an ID other than the `instance_id` that `marfa backups list` shows for the backups.
+**Write down the ID on the `instance` line of `marfa status`.** No backup you restore from should name it.
 
-Point it at the same place, set as above. **Set `trash_retention_days` first,** to the days you want binned items kept: the instance takes a setting it hasn't set from the backup, and a short one makes the next purge delete items for good.
+</Step>
+<Step>
+
+### Point it at the place and set what it keeps
+
+Set the same place as above. Until it is set, `marfa backups list` answers `409 no_backup_destination`.
+
+**Then set `trash_retention_days`, the days binned items are kept, before you restore.** A restore takes a setting only where the new instance has none, and a shorter value makes the next purge delete items for good. Use the old instance's value, `0` (forever) included, to keep its policy.
 
 ```bash
-marfa config set trash_retention_days 60
+marfa config set trash_retention_days <days>
 ```
 
 </Step>
@@ -101,7 +107,7 @@ marfa config set trash_retention_days 60
 
 ### Find the backup
 
-`marfa backups list` shows the backups in the place, newest first, each with the `instance_id` of the instance that took it.
+`marfa backups list` shows the backups in the place, newest first, each with the `instance_id` of the instance that took it. **None should show the ID you wrote down.**
 
 </Step>
 <Step>
@@ -115,18 +121,18 @@ marfa backups restore 01a1fc38-a2fc-74d9-aa20-7b4106ff9242 20261121T034911.289Z.
 </Step>
 </Steps>
 
-**A restore adds what the instance lacks and changes nothing it holds.** It carries no key, sign-in, app, webhook or address: see [what a restore changes](/run/export-and-restore#what-a-restore-changes). A file the backup names that no store holds makes the restore refuse and name it: `--allow-missing-files` restores without it.
+**A restore adds what the instance lacks and changes nothing it holds.** It carries no key, sign-in, app, webhook or address ([what a restore changes](/run/export-and-restore#what-a-restore-changes)). **Read `blobs_missing` in the answer before you call it done.** A file the backup names that no store holds makes the restore refuse and name it, and `--allow-missing-files` restores without it. A file the backup lists as lost, which `marfa attention` reported when it was taken, restores without the flag and is named only there: upload it again with `marfa blobs upload <file>`.
 
-The answer names what the old instance left in the backup place, such as `backups/<id>` and `files/<id>`. Delete them once nothing restores from them, and **never delete a bucket's `blobs/`,** which every instance on the prefix shares.
+The answer names what the old instance left in the backup place, such as `backups/<id>`. **Delete it only once the old instance is retired and a complete new backup of the new one is checked.** Never delete a bucket's `blobs/`, which every instance on the prefix shares.
 
 ## After a restore
 
 ### On each device
 
-The old keys and sign-ins are refused, so connect each device to the new instance, folders first:
+The old keys and sign-ins are refused, so connect each device to the new instance. **Settle the address first:** moving it afterward ends the app sign-ins you just made.
 
+- **The address.** On the server's computer, give the new install the old one's `--access` and `--address`. Elsewhere, [set it](/run/address#move-the-address). `marfa config get` shows it.
 - **Synced folders.** The watch stops each directory, saying its server now answers as another Marfa instance. One with nothing unsent follows [Fix a folder](/use/fix-a-folder#now-answers-as-another-marfa-instance). **One with edits not yet sent must not follow it:** [Keep a directory's unsent edits](/run/keep-folder-edits-after-a-restore) first.
-- **The address.** On the server's computer, give the new install the old one's `--access` and `--address`. Elsewhere, [set the sign-in address](/run/address#move-the-address).
 - **Agents, Claude and ChatGPT.** Remove Marfa and add it again, as [Connect your agent](/connect-your-agent) shows.
 - **Scripts and connectors.** Give each [a new key](/use/manage-keys).
 

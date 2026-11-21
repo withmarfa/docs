@@ -2,15 +2,15 @@
 title: Send or turn off telemetry
 sidebar_label: Telemetry
 description: Choose where an instance's faults, traces and logs go, or turn telemetry off. Nothing is sent until you set a destination.
-job: An owner chooses where an instance's telemetry goes, or turns it off.
+job: An owner controls where an instance sends telemetry.
 kind: how-to
 ---
 
-**Marfa sends nothing about itself until you set where.** An instance tells you of its own faults first, in places you already look. Sending anything further is your choice, to a destination you name, and each stored setting here applies from the next send, with no restart.
+**Marfa sends nothing about itself until you set where.** An instance tells you of its own faults first, in places you already look. Anything further goes to a destination you name, and each stored setting here applies from the next send, with no restart.
 
 ## See a fault yourself
 
-When the server meets a fault of its own, such as a database failure, a panic or an internal error, `marfa attention` lists an entry of kind `fault`. Its reference names the kind and where, such as `internal:POST /items/{id}`, and never an item, and its title counts how often. The entry goes 24 hours after the fault last happened, or at a restart. **The server's log holds the detail,** which the entry points to: [where it is](/run/install#look-after-the-service) depends on how you installed it.
+When the server meets a fault of its own, such as a database failure, a panic or an internal error, `marfa attention` lists an entry of kind `fault`. Its reference names the route, such as `PATCH /items/{id}`, never an item, and its title counts how often. The entry goes 24 hours after the fault last happened, or at a restart. **The server's log holds the detail:** [where it is](/run/install#look-after-the-service) depends on how you installed it.
 
 To be told at once, subscribe a [webhook](/build/receive-webhooks) to `attention.raised`. Use the owner's CLI, or a key with `webhooks.manage` and `instance.read`:
 
@@ -18,7 +18,6 @@ To be told at once, subscribe a [webhook](/build/receive-webhooks) to `attention
 marfa webhooks create --delivery-url https://example.com/marfa-alerts --event attention.raised
 ```
 
-Even while the database fails, the server sends a new fault's event from memory.
 
 ## Send traces, logs and metrics
 
@@ -30,26 +29,32 @@ marfa config set otel_exporter_otlp_headers
 marfa config set otel_sample_ratio 0.1
 ```
 
-The headers are `key=value` pairs with percent-encoded values, such as `authorization=Bearer%20<token>`. **A trace that holds an error is always exported,** whatever `otel_sample_ratio` says. The endpoint must be public unless [`allow_private_addresses`](/run/settings#let-webhooks-reach-a-private-network) is on. Separate settings send one signal, traces, logs or metrics, elsewhere.
+The headers are `key=value` pairs with percent-encoded values, such as `authorization=Bearer%20<token>`. **A trace that holds an error is always exported,** whatever `otel_sample_ratio` says. The endpoint must be public unless [`allow_private_addresses`](/run/settings#let-webhooks-reach-a-private-network) is on. Separate settings send one signal elsewhere.
 
-**The server reads no `OTEL_*` variable.** It logs a warning that names each one it finds, so a variable a hosting platform sets can't move your telemetry. A log record carries its message and a fixed list of fields, and a span names the route, so neither holds what you wrote, a file's name or a credential.
+**The server reads no `OTEL_*` variable.** It logs a warning naming each one it finds, so a platform's variable can't move your telemetry. Neither a log record nor a span holds what you wrote, a file's name or a credential.
 
-**Everything an instance exports names it by `service.instance.id`** and its release by `service.version`. `otel_resource_attributes` adds attributes of your own: mark a test instance with `deployment.environment=test`.
+**An instance names itself by `service.instance.id` and its release by `service.version`,** as defaults that `otel_resource_attributes` can replace. An exception sent before the server has read its ID lacks the instance ID. It adds attributes of your own too, such as `deployment.environment=test`.
 
 ## Send a heartbeat
 
-An instance can't report its own death. Set `heartbeat_url`, and the `heartbeat` job requests it with a `GET`, no body and no identity, every minute: give it to an uptime monitor.
+An instance can't report its own death. Set `heartbeat_url`, and the `heartbeat` job requests it with a `GET` every minute, with no body and no instance ID, and a user agent that names the release: give it to an uptime monitor.
 
 ## Send errors to PostHog
 
-PostHog is one optional route, never part of Marfa. If you already use it, a free PostHog Cloud project and two settings, `posthog_host` and `posthog_project_token`, send each unhandled error there: [Send an instance's errors to PostHog](/run/send-errors-to-posthog).
+PostHog is one optional route, never part of Marfa: a free PostHog Cloud project and two settings, `posthog_host` and `posthog_project_token`, send each unhandled error there. [Send an instance's errors to PostHog](/run/send-errors-to-posthog) has the steps.
 
 ## Pause or turn it off
 
-`telemetry_enabled` set to `false` pauses traces, logs, metrics and PostHog reports together and keeps every setting as it was. To stop for good, clear the endpoint, the heartbeat and the PostHog pair. A [restore](/run/export-and-restore#what-a-restore-changes) carries no telemetry secret: its answer names the settings to set again.
+`telemetry_enabled` set to `false` pauses traces, logs, metrics and PostHog reports together and keeps every setting as it was. **It leaves a heartbeat running:** set `heartbeat_enabled` to `false` to pause that too. To stop for good, clear the settings in one update, because one that leaves a signal's endpoint without the base, or one PostHog setting without the other, is refused `400`:
+
+```bash
+marfa config update --body '{"otel_exporter_otlp_endpoint":null,"otel_exporter_otlp_traces_endpoint":null,"heartbeat_url":null,"posthog_host":null,"posthog_project_token":null}'
+```
+
+Name every OTLP endpoint you set. A [restore](/run/export-and-restore#what-a-restore-changes) carries no telemetry secret: its answer names the settings to set again.
 
 ## What the CLI, connectors and apps send
 
-**The CLI sends one trace for each command, and only when its environment names an OpenTelemetry collector,** in `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. With neither set, it sends nothing, and `OTEL_SDK_DISABLED=true` turns the trace off. The trace names the command and carries its exit code and the error code of a refusal, and **holds no argument, address, credential or item content.** A folder watch that starts at login carries the `OTEL_*` settings of the shell that turned it on. [The CLI's telemetry reference](https://github.com/withmarfa/marfa/blob/main/core/marfa-cli/COMMANDS.md#telemetry) lists every setting.
+**The CLI sends one trace for each command, and only when its environment names an OpenTelemetry collector,** in `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. With neither set it sends nothing, and `OTEL_SDK_DISABLED=true` turns it off. The trace names the command and carries its exit code and the error code of a refusal, and **holds no argument, address, credential or item content.** A folder watch that starts at login carries the `OTEL_*` settings of the shell that turned it on. [The CLI's telemetry reference](https://github.com/withmarfa/marfa/blob/main/core/marfa-cli/COMMANDS.md#telemetry) lists every setting.
 
-**A connector sends nothing of its own** unless its environment sets `OTEL_EXPORTER_OTLP_ENDPOINT`; a failed run reaches you through `marfa attention` instead. **What an app sends is decided by the people who build it,** and its own settings say how to turn it off. The Swift SDK sends nothing itself.
+**A connector sends nothing of its own** unless its environment sets `OTEL_EXPORTER_OTLP_ENDPOINT`; a failed run reaches you through `marfa attention`. **What an app sends is decided by the people who build it.** The Swift SDK sends nothing itself.
