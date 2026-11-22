@@ -42,7 +42,7 @@ describe('buildDocsMap', () => {
     expect(home.some((line) => line.startsWith('- [Connect your agent](/connect-your-agent)'))).toBe(true);
 
     const use = lines.slice(lines.indexOf('## Use'), lines.indexOf('## Run'));
-    expect(use.filter((line) => line.startsWith('### '))).toEqual(['### Day to day', '### A synced folder', '### Connectors', '### Access', '### When you need more']);
+    expect(use.filter((line) => line.startsWith('### '))).toEqual(['### Day to day', '### A synced folder', '### Plugins and connectors', '### Access', '### When you need more']);
     expect(use.some((line) => line.startsWith('- [Work from an agent](/use/from-an-agent)'))).toBe(true);
     expect(use.some((line) => line.startsWith('- [Sync a folder](/use/sync-a-folder)'))).toBe(true);
 
