@@ -253,8 +253,8 @@ const missingPage = (type: CatalogType) =>
   `The catalog ships ${type.id} and no page covers it. Expected content/docs/catalog/(types)/(${type.id.split('.')[0]})/${slugOf(type)}.mdx, titled "${type.label}" with identifier ${type.id}, listed in that folder's meta.json and including src/generated/catalog/${type.id}.md.`;
 const CORE_SLUGS = CORE_TYPES.map(slugOf);
 const SYSTEM_SLUGS = SYSTEM_TYPES.map(slugOf);
-/** The pages that are not the page of one type. */
-const OTHER_PAGES = ['items', 'types', 'field-kinds', 'type-definition', 'edges', 'events', 'permissions', 'connectors'];
+/** The pages that are not the page of one type Marfa ships, such as a plugin's family of common types. */
+const OTHER_PAGES = ['items', 'types', 'field-kinds', 'type-definition', 'tickets', 'edges', 'events', 'permissions', 'connectors'];
 /** The connectors Marfa ships, one page each beneath the Connectors page. */
 const CONNECTORS_DIR = 'connectors';
 // A connector's page is named for it, and the list comes from the plugins repository (scripts/sync-from-plugins.sh).
@@ -264,7 +264,7 @@ const EDGES_DIR = 'edges';
 const EDGE_SLUGS = catalog.edge_types.map((edge) => edge.id);
 /** Where the pages about types sit: in the Types folder, with the two families of types inside it. */
 const TYPES_DIR = '(types)';
-const TYPES_PAGES = ['types', 'type-definition', 'field-kinds'];
+const TYPES_PAGES = ['types', 'type-definition', 'field-kinds', 'tickets'];
 
 describe('the catalog the pages follow', () => {
   it('is the synced copy, with the types the pages cover', () => {

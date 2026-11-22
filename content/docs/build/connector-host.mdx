@@ -1,0 +1,51 @@
+---
+title: Build a connector host
+description: Write the program that redeems a one-time link, learns which plugin connectors to run on its machine, gets each one's key, and runs it with its settings and mapping.
+job: A builder writes a connector host, the program that runs a plugin's connectors with keys it gets from Marfa.
+kind: how-to
+---
+
+A **connector host** is the program that runs [a plugin's connectors](/use/run-a-plugin-connector) on a machine the owner linked. Marfa doesn't publish one yet, and [the connector kit](/build/connector) doesn't take its key from a host, so a host makes the operations below itself.
+
+## Redeem the link
+
+The owner gives the host a one-time link, such as `https://marfa.example.com/connect#marfa_l1_…`. The instance's address is the part before `/connect`, and the code is the part after the `#`. [Send the code](/reference/api/connector-hosts/redeemConnectorHostLink) with no credential:
+
+```http
+POST /connector-hosts/redeem
+Content-Type: application/json
+
+{ "code": "marfa_l1_4f4f4f4f…" }
+```
+
+The answer holds the host's `id` and `name`, and its own key as `key`. **Keep the key where only the host reads it.** It holds `connectors.host` alone, which opens the two operations below and nothing else: every other answers `401`. A link that ended, or was used, answers `404 connector_link_not_found`, and the owner makes another with `marfa hosts link`.
+
+## Learn what to run
+
+```http
+GET /connector-hosts/self
+Authorization: Bearer $HOST_KEY
+```
+
+`connectors` lists each plugin connector assigned to the host, with its `plugin`, `version`, the plugin's `connector` section and `key_minted`. Ask when the host starts and from time to time after: the owner moves connectors between hosts, and one that leaves the list has lost its key.
+
+## Get each connector's key
+
+```http
+POST /connector-hosts/self/connectors/rss/key
+Authorization: Bearer $HOST_KEY
+```
+
+The answer's `key` holds the connector's `source` and write on the type of each of its kinds. **Each mint revokes the key minted before,** so keep the key and mint again only when it's lost or refused. `404 plugin_not_found` means the connector no longer runs here.
+
+## Run the connector with it
+
+Start the connector with its key. It [registers](/reference/api/connectors/registerConnector) as any connector does, and then, on each run, it:
+
+1. **Reads its settings** with [`GET /connectors/{id}/settings`](/reference/api/connector-state/getConnectorSettings), which answers its secrets opened, and only to this key. A secret with `unreadable` `true` needs the owner to set it again.
+2. **Reads its mapping** with [`GET /plugins/{name}/connector/mapping`](/reference/api/plugins/getConnectorMapping), and writes each enabled kind as the type and tier it names, filling each field from its `from`, `fixed` or `template`.
+3. **Carries out each request under `rewrites`:** it rewrites its items on each kind's target type, then [sends the request's `number`](/reference/api/plugins/finishConnectorRewrite) to `POST /plugins/{name}/connector/mapping/rewrite/done`.
+
+Its state document, problems and agreements stay with its source on the instance, so a connector moved to another host resumes where it stopped ([Holds and retries](/build/connector-holds-and-retries)).
+
+The rules behind this page are in the [plugins](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#a-hosts-key) and [connectors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md#a-plugin-connectors-settings) chapters of the contract.
