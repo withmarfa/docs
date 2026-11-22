@@ -64,6 +64,7 @@ describe('buildDocsMap', () => {
       ...['Bookmark', 'Collection', 'Conversation', 'Entity', 'Event', 'File', 'Highlight', 'Media', 'Message', 'Note', 'Table', 'Task'].map((title) => `    - ${title}]`),
       '  - System types',
       ...['Connection', 'Folder', 'View'].map((title) => `    - ${title}]`),
+      '  - Tickets]',
       '  - Type definition]',
       '  - Field kinds]',
       '- Edge types]',

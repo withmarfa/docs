@@ -1,46 +1,50 @@
 ---
 title: Keep a synced directory's unsent edits after a restore
 sidebar_label: Keep folder edits after a restore
-description: Move a synced directory's unsent edits onto a restored instance, which refuses to take them from the directory itself.
+description: Move a synced directory's unsent edits onto a restored instance, from the list of files that marfa folders remove gives you.
 job: An owner restores into a new instance and keeps the edits a synced directory held but never sent.
 kind: how-to
 ---
 
-**A directory that held edits the old server never received can't send them to the new instance.** Its push is refused `instance_changed`, and `marfa folders remove` refuses it while edits wait ([withmarfa/marfa#3402](https://github.com/withmarfa/marfa/issues/3402) tracks this). So take the files out, and let a new directory send them. A directory with nothing unsent needs only [Fix a folder](/use/fix-a-folder#now-answers-as-another-marfa-instance).
+**A directory that held edits the old server never received can't send them to the new instance,** which holds neither the folder's state nor its key: its push is refused `instance_changed`. Instead, let a new directory send them. A directory with nothing unsent needs only [Fix a folder](/use/fix-a-folder#now-answers-as-another-marfa-instance).
 
-**Before you start,** [restore the backup](/run/back-up-and-restore#restore-a-backup) settle its final address, and sign the CLI in to it. Do the steps once for each directory.
+**Before you start,** [restore the backup](/run/back-up-and-restore#restore-a-backup), settle its final address, and sign the CLI in to it. Do the steps once for each directory, on the computer that holds it.
 
 <Steps>
 <Step>
 
-### Move the directory aside
+### Remove the directory from its folder
 
-Note the folder's ID in `marfa folders list`, then move the directory to a name that doesn't exist yet: `mv` puts a directory *inside* one that does. Never edit or copy its `.marfa` folder.
+Once a server at the folder's address answers as another instance, `remove` takes the directory off its folder even though edits wait. Its files stay as they are, and it lists each one that holds a change the old server never received:
 
-```bash
-marfa folders list
-mv ~/Documents/Home ~/Documents/Home.before-restore
-```
-
-</Step>
-<Step>
-
-### Take it off the list
-
-The path is gone, so `remove` only forgets it and deletes nothing. Name the path as `folders list` shows it.
+<Terminal>
 
 ```bash
 marfa folders remove ~/Documents/Home
 ```
 
+```text
+/Users/sam/Documents/Home no longer follows the folder 01a1f46f-bed0-7310-bb7c-840868eb64ac; its files stay
+4 write(s) could not be sent, because another Marfa instance answers at the folder's server; these files hold the changes this folder could not send:
+  changed  Packing list.md
+  new      New idea.md
+  moved    Trips/Lisbon.md, from Lisbon.md
+  deleted  Old plan.md
+```
+
+</Terminal>
+
+**Keep this list:** removing the directory deletes the record of what waited, and a deletion or a move is in no file. Its numbered steps follow, and `--json` gives the same as `folder`, `unsent` and `files`.
+
 </Step>
 <Step>
 
-### Add a new directory and let it write
+### Add a new directory in its place
 
-Add the folder again by its ID, which the restore kept. The plan should say how many files it writes into the directory and that it sends none: answer yes, then push. **The new directory must hold the folder's files before you copy anything in:** a file copied in earlier that is not a note comes back as a new item beside the old one.
+Move the directory to a name that doesn't exist yet (`mv` puts a directory *inside* one that does), then add the folder again by its ID, which the restore kept, and push. The new directory fills with the restored instance's copy of every file.
 
 ```bash
+mv ~/Documents/Home ~/Documents/Home.before-restore
 marfa folders add ~/Documents/Home --folder 01a1f46f-bed0-7310-bb7c-840868eb64ac
 marfa folders push ~/Documents/Home
 ```
@@ -48,30 +52,41 @@ marfa folders push ~/Documents/Home
 </Step>
 <Step>
 
-### Copy in what changed
+### Make each change again
 
-Copy the files you added or changed out of `Home.before-restore`, never its `.marfa`, and push again:
+In the new directory, delete each `deleted` file again, and move each `moved` file again from where it was. Then copy back only the `changed`, `new` and `moved` files from `Home.before-restore`, never its `.marfa`:
 
 ```bash
-cp ~/Documents/Home.before-restore/"Packing list.md" ~/Documents/Home.before-restore/"New idea.md" ~/Documents/Home/
-marfa folders push ~/Documents/Home
+rm ~/Documents/Home/"Old plan.md"
+mkdir -p ~/Documents/Home/Trips && mv ~/Documents/Home/Lisbon.md ~/Documents/Home/Trips/
+cp ~/Documents/Home.before-restore/{"Packing list.md","New idea.md"} ~/Documents/Home/
+cp ~/Documents/Home.before-restore/Trips/Lisbon.md ~/Documents/Home/Trips/
 ```
 
-**`marfa folders status` can't tell whether each item holds the right content,** so compare the two directories yourself, and keep `Home.before-restore` until you have:
+Copying back only the named files keeps the edits another computer sent to the others.
+
+</Step>
+<Step>
+
+### Compare the two directories
 
 ```bash
 diff -rq --exclude=.marfa ~/Documents/Home.before-restore ~/Documents/Home
 ```
 
-A note differs only by the details Marfa writes at its top. A file only in the new directory is the old name of one you renamed, or one you deleted that the restore brought back; [the list below](#what-each-file-becomes) explains both. Another computer with unsent edits follows these steps for its own directory.
+**A file that differs but isn't on the list may hold a change the folder sent after the backup was made,** which the new instance lacks. Check it, and copy it back if the old copy is the one to keep. A note can also differ only by the details Marfa writes at its top.
+
+</Step>
+<Step>
+
+### Push until nothing waits
+
+```bash
+marfa folders push ~/Documents/Home
+marfa folders status ~/Documents/Home
+```
+
+Push again until `status` shows nothing `waiting`: a deleted file's item is binned only once the folder's grace for a rename has passed. Keep `Home.before-restore` until then. Another computer with unsent edits follows these steps for its own directory.
 
 </Step>
 </Steps>
-
-## What each file becomes
-
-- **A changed note or file** under its old name updates its item.
-- **A new file** becomes a new item.
-- **A renamed file** comes back from the restore under its old name, and its new name becomes a second item, with `marfa folders status` still saying every file is in step. Bin the one you don't want with `marfa items trash <id>`, and delete its file.
-- **A note whose ID the backup never held,** because the old server made it after the last backup, becomes a new item under a new ID.
-- **A file you deleted** in the directory is not deleted in Marfa: its item stays until you bin it.
