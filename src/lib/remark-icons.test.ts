@@ -2,16 +2,16 @@ import { describe, expect, it } from 'vitest';
 import type { Connector } from './connectors';
 import { type IconSources, remarkIcons } from './remark-icons';
 
-const connector = (name: string, source: string, sourceMark?: string): Connector => ({
+const connector = (name: string, source: string, mark?: string): Connector => ({
   directory: `connectors/${name}`,
   name,
+  title: name,
   description: '',
   source,
   sourceName: source,
-  ...(sourceMark ? { sourceMark } : {}),
+  ...(mark ? { mark } : {}),
   types: [],
   carriesBack: false,
-  carriesBackCanBeTurnedOff: false,
   carriedTypes: [],
 });
 

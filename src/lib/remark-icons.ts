@@ -6,7 +6,7 @@ import { type IconData, resolveIcon } from './icons';
 /**
  * Where the Catalog shows an icon, and nowhere else. A Catalog type shows the
  * icon its own `display_hints.icon` names: in its page heading and beside its
- * name in the Types list. A connector shows the mark its `sourceMark` names: in
+ * name in the Types list. A connector shows the mark its `plugin.json` names: in
  * its page heading and in the Mark column of the connector index. A type or
  * connector with no icon shows none. The icons are resolved here, while the page
  * compiles, from the pinned Iconify sets (`src/lib/icons.ts`).
@@ -101,7 +101,7 @@ export function remarkIcons(read: () => IconSources = () => readIconSources()) {
               'Name the page for a connector, or remove it.',
           );
         }
-        if (connector.sourceMark) file.data.pageIcon = resolveIcon(connector.sourceMark);
+        if (connector.mark) file.data.pageIcon = resolveIcon(connector.mark);
       }
 
       const identifier = (file.data.frontmatter as { identifier?: unknown } | undefined)?.identifier;

@@ -116,7 +116,7 @@ Close a gap in the spec in the monorepo's generator, never by editing
 The connector Catalog has its own sync, `./scripts/sync-from-plugins.sh`. It
 expects the `plugins` repository at `../plugins`; override with
 `MARFA_PLUGINS_ROOT`. It writes `src/generated/connectors/` from that
-repository's committed `connectors.json`, and stops unless the checkout is at
+repository's committed `connectors/<name>/plugin/plugin.json` files, and stops unless the checkout is at
 `origin/main` (or at the tag `MARFA_PLUGINS_TAG` names).
 
 The Changelog page comes from the GitHub release notes of the monorepo:

@@ -1,7 +1,7 @@
 /**
- * Holds the connector Catalog to the list in the plugins repository. A page is keyed by a
- * connector's name, not its source, because two connectors can share a source.
- * The sync writes the list, where it came from, the index and each header, and
+ * Holds the connector Catalog to the connectors in the plugins repository. A page is keyed by a
+ * connector's name, which is its plugin's name. The sync derives the list from each
+ * `plugin.json` and writes it, where it came from, the index and each header, and
  * a page for any connector that has none; a page for a name the list lacks
  * fails here and in the build (`remarkIcons`).
  */
@@ -10,7 +10,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { connectorTitle, readConnectors } from './connectors';
+import { readConnectors } from './connectors';
 import { source } from './source';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -35,19 +35,15 @@ describe('connectors', () => {
     expect([...pages].sort()).toEqual(connectors.map((c) => c.name).sort());
   });
 
-  it('keys two connectors that share a source by their names', () => {
-    const shared = connectors.filter((c) => c.source === 'readwise').map((c) => c.name);
-    expect(shared.sort()).toEqual(['readwise', 'readwise-reader']);
+  it('keys a page by the connector name, which its plugin names for its folder', () => {
+    for (const connector of connectors) expect(connector.directory, connector.name).toBe(`connectors/${connector.name}`);
   });
 
-  it('titles each page as the index names it', () => {
+  it('titles each page as its plugin does', () => {
     for (const connector of connectors) {
       const page = read(path.join(PAGES, `${connector.name}.mdx`));
-      expect(page, connector.name).toContain(`\ntitle: ${connectorTitle(connector)}\n`);
+      expect(page.replace(/\ntitle: "(.*)"\n/, '\ntitle: $1\n'), connector.name).toContain(`\ntitle: ${connector.title}\n`);
     }
-    expect(connectorTitle({ name: 'readwise-reader', source: 'readwise', sourceName: 'Readwise' })).toBe('Readwise Reader');
-    expect(connectorTitle({ name: 'github', source: 'github', sourceName: 'GitHub' })).toBe('GitHub');
-    expect(connectorTitle({ name: 'other', source: 'service', sourceName: 'Service' })).toBe('Other');
   });
 
   it('includes the generated header once, and nothing a page repeats by hand', () => {
@@ -76,17 +72,18 @@ describe('connectors', () => {
       .slice(2)
       .map((line) => line.split('|').map((cell) => cell.trim()));
     expect(rows.map((cells) => cells[2])).toEqual(
-      connectors.map((c) => `[${connectorTitle(c)}](/catalog/connectors/${c.name})`),
+      connectors.map((c) => `[${c.title}](/catalog/connectors/${c.name})`),
     );
-    expect(rows.map((cells) => cells[1])).toEqual(connectors.map((c) => (c.sourceMark ? `\`${c.sourceMark}\`` : '')));
+    expect(rows.map((cells) => cells[1])).toEqual(connectors.map((c) => (c.mark ? `\`${c.mark}\`` : '')));
   });
 
-  it('says in each header what the list says', () => {
+  it('says in each header what the list says, and nothing on turning carry-back off, which no manifest holds', () => {
     for (const c of connectors) {
       const header = read(path.join(GENERATED, `${c.name}.md`));
       expect(header, c.name).toContain(`**Source:** \`${c.source}\``);
       for (const type of c.types) expect(header, `${c.name} ${type}`).toContain(`\`${type}\``);
-      expect(header.includes('**Can be turned off:**'), c.name).toBe(c.carriesBack);
+      expect(header, c.name).toContain(`**Can carry changes back:** ${c.carriesBack ? 'Yes' : 'No'}`);
+      expect(header, c.name).not.toContain('Can be turned off');
     }
   });
 

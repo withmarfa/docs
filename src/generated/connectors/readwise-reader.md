@@ -1,4 +1,0 @@
-- **Source:** `readwise`, shown as Readwise
-- **Types:** `readwise.source`, `readwise.highlight`, `readwise.file`
-- **Carries changes back:** Yes, for `readwise.source`, `readwise.highlight`
-- **Can be turned off:** Yes
