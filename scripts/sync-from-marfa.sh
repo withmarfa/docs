@@ -37,9 +37,9 @@
 #                                     cli/: builtin-catalog.json (a copy of the
 #                                     shipped type catalog), types.md (the
 #                                     top-level types, linked to their pages),
-#                                     one Markdown file per top-level type with
-#                                     its subtypes inside (core.media.md,
-#                                     system.folder.md), edges.md (a section for
+#                                     one Markdown file per top-level type, its
+#                                     guidance first, with its subtypes inside
+#                                     (core.media.md, system.folder.md), edges.md (a section for
 #                                     each edge type: its description, a table of
 #                                     its settings and its properties),
 #                                     edge-types.md
@@ -586,7 +586,7 @@ def write(name, lines):
 
 FIELD_KEYS = {"type", "label", "description", "required", "format", "enum_values", "items_type", "items_fields", "status_values", "minimum", "maximum"}
 MEMBER_KEYS = {"type", "label", "description", "required", "enum_values", "format", "minimum", "maximum"}
-TYPE_KEYS = {"id", "parent", "label", "plural", "description", "version", "fields", "display_hints", "merge_policy", "roles", "tables"}
+TYPE_KEYS = {"id", "parent", "label", "plural", "description", "guidance", "version", "fields", "display_hints", "merge_policy", "roles", "tables"}
 EDGE_KEYS = {
     "id", "label", "reverse_label", "description", "cardinality", "from_type_constraints", "to_type_constraints",
     "cascade_on_delete", "reverse_name", "written_from", "property_schema", "shipped", "acyclic", "flat",
@@ -751,6 +751,20 @@ def hints_of(t):
     return hints
 
 
+def check_guidance(t):
+    """Guidance is Markdown placed under a heading of the type's page, so a heading or a code fence
+    of its own would break the page's outline or its escaping."""
+    text = t["guidance"]
+    if not isinstance(text, str) or not text.strip():
+        refuse(catalog_path, f"has guidance for {t['id']} that is not text")
+    if any(re.match(r"\s*(#|```|~~~)", line) for line in text.splitlines()):
+        refuse(catalog_path, f"has guidance for {t['id']} with a heading or a code fence, which the sync does not write")
+
+
+def guidance(t, heading):
+    return [heading, "", safe(plain(t["guidance"].strip())), ""] if t.get("guidance") else []
+
+
 def render_types(types):
     by_id = {}
     for t in types:
@@ -761,6 +775,8 @@ def render_types(types):
         for key in ("label", "description"):
             if not isinstance(t.get(key), str):
                 refuse(catalog_path, f"has no {key} for {t['id']}")
+        if "guidance" in t:
+            check_guidance(t)
         check_fields(t["id"], t.get("fields"), FIELD_KEYS)
         if "tables" in t:
             check_tables(t["id"], t["tables"])
@@ -856,7 +872,7 @@ def render_types(types):
     def page(t):
         """A top-level type has a page of its own, whose header gives its label, description and
         identifier, so its file starts with its fields. Its subtypes are sections of it."""
-        out = ["## Fields", "", *fields_table(t, None)]
+        out = [*guidance(t, "## Guidance"), "## Fields", "", *fields_table(t, None)]
         own = settings(t, None)
         if own:
             out += ["## Settings", "", *own]
@@ -868,6 +884,7 @@ def render_types(types):
         for child in children:
             parent = by_id[child["parent"]]
             out += [f"### {child['id']} [#{child['id'].replace('.', '-')}]", "", safe(plain(child["description"])), ""]
+            out += guidance(child, f"#### Guidance [#{child['id'].replace('.', '-')}-guidance]")
             out += settings(child, parent) + fields_table(child, parent) + tables_section(child, 4)
         return out
 

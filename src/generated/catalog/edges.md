@@ -1,6 +1,6 @@
 ## about
 
-Says that an item is about another item, such as a note about a book.
+Runs from the item to what it is about. When saving an item, about names that subject.
 
 | Setting             | Value          |
 | ------------------- | -------------- |
@@ -16,7 +16,7 @@ Says that an item is about another item, such as a note about a book.
 
 ## attached-to
 
-Says that an item is attached to another item and exists for it, such as a scanned page attached to the document it was scanned for.
+Runs from the attachment to the item it belongs to. When saving an attachment, attached-to names that item.
 
 | Setting             | Value            |
 | ------------------- | ---------------- |
@@ -37,7 +37,7 @@ Says that an item is attached to another item and exists for it, such as a scann
 
 ## comments-on
 
-Says that an item is a comment on another item, including a reply to another comment.
+Runs from the comment to the item it comments on. When saving a comment, comments-on names that item. A comment has one subject.
 
 | Setting             | Value         |
 | ------------------- | ------------- |
@@ -53,7 +53,7 @@ Says that an item is a comment on another item, including a reply to another com
 
 ## derived-from
 
-Says that an item was made from another item, such as an imported copy or a summary generated from a note.
+Runs from the derived item to its source. When saving an item, derived-from names that source.
 
 | Setting             | Value          |
 | ------------------- | -------------- |
@@ -69,7 +69,7 @@ Says that an item was made from another item, such as an imported copy or a summ
 
 ## excerpt-of
 
-Says that an item is a highlight, quote or clip taken from another item, such as a quote from a book.
+Runs from the excerpt to the item it was taken from. When saving a highlight or quote, excerpt-of names that item. An excerpt has one source.
 
 | Setting             | Value         |
 | ------------------- | ------------- |
@@ -85,7 +85,7 @@ Says that an item is a highlight, quote or clip taken from another item, such as
 
 ## in-collection
 
-Says that an item is a member of a container, such as a collection, a series or an album.
+Runs from the member to its container, such as a collection, a series or an album. When saving a member, in-collection names the container. A container does not nest inside another.
 
 | Setting             | Value                              |
 | ------------------- | ---------------------------------- |
@@ -105,7 +105,7 @@ Says that an item is a member of a container, such as a collection, a series or 
 
 ## in-folder
 
-Says where an item's file sits in a synced folder.
+Runs from the item to the system.folder its file sits in. Saving an item cannot set this edge, because the edge needs the file's path.
 
 | Setting             | Value           |
 | ------------------- | --------------- |
@@ -126,7 +126,7 @@ Says where an item's file sits in a synced folder.
 
 ## in-thread
 
-Says that an item is a message in a thread, such as a reply in a conversation.
+Runs from the message to its thread. When saving a message, in-thread names the thread. A message has one thread.
 
 | Setting             | Value         |
 | ------------------- | ------------- |
@@ -146,7 +146,7 @@ Says that an item is a message in a thread, such as a reply in a conversation.
 
 ## parent-of
 
-Says that an item is the parent of another item, so that items form a hierarchy.
+Runs from the parent to the child. Each child has one parent. When saving an item, parent-of names its children. To give this item a parent, save the parent and name this item.
 
 | Setting             | Value         |
 | ------------------- | ------------- |
@@ -163,7 +163,7 @@ Says that an item is the parent of another item, so that items form a hierarchy.
 
 ## references
 
-Says that an item mentions another item, such as a note that links to another note.
+Runs from the item to the item it mentions. When saving an item, references names what it mentions.
 
 | Setting             | Value          |
 | ------------------- | -------------- |
@@ -179,7 +179,7 @@ Says that an item mentions another item, such as a note that links to another no
 
 ## supersedes
 
-Says that an item replaces another item as the current version, such as a revised document that replaces its earlier draft.
+Runs from the newer item to the item it replaces. Each end holds one item. When saving the current item, supersedes names the one it replaces.
 
 | Setting             | Value         |
 | ------------------- | ------------- |

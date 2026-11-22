@@ -1286,6 +1286,26 @@ check "a subtype that differs says its hints and merge policy as values" \
 check "the parent says its own hints once, and a subtype equal to it adds none" 1 \
   "$(grep -cE '^\| \[`title_field`\].*\| `title` +\|$' "${drift_file}")"
 
+# A type's guidance is Markdown under a heading of its own: before the fields on a top-level type's
+# page, and after the description of a subtype, escaped for MDX outside code spans.
+echo "a type catalog with guidance"
+fixture guidance "${work}/untagged.json"
+catalog_with 'base = c["types"][0]; base["guidance"] = "**Use for**\n\n- A thought. A `core.note`, not {this} or <that>.\n"; c["types"].append({"id": "core.note.guided", "parent": "core.note", "label": "Guided", "description": "A guided note.", "guidance": "Use for guided notes.", "version": 0, "fields": base["fields"]})' \
+  > "${work}/guidance/marfa/core/marfa-rules/src/builtin_catalog.json"
+sync guidance
+guidance_file="${work}/guidance/docs/src/generated/catalog/core.note.md"
+check "a type with guidance: the script succeeds" 0 "${status}"
+check "a top-level type's guidance comes first, under its heading and before the fields" \
+  "$(printf '## Guidance\n\n**Use for**\n\n- A thought. A `core.note`, not \\{this} or \\<that>.\n\n## Fields')" "$(sed -n '1,/^## Fields$/p' "${guidance_file}")"
+check "a subtype's guidance follows its description under an anchored heading" \
+  "$(printf '### core.note.guided [#core-note-guided]\n\nA guided note.\n\n#### Guidance [#core-note-guided-guidance]\n\nUse for guided notes.')" \
+  "$(sed -n '/^### core.note.guided /,$p' "${guidance_file}")"
+refuse_catalog "guidance that is not text" "${cat_file} has guidance for core.note that is not text. Nothing has changed." "$(catalog_with 'c["types"][0]["guidance"] = ["a"]')"
+refuse_catalog "empty guidance" "${cat_file} has guidance for core.note that is not text. Nothing has changed." "$(catalog_with 'c["types"][0]["guidance"] = "  "')"
+# refuse_catalog reads its catalog with printf %b, so a JSON \n escape is doubled to survive it.
+refuse_catalog "guidance with a heading" "${cat_file} has guidance for core.note with a heading or a code fence, which the sync does not write. Nothing has changed." "$(catalog_with 'c["types"][0]["guidance"] = "Intro" + chr(10) + "## Use for"' | sed 's/\\/\\\\/g')"
+refuse_catalog "guidance with a code fence" "${cat_file} has guidance for core.note with a heading or a code fence, which the sync does not write. Nothing has changed." "$(catalog_with 'c["types"][0]["guidance"] = chr(10).join(["```", "x", "```"])' | sed 's/\\/\\\\/g')"
+
 # Keys a type and its fields gain: a plural, field labels, a list of entries with members, a range,
 # a status field's words and groups, and an edge type's acyclic flag.
 echo "a type catalog with plurals, labels, members, ranges and statuses"
