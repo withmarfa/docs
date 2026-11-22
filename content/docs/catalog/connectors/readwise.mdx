@@ -1,60 +1,70 @@
 ---
 title: Readwise
-description: The sources, highlights, annotations and tags of one Readwise account, read only.
+description: The sources and highlights of one Readwise account, and with Reader turned on, its Reader documents, with supported edits carried back.
+job: Someone setting up the Readwise connector looks up what it keeps with Reader off or on, and the settings it reads.
 ---
 
-The Readwise connector imports the sources and highlights of one Readwise account into the feed. **It sends only read requests to Readwise**, so nothing goes back.
+The Readwise connector keeps the sources and highlights of one Readwise account in the feed. **Reader is off by default:** the connector then reads Readwise's export and writes nothing to Readwise. Turn on `readwise_reader` and it also keeps your Reader documents and their content, and carries supported edits back to Reader.
 
 <include cwd>src/generated/connectors/readwise.md</include>
 
 ## What it brings in
 
-Readwise's highlights export: every source, such as a book, article, tweet or podcast, and every highlight with its complete passage, annotation and tags. Text and annotations are never shortened.
+With Reader off, Readwise's export: every source, such as a book or article, and every highlight with its complete passage, annotation and tags. Text is never shortened.
 
-The first run exports everything. Later runs ask for what changed since the last completed walk, with a five-minute overlap. A full pass repeats every 24 hours, because an incremental export doesn't promise to include a change made only to a source's metadata. A run reads at most 50 pages and leaves the rest for the next run.
+With Reader on, it also reads Reader's saved library, and the feed if you ask. **A Reader document and its export entry are one item**, so turning Reader on keeps the same items, key and progress. It keeps each document's HTML, any original file and the pictures Readwise hosts, as files attached to the document.
 
 ## Types it writes
 
 | Type | Parent type | Holds |
 | --- | --- | --- |
-| `readwise.source` | [Media](/catalog/media) | A book, article, tweet, podcast or other source |
+| `readwise.source` | [Media](/catalog/media) | A source, or a Reader document |
 | `readwise.highlight` | [Highlight](/catalog/highlight) | A highlight with its annotation and tags |
-| `readwise.file` | [File](/catalog/file) | Content kept for a document that Readwise Reader manages |
+| `readwise.file` | [File](/catalog/file) | Content or a picture kept for a Reader document |
 
-An item's `source_id` is `<account>:source:<ID>` or `<account>:highlight:<ID>`, where the account is your `READWISE_ACCOUNT`. Readwise's original timestamps, location kinds and colors are kept as properties.
-
-Each highlight has a `title` and a `body`. The title is the passage's first paragraph as plain text, cut at a word boundary to at most 80 characters, without list or quotation markers at its start. A passage that holds only a picture is titled after its source, as in "Picture from Deep Work". The body is the whole passage as Markdown, pictures included.
-
-Dates and times are `datetime` [fields](/catalog/field-kinds), `reader_published_date` is a `date`, and addresses are `url` fields. **A value Readwise sends blank is left out.** A value its field's kind refuses is kept as sent under `original_values`, by field name, so one odd value never stops an item being written.
+A highlight's `body` is its whole passage as Markdown, and its `title` the passage's first paragraph.
 
 ## Edges it writes
 
 | Edge type | From | To |
 | --- | --- | --- |
 | [`excerpt-of`](/catalog/edges/excerpt-of) | A highlight | Its source |
-| [`attached-to`](/catalog/edges/attached-to) | A file | The source or highlight it belongs to |
+| [`attached-to`](/catalog/edges/attached-to) | A file | Its source or highlight |
 
-Moving a source or highlight to the bin takes its files with it. **It writes no `references` edges.** It clears the `references` edge it wrote from a highlight to its source before `excerpt-of` took its place, so its key keeps write on `references`.
+Its key keeps write on `references` only to clear the ones it wrote before.
 
 ## What goes back
 
-Nothing. Moving an item to the bin or purging it in Marfa deletes nothing in Readwise. An export tombstone archives only the item it names. A missing record, an empty page or a 404 never archives anything.
+With Reader off, nothing. With Reader on, for rows Reader manages:
+
+- **Document edits:** title, author, `description`, notes, tags, `reader_location`, category, language, `published_at` and `image_url`.
+- **Highlight edits:** `note` and tags.
+- **Archive and restore.** Archiving a document moves it to Reader's archive, and restoring it moves it to Later.
+- **A new item** with `reader_create: true` is saved to Reader.
+
+The bin never changes Reader, and a row only the export holds, such as a Kindle book, is never sent.
 
 ## Settings
 
+Give each as an environment variable named in capitals, such as `READWISE_READER=true`.
+
 | Setting | What it holds |
 | --- | --- |
-| `READWISE_ACCESS_TOKEN` | Your Readwise access token. A secret. |
-| `READWISE_ACCOUNT` | A stable label for the account that is not secret, such as `primary`. 1 to 64 ASCII letters, digits, dots, underscores or hyphens, starting with a letter or digit. |
-| `READWISE_CONTENT_MAX_BYTES` | The largest remote resource to keep, in bytes, from 1 through 1,073,741,824. The default is 268,435,456 (256 MiB). Optional. |
+| `readwise_account` | A stable label for the account, such as `primary`. Required. |
+| `readwise_access_token` | Your Readwise access token. Secret. Required. |
+| `readwise_content_max_bytes` | The largest file to keep. Default 268435456 (256 MiB). |
+| `readwise_reader` | `true` turns Reader on. Default `false`. |
+| `readwise_reader_include_feed` | `true` also reads Reader's feed. Default `false`. |
+| `readwise_reader_pictures` | Pictures from other websites: `addresses` (default) lists them, `save` saves them, `save-in-library` saves them for library documents. |
+| `readwise_reader_inbound_only` | `true` sends no edits to Reader. Default `false`. |
+| `readwise_reader_propagate_purge` | `true` lets a purge in Marfa delete the Reader record. Default `false`. |
+| `readwise_api_url`, `readwise_reader_api_url` | The API addresses, for testing only. |
 
 ## What to know
 
-- **Keep the account label.** It is part of every item's identity, so keep it the same across token changes and reinstallations. Changing it against saved progress is refused.
-- **One Readwise account for each connector.** The label is never worked out from the token.
-- **Readwise Reader shares these items.** If you also run Readwise Reader, give both the same label. Reader supplies the canonical passage, and this connector keeps a differing export passage in `readwise_text`.
-- **Rate limits are honored.** A 429 saves its `Retry-After` deadline across restarts. A failed request or malformed answer fails the run and never becomes an empty import.
-- **Requests time out after 30 seconds**, refuse redirects, and read at most 32 MiB of an answer.
+- **Keep the account label.** It is part of every item's identity, so changing it is refused.
+- **Turning Reader off keeps what Reader managed.** Those rows are still refreshed from Reader with read requests, and an edit made in Marfa waits until Reader is on.
+- **Purges are limited.** With `readwise_reader_propagate_purge` on, more than 20 deletions at once stops the run before anything reaches Reader.
 
 ## Make its key
 
@@ -69,8 +79,6 @@ marfa keys create --label readwise --source readwise \
   --metadata-permission types=write \
   --default-tier feed
 ```
-
-**Make this key before the Readwise Reader key.** Once Reader's key claims `readwise`, only a credential holding `keys.manage` and `keys.mint`, such as the CLI with Full access, makes a key that takes `readwise` as its own. The contract sets this out in [Claimed sources](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#keys-and-oauthclaims-own-elsewhere).
 
 ## Run it
 
