@@ -6,7 +6,7 @@ description: Read and write the items, edges, tags, table rows, files, saved vie
 job: A Swift builder looks up the calls that read and write items, edges, tags, rows, files, views and folder settings.
 ---
 
-A working copy answers reads from its store with no request and **queues every write,** which shows at once and reaches the server at the next [drain](/reference/swift-sdk/working-copy#the-queue). Each write returns its `QueuedWrite`. A view or folder write is the exception: it goes to the server at once. [Write in a working copy](/build/write-in-a-working-copy) explains the model. The [`Folders`](#folders) class, which works a Mac's directories, is on this page too.
+A working copy answers reads from its store with no request and **queues every write,** which shows at once and reaches the server at the next [drain](/reference/swift-sdk/working-copy#the-queue). Each write returns its `QueuedWrite`. [Write in a working copy](/build/write-in-a-working-copy) explains the model.
 
 ## Read items
 
@@ -71,7 +71,7 @@ Call these on `copy.items`:
 | `edges.check(from:to:type:properties:id:)`, `edges.check(_:moving:)` | Throw what the write would now, and queue nothing. |
 | `edges.delete(_:)` | Queues a delete. |
 
-**Every edge read and write throws `hydrationIncomplete` until the copy is whole.** A move of the from end expires the copy once the server accepts it: the drain then throws `copyExpired` with `reach_changed`. A write refuses **in the server's order, with its code,** judged from what the copy holds: `edge_cycle`, `item_not_found` for an end in the bin, `edge_constraint_violation` for a type the edge type doesn't admit, and with `details.constraint` of `"duplicate"` or `"cardinality"`. **Returning isn't the server's verdict:** what the copy doesn't hold, such as a cycle outside its slice, reaches the server. [Write in a working copy](/build/write-in-a-working-copy) covers edges.
+**Every edge read and write throws `hydrationIncomplete` until the copy is whole.** A move of the from end expires the copy once the server accepts it: the drain then throws `copyExpired` with `reach_changed`. A write refuses **in the server's order, with its code,** judged from what the copy holds: `edge_cycle`, `item_not_found` for an end in the bin, `edge_constraint_violation` for a type the edge type doesn't admit, and with `details.constraint` of `"duplicate"` or `"cardinality"`. **Returning isn't the server's verdict:** what the copy doesn't hold, such as a cycle outside its slice, reaches the server.
 
 ## Tags, extensions and tables
 
@@ -79,7 +79,7 @@ Call these on `copy.items`:
 | --- | --- |
 | `tags.add(_:to:)`, `tags.remove(_:from:)` | One tag. An item with **more than 100 tags** throws `validation_error`. |
 | `metadata.replaceTags(of:with:)` | Every tag in one write. |
-| `extensions.write(_ namespace:_ body:on:)`, `extensions.delete(_ namespace:from:)` | An extension's whole body, or its removal. |
+| `extensions.write(_ namespace:_ body:on:readRevision:)`, `extensions.delete(_ namespace:from:readRevision:)` | An extension's whole body, or its removal. Given a read's `revision`, a write over a later change is blocked `conflict_unresolved`, keeping your value. |
 
 A [table](/build/tables) row is never an item. The copy holds a table **whole or not at all,** and reads others from the server.
 
@@ -149,7 +149,7 @@ A saved view is a `system.view` item, a `SavedView`, never named `View`. **Hydra
 
 `copy.createFolder(_:idempotencyKey:)`, `changeFolder(_:_:baseVersion:idempotencyKey:)` and `revokeFolder(_:idempotencyKey:)` write at once, as view writes do. **A revoked folder changes no more.**
 
-`Folders(server:)` works the Mac's directories through the same registry as the `marfa` command line.
+`Folders(server:)` works the Mac's directories through the `marfa` command line's registry.
 
 | Call | Does |
 | --- | --- |
@@ -157,6 +157,6 @@ A saved view is a `system.view` item, a `SavedView`, never named `View`. **Hydra
 | `sync(_:)` | One pass: sends disk changes, catches up, writes out what the query matches, sends placements. Returns a `FolderSyncResult`. |
 | `confirmFirstSync(in:)`, `confirmRemoval(in:)`, `restoreRemoval(in:)` | Let a first sync or a held removal go, or cancel a removal and write the files back. |
 | `watch(_:)` | Keeps the folder in step while the app runs: a `FolderWatch` sequence of `FolderEvent`s. **Leaving a loop early doesn't stop it:** call `stop()`. |
-| `pause(_:)`, `resume(_:)`, `remove(_:)` | Pause or resume a directory, or take the folder off the Mac, leaving plain files. `remove` throws `invalid` while writes wait. |
+| `pause(_:)`, `resume(_:)`, `remove(_:)` | Pause or resume a directory, or take the folder off the Mac, leaving plain files. `remove` returns a `FolderRemoval`, or throws `invalid` while writes wait. |
 
-**A first sync waits for the person:** `sync(_:)` returns `.awaitingConfirmation(FirstSyncPlan)` with what it will write and send, and `watch(_:)` throws `firstSyncWaiting`. **A paused directory sends and writes nothing,** and its sync calls throw `syncPaused`. **One process works a folder at a time:** a call asks a watch to let go and waits 10 seconds, then throws `readingHandle`. A `StorageCause` on `AddedFolder.storage` warns about iCloud Drive, a cloud service or a network file system: show it once for each folder. A pass reports its `FolderScan` and `FolderPull` counts, and `FolderStatus` gives each file a `FileState` of `.inStep`, `.waiting`, `.held`, `.unmatched`, `.unreached` or `.outside`, and lists in `directories` each directory it flagged, as a `FlaggedFile` with its `path`, `flag`, `reason` and `item`. [Folder sync status](/reference/folder-sync-status) and [How a synced folder treats files](/reference/folder-rules) hold the rules.
+**When another instance answers at the folder's server** ([after a restore](/run/keep-folder-edits-after-a-restore)), `remove(_:)` goes ahead and lists each file it couldn't send in `FolderRemoval.files`. Show every one: a moved or deleted file is in no file. **A first sync waits for the person:** `sync(_:)` returns `.awaitingConfirmation(FirstSyncPlan)` with what it will write and send, and `watch(_:)` throws `firstSyncWaiting`. **A paused directory sends and writes nothing,** and its sync calls throw `syncPaused`. **One process works a folder at a time:** a call asks a watch to let go and waits 10 seconds, then throws `readingHandle`. A `StorageCause` on `AddedFolder.storage` warns about iCloud Drive, a cloud service or a network file system: show it once for each folder. A pass reports its `FolderScan` and `FolderPull` counts, and `FolderStatus` gives each file a `FileState` of `.inStep`, `.waiting`, `.held`, `.unmatched`, `.unreached` or `.outside`, and lists in `directories` each directory it flagged, as a `FlaggedFile` with its `path`, `flag`, `reason` and `item`. [Folder sync status](/reference/folder-sync-status) and [How a synced folder treats files](/reference/folder-rules) hold the rules.
