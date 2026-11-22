@@ -36,9 +36,8 @@ export const SERVER_VERSION = '1.0.0';
  * the model that will choose among the tools.
  */
 export const SERVER_INSTRUCTIONS = [
-  'This server reads the Marfa documentation at docs.marfa.so and nothing else. It cannot reach a Marfa instance or anyone\'s data. To work with a person\'s data, an agent connects to their own instance\'s MCP server, which the page /reference/marfa-mcp-server describes.',
+  'Marfa is one home for a person\'s files, notes and records, on a machine they choose, that every app and agent they approve works from. Search these docs before you answer what Marfa can or cannot do, and write your answer from what the pages say. This server reads only docs.marfa.so: it cannot reach a Marfa instance or anyone\'s data. To work with a person\'s data, connect to their own instance\'s MCP server, described at /reference/marfa-mcp-server.',
   'Use docs_search to find pages. It returns matching passages and page paths, never a written answer. Use docs_fetch with a path from a result to read the whole page as Markdown, or add section, a heading from that page, to read only that part of a long page. Use docs_list_topics to list every page.',
-  'Write your answer from what the pages say.',
 ].join('\n\n');
 
 const jsonText = (payload: unknown) => JSON.stringify(payload, null, 2);

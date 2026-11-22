@@ -351,6 +351,20 @@ describe('the server tells an agent how to use it', () => {
     expect(text).toMatch(/cannot reach/i);
     expect(text).toMatch(/instance/i);
   });
+
+  // Codex keeps the first 512 characters of a server's instructions, so they
+  // must say what Marfa is and to search before answering on their own.
+  it('opens with what Marfa is, then says to search before answering, all in the first 512 characters', async () => {
+    const body = (await readJson(await initialize())) as { result?: { instructions?: string } };
+    const text = body.result?.instructions ?? '';
+    const first = text.slice(0, 512);
+    expect(text.startsWith('Marfa is ')).toBe(true);
+    expect(first.split('. ')[0]).not.toMatch(/docs_|search/i);
+    expect(first).toMatch(/search these docs before you answer what Marfa can or cannot do/i);
+    expect(first).toMatch(/cannot reach a Marfa instance/i);
+    expect(first.indexOf('Search')).toBeGreaterThan(first.indexOf('Marfa is '));
+    expect(text.split('\n\n')[0].length).toBeLessThanOrEqual(512);
+  });
 });
 
 describe('tools/list is deterministic', () => {
