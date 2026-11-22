@@ -14,7 +14,7 @@ An operation marked `x-marfa-local-command` also answers the private local liste
 
 ### Permissions
 
-Your credential reads and writes only the types its permissions reach. If you ask by ID for an item whose type you can't read, Marfa answers as if the item doesn't exist. An edge appears in a response only if you can read both its edge type and the type of the item it starts from.
+Your credential reads and writes only the types its permissions reach. If you ask by ID for an item you can't read, Marfa answers as if the item doesn't exist. An edge appears in a response only if you can read both its edge type and the item it starts from.
 
 ### Pagination
 
