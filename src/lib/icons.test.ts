@@ -47,7 +47,7 @@ describe('icons', () => {
     expect(typeIcons.size).toBeGreaterThan(20);
     for (const id of typeIcons.values()) expect(() => resolveIcon(id), id).not.toThrow();
     for (const connector of connectors) {
-      if (connector.sourceMark) expect(() => resolveIcon(connector.sourceMark!), connector.name).not.toThrow();
+      if (connector.mark) expect(() => resolveIcon(connector.mark!), connector.name).not.toThrow();
     }
   });
 });

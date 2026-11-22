@@ -1,4 +1,3 @@
 - **Source:** `todoist`, shown as Todoist
 - **Types:** `todoist.task`
-- **Carries changes back:** Yes, for `todoist.task`
-- **Can be turned off:** Yes
+- **Can carry changes back:** Yes, for `todoist.task`

@@ -1400,7 +1400,7 @@ check "with no copy of the connectors' list, the sync writes nothing for the con
 fixture connectors "${work}/untagged.json"
 mkdir -p "${work}/connectors/docs/src/generated/connectors"
 cp "${here}/../../scripts/sync-from-plugins.sh" "${work}/connectors/docs/scripts/sync-from-plugins.sh"
-printf '%s\n' '{"schema":1,"connectors":[{"directory":"connectors/readwise","name":"readwise","description":"Sources.","source":"readwise","sourceName":"Readwise","types":["core.note"],"carriesBack":true,"carriesBackCanBeTurnedOff":true,"carriedTypes":["core.note"]}]}' \
+printf '%s\n' '{"schema":2,"connectors":[{"directory":"connectors/readwise","name":"readwise","title":"Readwise","description":"Sources.","source":"readwise","sourceName":"Readwise","types":["core.note"],"carriesBack":true,"carriedTypes":["core.note"]}]}' \
   > "${work}/connectors/docs/src/generated/connectors/connectors.json"
 printf 'stale header\n' > "${work}/connectors/docs/src/generated/connectors/readwise.md"
 sync connectors
@@ -1408,10 +1408,9 @@ check "a sync with the connectors' list held succeeds" 0 "${status}"
 check "and its header links the type the new catalog has a page for" \
 '- **Source:** `readwise`, shown as Readwise
 - **Types:** [`core.note`](/catalog/note)
-- **Carries changes back:** Yes, for [`core.note`](/catalog/note)
-- **Can be turned off:** Yes' "$(cat "${work}/connectors/docs/src/generated/connectors/readwise.md")"
+- **Can carry changes back:** Yes, for [`core.note`](/catalog/note)' "$(cat "${work}/connectors/docs/src/generated/connectors/readwise.md")"
 check "and the list itself is as it was" \
-"$(printf '%s' '{"schema":1,"connectors":[{"directory":"connectors/readwise","name":"readwise","description":"Sources.","source":"readwise","sourceName":"Readwise","types":["core.note"],"carriesBack":true,"carriesBackCanBeTurnedOff":true,"carriedTypes":["core.note"]}]}')" \
+"$(printf '%s' '{"schema":2,"connectors":[{"directory":"connectors/readwise","name":"readwise","title":"Readwise","description":"Sources.","source":"readwise","sourceName":"Readwise","types":["core.note"],"carriesBack":true,"carriedTypes":["core.note"]}]}')" \
 "$(cat "${work}/connectors/docs/src/generated/connectors/connectors.json")"
 
 echo "temporary files"
