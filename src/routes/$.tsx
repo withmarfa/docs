@@ -1,7 +1,7 @@
 import { createFileRoute, notFound } from '@tanstack/react-router';
 import { DocsLayout } from 'fumadocs-ui/layouts/notebook';
 import { createServerFn } from '@tanstack/react-start';
-import { slugsToMarkdownPath, source } from '@/lib/source';
+import { operationHeadTitle, slugsToMarkdownPath, source } from '@/lib/source';
 import { fullTitles } from '@/lib/sidebar-label';
 import { regroupApiReference } from '@/lib/api-reference-tree';
 import browserCollections from 'collections/browser';
@@ -81,6 +81,7 @@ const serverLoader = createServerFn({
       return {
         kind: 'openapi' as const,
         title: page.data.title ?? '',
+        headTitle: operationHeadTitle(page),
         description: page.data.description ?? '',
         url: page.url,
         markdownUrl: slugsToMarkdownPath(page.slugs).url,

@@ -4,6 +4,7 @@ import { docs } from 'collections/server';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { docsRoute } from './shared';
 import { openapi } from './openapi';
+import rawSpec from '../../openapi.json';
 import { sidebarLabelPlugin } from './sidebar-label';
 import { unlinkMissingPages } from './changelog';
 
@@ -17,6 +18,26 @@ export const source = loader(
     plugins: [openapi.loaderPlugin(), lucideIconsPlugin(), sidebarLabelPlugin()],
   },
 );
+
+const operationTags = new Map(
+  Object.values(rawSpec.paths as Record<string, Record<string, { operationId?: string; tags?: string[] }>>).flatMap(
+    (item) => Object.values(item).flatMap((op) => (op.operationId && op.tags?.[0] ? [[op.operationId, op.tags[0]] as const] : [])),
+  ),
+);
+
+/**
+ * The name in browser tabs and search results of an operation page whose
+ * summary another page shares: the summary with its tag. An operation page has
+ * no frontmatter to set `headTitle` in, and two operations under different
+ * tags may share a summary.
+ */
+export function operationHeadTitle(page: (typeof source)['$inferPage']): string | undefined {
+  if (page.type !== 'openapi') return undefined;
+  const title = page.data.title ?? '';
+  const tag = operationTags.get(page.slugs.at(-1) ?? '');
+  const shared = source.getPages().some((other) => other.url !== page.url && other.data.title === title);
+  return shared && tag ? `${title} (${tag})` : undefined;
+}
 
 export function markdownPathToSlugs(segs: string[]) {
   if (segs.length === 0) return [];

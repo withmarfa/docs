@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { canonicalUrl, withoutTrailingSlash } from './canonical';
 import { headTitle, pageHead } from './page-head';
-import { source } from './source';
+import { operationHeadTitle, source } from './source';
 
 describe('pageHead', () => {
   it('gives the title, description, canonical address and Markdown copy', () => {
@@ -56,7 +56,7 @@ describe('headTitle', () => {
     for (const page of source.getPages()) {
       const { title } = headTitle({
         title: page.data.title ?? '',
-        headTitle: 'headTitle' in page.data ? page.data.headTitle : undefined,
+        headTitle: 'headTitle' in page.data ? page.data.headTitle : operationHeadTitle(page),
       });
       const other = seen.get(title);
       if (other) repeats.push(`"${title}": ${other} and ${page.url}`);
