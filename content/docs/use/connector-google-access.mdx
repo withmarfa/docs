@@ -1,0 +1,77 @@
+---
+title: Give a plugin's connector access to your Google account
+sidebar_label: Give a connector Google access
+description: Let a plugin's connector reach your Google account through a Google Cloud project you own, signing in from a browser while Marfa keeps the token.
+job: An owner signs a plugin's connector in to its provider with their own OAuth client, and signs in again when the sign-in ends.
+kind: how-to
+---
+
+A plugin's connector that declares a sign-in, in its [plugin format](/reference/plugin-format#connector) `sign_in`, reaches your account through **an OAuth client of your own**: Marfa publishes none. You sign in once in a browser, and **Marfa keeps the refresh token as one of the connector's secrets,** which the connector reads at each run and refreshes itself. Google is the one provider. Each command needs `connectors.manage`.
+
+You need a Google Cloud project with the connector's APIs turned on and its sign-in screen published: follow the first three steps of [Create a Google Cloud project](/use/google-project).
+
+<Steps>
+<Step>
+
+### Create a web client
+
+In the Google Cloud console, go to **Menu** > **Google Auth platform** > **Clients**, and select **Create client**. Set **Application type** to **Web application**. Under **Authorized redirect URIs**, add your instance's [sign-in address](/run/address#move-the-address) followed by `/connect/oauth/callback`, such as `https://river.marfa.so/connect/oauth/callback`, then select **Create**.
+
+Google shows the whole client secret **only now**, so copy it with the client ID.
+
+</Step>
+<Step>
+
+### Give the connector the client
+
+`marfa plugins settings` lists the connector's settings: one holds the client ID, and two secrets hold the client secret and the token. Set the first, then type the secret at the prompt, as [Give a connector its settings](/use/connector-settings) shows:
+
+```bash
+marfa plugins settings <name> --set <client-id-setting>=<the client ID>
+marfa plugins secret <name> <client-secret-setting>
+```
+
+</Step>
+<Step>
+
+### Sign in
+
+<Terminal>
+
+```bash
+marfa plugins sign-in <name> --wait
+```
+
+```text
+Open this address in a browser to sign in:
+https://accounts.google.com/o/oauth2/v2/auth?client_id=...
+signed in <name>
+```
+
+</Terminal>
+
+Open the address within ten minutes, choose the account, and **leave every permission ticked.** Google warns that it hasn't verified the app, because nobody reviewed your project: select **Advanced**, then the link that ends in **(unsafe)**. The browser can be on any computer.
+
+</Step>
+</Steps>
+
+The token goes to the connector's token secret, and the connector picks it up on its next run. Without `--wait`, `GET /plugins/{name}/connector/sign-in` reads how the latest sign-in went.
+
+## If it fails
+
+With `--wait`, a sign-in that fails, expires or is replaced by a later start exits `1` with `sign_in_ended`. The sign-in's status gives a fixed reason, never Google's own text:
+
+| Reason | What to do |
+| --- | --- |
+| `invalid_client` | The client ID or secret is wrong. Set them again. |
+| `access_denied` | You declined in the browser. Sign in again. |
+| `timeout`, `unreachable` | Google didn't answer. Sign in again. |
+| `changed_since_start` | The client or the plugin changed during the sign-in. Sign in again. |
+
+If Google shows its own error page instead of the sign-in, such as `redirect_uri_mismatch`, the redirect URI doesn't match the sign-in address exactly: fix it in the client, and sign in again. The [audit log](/use/audit-log) records each start and outcome as `connector.sign_in`, `connector.signed_in` and `connector.sign_in_failed`.
+
+## When access ends
+
+Run `marfa plugins sign-in` again when the connector can no longer reach Google. **A project still in Testing ends every sign-in after seven days,** so publish it first. **Moving the sign-in address,** for example to [Marfa Cloud](/run/marfa-cloud), needs the new address added to the client's redirect URIs before you sign in.
+
+Marfa sends Google one request, for the token, and only to finish a sign-in you started. The rules are in the plugins chapter of the contract, under [A connector's sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#a-connectors-sign-in), and the operations are [Start a connector's sign-in](/reference/api/plugins/startPluginConnectorSignIn) and [Get a connector's sign-in](/reference/api/plugins/getPluginConnectorSignIn).

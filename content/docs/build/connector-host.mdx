@@ -27,7 +27,7 @@ GET /connector-hosts/self
 Authorization: Bearer $HOST_KEY
 ```
 
-`connectors` lists each plugin connector assigned to the host, with its `plugin`, `version`, the plugin's `connector` section and `key_minted`. Ask when the host starts and from time to time after: the owner moves connectors between hosts, and one that leaves the list has lost its key.
+`connectors` lists each plugin connector assigned to the host, with its `plugin`, `version`, the plugin's `connector` section, `key_minted`, and what the owner [asked of it](/use/pause-or-run-a-connector): `paused`, and `run_requested_at` when the owner asked for a run now. **Don't start a paused connector,** and start one with a run requested without waiting for its schedule. Ask when the host starts and from time to time after: the owner moves connectors between hosts, and one that leaves the list has lost its key.
 
 ## Get each connector's key
 
@@ -42,9 +42,12 @@ The answer's `key` holds the connector's `source` and write on the type of each 
 
 Start the connector with its key. It [registers](/reference/api/connectors/registerConnector) as any connector does, and then, on each run, it:
 
-1. **Reads its settings** with [`GET /connectors/{id}/settings`](/reference/api/connector-state/getConnectorSettings), which answers its secrets opened, and only to this key. A secret with `unreadable` `true` needs the owner to set it again.
-2. **Reads its mapping** with [`GET /plugins/{name}/connector/mapping`](/reference/api/plugins/getConnectorMapping), and writes each enabled kind as the type and tier it names, filling each field from its `from`, `fixed` or `template`.
-3. **Carries out each request under `rewrites`:** it rewrites its items on each kind's target type, then [sends the request's `number`](/reference/api/plugins/finishConnectorRewrite) to `POST /plugins/{name}/connector/mapping/rewrite/done`.
+1. **Reads what the owner asked** with [`GET /plugins/{name}/connector`](/reference/api/plugins/getPluginConnector), and stops if `paused` is `true`. Marfa still takes its writes, so a run under way finishes cleanly.
+2. **Reads its settings** with [`GET /connectors/{id}/settings`](/reference/api/connector-state/getConnectorSettings), which answers its secrets opened, and only to this key. A secret with `unreadable` `true` needs the owner to set it again.
+3. **Reads its mapping** with [`GET /plugins/{name}/connector/mapping`](/reference/api/plugins/getConnectorMapping), and writes each enabled kind as the type and tier it names, filling each field from its `from`, `fixed` or `template`.
+4. **Carries out each request under `rewrites`:** it rewrites its items on each kind's target type, then [sends the request's `number`](/reference/api/plugins/finishConnectorRewrite) to `POST /plugins/{name}/connector/mapping/rewrite/done`.
+5. **Answers each pending preview** from [`GET /plugins/{name}/connector/previews`](/reference/api/plugins/listMappingPreviews): it renders the preview's `kind` under its `mapping` on the item `item_id` names, or a recent one of its own, and [sends](/reference/api/plugins/answerMappingPreview) the fields as `result`, at most 64 KiB, or why it couldn't as `error`. A preview lasts 10 minutes.
+6. **Reports the run** with [`POST /connectors/{id}/runs`](/reference/api/connectors/reportConnectorRun), naming the `run_requested_at` it read, so the owner's request clears. A request made after it read one stays for the next run.
 
 Its state document, problems and agreements stay with its source on the instance, so a connector moved to another host resumes where it stopped ([Holds and retries](/build/connector-holds-and-retries)).
 
