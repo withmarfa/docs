@@ -99,8 +99,47 @@ Each is sent at once, never queued, and **throws `noConnection` offline.** A `Se
 | `sources()`, `source(_:)`, `updateSource(_:name:mark:)` | The `ItemSource`s the key can see, and a rename. |
 | `itemCountsBySource(type:state:tier:filter:)`, `itemCounts(of:_:)` | Counts by source, and for up to 100 IDs. |
 | `setTypeIcon(_:ofType:expecting:)` | The owner's icon for a type. Needs `schema.write` and write on the type. |
+| `install(pluginBundle:expecting:timeout:)` | Installs a [plugin from its bytes](#install-a-plugin). |
 
 **Pass `expecting:` the instance ID** when a change must reach the instance the person saw: another instance throws `instanceChanged`. A history page's `next` is `nil` only at the end: a short page can have more.
+
+### Install a plugin
+
+`install(pluginBundle:expecting:timeout:)` sends a bundle's bytes unchanged to [`installPlugin`](/reference/api/plugins/installPlugin). The instance records the SHA-256 of those bytes as the plugin's `fingerprint`, so bytes from a [plugins release](#read-a-plugins-release) record the digest the release lists. **The generated `installPlugin` decodes the bundle and encodes it again, and that fingerprint differs.** `timeout` defaults to 20 seconds. Pass `expecting:` as the other calls do.
+
+It needs `schema.write`, write on each type and edge type, and `connectors.manage` when the bundle has a connector. The answer is a `PluginInstalled`, and `outcome` is `.installed`, `.updated` or `.unchanged`. [Install a plugin](/use/install-a-plugin) lists the other refusals. **`pluginInstallRefusal` names the two an app tells the owner about,** and is nil for every other error, including when the newer-server details are missing:
+
+| Case | Means |
+| --- | --- |
+| `.needsNewerServer(marfa:server:)` | `.server` for `409 plugin_needs_newer_server`. `marfa` is the oldest release the plugin works with, and `server` is the release this instance runs. |
+| `.carriesGuidance` | `.forbidden` for `403 forbidden` whose `details.changes` names `guidance`. An app's sign-in, or a key an app made, cannot install guidance or change it. The same plugin with the guidance left out installs. |
+
+### Read a plugins release
+
+`PluginRelease` reads a release the way [the command line](https://github.com/withmarfa/marfa/blob/main/conformance/spec/cli.md#plugins) does, and **sends no credential.** It is not a call on your instance: a failure throws `PluginReleaseError`, and nothing reaches the server until you install. `PluginRelease()` reads the latest release of [withmarfa/plugins](https://github.com/withmarfa/plugins). Pass `address:` for another release, the address `MARFA_PLUGINS_URL` names for the command line. An address with a user name or password, or one that is not `http` or `https` with a host and no query or fragment, is refused before any request, and that error does not contain the address.
+
+| `PluginReleaseError` | Means |
+| --- | --- |
+| `addressCarriesCredentials` | The address holds a user name or password. |
+| `addressUnreadable` | Not `http` or `https` with a host and no query or fragment. |
+| `unreachable(address:reason:)` | The release could not be read: the connection failed, a file was missing, or it was not a release this build reads. The index must be format 1, and each bundle file `<name>.plugin.json`. |
+| `digestMismatch(file:found:listed:)` | The bundle's SHA-256 is not the one the index lists. Do not install those bytes. |
+| `canceled` | The read was canceled. |
+
+`index()` returns the plugins in the release's order. Each `PluginIndexEntry` has its name, its version, the oldest Marfa it works with, and the bundle's file and SHA-256. `bundle(for:)` returns a `ReleasedPlugin` only when the bytes match: install its `bytes`. A redirect is followed up to five times, never onto an address with a user name or password, and never from `https` to `http`. `timeout` is how long one request waits for more bytes, 30 seconds unless you set it.
+
+`PluginVersion` reads `MAJOR.MINOR.PATCH` with no leading zero, such as `PluginVersion("0.0.13")`, and compares by those numbers. Any other string gives nil. **`0.0.0` is a development build:** `isDevelopment` is true, and `takes(_:)` accepts any plugin. Any other release accepts a plugin whose oldest Marfa is the same or older.
+
+```swift
+import MarfaAPI
+
+let release = try PluginRelease()
+let listed = try await release.index()
+if let tickets = listed.first(where: { $0.name == "tickets" }) {
+    let bundle = try await release.bundle(for: tickets)
+    _ = try await server.install(pluginBundle: bundle.bytes, expecting: instanceID)
+}
+```
 
 ## The API client
 
@@ -119,6 +158,7 @@ _ = try await api.register(itemType: entry)
 
 - **Types:** `check(itemType:)`, `register(itemType:)`, `replace(itemType:with:)`, `delete(itemType:force:)`, `register(edgeType:)`, `edgeTypes()` and `delete(edgeType:force:)`.
 - **A call waits 30 seconds** for the answer to start, then throws `network`. `Client(server, timeout:)` changes it.
+- **A date may carry fractional seconds.** `Client` reads one with or without them.
 - **A delete of a type something names** throws `server` with `type_in_use`.
 
 ### Owner operations
@@ -127,11 +167,39 @@ _ = try await api.register(itemType: entry)
 | --- | --- | --- |
 | `getConfig`, `updateConfig` | Read and change the [settings](/run/settings). `updateConfig` can name `X-Marfa-Instance-Id` in `headers:`. | `config.manage` |
 | `check(_ AddressChange)`, `apply(_:expecting:)` | Check a [change of address](/run/address), then make exactly that change. Show the check's `consequences` first. | `config.manage` |
-| `listAppGrants`, `narrowAppGrant`, `revokeAppGrant` | List, narrow or end the apps the owner approved. | `grants.manage` |
+| `listAppGrants`, `narrowAppGrant` | List the apps the owner approved, or narrow one. To end one, see [an app's data](#an-apps-data). | `grants.manage` |
 | `restoreBackup` | [Restore a backup](/run/back-up-and-restore). | `backups.manage` |
 | `changePassword(from:to:)` | Replace the owner's password once the current one proves right. Ends every browser sign-in of the owner, keeps keys and apps. | `sign_ins.manage` |
 
 The restore and address calls need a [recent sign-in](#confirm-its-you). `changePassword(from:to:)` returns a `PasswordChangeOutcome`: `.changed`, `.currentPasswordWrong`, `.newPasswordRefused`, `.notPermitted(requiredScope:)` or `.tooManyAttempts(retryAfterSeconds:)`. **A wrong current password counts as an attempt at the owner's sign-in.** A failure with no answer to read throws a `MarfaError`, and the password may or may not have changed.
+
+### An app's data
+
+`Client` lists and deletes what an app keeps under an `app.<vendor>` namespace. Ordinary listings leave it out. The calls are [`listAppVendorData`](/reference/api/apps/listAppVendorData), [`deleteAppVendorData`](/reference/api/apps/deleteAppVendorData), [`revokeAppGrant`](/reference/api/apps/revokeAppGrant) and [`endSignIn`](/reference/api/sign-ins-and-passkeys/endSignIn). [Manage the data an app keeps for itself](/use/manage-app-data) is the same job from the command line. A grant from `listAppGrants` names its `vendors`.
+
+<Callout type="warn" title="Only a backup or an export brings it back">
+Deletion purges the items and the types. It is not a move to the bin. Tell the owner, and pass `.ownerConfirmed` only once they agree.
+</Callout>
+
+| Call | Does |
+| --- | --- |
+| `appData(vendor:limit:cursor:)` | One page. Every type under the namespace, registered or held by an item, with `active`, `archived` and `trashed` counts, on every page. Items in every state, the bin included, oldest first. `limit` is 1 to 200, and 25 when you omit it. Pass `nextCursor` as `cursor`. It is `nil` on the last page. |
+| `removeAppData(vendor:_:expecting:)` | Deletes the namespace's items and types, sending [`deleteAppVendorData`](/reference/api/apps/deleteAppVendorData) again until none are left. Returns an `AppDataRemoval`. |
+| `disconnect(grant:revokingKeys:data:)` | Ends the app's tokens and consent. `data` defaults to `.keep`. `.remove(.ownerConfirmed)` deletes every namespace the app holds in that same write. |
+| `end(signIn:revokingKeys:data:expecting:)` | Ends that sign-in at once, this client's own included. `.remove` applies only to an app. |
+
+Listing needs `grants.manage`, or the owner's browser session. An app's sign-in lists only a namespace its app holds, and a key also needs read on the types. Deleting also needs `items.purge`. A key or an app's sign-in also needs write on the types, and `schema.write` while a type is registered there. `disconnect` needs `grants.manage`, and `end` needs `sign_ins.manage`. Removing data on either also needs `items.purge`, and `schema.write` for a key or an app's sign-in.
+
+The first failure from `removeAppData` is thrown. That includes `forbidden` naming `items.purge`, `grants.manage` or `schema.write`, `notFound` when no app or owner holds the namespace, and `validation` when the name is not an `app.<vendor>` namespace. It also includes `server` with code `type_in_use`, when a folder, view, webhook or table column outside the namespace names one of its types, or `type_has_subtypes`, when a type outside it inherits from one. A column of one of the namespace's own types does not count. Nothing is deleted.
+
+A failure after the server has answered, cancellation included, is not thrown. **`stoppedBy` holds it, and `isComplete` is true only when `stoppedBy` is `nil` and `remainingItems` is 0.** `removedItems` and `removedTypes` count only answers the server gave, so list the namespace to see what remains. When the server deletes no item while some remain, `stoppedBy` is `invalid` and the call returns. The namespace stays with the app or the owner that holds it. Items outside it stay, and an edge from one of them to a deleted item goes.
+
+**`.remove` while the app holds more than 1,000 items throws `validation` with code `bulk_cap_exceeded`, and nothing ends.** Delete each of the grant's `vendors` with `removeAppData` first. `end` refuses `.remove` for a browser sign-in or a key with `validation`, and ends nothing. `revokingKeys` also revokes keys the app made, and keys those keys made, except an owner's key. `expecting:` on `removeAppData` and `end` makes another instance throw `instanceChanged`.
+
+```swift
+let page = try await api.appData(vendor: "app.readinglist")
+let removal = try await api.removeAppData(vendor: page.vendor, .ownerConfirmed, expecting: instanceID)
+```
 
 ### Move the items of a type
 
@@ -159,4 +227,4 @@ TypeIcon(id: "lucide:book-open") // from an ID
 
 **Brand marks need `MarfaBrandIcons.register()`** once at launch. A `nil` or unknown ID draws a fallback. `LucideIconSet.ids` and `MarfaBrandIcons.ids` list every ID the instance accepts.
 
-The rules are in the contract's [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [stores](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md) and [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md) chapters.
+The rules are in the contract's [device](https://github.com/withmarfa/marfa/blob/main/conformance/spec/device.md), [stores](https://github.com/withmarfa/marfa/blob/main/conformance/spec/stores.md), [queue and verdicts](https://github.com/withmarfa/marfa/blob/main/conformance/spec/queue-and-verdicts.md), [keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#an-apps-own-data) and [plugins](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#installing) chapters.
