@@ -1,34 +1,65 @@
 ---
 title: Give a plugin's connector access to your Google account
 sidebar_label: Give a connector Google access
-description: Let a plugin's connector reach your Google account through a Google Cloud project you own, signing in from a browser while Marfa keeps the token.
-job: An owner signs a plugin's connector in to its provider with their own OAuth client, and signs in again when the sign-in ends.
+description: Create a Google Cloud project, then sign a plugin's connector in to Google with a web client you own.
+job: An owner creates a Google Cloud project and signs a plugin's connector in to Google, then signs in again when the sign-in ends.
 kind: how-to
 ---
 
-A plugin's connector that declares a sign-in, in its [plugin format](/reference/plugin-format#connector) `sign_in`, reaches your account through **an OAuth client of your own**: Marfa publishes none. You sign in once in a browser, and **Marfa keeps the refresh token as one of the connector's secrets,** which the connector reads at each run and refreshes itself. Google is the one provider. Each command needs `connectors.manage`.
+Marfa does not publish a connector host yet. Installing the connectors by name, and the steps to install a host, are coming. The sign-in below is stored, and nothing runs the connector until a host is published. Install the plugin first, as [Install a plugin](/use/install-a-plugin) describes. A setting for a plugin that is not installed is refused.
 
-You need a Google Cloud project with the connector's APIs turned on and its sign-in screen published: follow the first three steps of [Create a Google Cloud project](/use/google-project).
+A plugin's connector that signs in to Google uses **a Google Cloud project you own**. Marfa publishes none. You create a web client, give that plugin its client ID and secret, and sign in once in a browser. Marfa keeps the refresh token as one of the connector's secrets, and the connector reads it on each run. **Each plugin's connector works with one Google account.** The same plugin for a second account needs a second instance. Each plugin stores its own client and its own token. Each command needs `connectors.manage`.
 
 <Steps>
 <Step>
 
+### Create the project
+
+Sign in to the [Google Cloud console](https://console.cloud.google.com) with the Google account whose data you want. Go to **Menu** > **IAM & Admin** > **Create a Project**, enter a **Project name**, and select **Create**. Nothing in Marfa uses the project's name or ID.
+
+</Step>
+<Step>
+
+### Turn on the APIs
+
+A project can call only the APIs you turn on. The connector's Catalog page names the APIs it calls and the permissions it asks for. Google calls a permission a scope and writes it as an address.
+
+Go to **Menu** > **APIs & Services** > **Library**, open each API, and select **Enable**. For [Google Calendar](/catalog/connectors/google-calendar), enable the **Google Calendar API**.
+
+</Step>
+<Step>
+
+### Publish the sign-in screen
+
+The sign-in screen is what you see when you give the connector access. Go to **Menu** > **Google Auth platform**, and select **Get started** if it is not set up yet.
+
+1. Under **App information**, enter an **App name** and a **User support email**, then select **Next**. Don't choose a name that could be mistaken for a Google product.
+2. Under **Audience**, choose **External**, then select **Next**.
+3. Under **Contact information**, enter an email address, then select **Next**.
+4. Under **Finish**, agree to the Google API Services User Data Policy, then select **Continue** and **Create**.
+5. Go to **Audience** and select **Publish app**, then confirm. The status changes from **Testing** to **In production**.
+
+**Publish the app.** While a project is in Testing, Google ends every sign-in after seven days, so the connector would stop each week. Once published, a sign-in lasts until you remove it or it goes unused for six months. You don't need to add yourself as a test user.
+
+</Step>
+<Step>
+
 ### Create a web client
 
-In the Google Cloud console, go to **Menu** > **Google Auth platform** > **Clients**, and select **Create client**. Set **Application type** to **Web application**. Under **Authorized redirect URIs**, add your instance's [sign-in address](/run/address#move-the-address) followed by `/connect/oauth/callback`, such as `https://river.marfa.so/connect/oauth/callback`, then select **Create**.
+Go to **Menu** > **Google Auth platform** > **Clients**, and select **Create client**. Set **Application type** to **Web application**. Under **Authorized redirect URIs**, add your instance's [sign-in address](/run/address#move-the-address) followed by `/connect/oauth/callback`, such as `https://river.marfa.so/connect/oauth/callback`, then select **Create**.
 
-Google shows the whole client secret **only now**, so copy it with the client ID.
+Google shows the whole client secret **only now**. Copy it with the client ID. The same web client can be set on every Google plugin on the instance. Each plugin still keeps its own copy, and each gets its own token when you sign that plugin in.
 
 </Step>
 <Step>
 
 ### Give the connector the client
 
-`marfa plugins settings` lists the connector's settings: one holds the client ID, and two secrets hold the client secret and the token. Set the first, then type the secret at the prompt, as [Give a connector its settings](/use/connector-settings) shows:
+`marfa plugins settings <name>` lists the settings. The Google plugins WithMarfa ships name the client ID `google_client_id`, the client secret `google_client_secret`, and the token `google_refresh_token`. Set the ID, then enter the secret at the prompt. A secret is never an argument ([Give a connector its settings](/use/connector-settings)):
 
 ```bash
-marfa plugins settings <name> --set <client-id-setting>=<the client ID>
-marfa plugins secret <name> <client-secret-setting>
+marfa plugins settings <name> --set google_client_id=<the client ID>
+marfa plugins secret <name> google_client_secret
 ```
 
 </Step>
@@ -36,42 +67,21 @@ marfa plugins secret <name> <client-secret-setting>
 
 ### Sign in
 
-<Terminal>
-
 ```bash
 marfa plugins sign-in <name> --wait
 ```
 
-```text
-Open this address in a browser to sign in:
-https://accounts.google.com/o/oauth2/v2/auth?client_id=...
-signed in <name>
-```
+The command prints an address. Open it within ten minutes, choose the account, and **leave every permission ticked.** Google says it hasn't verified the app, because nobody reviewed your project. Select **Advanced**, then the link that ends in **(unsafe)**. The browser can be on any computer.
 
-</Terminal>
-
-Open the address within ten minutes, choose the account, and **leave every permission ticked.** Google warns that it hasn't verified the app, because nobody reviewed your project: select **Advanced**, then the link that ends in **(unsafe)**. The browser can be on any computer.
+When the browser finishes, the command prints `signed in <name>`. The token is stored as that plugin's `google_refresh_token`. The connector reads it on its next run. Without `--wait`, the command prints the address and returns. A sign-in that fails, expires, or is replaced by a later start exits `1`. [Fix a connector](/use/fix-a-connector) lists what to do for each reason, and the problems the connector reports once it runs.
 
 </Step>
 </Steps>
 
-The token goes to the connector's token secret, and the connector picks it up on its next run. Without `--wait`, `GET /plugins/{name}/connector/sign-in` reads how the latest sign-in went.
-
-## If it fails
-
-With `--wait`, a sign-in that fails, expires or is replaced by a later start exits `1` with `sign_in_ended`. The sign-in's status gives a fixed reason, never Google's own text:
-
-| Reason | What to do |
-| --- | --- |
-| `invalid_client` | The client ID or secret is wrong. Set them again. |
-| `access_denied` | You declined in the browser. Sign in again. |
-| `timeout`, `unreachable` | Google didn't answer. Sign in again. |
-| `changed_since_start` | The client or the plugin changed during the sign-in. Sign in again. |
-
-If Google shows its own error page instead of the sign-in, such as `redirect_uri_mismatch`, the redirect URI doesn't match the sign-in address exactly: fix it in the client, and sign in again. The [audit log](/use/audit-log) records each start and outcome as `connector.sign_in`, `connector.signed_in` and `connector.sign_in_failed`.
-
 ## When access ends
 
-Run `marfa plugins sign-in` again when the connector can no longer reach Google. **A project still in Testing ends every sign-in after seven days,** so publish it first. **Moving the sign-in address,** for example to [Marfa Cloud](/run/marfa-cloud), needs the new address added to the client's redirect URIs before you sign in.
+Run `marfa plugins sign-in <name>` again when the connector can no longer reach Google. Publish the project first if it is still in Testing. **Moving the sign-in address,** for example onto [Marfa Cloud](/run/marfa-cloud), needs the new address followed by `/connect/oauth/callback` on the client's redirect URIs before you sign in.
 
-Marfa sends Google one request, for the token, and only to finish a sign-in you started. The rules are in the plugins chapter of the contract, under [A connector's sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#a-connectors-sign-in), and the operations are [Start a connector's sign-in](/reference/api/plugins/startPluginConnectorSignIn) and [Get a connector's sign-in](/reference/api/plugins/getPluginConnectorSignIn).
+A second Google plugin can use the same project. Turn on its API, set its own client ID and secret, and sign that plugin in on its own. Its token holds only the permissions it asks for.
+
+Marfa sends Google one request, for the token, and only to finish a sign-in you started. The rules are in the plugins chapter of the contract, under [A connector's sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#a-connectors-sign-in).

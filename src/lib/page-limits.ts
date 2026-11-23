@@ -68,7 +68,7 @@ export interface Entry {
   reason?: string;
 }
 
-/** The measures a pending page's ceilings are named by. */
+/** What `checkPages` counts against a kind's caps. */
 export type Measure =
   | 'words'
   | 'codeBlocks'
@@ -79,9 +79,6 @@ export type Measure =
   | 'entryCodeBlocks'
   | 'fenceLines'
   | 'textFenceLines';
-
-/** A page waiting for its rewrite: each measure it exceeds today, at its current value, and whether it lacks a job. */
-export type Pending = Partial<Record<Measure, number>> & { reason: string; missingJob?: boolean };
 
 export interface Limits {
   kinds: Record<string, KindCaps>;
@@ -94,8 +91,25 @@ export interface Limits {
   descriptionWords: number;
   folders: Record<string, Entry>;
   pages: Record<string, Entry>;
-  pending: Record<string, Pending>;
 }
+
+/** The keys `page-limits.json` may hold. A key absent here fails the check, so a removed list cannot return. */
+function limitKeys<const T extends readonly (keyof Limits)[]>(
+  keys: Exclude<keyof Limits, T[number]> extends never ? T : never,
+): ReadonlySet<string> {
+  return new Set(keys);
+}
+
+const TOP_LEVEL_KEYS = limitKeys([
+  'kinds',
+  'terminalLines',
+  'startTerminalLines',
+  'jobWords',
+  'titleWords',
+  'descriptionWords',
+  'folders',
+  'pages',
+]);
 
 export const MEASURES: Measure[] = [
   'words',
@@ -533,12 +547,15 @@ function lineProblem(name: string, value: unknown, maxWords: number): string | u
 
 /**
  * What is wrong with the pages, one message each, naming the page and the
- * rule. An empty list means every page is within its caps, or exactly at the
- * ceilings of its pending entry.
+ * rule. An empty list means every page is within its caps. An unknown
+ * top-level key in the limits is a message too.
  */
 export function checkPages(pages: Page[], limits: Limits): string[] {
   const problems: string[] = [];
   const files = new Set(pages.map((page) => page.file));
+  for (const key of Object.keys(limits)) {
+    if (!TOP_LEVEL_KEYS.has(key)) problems.push(`page-limits.json has "${key}", an unknown top-level key. Remove it.`);
+  }
 
   for (const { file, text } of pages) {
     const evaluated = evaluate(file, text, limits);
@@ -547,7 +564,6 @@ export function checkPages(pages: Page[], limits: Limits): string[] {
       continue;
     }
     const { kind, measured, values, allowed, start, job } = evaluated;
-    const excuse: Pending | undefined = limits.pending[file];
     const { fields, body } = splitPage(text);
 
     for (const include of includesOf(body)) {
@@ -564,58 +580,24 @@ export function checkPages(pages: Page[], limits: Limits): string[] {
 
     for (const measure of MEASURES) {
       const cap = allowed[measure];
-      const ceiling = excuse?.[measure];
-      const rule = RULES[measure];
-      if (cap === undefined) {
-        if (ceiling !== undefined) problems.push(`${file}: a ${kind} page has no cap on ${rule.what}. Remove "${measure}" from its "pending" entry in page-limits.json.`);
-        continue;
-      }
-      const where = start && measure === 'terminalLines' ? 'on a Home page' : `on a ${kind}`;
+      if (cap === undefined) continue;
       const value = values[measure];
-      if (value <= cap) {
-        if (ceiling !== undefined) {
-          problems.push(`${file} has ${value} ${rule.what}, within the ${cap} allowed. Remove "${measure}" from its "pending" entry in page-limits.json.`);
-        }
-        continue;
-      }
+      if (value <= cap) continue;
+      const where = start && measure === 'terminalLines' ? 'on a Home page' : `on a ${kind}`;
+      const rule = RULES[measure];
       const worst = measure === 'entryWords' ? measured.entries.find((entry) => entry.words === value) : undefined;
       const entry = worst ? ` (the entry "${worst.heading}")` : '';
-      if (ceiling === undefined) {
-        problems.push(`${file}: ${value} ${rule.what}${entry}, over the ${cap} allowed ${where}. ${rule.fix}`);
-      } else if (value > ceiling) {
-        problems.push(
-          `${file}: ${value} ${rule.what}${entry}, over its pending ceiling of ${ceiling}. A pending page may not grow while it waits for its rewrite, and ${cap} are allowed ${where}. ${rule.fix}`,
-        );
-      } else if (value < ceiling) {
-        problems.push(
-          `${file}: ${value} ${rule.what}${entry}, under its pending ceiling of ${ceiling}, so the page could grow back to it. Lower "${measure}" in its "pending" entry in page-limits.json to ${value}, or remove it once the page meets the ${cap} allowed ${where}.`,
-        );
-      }
+      problems.push(`${file}: ${value} ${rule.what}${entry}, over the ${cap} allowed ${where}. ${rule.fix}`);
     }
 
     if (job === undefined) {
-      if (!excuse?.missingJob) problems.push(`${file}: no \`job\` line in the frontmatter. Say in one sentence, up to ${limits.jobWords} words, who the reader is and what they leave able to do.`);
+      problems.push(`${file}: no \`job\` line in the frontmatter. Say in one sentence, up to ${limits.jobWords} words, who the reader is and what they leave able to do.`);
     } else {
       const bad = jobProblem(job, limits.jobWords);
       if (bad) problems.push(`${file}: ${bad}.`);
-      else if (excuse?.missingJob) problems.push(`${file} has a \`job\` line. Remove "missingJob" from its "pending" entry in page-limits.json.`);
     }
   }
 
-  for (const [file, excuse] of Object.entries(limits.pending)) {
-    if (!files.has(file)) {
-      problems.push(`"pending" in page-limits.json names ${file}, which is not a page. Remove the entry.`);
-      continue;
-    }
-    if (!excuse.reason) problems.push(`The "pending" entry for ${file} has no reason.`);
-    const known = new Set<string>([...MEASURES, 'reason', 'missingJob']);
-    for (const key of Object.keys(excuse)) {
-      if (!known.has(key)) problems.push(`The "pending" entry for ${file} has "${key}", which is not a measure.`);
-    }
-    if (!MEASURES.some((measure) => excuse[measure] !== undefined) && !excuse.missingJob) {
-      problems.push(`The "pending" entry for ${file} excuses nothing. Remove it.`);
-    }
-  }
   for (const file of Object.keys(limits.pages)) {
     if (!files.has(file)) problems.push(`"pages" in page-limits.json names ${file}, which is not a page. Remove the entry.`);
   }

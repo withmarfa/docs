@@ -1,14 +1,16 @@
 ---
 title: Give a connector its settings and secrets
 sidebar_label: Give a connector its settings
-description: Keep the settings and secrets a plugin's connector declares in Marfa, rather than on the machine that runs it, and enter a secret again after a restore.
+description: Set the settings and secrets a plugin's connector needs, and enter a secret again when Marfa can no longer open it.
 job: An owner sets the settings and secrets a plugin's connector needs, and enters a secret again when it no longer opens.
 kind: how-to
 ---
 
-A plugin's connector declares the settings it needs, such as a feed address or an account's token, and **Marfa keeps their values,** so the machine that runs it holds none. The connector reads them at the start of each run. Each command needs `connectors.manage`, which the CLI signed in as you holds.
+A plugin's connector declares the settings it needs, and **Marfa keeps the values.** The machine that runs the connector holds none. The connector reads them at the start of each run. [The connector kit](/reference/connector-kit#settings-and-secrets) says how a missing or unusable setting stops a run. Each command needs `connectors.manage`.
 
 ## See what it needs
+
+The RSS connector's settings look like this before anything is set:
 
 <Terminal>
 
@@ -17,45 +19,49 @@ marfa plugins settings rss
 ```
 
 ```text
-feed_url: not set, required
-interval_minutes: 30 (default)
-api_token: secret, not set
-missing: feed_url
+rss_feeds: secret, not set, required
+rss_private_hosts: not set
+rss_pictures: "addresses" (default)
+missing: rss_feeds
 ```
 
 </Terminal>
 
-`missing` names each required setting with no value and no default. **A secret is never shown,** only whether it's set.
+`missing` names each required setting with no value and no default. **A secret is never shown,** only whether it is set.
 
 ## Give settings values
 
 ```bash
-marfa plugins settings rss --set feed_url=https://example.com/feed.xml --set interval_minutes=60
+marfa plugins settings rss --set rss_private_hosts=feeds.example.com --set rss_pictures=save
 ```
 
-Repeat `--set` for each. Marfa checks each value against its kind: text of 1 to 65,536 characters, a number, `true` or `false`, or one of a choice's options. If one doesn't fit, nothing is set. The API's `PATCH /plugins/{name}/connector/settings` takes `null` to clear a setting.
+That prints `set rss_private_hosts, rss_pictures for rss`. Repeat `--set` for each setting that is not a secret. A secret named here is refused before anything is sent. Marfa checks each value against its kind. If one doesn't fit, nothing is set. Reading the settings again then shows the values, and the `missing` line is gone once every required setting is set:
+
+```text
+rss_feeds: secret, set, required
+rss_private_hosts: "feeds.example.com"
+rss_pictures: "save"
+```
 
 ## Enter a secret
 
-A secret is never an argument, so it stays out of your shell's history. Type it at the prompt, which doesn't echo, or send it on standard input, where one final line break is dropped:
+A secret is never an argument, so it stays out of your shell's history. Type it at the prompt, which doesn't echo, or send it on standard input. One final line break is dropped:
 
 ```bash
-marfa plugins secret rss api_token
-marfa plugins secret rss api_token < token.txt
+marfa plugins secret rss rss_feeds
+printf '%s\n' 'https://example.com/feed.xml' | marfa plugins secret rss rss_feeds
 ```
 
-`--clear` removes it. A secret can't start or end with whitespace.
+That prints `set rss_feeds for rss`, and not the value. `--clear` removes a secret. A secret can't start or end with whitespace. Marfa stores a secret as short as one character. The [connector kit](/reference/connector-kit#settings-and-secrets) stops a run when a secret is shorter than 8 characters, because it cannot keep a shorter value out of its logs, and the process exits 4.
 
-**No answer, log, audit entry, export or backup holds a secret's value,** and only the connector's own key, the one its host minted, reads it back. Not even your own sign-in does. The audit log records only which settings changed.
+**No answer, log, audit entry, export or backup holds a secret's value.** Only the connector's own key, the one its host minted, can read it back. Your own sign-in cannot. The audit log records which settings changed.
 
 ## When a secret no longer opens
 
-Marfa seals each secret with a key it keeps in `marfa.settings.key`, beside its database. A secret it can't open, such as after the data directory moved without that file, lists as `secret, unreadable here: set it again`, and `marfa attention` names it as `rss/api_token`. Enter it again as above.
+Marfa seals each secret with a key it keeps beside its database, in `marfa.settings.key`. A secret it can't open, such as after the data directory moved without that file, is listed as `secret, unreadable here: set it again`. `marfa attention` names it, such as `rss/rss_feeds`. Enter it again as above.
 
-**An archive carries no secret:** a restore lists each one in `connector_secrets_to_set`, and the settings that aren't secret come back with it ([Move your data with an archive](/run/export-and-restore#what-a-restore-changes)).
+**An archive carries no secret.** A restore lists each one in `connector_secrets_to_set`. Settings that are not secrets come back with the archive ([Move your data with an archive](/run/export-and-restore#what-a-restore-changes)).
 
-## When the plugin changes
+A newer plugin keeps a value whose setting keeps the same kind, secrecy and choices, and drops it otherwise. Removing the plugin removes every value.
 
-A newer version of the plugin keeps a value while its setting keeps the same kind, secrecy and choices, and drops it otherwise. Removing the plugin removes every value.
-
-The rules behind this page are in the [plugins](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#a-connectors-settings) chapter of the contract.
+The rules are in the [plugins](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#a-connectors-settings) chapter of the contract.

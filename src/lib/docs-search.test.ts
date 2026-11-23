@@ -33,9 +33,9 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['retry a write safely', ['/build/write-safely']],
   [
     'rate limit 429',
-    ['/run/troubleshooting/credentials-and-access', '/reference/folder-rules', '/build/connector-holds-and-retries', '/run/settings'],
+    ['/run/troubleshooting/credentials-and-access', '/reference/folder-rules', '/build/connector-without-the-kit', '/run/settings'],
   ],
-  ['retry-after', ['/build/connector-webhooks', '/build/connector-holds-and-retries', '/build/keep-in-sync']],
+  ['retry-after', ['/build/connector-without-the-kit', '/build/keep-in-sync']],
   ['CORS', ['/run/settings', '/reference/instance-settings']],
 
   // Reading and listing.
@@ -45,7 +45,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['filter items by property', ['/build/list-filter-search']],
 
   // Webhooks and connectors.
-  ['webhook signature', ['/build/connector-webhooks', '/build/receive-webhooks']],
+  ['webhook signature', ['/build/connector-without-the-kit', '/build/receive-webhooks']],
   ['hmac', ['/build/receive-webhooks']],
 
   // Sign-in, keys and the command line.
@@ -118,7 +118,7 @@ const FIRST: [query: string, pages: string[]][] = [
   ['sign in', ['/run/sign-in-as-the-owner']],
   ['how do I sign in', ['/run/sign-in-as-the-owner']],
   ['sign-in', ['/run/sign-in-as-the-owner']],
-  ['set-up', ['/quickstart', '/run/address', '/run/upgrade', '/use/google-project']],
+  ['set-up', ['/quickstart', '/run/address', '/run/upgrade', '/run/settings']],
   ['sync a folder on 2 computers', ['/use/sync-a-folder']],
   ['sync a folder on another computer', ['/use/sync-a-folder']],
   ['install', ['/run/install']],

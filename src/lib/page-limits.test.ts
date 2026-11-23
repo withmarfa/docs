@@ -2,8 +2,7 @@
  * Holds every page to its kind (STYLE.md, "Page types"): a word ceiling, caps
  * on code blocks, sample output and headings, and a `job` line. The rules and
  * how a page is measured are in `page-limits.ts`; the numbers are in
- * `page-limits.json`. A page over a rule today is listed under "pending" with
- * its current numbers, which a rewrite removes and nothing may exceed.
+ * `page-limits.json`.
  *
  * The suite runs the check over the real pages and over a bad sample for each
  * rule, so a rule that stops firing fails a test instead of passing everything.
@@ -33,8 +32,14 @@ describe('page limits: the pages', () => {
     expect(pages.every((page) => measure(splitPage(page.text).body).words > 0 || page.file.includes('catalog'))).toBe(true);
   });
 
-  it('keeps every page within its kind, or at or under its pending ceilings while a rewrite waits', () => {
+  it('keeps every page within its kind', () => {
     expect(checkPages(pages, config as Limits)).toEqual([]);
+  });
+
+  it('fails a pending key added back to page-limits.json', () => {
+    expect(checkPages(pages, { ...config, pending: {} } as Limits)).toEqual([
+      'page-limits.json has "pending", an unknown top-level key. Remove it.',
+    ]);
   });
 
   it('leaves no MDX markup in the prose it counts', () => {
@@ -183,7 +188,6 @@ describe('page limits: each rule fires on a bad sample', () => {
       '(home)': { kind: 'concept', kinds: ['tutorial'] },
     },
     pages: { 'a/long.mdx': { kind: 'concept', limit: 30, reason: 'Takes in a second idea.' }, 'a/lookup.mdx': { limit: 30, reason: 'Lookup.' } },
-    pending: {},
   };
   const JOB = 'Someone learns one thing.';
   const page = (file: string, body: string, front = `job: ${JOB}`): Page => ({ file, text: `---\ntitle: T\n${front}\n---\n\n${body}\n` });
@@ -335,76 +339,6 @@ describe('page limits: each rule fires on a bad sample', () => {
     expect(run([page('a/p.mdx', 'x')], { pages: unknown })[0]).toContain('not a kind');
   });
 
-  describe('pending', () => {
-    const pending = { 'a/p.mdx': { reason: 'Waits for its rewrite.', words: 14, h2: 3, missingJob: true } };
-    const heavy = (words: number, h2s: number) => page('a/p.mdx', `${Array.from({ length: h2s }, (_, i) => `## H${i}`).join('\n\n')}\n\n${prose(words)}`, '');
-
-    it('lets a page stay at its ceilings, and lack a job', () => {
-      expect(run([heavy(11, 3)], { pending })).toEqual([]);
-    });
-
-    it('fails a page that grows past a ceiling, naming the page, the rule and both numbers', () => {
-      const [message, ...rest] = run([heavy(12, 3)], { pending });
-      expect(rest).toEqual([]);
-      expect(message).toContain('a/p.mdx');
-      expect(message).toContain('15 prose words');
-      expect(message).toContain('over its pending ceiling of 14');
-      expect(message).toContain('may not grow');
-      expect(run([heavy(10, 4)], { pending })[0]).toContain('4 H2 headings, over its pending ceiling of 3');
-    });
-
-    it('fails a page under a ceiling, with the number to lower the entry to, for every measure', () => {
-      const [message, ...rest] = run([heavy(8, 3)], { pending });
-      expect(rest).toEqual([]);
-      expect(message).toContain('a/p.mdx');
-      expect(message).toContain('11 prose words');
-      expect(message).toContain('under its pending ceiling of 14');
-      expect(message).toContain('Lower "words" in its "pending" entry in page-limits.json to 11');
-      expect(run([heavy(11, 3)], { pending: { 'a/p.mdx': { ...pending['a/p.mdx'], words: 20 } } })[0]).toContain('to 14');
-      expect(run([heavy(0, 3)], { pending: { 'a/p.mdx': { ...pending['a/p.mdx'], words: 12 } } })[0]).toContain('Remove "words"');
-      expect(run([heavy(11, 3)], { pending: { 'a/p.mdx': { ...pending['a/p.mdx'], h2: 9 } } })[0]).toContain('Lower "h2" in its "pending" entry in page-limits.json to 3');
-      const blocks = (n: number) => Array.from({ length: n }, () => '```sh\na\n```').join('\n\n');
-      const tooMany = (n: number, ceiling: number) =>
-        run([page('b/p.mdx', blocks(n), '')], { pending: { 'b/p.mdx': { reason: 'Waits.', codeBlocks: ceiling, missingJob: true } } });
-      expect(tooMany(5, 5)).toEqual([]);
-      expect(tooMany(3, 5)[0]).toContain('Lower "codeBlocks" in its "pending" entry in page-limits.json to 3');
-      expect(tooMany(6, 5)[0]).toContain('over its pending ceiling of 5');
-      const fence = (lines: number) => `\`\`\`ts\n${Array(lines).fill('x').join('\n')}\n\`\`\``;
-      const long = (lines: number) =>
-        run([page('b/p.mdx', fence(lines), '')], { pending: { 'b/p.mdx': { reason: 'Waits.', fenceLines: 9, missingJob: true } } });
-      expect(long(9)).toEqual([]);
-      expect(long(6)[0]).toContain('Lower "fenceLines" in its "pending" entry in page-limits.json to 6');
-      expect(long(10)[0]).toContain('over its pending ceiling of 9');
-    });
-
-    it('fails a ceiling for a measure the page\'s kind has no cap on', () => {
-      const odd = { 'a/p.mdx': { reason: 'Waits.', entries: 3, missingJob: true } };
-      expect(run([page('a/p.mdx', 'x', '')], { pending: odd })[0]).toContain('a concept page has no cap on entries');
-    });
-
-    it('fails a page over a rule its entry does not list', () => {
-      const only = { 'a/p.mdx': { reason: 'Waits.', words: 14, missingJob: true } };
-      expect(run([heavy(11, 3)], { pending: only })[0]).toContain('3 H2 headings, over the 2 allowed on a concept');
-    });
-
-    it('fails an entry that no longer excuses a measure, a job, or anything at all', () => {
-      expect(run([heavy(2, 3)], { pending })[0]).toContain('Remove "words" from its "pending" entry');
-      const withJob = page('a/p.mdx', `## A\n\n## B\n\n## C\n\n${prose(11)}`);
-      expect(run([withJob], { pending })[0]).toContain('Remove "missingJob"');
-      const done = { 'a/p.mdx': { reason: 'Waits.', missingJob: true } };
-      expect(run([page('a/p.mdx', 'x', `job: ${JOB}`)], { pending: done })[0]).toContain('Remove "missingJob"');
-      expect(run([page('a/p.mdx', 'x', '')], { pending: { 'a/p.mdx': { reason: 'Waits.' } } })).toEqual(
-        expect.arrayContaining([expect.stringContaining('excuses nothing')]),
-      );
-    });
-
-    it('fails an entry with no reason, an unknown key, or no page', () => {
-      expect(run([heavy(11, 3)], { pending: { 'a/p.mdx': { ...pending['a/p.mdx'], reason: '' } } })[0]).toContain('has no reason');
-      expect(run([heavy(11, 3)], { pending: { 'a/p.mdx': { ...pending['a/p.mdx'], lines: 3 } as never } })[0]).toContain('"lines", which is not a measure');
-      expect(run([page('a/q.mdx', 'x')], { pending })[0]).toContain('not a page');
-    });
-  });
-
   it('fails a title or description that holds prose, naming the page', () => {
     const [message, ...rest] = run([page('b/p.mdx', 'x', `job: ${JOB}\ndescription: One two three four five six seven eight nine.`)]);
     expect(rest).toEqual([]);
@@ -436,5 +370,12 @@ describe('page limits: each rule fires on a bad sample', () => {
   it('fails a page or folder entry for something that is gone', () => {
     expect(run([page('a/q.mdx', 'x')], { pages: { ...limits.pages, 'a/gone.mdx': { kind: 'concept' } } })[0]).toContain('not a page');
     expect(run([page('a/q.mdx', 'x')], { folders: { ...limits.folders, gone: { kind: 'concept' } } })[0]).toContain('holds no page');
+  });
+
+  it('fails an unknown top-level key, and pending put back is one', () => {
+    // The type names no such key. A file can still hold one, and the check reads the object.
+    const putBack = run([], { pending: {} } as Partial<Limits>);
+    expect(putBack).toEqual(['page-limits.json has "pending", an unknown top-level key. Remove it.']);
+    expect(run([], { excused: true } as Partial<Limits>)).toEqual(['page-limits.json has "excused", an unknown top-level key. Remove it.']);
   });
 });

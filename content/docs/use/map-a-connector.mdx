@@ -1,77 +1,76 @@
 ---
 title: Choose where a connector's records land
 sidebar_label: Map a connector's records
-description: Map each kind of record a plugin's connector brings onto a type and tier you choose, and choose how each of the type's fields is filled.
+description: Choose the type and tier each kind of record from a plugin's connector lands as, and how its fields are filled.
 job: An owner chooses which type and tier each kind of record from a plugin's connector lands as, and how its fields are filled.
 kind: how-to
 ---
 
-A plugin's connector brings one or more **kinds** of record, such as a tracker's issues and comments, and each lands by default as the connector's own type, in the [feed](/build/items-and-types#library-and-feed). **The mapping** lets you change that for each kind: whether it comes in, the type and tier it lands as, and where each field's value comes from. The connector reads the mapping and writes each kind as it says. Each command needs `connectors.manage`.
+A plugin's connector brings one or more **kinds** of record. Until you save a mapping, each kind lands as its own type, in the [feed](/build/items-and-types#library-and-feed). The mapping is your choice, for each kind, of whether it comes in, which type and tier it lands as, and how each field is filled. [The connector kit](/reference/connector-kit#mapping) says how a template is rendered, how a status word is chosen, and when two kinds cannot share a type. Each command needs `connectors.manage`.
 
 ## Read the mapping
 
 ```bash
-marfa plugins mapping show tracker --json > mapping.json
+marfa plugins mapping show rss
 ```
 
-Until you save one, each kind shows its default at `version` `0`: its own type, `feed`, and each field filled from the field of the same name, unless the plugin's author set another default.
+Until you save one, the answer is version `0`. Each kind is on, on its own type, at tier `feed`, and each field is filled from the field of the same name, unless the plugin sets another default.
 
-## Change it
+## Change a kind
 
-Edit the file, in JSON or YAML. This sends the tracker's issues to your tasks, in the library:
+Edit a JSON or YAML file. A kind or a member you leave out is stored as its default. On a kind whose `target_type` is not its own type, fields you leave out are filled from the field of the same name, where both types have it, and status overrides you leave out are empty. This puts the RSS connector's entries in the library:
 
 ```yaml title="mapping.yaml"
 version: 0
 kinds:
-  issue:
-    enabled: true
-    target_type: core.task
+  entry:
     tier: library
-    status_overrides:
-      open: not_started
-      closed: completed
-    fields:
-      title: { from: title }
-      description: { from: summary }
-      url: { from: url }
-      notes: { fixed: "From the tracker" }
-      body: { template: "Reported by {{ reporter }}" }
 ```
-
-Each field takes exactly one of `from`, a field of the connector's own type; `fixed`, one value for every item; or `template`, a Jinja template the connector fills, for a text field only. `status_overrides` turns each of the connector's status words into one the target type has. `enabled: false` leaves a kind out.
 
 <Terminal>
 
 ```bash
-marfa plugins mapping set tracker mapping.yaml
+marfa plugins mapping set rss mapping.yaml
 ```
 
 ```text
-saved the mapping of tracker at version 1
+saved the mapping of rss at version 1
 ```
 
 </Terminal>
 
-A kind or member you leave out keeps its default. **On a kind you move to a type other than its own,** `fields` left out fill each field both types have from the field of the same name, and `status_overrides` left out are empty. **Marfa checks the mapping as it saves it** and refuses `400 validation_error`, naming the path, for a required field nothing fills, a field the type lacks, a fixed value the field refuses, a template on a field that isn't text, a status word either type lacks, or a target type under `system`. The target type also needs write in your own reach. A mapping saved since you read yours is refused `409 connector_mapping_stale`: read it again.
+Reading it again shows that kind's tier as `library`. The picture kind, left out of the file, stays at its default.
 
-## Preview a kind before you save it
+For each kind:
 
-To see how one kind would land, put a draft of its entry, the part under `issue:` above, in a file of its own, and ask the connector to render it:
+- **Turn a kind off** with `enabled: false`. It writes nothing, reads nothing and carries nothing, and the items it already brought stay where they are.
+- **Write a kind as another type** by setting `target_type` to a type you can write. The connector then creates and edits items of that type only under its own source. Your own items of that type are left alone.
+- **A create names no tier.** Marfa gives the item the tier that kind's mapping names. Until you set one, that tier is the feed.
 
-```bash
-marfa plugins mapping preview tracker --kind issue --file issue.yaml --wait
+A field is `from` (a field of the kind's own type), `fixed` (one value for every item) or `template` (a text field only). `status_overrides` maps one of the kind's status words to one of the target type. Both are on the [kit page](/reference/connector-kit#mapping).
+
+## When a save is refused
+
+Marfa checks the mapping as it saves it. A mapping that doesn't fit is refused `400 validation_error`, and the answer names the path: a target type that is missing, under `system`, or not one you can write, among other faults. Send the version you read. A mapping saved since then is refused, and nothing is saved:
+
+```text
+marfa: the server refused (409 connector_mapping_stale): The mapping is at version 1. Read it again and send that version. {"version":1}
 ```
 
-Marfa checks the draft as a save would, and saves nothing. The connector renders it on its next look, on the item `--item` names or one it chooses, and `--wait` prints the fields it filled. Without `--file`, it previews the mapping in force. **A preview lasts 10 minutes,** and one the connector couldn't render, or didn't answer in time, ends with `preview_ended`.
+Read the mapping again and send that version.
 
-## What a mapped connector may reach
+## Preview a kind
 
-**On a type that isn't its own, a connector reads and writes only its own items,** those under its source, so mapping it onto `core.task` never lets it see or change your own tasks, or a link you made from one. Its bin, restore and purge never carry your items with its own. On its own types, its key decides alone.
+To see how one kind would land, put a draft of that kind's entry in a file. Marfa checks the draft as a save would, and saves nothing:
 
-## Change what it already brought
+```bash
+marfa plugins mapping preview rss --kind entry --file entry.yaml --wait
+```
 
-Saving a mapping changes no item: it applies to what the connector writes next. To move the items it already brought onto each kind's new target, [rewrite them](/use/rewrite-connector-records).
+The connector renders it on its next look, on the item `--item` names or on one it chooses. `--wait` prints the fields it filled. Without `--file`, it previews the mapping in force. **A preview lasts 10 minutes.** One the connector could not render, or did not answer in time, ends with `preview_ended`. A paused connector answers none ([the kit](/reference/connector-kit#pause-run-now-and-previews)).
 
-Removing the plugin removes its mapping. An archive carries it, and a restore keeps a mapping you saved over the archive's ([Move your data with an archive](/run/export-and-restore#what-a-restore-changes)).
+## Move what it already brought
 
-The rules behind this page are in the [plugins](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#a-connectors-mapping) chapter of the contract.
+Saving a mapping changes no item. It applies to what the connector writes next. To move the items it already brought, [rewrite them](/use/rewrite-connector-records).
+
+Removing the plugin removes the mapping. An archive carries it, and a restore keeps a mapping you saved rather than the archive's ([Move your data with an archive](/run/export-and-restore#what-a-restore-changes)).
