@@ -118,7 +118,7 @@ const FIRST: [query: string, pages: string[]][] = [
   ['sign in', ['/run/sign-in-as-the-owner']],
   ['how do I sign in', ['/run/sign-in-as-the-owner']],
   ['sign-in', ['/run/sign-in-as-the-owner']],
-  ['set-up', ['/quickstart', '/run/address', '/run/upgrade', '/use/google-project']],
+  ['set-up', ['/quickstart', '/run/address', '/run/upgrade', '/run/settings']],
   ['sync a folder on 2 computers', ['/use/sync-a-folder']],
   ['sync a folder on another computer', ['/use/sync-a-folder']],
   ['install', ['/run/install']],
