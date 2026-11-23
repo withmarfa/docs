@@ -1,0 +1,30 @@
+---
+title: App data
+headTitle: App data in the Swift SDK
+description: List and delete the data an app keeps for itself, and disconnect the app with that data removed.
+job: A Swift builder looks up the calls on the data an app keeps for itself.
+---
+
+`Client` lists and deletes what an app keeps under an `app.<vendor>` namespace. [An app's own data](/use/manage-app-data) says what stays, and when removing data on disconnect is refused. Pass `.ownerConfirmed` only once the owner agrees. A purge returns only from a backup or an export.
+
+| Call | Does | Needs |
+| --- | --- | --- |
+| [`appData(vendor:limit:cursor:)`](/reference/api/apps/listAppVendorData) | One page of types registered or held by an item, with `active`, `archived` and `trashed` counts on every page, and items in every state, the bin included, oldest first. `limit` is 1 to 200, and 25 when omitted. `cursor` takes `nextCursor`, or `nil` on the last page. | `grants.manage`, or the owner's browser session. |
+| [`removeAppData(vendor:_:expecting:)`](/reference/api/apps/deleteAppVendorData) | Deletes the namespace's items and types until none remain, and returns an `AppDataRemoval`. | Listing's needs, plus `items.purge`. |
+| [`disconnect(grant:revokingKeys:data:)`](/reference/api/apps/revokeAppGrant) | Ends the app's tokens and consent. `data` defaults to `.keep`. `.remove(.ownerConfirmed)` deletes every namespace the grant holds, in that write. | `grants.manage`. `.remove` also needs `items.purge`. |
+| [`end(signIn:revokingKeys:data:expecting:)`](/reference/api/sign-ins-and-passkeys/endSignIn) | Ends that sign-in at once, this client's included. `.remove` applies only to an app. | `sign_ins.manage`. `.remove` needs `disconnect`'s extras. |
+
+An app's sign-in, or a key an app made, reaches only a namespace its app holds, and needs read on the types to list. Deleting also needs write on the types and `schema.write` while a type is registered. `.remove` needs that write and `schema.write` too.
+
+`AppDataRemoval` holds `vendor`, `removedItems`, `removedTypes`, `remainingItems` and `stoppedBy`. **`isComplete` is true only when `stoppedBy` is `nil` and `remainingItems` is 0.** Counts include only server answers. No deletion while items remain sets `stoppedBy` to `invalid`.
+
+`removeAppData` throws the first failure and deletes nothing: `forbidden` (`items.purge`, `grants.manage` or `schema.write`), `notFound` (no app or owner holds it), `validation` (not an `app.<vendor>` namespace), `type_in_use` (a folder, view, webhook or outside column names one; not its own column) or `type_has_subtypes` (an outside type inherits from one). A later failure, cancellation included, is `stoppedBy` and is not thrown.
+
+`end` refuses `.remove` for a browser sign-in or a key with `validation`, and ends nothing. `revokingKeys` also revokes keys the app made, and keys those keys made, except an owner's key. `expecting:` on `removeAppData` and `end` throws `instanceChanged` for another instance.
+
+```swift
+let page = try await api.appData(vendor: "app.readinglist")
+let removal = try await api.removeAppData(vendor: page.vendor, .ownerConfirmed, expecting: instanceID)
+```
+
+See the contract's [keys and sign-in](https://github.com/withmarfa/marfa/blob/main/conformance/spec/keys-and-oauth.md#an-apps-own-data) chapter.
