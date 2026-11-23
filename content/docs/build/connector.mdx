@@ -1,288 +1,249 @@
 ---
-title: Build a connector
-description: Make a connector with the connector kit, run it against a stand-in ticket service, and see the items it writes to your instance.
+title: Build a Marfa plugin
+description: Install a Marfa plugin from its source folder, with a type, guidance, a setting and a connector written with the kit, and see the connector recorded.
+job: A builder installs a Marfa plugin from its source folder.
+kind: tutorial
 ---
 
-- **You'll build** a connector for a small ticket service. It reads the tickets an account holds and writes each one to your instance as an item.
-- **You need** your own Marfa instance **on the computer you work on**, with the CLI signed in to it, as the [Quickstart](/quickstart) leaves you. You also need Git, [Node.js](https://nodejs.org) 22.13 or later and [pnpm](https://pnpm.io/installation) 11.
-- **You'll have** a connector that runs once against the service and leaves two tickets in your instance.
-
-A connector reads a vendor, the service that holds the records, and writes what it finds as items. The connector kit registers the connector, writes only what changed and reports each run, so your code only reads the vendor. [Connectors](/build/connectors) explains the parts, and the [kit's README](https://github.com/withmarfa/plugins/blob/main/template/README.md) is its reference.
-
-**You'll need** an instance and the CLI signed in to it with Full access, on any computer, to make the connector's key.
+- **You'll build** Concerts, a Marfa plugin whose connector reads a JSON list of tickets. This is a plugin an owner installs, from the [plugins repository](https://github.com/withmarfa/plugins), not the [Marfa plugin for agents](/connect-your-agent).
+- **You need** Node.js 22.12 or later, pnpm, and a checkout of that repository on `main`, with the kit built (`pnpm exec tsc -b kit` from the checkout). Put the `concerts` folder next to it, so the kit is at `../plugins/kit`. You also need the `marfa` CLI signed in to your instance, as the [Quickstart](/quickstart) leaves you.
+- **You'll have** the plugin installed, its type and guidance stored, and its connector recorded with no host. A host will mint the key and start the connector. This tutorial stops before that, because Marfa doesn't publish a host yet.
 
 <Steps paged>
 <Step>
 
-### Get the kit
+### Write the plugin folder
 
-The [plugins](https://github.com/withmarfa/plugins) repository holds the connector kit, `@withmarfa/connector`, a template, and the connectors Marfa ships. The kit isn't published to npm, so build it from the repository:
+The folder you install holds `plugin.json`, the type, and the type's guidance. The connector program stays beside that folder.
 
-```bash
-git clone https://github.com/withmarfa/plugins.git
-cd plugins
-pnpm install --frozen-lockfile
-pnpm build
-```
-
-Keep this folder as your working folder for the rest of the tutorial.
-
-</Step>
-<Step>
-
-### Make a ticket service
-
-Here the vendor is a stand-in that serves a list from a file, so you can change the list later and watch the connector follow. In a second terminal, make a folder outside the checkout, such as `ticket-service`, and save the list in it:
-
-```json title="ticket-service/tickets.json"
-[
-  { "id": "T-1041", "event": "Khruangbin", "venue": "Roundhouse, London", "starts": "2026-12-04T19:30:00Z" },
-  { "id": "T-1187", "event": "Nils Frahm", "venue": "Barbican Hall, London", "starts": "2027-01-15T20:00:00Z" }
-]
-```
-
-Save the service beside it. It answers `GET /tickets` with the account's name and its tickets, and only for the token `demo-token-1234`:
-
-```js title="ticket-service/service.mjs"
-import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-
-createServer(async (request, response) => {
-  if (request.headers.authorization !== "Bearer demo-token-1234") {
-    response.writeHead(401).end();
-  } else if (request.url === "/tickets") {
-    const tickets = JSON.parse(await readFile("tickets.json", "utf8"));
-    response.writeHead(200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify({ account: "sam", tickets }));
-  } else {
-    response.writeHead(404).end();
-  }
-}).listen(4100, "127.0.0.1", () => {
-  console.log("Your tickets are at http://127.0.0.1:4100");
-});
-```
-
-Start it, and leave it running:
-
-<Terminal>
-
-```bash
-cd ticket-service
-node service.mjs
-```
-
-```text
-Your tickets are at http://127.0.0.1:4100
-```
-
-</Terminal>
-
-</Step>
-<Step>
-
-### Start the connector and describe its type
-
-Back in `plugins`, make a folder for the connector from the template's package files:
-
-```bash
-mkdir -p connectors/tickets/src
-cp template/connector/package.json template/connector/tsconfig.json connectors/tickets/
-```
-
-In `connectors/tickets/package.json`, change `"name": "example"` to `"name": "tickets"`.
-
-Each ticket becomes an item of a type the connector registers. A type names its fields; this one extends `core.event`, which already has a `title`, a `place` and a `starts_at`, and adds the vendor's ticket number:
-
-```json title="connectors/tickets/src/tickets.ticket.json"
+```json title="plugin/plugin.json"
 {
-  "id": "tickets.ticket",
-  "label": "Ticket",
-  "description": "A ticket from the ticket service, for the event it admits you to.",
-  "parent": "core.event",
-  "fields": {
-    "ticket_id": { "type": "string", "required": true, "description": "The ticket's number in the ticket service." }
-  },
-  "display_hints": { "icon": "lucide:ticket" }
-}
-```
-
-[Items and types](/build/items-and-types) explains types and their parents.
-
-</Step>
-<Step>
-
-### Read the service
-
-Keep the vendor's own API in a file of its own. This one fetches the tickets and stops if the service refuses:
-
-```ts title="connectors/tickets/src/service.ts"
-export interface Ticket { id: string; event: string; venue?: string; starts: string }
-
-export async function readTickets(address: string, token: string, signal: AbortSignal) {
-  const response = await fetch(new URL("tickets", `${address}/`), {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
-  });
-  if (!response.ok) {
-    throw new Error(`the ticket service answered ${String(response.status)}`);
+  "name": "concerts",
+  "title": "Concerts",
+  "description": "Concert tickets from a JSON list.",
+  "mark": "lucide:ticket",
+  "maker": "North Line",
+  "marfa": "0.0.101",
+  "connector": {
+    "source": "concerts",
+    "source_name": "Concerts",
+    "source_mark": "lucide:ticket",
+    "kinds": [
+      { "name": "ticket", "type": "concerts.ticket", "direction": "in" }
+    ],
+    "settings": [
+      {
+        "name": "concert_list",
+        "label": "Ticket list address",
+        "kind": "text",
+        "required": true
+      }
+    ],
+    "runs": { "on": "host" }
   }
-  return (await response.json()) as { account: string; tickets: Ticket[] };
 }
 ```
 
-An error thrown here fails the run, and the kit reports it with this message.
+`concerts` is the plugin's name and the source the tickets are written under. `concert_list` is the address of the JSON list. The [plugin format](/reference/plugin-format#connector) is the rest of the file.
+
+```json title="plugin/types/concerts.ticket.json"
+{
+  "id": "concerts.ticket",
+  "label": "Concert ticket",
+  "description": "A ticket from a concert list, with the concert's own id and title.",
+  "fields": {
+    "concert_id": {
+      "type": "string",
+      "required": true,
+      "description": "The concert's id on the list."
+    },
+    "title": {
+      "type": "string",
+      "required": true,
+      "description": "The concert's name."
+    }
+  },
+  "display_hints": { "title_field": "title" }
+}
+```
+
+The file beside it is the guidance a person reads with the type:
+
+```md title="plugin/types/concerts.ticket.md"
+**Use for:** a ticket on a concert list the connector reads, one item for each concert.
+
+**Not for:** work you track yourself, which is a `common.ticket` kind, or an event you keep yourself, which is a `core.event`.
+
+**Body:** `title` is the concert's name. `concert_id` is the id the list gives that concert, and the connector finds the item by it.
+```
 
 </Step>
 <Step>
 
 ### Write the connector
 
-`defineConnector` says what the connector is, and `run` turns each ticket into an entry:
+The program uses the [connector kit](/reference/connector-kit). `run` fetches the list and hands each ticket to `upsert`. Pass `connector` itself to `main`, not `connector()`, so each run is built from the settings Marfa holds.
 
-```ts title="connectors/tickets/src/main.ts"
-import { defineConnector, main, type TypeDefinition } from "@withmarfa/connector";
-import ticketType from "./tickets.ticket.json" with { type: "json" };
-import { readTickets } from "./service.js";
-
-const connector = defineConnector({
-  name: "tickets",
-  description: "The tickets you hold in the ticket service.",
-  source: "tickets",
-  sourceName: "Tickets",
-  types: [{ type: ticketType as TypeDefinition, fields: ["ticket_id", "title", "place", "starts_at"] }],
-  env: { TICKETS_URL: "required", TICKETS_TOKEN: "secret" },
-  async run({ env, signal, upsert }) {
-    const { account, tickets } = await readTickets(env.TICKETS_URL, env.TICKETS_TOKEN, signal);
-    await upsert(ticketType.id, tickets.map((ticket) => ({
-      source_id: `${account}:${ticket.id}`,
-      properties: { ticket_id: ticket.id, title: ticket.event, place: ticket.venue, starts_at: ticket.starts },
-      occurred_at: ticket.starts,
-    })));
-  },
-});
-
-await main(connector);
-```
-
-- **`source`** is the code every item the connector writes carries. It names the system the items come from, never an account. **`sourceName`** is how Marfa shows it; the kit sets it on the first start and keeps a name the owner gives it later.
-- **`source_id`** is the vendor's ID for the record. With the source, it is the item's natural key, so the next run finds and updates the item instead of writing a second one. A ticket belongs to an account, so its ID starts with the account.
-- **`env`** names the settings the connector reads. The kit stops the start if one is missing, and never writes a `secret` to its log.
-
-Install and build it:
-
-```bash
-pnpm install
-pnpm exec tsc -b connectors/tickets
-```
-
-</Step>
-<Step>
-
-### Make its key and run it
-
-A connector gets [an owner's key](/use/manage-keys#a-key-for-a-connector) of its own, which reaches its own type and nothing else. The CLI signed in with Full access makes one.
-
-<Terminal>
-
-```bash
-marfa keys create \
-  --label "Ticket connector" --source tickets \
-  --type-permission tickets.ticket=write \
-  --metadata-permission types=write --default-tier feed
-```
-
-```text
-marfa_k1_…
-key 01a1f16f-80ae-7481-b843-1db25e64b513 (Ticket connector); the plaintext is shown once, keep it now
-  tickets.ticket     Read and edit
-  Custom data types  Read and edit
-```
-
-</Terminal>
-
-<Callout type="warn" title="Copy the key now">Marfa shows it once. If you lose it, revoke it with `marfa keys revoke` and make another.</Callout>
-
-`--source` makes the key write under `tickets`, and `types=write` lets the connector register its type. Run the connector once with the key and the service's settings, replacing `<connector key>` with the key and the address with your instance's:
-
-<Terminal>
-
-```bash
-MARFA_API_URL=http://localhost:8600 MARFA_API_KEY=<connector key> \
-  TICKETS_URL=http://127.0.0.1:4100 TICKETS_TOKEN=demo-token-1234 \
-  node connectors/tickets/dist/main.js --once
-```
-
-```text
-2026-11-19T01:33:06.017Z info registered as 01a1f16f-9c3d-7407-91a3-a55d024651ea
-2026-11-19T01:33:06.064Z info run succeeded: created 2, updated 0, archived 0, unchanged 0, skipped 0
-```
-
-</Terminal>
-
-On its first start the kit checks the key, registers the connector and its type, and then runs.
-
-</Step>
-<Step>
-
-### See what it wrote
-
-List the tickets with your own CLI:
-
-<Terminal>
-
-```bash
-marfa items list --type tickets.ticket
-```
-
-```text
-id                                    type            when                      title
-01a1f16f-9c7d-733a-ba51-db13974977de  tickets.ticket  2027-01-15T20:00:00.000Z  Nils Frahm
-01a1f16f-9c7c-74ba-ac82-919ada1113f9  tickets.ticket  2026-12-04T19:30:00.000Z  Khruangbin
-```
-
-</Terminal>
-
-Read one in full, using an ID from your own list:
-
-<Terminal>
-
-```bash
-marfa items get 01a1f16f-9c7c-74ba-ac82-919ada1113f9 --json
-```
-
-```json
+```json title="package.json"
 {
-  "item": {
-    "id": "01a1f16f-9c7c-74ba-ac82-919ada1113f9",
-    "type": "tickets.ticket",
-    "state": "active",
-    "tier": "feed",
-    "occurred_at": "2026-12-04T19:30:00.000Z",
-    "source": "tickets",
-    "source_id": "sam:T-1041",
-    "version": 1,
-    "read_only": true,
-    "properties": {
-      "title": "Khruangbin",
-      "starts_at": "2026-12-04T19:30:00Z",
-      "place": "Roundhouse, London",
-      "ticket_id": "T-1041"
-    }
+  "name": "concerts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@withmarfa/connector": "file:../plugins/kit"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }
 ```
 
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
+```
+
+```ts title="src/definition.ts"
+import { defineConnector, type TypeDefinition } from "@withmarfa/connector";
+import ticket from "../plugin/types/concerts.ticket.json" with { type: "json" };
+
+const type = ticket as TypeDefinition;
+export function connector() {
+  return defineConnector({
+    name: "concerts",
+    title: "Concerts",
+    mark: "lucide:ticket",
+    maker: "North Line",
+    description: "Concert tickets from a JSON list.",
+    source: "concerts",
+    sourceName: "Concerts",
+    sourceMark: "lucide:ticket",
+    types: [{ name: "ticket", direction: "in", type, fields: ["concert_id", "title"] }],
+    settings: [{ name: "concert_list", label: "Ticket list address", kind: "text", required: true }],
+    async run({ env, signal, upsert }) {
+      const rows = (await fetch(env.concert_list, { signal }).then((r) => r.json())) as { id: string; title: string }[];
+      await upsert(type.id, rows.map((row) => ({
+        source_id: row.id,
+        properties: { concert_id: row.id, title: row.title },
+      })));
+    },
+  });
+}
+```
+
+```ts title="src/main.ts"
+import { main } from "@withmarfa/connector";
+import { connector } from "./definition.js";
+
+await main(connector);
+```
+
+</Step>
+<Step>
+
+### Typecheck it
+
+From the `concerts` folder, install the kit and typecheck the program. `tsc` prints nothing when the connector matches the kit.
+
+<Terminal>
+
+```bash
+pnpm install
+pnpm exec tsc --noEmit
+```
+
+```text
++ @withmarfa/connector file:../plugins/kit
++ typescript 5.9.3
+```
+
 </Terminal>
 
-The answer has more fields than this. The item waits in the **feed**, where a connector's items stay until a person or an app keeps them in the library. It reads `read_only: true` because this connector carries no change back to the service: the next tutorial shows what happens to an edit made in Marfa.
+</Step>
+<Step>
 
-Leave the ticket service running if you go on to the next tutorial.
+### Check the plugin folder
+
+Check judges the folder the way an install would, and talks to no server:
+
+<Terminal>
+
+```bash
+marfa plugins check plugin
+```
+
+```text
+types/concerts.ticket.json: ok
+the plugin passes
+```
+
+</Terminal>
+
+</Step>
+<Step>
+
+### Install it
+
+<Terminal>
+
+```bash
+marfa plugins install plugin
+```
+
+```text
+installed concerts 0.0.0 with 1 type; its connector runs on no host yet: marfa plugins assign concerts --host `host`
+```
+
+</Terminal>
+
+The type is installed with its guidance. The last words of that line name a host. Marfa doesn't publish one yet, so the connector stays recorded with no host.
+
+</Step>
+<Step>
+
+### See the connector recorded
+
+<Terminal>
+
+```bash
+marfa plugins get concerts
+```
+
+```text
+connector.source                concerts
+connector.source_name           Concerts
+connector.kinds[0].name         ticket
+connector.kinds[0].type         concerts.ticket
+connector.kinds[0].direction    in
+connector.settings[0].name      concert_list
+connector.runs.on               host
+connector_host                  -
+```
+
+</Terminal>
+
+`connector_host` is empty. The install recorded the connector. It did not register a running process: that happens when a host starts the kit with a key the host minted.
+
+</Step>
+<Step>
+
+### Leave the run to a host
+
+A host mints a key for this connector and starts the process with `MARFA_API_URL`, that key, and telemetry settings. The kit reads `concert_list` from Marfa at the start of the run. [Make a connector follow changes](/build/connector-follow-changes) stores the address. The [connector kit](/reference/connector-kit) is what the process checks the key against, and [Write a connector on the API](/build/connector-without-the-kit) is the same run without the kit.
 
 <Cards>
-  <Card title="Make a connector follow changes" href="/build/connector-follow-changes">Edit a ticket in Marfa, change the list, and see the connector follow the service and report a failure.</Card>
-  <Card title="Bring in records from another service" href="/use/connect-a-service">Run a connector on a schedule, and read its exit codes.</Card>
-  <Card title="Pull from a vendor" href="/build/connector-pull">Write what a vendor holds, and connect the items it relates.</Card>
-  <Card title="Carry changes back" href="/build/connector-push">Carry changes made in Marfa back to the vendor.</Card>
+  <Card title="Make a connector follow changes" href="/build/connector-follow-changes">Store the list address in Marfa.</Card>
+  <Card title="Connector kit" href="/reference/connector-kit">The key, the settings and the exit codes.</Card>
 </Cards>
 
 </Step>

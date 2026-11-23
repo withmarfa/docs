@@ -33,9 +33,9 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['retry a write safely', ['/build/write-safely']],
   [
     'rate limit 429',
-    ['/run/troubleshooting/credentials-and-access', '/reference/folder-rules', '/build/connector-holds-and-retries', '/run/settings'],
+    ['/run/troubleshooting/credentials-and-access', '/reference/folder-rules', '/build/connector-without-the-kit', '/run/settings'],
   ],
-  ['retry-after', ['/build/connector-webhooks', '/build/connector-holds-and-retries', '/build/keep-in-sync']],
+  ['retry-after', ['/build/connector-without-the-kit', '/build/keep-in-sync']],
   ['CORS', ['/run/settings', '/reference/instance-settings']],
 
   // Reading and listing.
@@ -45,7 +45,7 @@ const EXPECTED: [query: string, pages: string[]][] = [
   ['filter items by property', ['/build/list-filter-search']],
 
   // Webhooks and connectors.
-  ['webhook signature', ['/build/connector-webhooks', '/build/receive-webhooks']],
+  ['webhook signature', ['/build/connector-without-the-kit', '/build/receive-webhooks']],
   ['hmac', ['/build/receive-webhooks']],
 
   // Sign-in, keys and the command line.

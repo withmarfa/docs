@@ -1,0 +1,115 @@
+---
+title: Write a connector without the kit
+description: Follow a connector's run on the API, and retry after a refusal, from registration through the vendor, changes, webhooks, the hold and the report.
+job: A builder follows the order of a connector's run on the API.
+kind: how-to
+---
+
+The [connector kit](/reference/connector-kit) makes this run for you. On the API, keep the steps in this order so a stop loses nothing. The [TypeScript SDK](/reference/typescript-sdk) makes the same calls. [Errors](/reference/errors) lists refusals, and [Write safely](/build/write-safely) covers versions and idempotency keys.
+
+A [Marfa plugin](/reference/plugin-format)'s connector registers when a host starts it with the key the host minted. A connector outside a plugin [registers itself](/reference/api/connectors/registerConnector). One key holds one registration.
+
+## Register the connector
+
+Send `read_only_types`, the types you do not carry back, on every [registration](/reference/api/connectors/registerConnector). A later list replaces it. Omitting the field clears it. An item reads `read_only: true` only while every live connector of its source lists that type and may write it. Marfa still accepts a write.
+
+## Read the vendor
+
+Read the vendor, then write Marfa. A record left off a page is not a deletion.
+
+### Write what you read
+
+[Upsert in bulk](/reference/api/items/bulkUpsertItems) by the key's source and `source_id`, so a second read updates the item. Put an account in `source_id`. The source names the system. `tier` `feed` is the [feed](/build/items-and-types#library-and-feed), and text is Markdown. `atomic` false keeps the rows that passed. Otherwise one refusal undoes the page.
+
+### What a repeat write does
+
+Send the vendor's page whole. Unchanged comes back `skipped` as `unchanged`. A binned item comes back `skipped` as `trashed` and stays binned. After a purge, [look the record up](/reference/api/items/lookupItems) and write again only past `settled_at`.
+
+### Connect items
+
+A pointer is an [edge](/build/edges). `edges` on the bulk write replaces that one type. Omit a type to leave its edges. Marfa's own types are in the [Catalog](/catalog/edges).
+
+### Set aside what the vendor deleted
+
+[Archive](/reference/api/items/transitionItem) only when the vendor dropped the record. People use the bin. A bulk write leaves state alone, so set `active` when the record returns.
+
+### Name the source
+
+Each start, [read the source](/reference/api/sources/getSource) and [set the name and mark](/reference/api/sources/updateSource) only while they are empty, so a name the owner set stays.
+
+### Declare the types you don't carry back
+
+Put them in `read_only_types` on [the registration](#register-the-connector). The next run puts an edit to those items back.
+
+## Carry changes back
+
+A two-way connector carries a person's edits out to the vendor.
+
+### Link items to the vendor
+
+[Register the type](/reference/api/types/registerType) with `link_field`, the vendor's id, unique in every state. A duplicate is `409` `link_taken`. No value means the vendor has not heard of the item.
+
+### Watch for changes made in Marfa
+
+Keep `Last-Event-ID` from [the event stream](/reference/api/event-stream/streamEvents) in state. [Keep a copy in sync](/build/keep-in-sync) covers that stream, including your own writes. [Write](/reference/api/connector-state/writeConnectorAgreements) the agreement under the hold, then [look it up](/reference/api/connector-state/lookupConnectorAgreements) per event. The same `record` is already agreed. On a person's edit, write `waiting` true and that `record` **before** the cursor moves. The other order drops the edit if you stop.
+
+### Carry a change back
+
+[List](/reference/api/connector-state/listConnectorAgreements) agreements with `waiting` true, send the change, and on acceptance store `waiting` false and the shared `record`. A refusal stays waiting. Clearing `waiting` early drops the change.
+
+### Send a new item to the vendor
+
+No link: create the vendor's record, using the item's id where the vendor dedupes. Then [set the link](/reference/api/items/updateItem) at the read `version` and write the agreement immediately, or the next run creates it again.
+
+### Rare cases
+
+One rule for a field both sides changed. If the vendor cannot delete, edit the record and [settle the tombstone](/reference/api/items/settleTombstones) then, or the next read creates the item again.
+
+## Take a vendor's webhooks
+
+### Create an endpoint
+
+[Create the endpoint](/reference/api/inbound-webhooks/createInboundEndpoint) once and keep `path`. Later reads hide it. The vendor posts to the public [address](/run/address) plus `path`, with no credential. The signing secret is a connector setting. `duplicate_header` marks a repeat.
+
+### Read the deliveries
+
+[List](/reference/api/inbound-webhooks/listInboundDeliveries) unhandled deliveries, oldest first and without bodies, until `next_cursor` is absent. Only this connector's key can read them.
+
+### Check the signature
+
+Check the webhook signature, in constant time, over the raw bytes [the body](/reference/api/inbound-webhooks/getInboundDeliveryBody) returns. A stored delivery does not prove the sender. Mark a bad one `rejected` and skip it.
+
+### Act on a delivery
+
+Read the vendor. A delivery only names the change, and it can arrive twice, late, or never, so keep the scheduled read. `duplicate_of` on a `processed` delivery is already done.
+
+### Mark it handled
+
+[Mark them handled](/reference/api/inbound-webhooks/markInboundDeliveriesHandled) after a successful run: `processed`, `duplicate`, or `rejected`. The first mark stands. A failure leaves them listed. [Retire](/reference/api/inbound-webhooks/retireInboundEndpoint) after the vendor switches. Ten endpoints may be live, and retired deliveries still count. Marfa answers the vendor first and stores nothing it refuses. Past the rate limit: `429` `rate_limited` and `Retry-After`. Handling one frees a backlog place. Windows are [instance settings](/run/settings#change-settings-while-it-runs).
+
+## One process, one place
+
+1. [Take the hold](#take-the-hold) and keep renewing it.
+2. Read [state](#keep-your-place) and the [agreements](#watch-for-changes-made-in-marfa).
+3. Read the vendor and write the items.
+4. Write the agreements for this run.
+5. Replace the state document.
+6. [Report the run](#report-the-run) and release the hold.
+
+### Take the hold
+
+[Take the hold](/reference/api/connector-state/takeConnectorHold) under this process's name before writing state or agreements. One name is one process. Another holder gets `409` `connector_held` and `details.expires_at`. Renew before `expires_at`. `renewed` true still holds. `renewed` false has lapsed: read state and agreements again first. Without a renewal, write nothing, in Marfa or at the vendor. [Release](/reference/api/connector-state/releaseConnectorHold) at the end. A [heartbeat](/reference/api/connectors/sendConnectorHeartbeat) does not renew the hold.
+
+### Keep your place
+
+[Read state](/reference/api/connector-state/getConnectorState) first. [Replace it](/reference/api/connector-state/replaceConnectorState) under the hold after its writes have landed, or the next run repeats them. You send the whole document. It stays on the source for the next key. [Delete it](/reference/api/connector-state/deleteConnectorState) and the agreements and the problems go too.
+
+### Retry after
+
+`409` `connector_held` wrote nothing. On `429` `rate_limited`, wait for `Retry-After` (`error.details.retry_after_seconds`), then resend. `503` `write_contention` changed nothing: resend. After `500` `internal_error`, read first. Replacing state or agreements under the hold is safe twice. A bulk write by natural key hits the same items. With no natural key, send an `Idempotency-Key`, or a retry creates a second item. Give the vendor an idempotency key too.
+
+## Report the run
+
+[Report the run](/reference/api/connectors/reportConnectorRun) at the end, `succeeded` or `failed`.
+
+The contract is [connectors](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md), [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) and [inbound webhooks](https://github.com/withmarfa/marfa/blob/main/conformance/spec/inbound-webhooks.md).
