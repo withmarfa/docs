@@ -1,98 +1,81 @@
 ---
 title: Upgrade an instance
-description: Move an install to a newer release in place once that release says it opens your database, and move to a new install when it doesn't.
+description: Move an install to a newer release in place, or into a new install when that release will not open the database, and go back to an earlier one.
+job: An owner moves an install onto another release.
 ---
 
-**Before Marfa 0.1, a release may not read another release's database.** `marfa server upgrade`, the one command that changes an install's release, asks the new release first; when it says no, nothing changes, and you move your data to a new install instead.
+Before Marfa 0.1, a release may not read another release's database. `marfa server upgrade` moves the install, newer or older, and changes nothing if that release says no.
 
 ## See whether a newer release is out
 
-Every six hours the server asks GitHub's API for Marfa's newest published release, **only at public addresses**, whatever `allow_private_addresses` says. With a credential that holds `instance.read`:
-
-<Terminal>
-
-```bash
-marfa update status
-```
-
-```text
-release              0.0.86
-latest.release       0.0.87
-available            true
-method               server
-step                 -
-```
-
-</Terminal>
-
-`method` is `server` where the server can replace its own programs, else `manual`, with `step` saying what to do. A failed check says why in `check_error`, and `update_check_enabled` set to `false` stops the check.
+With `instance.read`, `marfa update status` reports `available`, `method` (`server` or `manual`) and `check_error`. The server asks GitHub every six hours, at public addresses only, whatever `allow_private_addresses` says. Set `update_check_enabled` to `false` to stop it.
 
 ### What each release opens
 
 | What | What a release opens |
 | --- | --- |
-| Your database | From 0.0.89, any published release's database from 0.0.86 on, upgraded in place, except 0.0.88's, which it refuses unchanged. 0.0.95 to 0.0.100 share one schema. |
-| An archive | Its own archive version and earlier ones. 0.0.101 and later write version 4, which 0.0.100 and earlier can't restore; 0.0.93 to 0.0.100 write version 3, which 0.0.92 and earlier can't; 0.0.92 writes version 2, which 0.0.90 and earlier can't. |
+| Your database | From 0.0.89 on, a database from 0.0.86 on, except one 0.0.88 wrote. 0.0.94 to 0.0.100 share one schema. 0.0.101 changes it, and 0.0.100 can't open it. |
+| An archive | Its own version and earlier. 0.0.101 and later write version 4, which 0.0.100 and earlier can't restore. 0.0.93 to 0.0.100 write version 3, which 0.0.92 and earlier can't. 0.0.92 writes version 2, which 0.0.90 and earlier can't. |
 
 ## Upgrade in place
 
-**Take a backup first,** with `marfa backups run`. Then move the install the way it was made:
+Take a backup with `marfa backups run`.
 
-- **The install script, as a service.** Run `marfa update start`, or have an agent call `marfa_update_server`, with `instance.maintain`. The server downloads the release, checks its checksums and that the new server runs with your settings and database, and otherwise keeps the running programs, saying why in `marfa update status`. [Go back to an earlier release](/run/go-back-a-release#after-the-server-updates-itself) says how the new release is tried and put back.
-- **Homebrew.** `marfa update start` is refused `409 update_unavailable`, since Homebrew owns the programs. Run `brew upgrade marfa`, then `marfa server upgrade`.
-- **Programs you install yourself.** Install the new release over the old, then run `marfa server upgrade` with the new `marfa`.
-- **Docker, set up by the CLI.** Run `marfa server upgrade --release <version>`. It asks the image first, then names the release in `.env` and recreates the container on the same volume.
-- **A container you run.** Create it again from the new release's image, on the same volume. [Check the image](/run/run-on-a-server#check-the-image) first.
-- **Railway.** Set the image tag to the new release and deploy, on the same volume, which Railway's guide advises against: back up the volume first.
+- **Install script, as a service.** `marfa update start`, or an agent calling `marfa_update_server`, with `instance.maintain`. [How the try ends](#after-the-server-updates-itself).
+- **Homebrew.** `brew upgrade marfa`, then `marfa server upgrade`. `marfa update start` returns `409 update_unavailable`.
+- **Programs you install.** Replace them, then `marfa server upgrade` with the new `marfa`.
+- **Docker from the CLI.** `marfa server upgrade --release <version>` on the same volume.
+- **A container you run.** Same volume. [Check the image](/run/run-on-a-server#check-the-image).
+- **Railway.** The new tag, on the same volume, after a volume backup.
 
-**A release that changes the database schema first copies the database** to `marfa.db.before-upgrade` beside it, replacing any earlier copy, when the database holds data. It refuses to start, and changes nothing, if the copy can't be written or would take the volume below `disk_reserve_bytes`. [Go back to an earlier release](/run/go-back-a-release) says how to use the copy.
+When the database holds a row, a schema change writes `marfa.db.before-upgrade`, replacing any earlier copy, so the file is only the database from before that change. Nothing changes if the copy can't be written or would leave less free than `disk_reserve_bytes`.
 
-**`marfa server install`, `start` and `restart` keep an install on its release.** Run with another release's `marfa`, or after Homebrew or the install script replaced the programs, they change nothing and name the `marfa server upgrade --dir` command that moves it.
+Installed Marfa plugins, their types, and their connector settings, secrets and mapping stay.
 
-## When the new release refuses your database
+`marfa server install`, `start`, `restart` and another release's `marfa` change nothing. They name `marfa server upgrade --dir`.
 
-The command says so, and **the service, `.env` and the database stay as they were.** Homebrew and the install script have already replaced the programs, so the message gives the commands that put the earlier release back. On Railway or in a container you run, a release that refuses the database doesn't start and says why in its log: set the earlier tag again.
+On a refusal, the service, `.env` and the database stay. Follow the message to put replaced programs back, or set the previous tag, then [move to a new install](#move-to-a-new-install).
 
-Then [move to a new install](#move-to-a-new-install).
+### Types a new build leaves in conflict
+
+A built-in type can gain a field a type beneath it declares in another shape. The type and its items keep working. See [Change a type](/build/change-a-type).
 
 ## Move to a new install
 
-Make a second install of the new release, restore your data into it, and retire the old install once the new one works. On Railway, restore into a new project.
+Restore into a second install. On Railway, use a new project. Give a trial its own archive and backup place, and remove it with `marfa server uninstall --delete-data` and its own `--dir`.
 
 <Steps>
 <Step>
 
 ### Stop writing to the old instance
 
-Close its apps and agents. Run `marfa folders push <dir>` in each synced directory, then [pause it](/use/change-or-stop-a-folder#pause-a-folder). **A pause sends nothing,** so an edit the push didn't send misses the copy: a push that exits `3` may have left one, so run it again. **A change made on the old instance after you take the copy never reaches the new one.**
+Close its apps and agents. In each synced directory, run `marfa folders push <dir>`, then [pause it](/use/change-or-stop-a-folder#pause-a-folder). A pause sends nothing. Exit `3` means an edit may be unsent, so push again. A later change on the old instance stays there.
 
 </Step>
 <Step>
 
 ### Take a fresh copy
 
-With the old instance's CLI, run `marfa backups run`. With no backup place, export an archive instead: `marfa export --output marfa-move.tar`.
+Run `marfa backups run` with the old CLI. With no backup place, run `marfa export --output marfa-move.tar`.
 
 </Step>
 <Step>
 
 ### Make the new install
 
-Install the new release's programs into their own folder, then make an install with its own name, folder and port, reached from this machine alone:
+Claim the install, and run it with that `marfa` and its `--dir`, off `PATH`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/withmarfa/marfa/main/scripts/install.sh | MARFA_INSTALL_DIR=~/marfa-next/bin sh
 ~/marfa-next/bin/marfa server install --name marfa-next --dir ~/marfa-next/server --port 8610 --access local
 ```
 
-Claim it. **Run the new install's commands with `~/marfa-next/bin/marfa` and its `--dir`,** and leave that folder off your `PATH`.
-
 </Step>
 <Step>
 
 ### Restore into it
 
-The new install's [private socket](/run/run-on-a-server#the-private-socket) reaches that instance alone with no sign-in. For a backup, point it at the same place, then find the backup and restore it:
+Use the new install's [private socket](/run/run-on-a-server#the-private-socket):
 
 ```bash
 ~/marfa-next/bin/marfa --socket ~/marfa-next/server/data/control/marfa.sock config set backup_path /Volumes/Backup/marfa
@@ -100,36 +83,94 @@ The new install's [private socket](/run/run-on-a-server#the-private-socket) reac
 ~/marfa-next/bin/marfa --socket ~/marfa-next/server/data/control/marfa.sock backups restore <instance id> <backup name>
 ```
 
-For a bucket, set the same bucket, prefix and credentials, as [Use an object store](/run/back-up-and-restore#use-an-object-store) shows. For an archive, run `restore marfa-move.tar` through the socket instead. The answer counts what it restored, and `blobs_missing` names any file it lacks.
+A bucket follows [Use an object store](/run/back-up-and-restore#use-an-object-store). For an archive, run `restore marfa-move.tar` through the socket.
 
 </Step>
 <Step>
 
 ### Retire the old install
 
-With the old install's own `marfa`, remove its service, since a stopped service starts again at the next login:
-
-```bash
-marfa server uninstall --dir ~/marfa-server
-```
-
-It keeps the data and `marfa.env`: **keep both until the new instance has proven itself.** Then give the new install the port and access the old install's `.env` names in `MARFA_PORT`, `MARFA_ACCESS` and `MARFA_ADDRESS`:
+`marfa server uninstall --dir ~/marfa-server` removes the service and keeps the data and `marfa.env` until the new instance has proven itself. Then set the old port and access:
 
 ```bash
 ~/marfa-next/bin/marfa server install --dir ~/marfa-next/server --port 8600 --access cloudflare --address https://marfa.example.com
 ```
 
-A tunnel or proxy aimed at the old port now reaches the new instance. Reconnect each device and app, as [On each device](/run/back-up-and-restore#on-each-device) says.
+Reconnect each device as [On each device](/run/back-up-and-restore#on-each-device) says.
 
 </Step>
 </Steps>
 
-## Try a release first
+## Go back to an earlier release
 
-Make a new install as above and restore an **archive** into it, with its own `backup_path` or `object_store_prefix`, never your instance's. **A trial is a copy from the moment of its restore,** so it's never promoted: remove it with `marfa server uninstall --delete-data` and its own `--dir`.
+`marfa server upgrade` changes nothing if the earlier release refuses. Marfa plugins and connector settings stay when that release opens the database, and no copy was taken. Otherwise [swap the copy](#once-the-database-has-changed) first. From 0.0.101, 0.0.100 needs it.
 
-## Types a new build leaves in conflict
+### Go back by hand
 
-A new release can give a built-in type a field that a type an app registered beneath it declares in another shape. The type and its items keep working, and [Change a type](/build/change-a-type) says how the app puts it right.
+- **Programs you install.** Set `MARFA_VERSION`. Homebrew ships only its newest release: run `~/.local/bin/marfa server upgrade`.
+- **Docker from the CLI.** `marfa server upgrade --release <version>`. Before 0.0.76, [move to a new install](#move-to-a-new-install).
+- **Railway.** Deploy the earlier tag.
 
-The rules behind this page are in the contract's [updates](https://github.com/withmarfa/marfa/blob/main/conformance/spec/updates.md) chapter and the [instance](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#a-database-this-build-did-not-write) chapter.
+```bash
+curl -fsSL https://raw.githubusercontent.com/withmarfa/marfa/main/scripts/install.sh | MARFA_VERSION=0.0.100 sh
+marfa server upgrade --dir ~/marfa-server
+```
+
+Through 0.0.85, run that release's `marfa server restart`. `upgrade` will not go back, a database it can't read stays unchanged, and a message that the last release can't be told means this restart.
+
+### After the server updates itself
+
+`marfa update status` reports `last`. The old server is kept as `.marfa-server.previous`, and the new `marfa` is `.marfa.next`.
+
+- **`succeeded`.** Both programs report the new release after the new server has stayed up for 20 seconds. The old `marfa` is `.marfa.previous`.
+- **`rolled_back`.** Two early ends, or exit `78`, and the old release still opens the database. Stopping the service or the machine counts no start.
+- **`failed`.** The old release can't open the database. The new release stays.
+
+### Once the database has changed
+
+<Callout type="warn" title="Everything written since the copy is lost">
+The copy's Marfa plugins, types, settings, secrets and mapping come back. A Marfa plugin installed since, or a connector setting changed since, does not. 0.0.100 can't read an archive 0.0.101 writes. A readable archive adds only items the copy lacks.
+</Callout>
+
+<Steps>
+<Step>
+
+### Stop the server
+
+Run `marfa server stop --dir ~/marfa-server`.
+
+</Step>
+<Step>
+
+### Swap in the copy
+
+Move `marfa.db`, `marfa.db-wal` and `marfa.db-shm` aside, then copy `marfa.db.before-upgrade` to `marfa.db`. A crash, or a stop while the database was open, can leave writes in the wal. A clean stop can leave no `marfa.db-wal`.
+
+```bash
+mkdir ~/marfa-server/replaced
+cd ~/marfa-server/data
+mv marfa.db marfa.db-wal marfa.db-shm ~/marfa-server/replaced/
+cp marfa.db.before-upgrade marfa.db
+```
+
+`mv` reports a missing file and moves the rest. Keep the moved files until the instance works.
+
+On Docker's `<name>-data` volume, `docker cp` can't remove a file:
+
+```bash
+docker run --rm --user 65532:65532 -v marfa-data:/data busybox:1.37 sh -c 'cd /data && mkdir replaced && for f in marfa.db marfa.db-wal marfa.db-shm; do [ ! -e "$f" ] || mv "$f" replaced/; done && cp marfa.db.before-upgrade marfa.db'
+```
+
+`docker cp marfa:/data/replaced .`
+
+</Step>
+<Step>
+
+### Move to the earlier release
+
+Then [go back by hand](#go-back-by-hand). Docker passes `--release <version>`.
+
+</Step>
+</Steps>
+
+See [updates](https://github.com/withmarfa/marfa/blob/main/conformance/spec/updates.md) and [instance](https://github.com/withmarfa/marfa/blob/main/conformance/spec/instance.md#a-database-this-build-did-not-write).
