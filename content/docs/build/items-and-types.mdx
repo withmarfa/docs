@@ -1,17 +1,15 @@
 ---
 title: Items and types
-description: An item is one thing a person keeps, such as a photo, a note or a contact, and its type says what the item holds. Everything else in Marfa builds on these two ideas.
-job: A builder learns what an item is, what its type promises, who adds types where, and how an item moves from active to purged.
+description: An item is one thing a person keeps, such as a photo or a contact, and its type says which properties it holds.
+job: A builder learns how an item's type decides what the item holds and where that type comes from.
 kind: concept
 ---
 
-Everything in an instance is an item: a PDF, a photo, a contact, a conversation. Every item has a type, and **Marfa holds every item to its type**: every app that reads a `core.file.image` knows it will find a `blob_ref` and a `mime_type`, because Marfa refused any image without them.
-
-Every item also has the same fixed fields, such as `id`, `state`, `version` and its three timestamps. The Catalog's [Items](/catalog/items) page lists them.
+Marfa **holds every item to its type**. Every item has fixed fields: `id`, `state`, `version` and its three timestamps ([Items](/catalog/items)).
 
 ## What a type does
 
-A type is the schema for an item's properties. It names each property, gives its kind, and says which ones are required. Marfa **checks every write** against it, so this image, which names no bytes, is refused with `400 invalid_properties`:
+This photo is refused with `400 invalid_properties`:
 
 ```http title="Request"
 POST /items
@@ -21,56 +19,78 @@ Content-Type: application/json
 { "type": "core.file.image", "properties": { "title": "Kitchen before the move" } }
 ```
 
-**A property the type doesn't declare is kept**, unless the owner turns on `strict_mode` for the type in [Settings](/reference/instance-settings#enforcement-levers).
+**A property the type doesn't declare is kept**, unless [`strict_mode`](/reference/instance-settings#enforcement-levers) names the type.
 
-A type also tells an app how to show its items, through **display hints**: the field that names an item, the field that holds its Markdown text, and an icon such as `lucide:calendar`. [Type definition](/catalog/type-definition#display-hints) has the rules.
+A **description** says in one sentence what the type is for, at most 200 Unicode code points. **Guidance** is optional Markdown for an agent or an app builder, at most 1,000 Unicode code points. An `app` type takes none. Asked for a type, [`marfa_overview`](/reference/marfa-mcp-server#reading-a-type) answers that guidance and any ancestor's. [Type definition](/catalog/type-definition#descriptions-and-guidance) has who may write them, the other lengths and the [display hints](/catalog/type-definition#display-hints). [Define a type](/build/define-a-type) adds one.
 
-The Catalog's [Types](/catalog/types) page lists the types Marfa ships. When none fits, [define a type](/build/define-a-type).
+### Building on another type
 
-## Who adds types where
-
-A type's ID is two or more lowercase segments separated by dots. The first, its **namespace**, says who adds types there:
-
-| Namespace | Example | Who adds types |
-| --- | --- | --- |
-| `core`, `system` and `marfa` | `core.note`, `system.view` | Marfa. No one can change them. |
-| `common` | `common.ticket` | Only a [plugin](/use/install-a-plugin), for types many apps share. |
-| `app` | `app.readinglist.entry` | An app, for its own machinery. Always three segments. |
-| `user` | `user.recipe` | You, or any credential granted write on `user.*`. |
-| Any other root | `acme.deal` | Anyone publishing types for others, such as a connector. |
-
-The second segment of an `app` type is its **vendor**. **A vendor belongs to the app that registered its first type**, which then reaches it without naming it; another app reaches it only through a grant that names `app.<vendor>.*`. A vendor the owner started is held for the owner, who can [give a vendor to another app or delete its data](/use/manage-app-data). [Access](/build/access) has the rules.
-
-Items of a `system` or `app` type are **hidden**: listings, searches, counts and views leave them out unless a request names the type exactly or asks for `include=hidden`. The bin, exports and backups hold them.
-
-## Building on another type
-
-A type can name a **parent**. It then has every property the parent has, and adds its own. `core.file.image` is a child of `core.file`: it has a file's `blob_ref` and `mime_type`, and adds `width` and `height`.
-
-**A listing of a type includes every type beneath it**, so an app that lists files finds your receipts among them. Inherit only when every property of the parent fits your type, because a child can't reshape what it inherits.
+`core.file.image` adds `width` and `height` to its parent file. **A listing includes the types beneath it that aren't hidden.** A child can't reshape an inherited property ([Type definition](/catalog/type-definition#parent-and-inheritance)).
 
 <TypeInheritance />
 
+## Who adds types where
+
+The first segment of a type's ID is its **namespace** ([Type definition](/catalog/type-definition#identifier)).
+
+| Namespace | Example | Who adds types |
+| --- | --- | --- |
+| `core`, `system` and `marfa` | `core.note`, `system.view` | Marfa. No one replaces a shipped type. |
+| `common` | `common.ticket` | Only by installing a [Marfa plugin](/use/install-a-plugin). |
+| `app` | `app.readinglist.entry` | An app, for its own machinery. |
+| `user` | `user.recipe` | The owner, or any credential with write on `user.*`. |
+| Any other root | `acme.deal` | A credential whose type map grants the write. |
+
+A Marfa plugin may also use a root of its own. **Tickets is the one WithMarfa publishes.**
+
+The first `app.<vendor>` type's app owns that vendor, and its sign-in reaches it with no scope naming it ([Access](/build/access#an-apps-own-types)). The owner can [give that data away or delete it](/use/manage-app-data).
+
+Items under `system` or `app` are **hidden**. Listings, searches and counts omit them unless the request names that type exactly or passes `include=hidden`, and a view never lists them. Exports and backups hold them. The bin lists an `app` item, never a revoked `system` item.
+
+## What an item holds
+
+Tags and extensions leave the [version](/build/versions) alone.
+
+| Kind | Holds | Shape set by | Moves the version |
+| --- | --- | --- | --- |
+| Properties | What the item is | The type | Yes |
+| Tags | Labels, such as `paperwork` | No one | No |
+| Extensions | One app's JSON | That app | No |
+
+Tags and extensions are the item's **metadata**, not a key's metadata map ([Access](/build/access#what-a-credential-reaches)).
+
+### Properties
+
+[Update an item](/reference/api/items/updateItem) sends the properties that changed. **A null leaves an optional or undeclared property as it stands**, and is refused on a required one. `clear_properties` removes each name. `properties_mode: replace` writes the whole set and omits a null. A required property can't be cleared or left out.
+
+### Tags
+
+Tags are a set, in first-write order. [Add](/reference/api/metadata/addItemTags) and [remove](/reference/api/metadata/removeItemTag) name the `version` you read. [Replace](/reference/api/metadata/replaceItemTags) names the tags you read as `read_tags`. A mismatch is `409 version_conflict`. **A tag write leaves the version alone** and needs write on the type. A filter keeps items with every named tag. [Limits](/use/limits) gives the sizes.
+
+### Extensions
+
+An extension is JSON under a namespace, such as `app.ledger.reminders`. [Replace an extension namespace](/reference/api/extensions/replaceItemExtension) replaces that one. A key reaches it only when its extension map names it, and needs write on the type. A missing namespace answers `document: null`. A stale `read_revision` is `409 version_conflict`. Tag and extension writes announce `metadata.changed` ([Events](/build/events)).
+
 ## Where an item came from
 
-Every item records its **source**, a code for what wrote it, which never changes. An item can also carry a `source_id`, its own ID at that source, such as an event's ID in Google Calendar. **Together they are its natural key**: a connector that writes the record again updates the item instead of making a second one.
+**Source** names what wrote the item, and it never changes. With `source_id`, the pair is the item's **natural key**: the same pair, for the same type, updates that item.
 
 ### Library and feed
 
-Items sit in one of two **tiers**. The **library** holds what a person chose to keep. The **feed** holds what arrives in volume from elsewhere, such as an RSS connector's posts, until someone acts on it or its type's feed window moves it to the bin.
+The **library** is what a person chose to keep. The **feed** is what arrives in volume. A type's feed window moves an active feed item to the bin and leaves library items alone.
 
-An item a connector keeps in step with another service answers `read_only: true`. **It's advice, not a lock:** an app uses it to warn before an edit.
+`read_only: true` means the next connector run will overwrite it. **That is advice, not a lock** ([Connectors](/build/connectors)).
 
 ## An item's life
 
-An item starts `active`. **Archiving** sets it aside: listings leave it out unless asked, and it stays readable by its `id`.
+An item starts `active`. **Archiving** hides it from a listing that names no state. A read by `id` still answers it.
 
 <ItemLifecycle />
 
 ### Delete and purge
 
-**A delete is a soft delete:** it moves the item to the bin, which the API calls the trash, with its children by `parent-of` and its [parts](/build/edges#parts). A restore brings them back.
+**A delete is a soft delete** into the bin, which the API calls the trash. It takes the items a cascading edge reaches, and the item's [parts](/build/edges#parts).
 
-**Purging** an item in the bin deletes it and its history for good, with `items.purge` and write on its type. The bin empties itself after `trash_retention_days`, 60 days by default.
+**Purging** deletes a binned item, with its edges and parts. It needs `items.purge` and write on the type. Nothing undoes it. Housekeeping purges items kept past [`trash_retention_days`](/use/limits).
 
-The rules behind this page are in the [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) and [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) chapters of the contract.
+The [items](https://github.com/withmarfa/marfa/blob/main/conformance/spec/items.md) and [types](https://github.com/withmarfa/marfa/blob/main/conformance/spec/types.md) chapters are the rules.
