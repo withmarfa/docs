@@ -1,90 +1,37 @@
 ---
 title: Readwise
-description: The sources and highlights of one Readwise account, and with Reader turned on, its Reader documents, with supported edits carried back.
-job: Someone setting up the Readwise connector looks up what it keeps with Reader off or on, and the settings it reads.
+description: Sources and highlights from one Readwise account, with Reader as a setting on the same connector, and the choices you make for edits and pictures.
+job: A reader learns what the Readwise connector keeps.
 ---
-
-The Readwise connector keeps the sources and highlights of one Readwise account in the feed. **Reader is off by default:** the connector then reads Readwise's export and writes nothing to Readwise. Turn on `readwise_reader` and it also keeps your Reader documents and their content, and carries supported edits back to Reader.
 
 <include cwd>src/generated/connectors/readwise.md</include>
 
-## What it brings in
+Readwise Reader is not a second connector. `readwise_reader` turns it on. The default is off.
 
-With Reader off, Readwise's export: every source, such as a book or article, and every highlight with its complete passage, annotation and tags. Text is never shortened.
+## What it brings
 
-With Reader on, it also reads Reader's saved library, and the feed if you ask. **A Reader document and its export entry are one item**, so turning Reader on keeps the same items, key and progress. It keeps each document's HTML, any original file and the pictures Readwise hosts, as files attached to the document.
+It reads one account's export: each source, such as a book or an article, as `readwise.source`, and each highlight as `readwise.highlight`, joined by `excerpt-of`. A highlight's body is the whole passage. Its title is the first paragraph, as plain text, cut at a word to at most 80 characters.
 
-## Types it writes
+`readwise_account` is a label you choose, 1 to 64 letters, digits, dots, underscores or hyphens, starting with a letter or a digit. It is not a secret, and it stays the same when you change the token. The token is the secret `readwise_access_token`.
 
-| Type | Parent type | Holds |
-| --- | --- | --- |
-| `readwise.source` | [Media](/catalog/media) | A source, or a Reader document |
-| `readwise.highlight` | [Highlight](/catalog/highlight) | A highlight with its annotation and tags |
-| `readwise.file` | [File](/catalog/file) | Content or a picture kept for a Reader document |
-
-A highlight's `body` is its whole passage as Markdown, and its `title` the passage's first paragraph.
-
-## Edges it writes
-
-| Edge type | From | To |
-| --- | --- | --- |
-| [`excerpt-of`](/catalog/edges/excerpt-of) | A highlight | Its source |
-| [`attached-to`](/catalog/edges/attached-to) | A file | Its source or highlight |
-
-Its key keeps write on `references` only to clear the ones it wrote before.
+With Reader on, a Reader document is the same source item as its export entry, and a Reader highlight is the same highlight. `readwise_reader_include_feed` set to `true` includes the feed. The default is the saved library only. `readwise.file` holds content Reader keeps for a document, attached to it.
 
 ## What goes back
 
-With Reader off, nothing. With Reader on, for rows Reader manages:
+With Reader off, nothing is written to Readwise. A row Reader managed before is still refreshed with a read, and a change you made in Marfa is kept until Reader can be written again.
 
-- **Document edits:** title, author, `description`, notes, tags, `reader_location`, category, language, `published_at` and `image_url`.
-- **Highlight edits:** `note` and tags.
-- **Archive and restore.** Archiving a document moves it to Reader's archive, and restoring it moves it to Later.
-- **A new item** with `reader_create: true` is saved to Reader.
+With Reader on, Reader owns its documents and highlights, not a row that only the export holds, such as a Kindle book. A change to an export-only row is put back. Supported document edits are title, author, summary, notes, tags, reading location, category, language, publication date and image. Highlights take an annotation and tags. The passage itself is read only.
 
-The bin never changes Reader, and a row only the export holds, such as a Kindle book, is never sent.
+`readwise_reader_inbound_only` set to `true` sends no edits. Archiving a document in Marfa moves it to Reader's archive, and restoring it moves it to Later, unless edits are off. Trash never changes Reader. `readwise_reader_propagate_purge` set to `true` lets a purge in Marfa delete the Reader record. The default is off. More than 20 deletions waiting at once stops the run before Reader is read.
 
-## Settings
+To make a document or a highlight in Reader, set `reader_create` to `true` on the row, with a stable HTTP address for a source, or a parent and passage text for a highlight. A row without that flag is not created there.
 
-Give each as an environment variable named in capitals, such as `READWISE_READER=true`.
+## Pictures
 
-| Setting | What it holds |
-| --- | --- |
-| `readwise_account` | A stable label for the account, such as `primary`. Required. |
-| `readwise_access_token` | Your Readwise access token. Secret. Required. |
-| `readwise_content_max_bytes` | The largest file to keep. Default 268435456 (256 MiB). |
-| `readwise_reader` | `true` turns Reader on. Default `false`. |
-| `readwise_reader_include_feed` | `true` also reads Reader's feed. Default `false`. |
-| `readwise_reader_pictures` | Pictures from other websites: `addresses` (default) lists them, `save` saves them, `save-in-library` saves them for library documents. |
-| `readwise_reader_inbound_only` | `true` sends no edits to Reader. Default `false`. |
-| `readwise_reader_propagate_purge` | `true` lets a purge in Marfa delete the Reader record. Default `false`. |
-| `readwise_api_url`, `readwise_reader_api_url` | The API addresses, for testing only. |
+`readwise_reader_pictures` is `addresses` or `save`. The default, `addresses`, fetches nothing from other websites and lists those pictures as deliberately unkept. `save` fetches each HTTPS picture and stores it as a `readwise.file` attached to the document. The HTML keeps the original addresses. Pictures on Readwise's own storage are saved either way. Any other value stops the connector at the start.
 
-## What to know
+## Install
 
-- **Keep the account label.** It is part of every item's identity, so changing it is refused.
-- **Turning Reader off keeps what Reader managed.** Those rows are still refreshed from Reader with read requests, and an edit made in Marfa waits until Reader is on.
-- **Purges are limited.** With `readwise_reader_propagate_purge` on, more than 20 deletions at once stops the run before anything reaches Reader.
+Store the token and the account label as [Give a connector its settings and secrets](/use/connector-settings) describes. The plugin's `plugin.json` lists every setting, including the API addresses and the largest document saved (256 MiB unless you set `readwise_content_max_bytes`).
 
-## Make its key
-
-```bash
-marfa keys create --label readwise --source readwise \
-  --type-permission readwise.source=write \
-  --type-permission readwise.highlight=write \
-  --type-permission readwise.file=write \
-  --edge-permission excerpt-of=write \
-  --edge-permission references=write \
-  --edge-permission attached-to=write \
-  --metadata-permission types=write \
-  --default-tier feed
-```
-
-## Run it
-
-[Bring in records from another service](/use/connect-a-service) builds and runs any connector, and [Connectors](/build/connectors) explains how they work.
-
-```bash
-node connectors/readwise/dist/main.js --once
-node connectors/readwise/dist/main.js --every 1h
-```
+Install the plugin from its source folder, as [Install a plugin](/use/install-a-plugin) describes. Its connector runs on a connector host ([Run a plugin's connector](/use/run-a-plugin-connector)).
