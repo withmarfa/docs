@@ -16,6 +16,13 @@
 # meta.json alone, writes a stub's description and job line from the connector's title and
 # source name so they fit the page limits, and with --relink rewrites only the index and
 # the headers from the list it already holds, against the current type catalog.
+# It also reads types/<name>/ the way the plugins repository lists a family: a
+# folder with plugin.json is a family, a folder without one is refused, and a
+# file of types/ other than README.md is refused. It writes a header for each
+# family (its types, with their kinds or groups, status words, guidance and, when a
+# release tag names the commit, the plugin version) and one list of every plugin,
+# each row a connector, a type family or both, with no count. A malformed family stops the script before it
+# writes anything.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -90,6 +97,13 @@ commit() {
   git -C "${work}/$1/plugins" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false commit -q -m "$2"
 }
 
+# publish <name> <message>: commit the plugins checkout and push it, so HEAD is origin/main.
+publish() {
+  git -C "${work}/$1/plugins" add -A
+  commit "$1" "$2"
+  git -C "${work}/$1/plugins" push -q origin main
+}
+
 everything() {
   (cd "${work}/$1/docs" && find . -type f -not -path './scripts/*' | sort | while read -r file; do
     printf '== %s\n' "${file}"
@@ -117,6 +131,13 @@ check "the index is ordered as the sidebar is, by file name, with a lucide or si
 |                        | [Readwise](/catalog/connectors/readwise)      | Sources.           |
 | `simple-icons:todoist` | [Todoist](/catalog/connectors/todoist)        | Tasks \| and more. |' \
 "$(cat "${docs}/index.md")"
+check "the plugin list names each connector and no family, with no count" \
+'| Mark                   | Plugin                                        | What it is | Brings in          |
+| ---------------------- | --------------------------------------------- | ---------- | ------------------ |
+| `lucide:book-open`     | [Readwise Reader](/catalog/connectors/reader) | Connector  | Reader documents.  |
+|                        | [Readwise](/catalog/connectors/readwise)      | Connector  | Sources.           |
+| `simple-icons:todoist` | [Todoist](/catalog/connectors/todoist)        | Connector  | Tasks \| and more. |' \
+"$(cat "${docs}/../plugins/index.md")"
 check "a header names source, types and what can be carried back, links a type with a Catalog page, and says nothing on turning it off" \
 '- **Source:** `readwise`, shown as Readwise
 - **Types:** `readwise.source`, [`core.note`](/catalog/note)
@@ -222,6 +243,143 @@ out="$(TMPDIR="${work}/tmp" bash "${work}/relink/docs/scripts/sync-from-plugins.
 check "a relink with no copy of the list stops" 1 "${status}"
 case "${out}" in *"Run scripts/sync-from-plugins.sh first"*) pass=$((pass+1)); printf '  ok    a relink with no copy says why\n' ;; *) fail=$((fail+1)); printf '  FAIL  a relink with no copy said %s\n' "${out}" ;; esac
 
+# --------------------------------------------------------------- a type family
+
+fixture family "${good}"
+printf '%s\n' '{"types":[{"id":"core.note"},{"id":"core.task"},{"id":"core.media"},{"id":"core.media.film"},{"id":"system.view"}]}' > "${work}/family/docs/src/generated/catalog/builtin-catalog.json"
+family_pages="${work}/family/docs/content/docs/catalog/(types)"
+mkdir -p "${family_pages}"
+printf 'hand-written tickets\n' > "${family_pages}/tickets.mdx"
+printf '{\n  "title": "Types"\n}\n' > "${family_pages}/meta.json"
+family_root="${work}/family/plugins/types/tickets"
+mkdir -p "${family_root}/types"
+printf '%s\n' '{"name":"tickets","title":"Tickets","description":"Track work.","mark":"lucide:ticket","maker":"WithMarfa","marfa":"0.0.92"}' > "${family_root}/plugin.json"
+printf '%s\n' '{"id":"common.ticket","label":"Ticket","description":"Groups the kinds.","version":0,"parent":"core.task","fields":{"status":{"type":"status","description":"Where it stands.","status_values":[{"value":"backlog","group":"not_started","description":"Wanted."}]}},"display_hints":{"icon":"lucide:ticket","title_field":"title"}}' > "${family_root}/types/common.ticket.json"
+printf '%s\n' '**Use for:** every ticket.' > "${family_root}/types/common.ticket.md"
+printf '%s\n' '{"id":"common.ticket.task","label":"Task","description":"Other work.","version":0,"parent":"common.ticket","fields":{},"display_hints":{"icon":"lucide:wrench"}}' > "${family_root}/types/common.ticket.task.json"
+printf '%s\n' '**Use for:** other work.' > "${family_root}/types/common.ticket.task.md"
+publish family 'add tickets'
+sync family
+check "a family syncs" 0 "${status}"
+check "a family header names the family, its version, its types with their kind or group, status words, guidance and a hint" \
+'- **Family:** Tickets (`tickets`)
+- **Mark:** `lucide:ticket`
+- **Maker:** WithMarfa
+- **Oldest Marfa:** 0.0.92
+- **Description:** Track work.
+
+## Types
+
+| Type                 | Label  | Kind or group | Parent                       | Mark            | Description       |
+| -------------------- | ------ | ------------- | ---------------------------- | --------------- | ----------------- |
+| `common.ticket`      | Ticket | group         | [`core.task`](/catalog/task) | `lucide:ticket` | Groups the kinds. |
+| `common.ticket.task` | Task   | kind          | `common.ticket`              | `lucide:wrench` | Other work.       |
+
+## Fields
+
+| Type            | Field    | Kind     | Description      |
+| --------------- | -------- | -------- | ---------------- |
+| `common.ticket` | `status` | `status` | Where it stands. |
+
+## Status words
+
+| Type            | Word      | Group         | Description |
+| --------------- | --------- | ------------- | ----------- |
+| `common.ticket` | `backlog` | `not_started` | Wanted.     |
+
+## Display hints
+
+| Type            | Hint          | Value   |
+| --------------- | ------------- | ------- |
+| `common.ticket` | `title_field` | `title` |
+
+## Guidance
+
+### `common.ticket`
+
+**Use for:** every ticket.
+
+### `common.ticket.task`
+
+**Use for:** other work.' \
+"$(cat "${work}/family/docs/src/generated/plugins/tickets.md")"
+check "the plugin list adds the family, with no count" \
+'| Mark                   | Plugin                                        | What it is  | Brings in          |
+| ---------------------- | --------------------------------------------- | ----------- | ------------------ |
+| `lucide:book-open`     | [Readwise Reader](/catalog/connectors/reader) | Connector   | Reader documents.  |
+|                        | [Readwise](/catalog/connectors/readwise)      | Connector   | Sources.           |
+| `lucide:ticket`        | [Tickets](/catalog/tickets)                   | Type family | Track work.        |
+| `simple-icons:todoist` | [Todoist](/catalog/connectors/todoist)        | Connector   | Tasks \| and more. |' \
+"$(cat "${work}/family/docs/src/generated/plugins/index.md")"
+check "a family page that exists is left as it was" "hand-written tickets" "$(cat "${family_pages}/tickets.mdx")"
+check "the types folder meta.json is left as it was" '{
+  "title": "Types"
+}' "$(cat "${family_pages}/meta.json")"
+mkdir -p "${work}/family/plugins/types/extra"
+printf '%s\n' '{"name":"extra","title":"Extra","description":"No.","mark":"lucide:box","maker":"WithMarfa","marfa":"0.0.92"}' > "${work}/family/plugins/types/extra/plugin.json"
+sync family
+check "an uncommitted family is ignored" 0 "${status}"
+check "and the committed family is still the only one" "tickets" "$(python3 -c 'import json,sys; print(" ".join(f["name"] for f in json.load(open(sys.argv[1]))["families"]))' "${work}/family/docs/src/generated/plugins/families.json")"
+git -C "${work}/family/plugins" tag v0.0.4
+git -C "${work}/family/plugins" push -q origin v0.0.4
+sync family
+check "a release tag is the plugin version" "- **Version:** 0.0.4" "$(grep -F '**Version:**' "${work}/family/docs/src/generated/plugins/tickets.md")"
+
+# A family whose plugin.json has a connector section is both, not a second plugin.
+fixture both "$(printf 'reader %s\n' "${reader_manifest}")"
+both_root="${work}/both/plugins/types/ledger"
+mkdir -p "${both_root}/types"
+printf '%s\n' '{"name":"ledger","title":"Ledger","description":"Money.","mark":"lucide:wallet","maker":"WithMarfa","marfa":"0.0.92","connector":{"source":"ledger"}}' > "${both_root}/plugin.json"
+printf '%s\n' '{"id":"common.ledger","label":"Ledger","description":"Money.","version":0,"fields":{},"display_hints":{"icon":"lucide:wallet"}}' > "${both_root}/types/common.ledger.json"
+printf '%s\n' 'Money.' > "${both_root}/types/common.ledger.md"
+publish both ledger
+sync both
+check "a family with a connector section syncs" 0 "${status}"
+check "and its row says both" \
+'| Mark               | Plugin                                        | What it is | Brings in         |
+| ------------------ | --------------------------------------------- | ---------- | ----------------- |
+| `lucide:wallet`    | [Ledger](/catalog/ledger)                     | Both       | Money.            |
+| `lucide:book-open` | [Readwise Reader](/catalog/connectors/reader) | Connector  | Reader documents. |' \
+"$(cat "${work}/both/docs/src/generated/plugins/index.md")"
+
+# A family with no page gets one. A page that exists is covered above.
+fixture family-stub "$(printf 'reader %s\n' "${reader_manifest}")"
+stub_root="${work}/family-stub/plugins/types/labels"
+mkdir -p "${stub_root}/types"
+printf '%s\n' '{"name":"labels","title":"Labels","description":"Names.","mark":"lucide:tag","maker":"WithMarfa","marfa":"0.0.92"}' > "${stub_root}/plugin.json"
+printf '%s\n' '{"id":"common.label","label":"Label","description":"A name.","version":0,"fields":{},"display_hints":{"icon":"lucide:tag"}}' > "${stub_root}/types/common.label.json"
+printf '%s\n' 'A name.' > "${stub_root}/types/common.label.md"
+publish family-stub labels
+sync family-stub
+check "a family with no page gets one, holding its header" \
+'---
+title: "Labels"
+description: "The types the Labels plugin adds."
+job: "A reader considering Labels learns which types the plugin adds, and their status words and guidance."
+---
+
+<include cwd>src/generated/plugins/labels.md</include>' \
+"$(cat "${work}/family-stub/docs/content/docs/catalog/(types)/labels.mdx")"
+
+# --relink rewrites a family header's type links from the catalog, and not the stored family.
+fixture family-link "${good}"
+link_root="${work}/family-link/plugins/types/tickets"
+mkdir -p "${link_root}/types"
+printf '%s\n' '{"name":"tickets","title":"Tickets","description":"Track work.","mark":"lucide:ticket","maker":"WithMarfa","marfa":"0.0.92"}' > "${link_root}/plugin.json"
+printf '%s\n' '{"id":"common.ticket","label":"Ticket","description":"Groups the kinds.","version":0,"parent":"core.task","fields":{},"display_hints":{"icon":"lucide:ticket"}}' > "${link_root}/types/common.ticket.json"
+printf '%s\n' 'Every ticket.' > "${link_root}/types/common.ticket.md"
+publish family-link 'link family'
+sync family-link
+link_header="${work}/family-link/docs/src/generated/plugins/tickets.md"
+check "a parent with no Catalog page stays code" 0 "$(grep -cF '[`core.task`](/catalog/task)' "${link_header}" || true)"
+stored="$(cat "${work}/family-link/docs/src/generated/plugins/families.json")"
+printf '%s\n' '{"types":[{"id":"core.task"}]}' > "${work}/family-link/docs/src/generated/catalog/builtin-catalog.json"
+status=0
+out="$(TMPDIR="${work}/tmp" MARFA_PLUGINS_ROOT="${work}/family-link/nowhere" bash "${work}/family-link/docs/scripts/sync-from-plugins.sh" --relink 2>&1)" || status=$?
+check "a relink of a family needs no checkout" 0 "${status}"
+check "a relink links a family's parent when the catalog gains its page" 1 "$(grep -cF '[`core.task`](/catalog/task)' "${link_header}" || true)"
+check "a relink leaves the stored family as it was" "${stored}" "$(cat "${work}/family-link/docs/src/generated/plugins/families.json")"
+
 # ---------------------------------------------------------------------- refusals
 
 refuse() { # refuse <label> <name> <expected message part>
@@ -247,6 +405,37 @@ refusal no-kinds "a manifest with no kinds" "$(printf '%s' "${good}" | sed 's/"k
 refusal direction "a direction it does not know" "$(printf '%s' "${good}" | sed 's/"direction":"both"/"direction":"sideways"/')" "whose direction is not in, out or both"
 refusal type "a type that is not a type ID" "$(printf '%s' "${good}" | sed 's/todoist\.task/Todoist-Task/')" "has a kind with no type ID"
 refusal twice "a type listed twice" "$(printf '%s' "${good}" | sed 's/"type":"core.note"/"type":"readwise.source"/')" "lists readwise.source twice"
+
+fixture bad-family "${good}"
+mkdir -p "${work}/bad-family/plugins/types/broken"
+printf 'not json\n' > "${work}/bad-family/plugins/types/broken/plugin.json"
+publish bad-family 'bad family'
+before="$(everything bad-family)"
+sync bad-family
+refuse "a family manifest that is not JSON" bad-family "types/broken/plugin.json is not valid JSON"
+
+fixture orphan-family "${good}"
+mkdir -p "${work}/orphan-family/plugins/types/orphan"
+printf 'notes\n' > "${work}/orphan-family/plugins/types/orphan/readme.txt"
+publish orphan-family orphan
+before="$(everything orphan-family)"
+sync orphan-family
+refuse "a family folder with no plugin.json" orphan-family "types/orphan: holds no plugin.json"
+
+fixture dotfile "${good}"
+mkdir -p "${work}/dotfile/plugins/types"
+printf '\n' > "${work}/dotfile/plugins/types/.gitkeep"
+publish dotfile dotfile
+sync dotfile
+check "a committed dot file in types/ is skipped, as the plugins list skips it" 0 "${status}"
+
+fixture no-manifest "${good}"
+mkdir -p "${work}/no-manifest/plugins/connectors/lone/plugin"
+printf 'notes\n' > "${work}/no-manifest/plugins/connectors/lone/plugin/readme.txt"
+publish no-manifest lone
+before="$(everything no-manifest)"
+sync no-manifest
+refuse "a connector plugin folder with no plugin.json" no-manifest "connectors/lone/plugin: holds no plugin.json"
 
 fixture none "${good}"
 git -C "${work}/none/plugins" rm -q -r connectors

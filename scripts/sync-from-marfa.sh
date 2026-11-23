@@ -1240,9 +1240,9 @@ docker run --name marfa -d --restart unless-stopped -p 127.0.0.1:8600:8600 \\
 \`\`\`
 IMAGE
 
-# A connector's header and the connector index link a type to its Catalog page when
-# the catalog has one, so a catalog change moves those links. Rewrite them against
-# the catalog just written, from the copy of the connectors' list the docs hold.
+# A connector's header, a type family's header and the indexes link a type to its
+# Catalog page when the catalog has one, so a catalog change moves those links.
+# Rewrite them against the catalog just written, from the copies the docs hold.
 if [ -s "$GENERATED/connectors/connectors.json" ]; then
   bash "$SCRIPT_DIR/sync-from-plugins.sh" --relink > /dev/null
 fi
