@@ -1392,8 +1392,8 @@ check "the housekeeping rows are copied without their markers" \
 | `trash-purge` | Purges expired trash. |' "$(cat "${work}/good/docs/src/generated/housekeeping.md")"
 
 # The connector headers and the index link a type to its Catalog page, so a sync that writes the
-# catalog writes them again from the copy of the connectors' list the docs hold: and writes nothing
-# for the connectors when the docs hold no copy.
+# catalog writes them again from the copies of the connectors' and families' lists the docs hold:
+# and writes nothing for the connectors when the docs hold no copy.
 echo "the connectors' headers after a catalog change"
 check "with no copy of the connectors' list, the sync writes nothing for the connectors" "no" \
   "$([ -e "${work}/good/docs/src/generated/connectors" ] && echo yes || echo no)"
@@ -1403,6 +1403,8 @@ cp "${here}/../../scripts/sync-from-plugins.sh" "${work}/connectors/docs/scripts
 printf '%s\n' '{"schema":2,"connectors":[{"directory":"connectors/readwise","name":"readwise","title":"Readwise","description":"Sources.","source":"readwise","sourceName":"Readwise","types":["core.note"],"carriesBack":true,"carriedTypes":["core.note"]}]}' \
   > "${work}/connectors/docs/src/generated/connectors/connectors.json"
 printf 'stale header\n' > "${work}/connectors/docs/src/generated/connectors/readwise.md"
+mkdir -p "${work}/connectors/docs/src/generated/plugins"
+printf '%s\n' '{"schema":1,"families":[]}' > "${work}/connectors/docs/src/generated/plugins/families.json"
 sync connectors
 check "a sync with the connectors' list held succeeds" 0 "${status}"
 check "and its header links the type the new catalog has a page for" \
