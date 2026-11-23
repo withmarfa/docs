@@ -40,8 +40,8 @@
 #                                             plugin declares them
 #   src/generated/plugins/<name>.md           one family's header: the family, its
 #                                             version (the release tag on the
-#                                             commit, without the leading v, or
-#                                             none when no tag names it), its types
+#                                             commit, without the leading v; no
+#                                             line when no tag names it), its types
 #                                             with their kinds or groups, status
 #                                             words and guidance. Its page includes
 #                                             it.
@@ -179,6 +179,14 @@ else
       exit 1
     fi
   done < <(git -C "$PLUGINS_ROOT" ls-tree -r --name-only HEAD -- connectors | grep -E '^connectors/[^/]+/plugin/plugin\.json$' || true)
+  # A connector's plugin folder with no plugin.json is refused, as the plugins list refuses it.
+  while IFS= read -r folder; do
+    [ -n "$folder" ] || continue
+    if ! git -C "$PLUGINS_ROOT" cat-file -e "HEAD:$folder/plugin.json" 2> /dev/null; then
+      echo "$folder: holds no plugin.json. Nothing has changed." >&2
+      exit 1
+    fi
+  done < <(git -C "$PLUGINS_ROOT" ls-tree -r --name-only HEAD -- connectors | sed -nE 's#^(connectors/[^./][^/]*/plugin)/.*#\1#p' | sort -u)
   if [ -z "$(ls -A "$MANIFESTS")" ]; then
     echo "No connectors/<name>/plugin/plugin.json committed in $PLUGINS_ROOT. Nothing has changed." >&2
     exit 1
@@ -260,8 +268,9 @@ for file in sorted(os.listdir(manifests)):
     entry.update({"types": types, "carriesBack": bool(carried), "carriedTypes": carried})
     connectors.append(entry)
 # A common type family, as scripts/release/plugins.ts finds one: a folder of
-# types/ with a plugin.json. README.md is the folder's own note. Anything else
-# directly in types/ is a family the list cannot see, so it is refused.
+# types/ with a plugin.json. README.md is the folder's own note, and the list
+# skips a name that starts with a dot. Anything else directly in types/ is a
+# family the list cannot see, so it is refused.
 PLUGIN_NAME = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
 EDGE = re.compile(r"^[a-z0-9]+([.-][a-z0-9]+)*$")
 VERSION = re.compile(r"^\d+\.\d+\.\d+$")
@@ -270,7 +279,7 @@ families = []
 types_root = os.path.join(types_copy, "types")
 if os.path.isdir(types_root):
     for entry in sorted(os.listdir(types_root)):
-        if entry == "README.md":
+        if entry == "README.md" or entry.startswith("."):
             continue
         where = f"types/{entry}"
         folder = os.path.join(types_root, entry)
@@ -640,17 +649,18 @@ def parent_cell(parent):
 
 plugin_dir = os.path.join(out, "plugins")
 os.makedirs(plugin_dir)
-version_text = version or "none"
 for family in families:
     declared = sorted(family["types"], key=lambda item: item["id"])
-    parts = ["\n".join([
-        f"- **Family:** {family['title']} (`{family['name']}`)",
-        f"- **Version:** {version_text}",
+    header = [f"- **Family:** {family['title']} (`{family['name']}`)"]
+    if version:
+        header.append(f"- **Version:** {version}")
+    header += [
         f"- **Mark:** `{family['mark']}`",
         f"- **Maker:** {family['maker']}",
         f"- **Oldest Marfa:** {family['marfa']}",
         f"- **Description:** {family['description']}",
-    ])]
+    ]
+    parts = ["\n".join(header)]
     parts.append("## Types\n\n" + aligned(
         ("Type", "Label", "Kind or group", "Parent", "Mark", "Description"),
         [(
