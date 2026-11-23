@@ -25,7 +25,7 @@ This file sits above `content/docs/` on purpose: the docs collection publishes e
 
 ## Wiring a page
 
-- Frontmatter holds a `title` (at most 12 words), a `description` (at most 40) and a `job` line (a page in `pending` may lack one until its rewrite), a `kind` where the folder does not decide it, and a `headTitle` where the title repeats another page's (`STYLE.md`, "Naming"). A Catalog type page also holds `identifier`, the type's ID, which the page header and the Markdown copy show.
+- Frontmatter holds a `title` (at most 12 words), a `description` (at most 40) and a `job` line, a `kind` where the folder does not decide it, and a `headTitle` where the title repeats another page's (`STYLE.md`, "Naming"). A Catalog type page also holds `identifier`, the type's ID, which the page header and the Markdown copy show.
 - A page uses what `src/components/mdx.tsx` registers without importing it. Import anything else from `fumadocs-ui/components/`.
 - Show a generated file with `<include cwd>src/generated/<file>.md</include>`, and add `#<heading-id>` for one section, which ends at the next heading of any level. Never copy generated text into a page or show it through a component: the include keeps the Markdown copy and the docs tools in step with the HTML.
 - `pnpm test` runs the content lint (`src/lib/content-lint.test.ts`) over every page and the text it includes, and a test that the CLI page is the one page that includes `src/generated/cli/`. Passing them is not the same as following `STYLE.md`.
