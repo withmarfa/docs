@@ -5,7 +5,7 @@ Runs from the item to what it is about. When saving an item, about names that su
 | Setting             | Value          |
 | ------------------- | -------------- |
 | `label`             | About          |
-| `reverse_label`     | Subject of     |
+| `reverse_label`     | Subject Of     |
 | `cardinality`       | `many-to-many` |
 | `cascade_on_delete` | `orphan`       |
 | `written_from`      | `from`         |
@@ -20,7 +20,7 @@ Runs from the attachment to the item it belongs to. When saving an attachment, a
 
 | Setting             | Value            |
 | ------------------- | ---------------- |
-| `label`             | Attached to      |
+| `label`             | Attached To      |
 | `reverse_label`     | Attachments      |
 | `reverse_name`      | `has-attachment` |
 | `cardinality`       | `many-to-many`   |
@@ -41,7 +41,7 @@ Runs from the comment to the item it comments on. When saving a comment, comment
 
 | Setting             | Value         |
 | ------------------- | ------------- |
-| `label`             | Comment on    |
+| `label`             | Comment On    |
 | `reverse_label`     | Comments      |
 | `cardinality`       | `many-to-one` |
 | `cascade_on_delete` | `with-hosts`  |
@@ -57,8 +57,8 @@ Runs from the derived item to its source. When saving an item, derived-from name
 
 | Setting             | Value          |
 | ------------------- | -------------- |
-| `label`             | Derived from   |
-| `reverse_label`     | Basis for      |
+| `label`             | Derived From   |
+| `reverse_label`     | Basis For      |
 | `cardinality`       | `many-to-many` |
 | `cascade_on_delete` | `orphan`       |
 | `written_from`      | `from`         |
@@ -73,7 +73,7 @@ Runs from the excerpt to the item it was taken from. When saving a highlight or 
 
 | Setting             | Value         |
 | ------------------- | ------------- |
-| `label`             | Excerpt from  |
+| `label`             | Excerpt From  |
 | `reverse_label`     | Excerpts      |
 | `cardinality`       | `many-to-one` |
 | `cascade_on_delete` | `orphan`      |
@@ -89,7 +89,7 @@ Runs from the member to its container, such as a collection, a series or an albu
 
 | Setting             | Value                              |
 | ------------------- | ---------------------------------- |
-| `label`             | In collection                      |
+| `label`             | In Collection                      |
 | `reverse_label`     | Contents                           |
 | `cardinality`       | `many-to-many`                     |
 | `cascade_on_delete` | `orphan`                           |
@@ -109,8 +109,8 @@ Runs from the item to the system.folder its file sits in. Saving an item cannot 
 
 | Setting             | Value           |
 | ------------------- | --------------- |
-| `label`             | In folder       |
-| `reverse_label`     | Folder contents |
+| `label`             | In Folder       |
+| `reverse_label`     | Folder Contents |
 | `cardinality`       | `many-to-many`  |
 | `cascade_on_delete` | `orphan`        |
 | `written_from`      | `none`          |
@@ -130,7 +130,7 @@ Runs from the message to its thread. When saving a message, in-thread names the 
 
 | Setting             | Value         |
 | ------------------- | ------------- |
-| `label`             | In thread     |
+| `label`             | In Thread     |
 | `reverse_label`     | Messages      |
 | `cardinality`       | `many-to-one` |
 | `cascade_on_delete` | `orphan`      |
@@ -168,7 +168,7 @@ Runs from the item to the item it mentions. When saving an item, references name
 | Setting             | Value          |
 | ------------------- | -------------- |
 | `label`             | References     |
-| `reverse_label`     | Referenced by  |
+| `reverse_label`     | Referenced By  |
 | `cardinality`       | `many-to-many` |
 | `cascade_on_delete` | `orphan`       |
 | `written_from`      | `from`         |
@@ -184,7 +184,7 @@ Runs from the newer item to the item it replaces. Each end holds one item. When 
 | Setting             | Value         |
 | ------------------- | ------------- |
 | `label`             | Supersedes    |
-| `reverse_label`     | Superseded by |
+| `reverse_label`     | Superseded By |
 | `cardinality`       | `one-to-one`  |
 | `cascade_on_delete` | `orphan`      |
 | `written_from`      | `from`        |
