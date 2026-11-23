@@ -345,9 +345,9 @@ describe('the tab', () => {
     );
   });
 
-  it('opens the Connectors folder on its own page, closed, with a page for each connector beneath it', () => {
+  it('opens the Plugins folder on its own page, closed, with a page for each connector beneath it', () => {
     const meta = JSON.parse(readFileSync(path.join(CATALOG_PAGES, CONNECTORS_DIR, 'meta.json'), 'utf8'));
-    expect(meta.title).toBe('Connectors');
+    expect(meta.title).toBe('Plugins');
     expect(meta.defaultOpen).toBe(false);
     // The sync writes no list: the folder's pages come in file-name order, which is how the index lists them.
     expect(meta.pages).toBeUndefined();
