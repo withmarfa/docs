@@ -150,7 +150,7 @@ Marfa's `GLOSSARY.md`, synced as `src/generated/GLOSSARY.md`, decides every term
 
 The tests hold the numbers and the details.
 
-- **Word ceilings, caps, kinds, budgets, `pending`, job lines, title and description lengths:** `src/lib/page-limits.ts` and `page-limits.json`.
+- **Word ceilings, caps, kinds, budgets, job lines, title and description lengths:** `src/lib/page-limits.ts` and `page-limits.json`.
 - **Frontmatter, em dashes, banned and avoided terms, statement numbers, connector counts, "coming soon", callout titles, tutorial steps, links and includes:** `src/lib/content-lint.test.ts`.
 - **Commands, options, markers and the allowlist:** `src/lib/command-check.test.ts`.
 - **The Glossary page against `GLOSSARY.md`:** `src/lib/glossary.test.ts`.
