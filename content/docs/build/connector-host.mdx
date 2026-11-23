@@ -42,7 +42,16 @@ The answer's `key` holds the connector's `source`, and write on its kinds' types
 
 ## Run the connector with it
 
-Start the process with the key you minted and `MARFA_API_URL`. The host starts it, wakes a sleeping connector for a run now, and stops it when the connector is no longer assigned here. The [connector kit](/reference/connector-kit) does the rest of the run: it registers, reads the settings and the mapping, carries out rewrites, answers previews and reports the run.
+Start it with the key and `MARFA_API_URL`, wake it for a run now, and stop it once it leaves the list. The rest is the connector's, which the [kit](/reference/connector-kit) does for you. It [registers](/reference/api/connectors/registerConnector), then on each run:
+
+1. **Reads what the owner asked** with [`GET /plugins/{name}/connector`](/reference/api/plugins/getPluginConnector), and skips the run if `paused` is `true`.
+2. **Reads its settings** with [`GET /connectors/{id}/settings`](/reference/api/connector-state/getConnectorSettings), with its secrets opened to this key alone. A secret with `unreadable` `true` needs the owner to set it again.
+3. **Reads its mapping** with [`GET /plugins/{name}/connector/mapping`](/reference/api/plugins/getConnectorMapping), and writes each enabled kind as the type and tier it names, filling each field from its `from`, `fixed` or `template`.
+4. **Carries out each request under `rewrites`:** it moves its own items on each type `from` lists for a kind onto that kind's target with `retype: true`, then [sends back the request's `number`](/reference/api/plugins/finishConnectorRewrite). Until then, on a type the kind was mapped onto before, it may read and move its own items and write nothing else.
+5. **Answers each pending preview** from [`GET /plugins/{name}/connector/previews`](/reference/api/plugins/listMappingPreviews): it renders the preview's `kind` under its `mapping` on the item `item_id` names, or a recent one, and [sends](/reference/api/plugins/answerMappingPreview) what it filled as `result`, at most 64 KiB, or why it couldn't as `error`, within 10 minutes.
+6. **Reports the run** with [`POST /connectors/{id}/runs`](/reference/api/connectors/reportConnectorRun), naming the `run_requested_at` it read, so the owner's request clears.
+
+**On a target type its key doesn't reach, the connector reads and writes only its own items,** and the links from them of edge types its key reads. It [lists](/reference/api/items/listItems) them with any filter, reads each one's edges, versions, extensions and table rows, follows their events, keeps their agreements and settles their tombstones. Search, views, exports, a working copy and MCP's read tools answer by its key alone.
 
 Its state document, problems and agreements stay with its source on the instance, so a connector moved to another host resumes where it stopped ([Keep your place](/build/connector-without-the-kit#keep-your-place)).
 
