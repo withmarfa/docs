@@ -19,9 +19,9 @@
 # It also reads types/<name>/ the way the plugins repository lists a family: a
 # folder with plugin.json is a family, a folder without one is refused, and a
 # file of types/ other than README.md is refused. It writes a header for each
-# family (its types, with their kinds or groups, status words, guidance and the
-# plugin version) and one list of every plugin, each row a connector, a type
-# family or both, with no count. A malformed family stops the script before it
+# family (its types, with their kinds or groups, status words, guidance and, when a
+# release tag names the commit, the plugin version) and one list of every plugin,
+# each row a connector, a type family or both, with no count. A malformed family stops the script before it
 # writes anything.
 set -euo pipefail
 
@@ -263,7 +263,6 @@ sync family
 check "a family syncs" 0 "${status}"
 check "a family header names the family, its version, its types with their kind or group, status words, guidance and a hint" \
 '- **Family:** Tickets (`tickets`)
-- **Version:** none
 - **Mark:** `lucide:ticket`
 - **Maker:** WithMarfa
 - **Oldest Marfa:** 0.0.92
@@ -422,6 +421,21 @@ publish orphan-family orphan
 before="$(everything orphan-family)"
 sync orphan-family
 refuse "a family folder with no plugin.json" orphan-family "types/orphan: holds no plugin.json"
+
+fixture dotfile "${good}"
+mkdir -p "${work}/dotfile/plugins/types"
+printf '\n' > "${work}/dotfile/plugins/types/.gitkeep"
+publish dotfile dotfile
+sync dotfile
+check "a committed dot file in types/ is skipped, as the plugins list skips it" 0 "${status}"
+
+fixture no-manifest "${good}"
+mkdir -p "${work}/no-manifest/plugins/connectors/lone/plugin"
+printf 'notes\n' > "${work}/no-manifest/plugins/connectors/lone/plugin/readme.txt"
+publish no-manifest lone
+before="$(everything no-manifest)"
+sync no-manifest
+refuse "a connector plugin folder with no plugin.json" no-manifest "connectors/lone/plugin: holds no plugin.json"
 
 fixture none "${good}"
 git -C "${work}/none/plugins" rm -q -r connectors

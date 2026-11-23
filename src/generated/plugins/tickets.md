@@ -1,5 +1,4 @@
 - **Family:** Tickets (`tickets`)
-- **Version:** none
 - **Mark:** `lucide:ticket`
 - **Maker:** WithMarfa
 - **Oldest Marfa:** 0.0.92
