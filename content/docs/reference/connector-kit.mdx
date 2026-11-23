@@ -4,21 +4,21 @@ description: Look up the rules the connector kit follows for its key, settings, 
 job: A connector author looks up the rules the kit follows for a key, settings, a mapping, pause, a preview and an exit.
 ---
 
-`@withmarfa/connector` is the kit a connector is built on. The bundle it is published in is the [plugin format](/reference/plugin-format). The program that starts it is a [connector host](/build/connector-host).
+`@withmarfa/connector` is the kit a connector is built on. It ships in a [plugin format](/reference/plugin-format) bundle, started by a [connector host](/build/connector-host).
 
 ## The key
 
-A connector starts from the key its host mints.
+A connector starts from the key its host mints, which holds the connector's source as its own and write on its types and connection types, and nothing else.
 
-**A key that claims a source is refused,** and the process exits with code 3.
+**The kit reads the key back on every start and exits with code 3 on one that** an app made, that writes under another source or claims one, or that holds more or less than that write.
 
-**A connector that declares settings stops with exit code 3 on any other key.** Marfa opens those settings, secrets included, only to the key a host minted for that plugin's connector ([`connectors/settings-read`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md#connectorssettings-read)). A key that no host minted can start a connector that declares no settings. One that declares settings cannot read them, so the kit stops.
+**A key no host minted still starts a connector that declares no settings.** Marfa opens settings only to the key a host minted for that plugin's connector ([`connectors/settings-no-plugin`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/connectors.md#connectorssettings-no-plugin)), so a connector that declares settings exits with code 3 on any other key.
 
 ## Settings and secrets
 
 The kit reads every declared setting from Marfa at the start of every run. It reads nothing else from the environment beyond `MARFA_API_URL`, `MARFA_API_KEY` and the [telemetry settings](#telemetry). The next run uses a value the owner changed, with no restart.
 
-The owner sets a value with `marfa plugins settings`. **A secret is never an argument:** `marfa plugins secret` reads it from standard input, or from a prompt that does not echo, and never prints it. What a setting may declare is in the [plugin format](/reference/plugin-format#connector).
+The owner sets a value with `marfa plugins settings`. **A secret is never an argument:** `marfa plugins secret` reads it from standard input, or from a prompt that does not echo.
 
 A setting that cannot be used stops the run, and the process exits with code 4: a required setting with no value, a secret Marfa cannot open, a value not of its kind, or a secret shorter than 8 characters. The kit keeps every secret out of its logs, conditions, run reports and telemetry.
 
@@ -28,11 +28,11 @@ The kit reads the owner's mapping at the start of every run. Until one is saved,
 
 Each field of the target is filled from a field of the kind (`from`), a fixed value (`fixed`), or a template (`template`).
 
-**Templates are [MiniJinja](https://github.com/mitsuhiko/minijinja).** A render sees the kind's fields only. It may do 100,000 units of work, the engine's fuel, and may give at most 100,000 characters. **A template that fails, or passes either bound, leaves that field as the row holds it** and raises a condition naming the field. The rest of the row is written.
+**Templates are [MiniJinja](https://github.com/mitsuhiko/minijinja).** A render sees the kind's fields only. It may do 100,000 units of work and may give at most 100,000 characters. **A template that fails, or passes either bound, leaves that field as the row holds it** and raises a condition naming the field. The rest of the row is written.
 
 **A status word maps to itself when the target has that word in the same group, and otherwise to the target's first word in that group,** unless `status_overrides` names one. A word whose group the other type lacks is left unwritten, and the run raises a condition.
 
-**A fixed or templated field is never carried back.** The kit writes it from the mapping, and replaces a change made to it in Marfa with that value on the next write.
+**A fixed or templated field is never carried back.** A change made to it in Marfa is replaced by the mapped value on the next write.
 
 ### On the way back
 
@@ -40,32 +40,32 @@ When a rewrite moves a row off a type the kind was mapped onto before, and onto 
 
 ## Pause, run now and previews
 
-**The host does not start a paused connector and stops a running one.** The kit also skips a run it finds paused: it logs one line, reports nothing as failed, and under `--once` exits 0. A run already under way finishes, because Marfa still takes the connector's writes ([`plugins/pause-writes-land`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#pluginspause-writes-land)). [Pause, resume or run a plugin's connector](/use/pause-or-run-a-connector) stores the choice.
+**The host does not start a paused connector and stops a running one** ([an owner pauses it](/use/pause-or-run-a-connector)), and a run it stops is not reported. The kit also skips a run it finds paused: it logs one line, reports nothing, and under `--once` exits 0. The kit does not end a run for a pause, and Marfa still takes a paused connector's writes ([`plugins/pause-writes-land`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#pluginspause-writes-land)).
 
 **The host wakes a sleeping connector for a run now.** The run starts at once. A wake during a run makes one more run follow, never two. A run that read a run request reports `run_requested_at`, which clears the request.
 
-**A paused connector answers no preview.** Otherwise the kit answers with the item as the mapping would write it, and writes nothing for the preview. **A preview whose result is over 65,536 bytes is an error,** as is one the kit cannot render. Marfa refuses a result over that size as well ([`plugins/preview-result-size`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#pluginspreview-result-size)).
+**A paused connector answers no preview.** Otherwise the kit answers with the item as the mapping would write it, and writes nothing for the preview. **A preview whose result is over 65,536 bytes is an error,** as is one the kit cannot render. Marfa refuses one too ([`plugins/preview-result-size`](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#pluginspreview-result-size)).
 
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | 0 | It stopped cleanly, or a `--once` run succeeded. |
-| 1 | Any other failure: a failed run, no answer from Marfa, or the server at `MARFA_API_URL` was not found or refused its certificate. |
+| 1 | Any other failure: a failed `--once` run, no answer from Marfa, or a server at `MARFA_API_URL` that was not found or refused its certificate. Under `--every` the kit tries these again after a backoff. |
 | 2 | The connector's definition or command line is wrong, or `MARFA_API_URL` is malformed or redirected. |
-| 3 | Marfa refused the key (401, or 403 where the connector registers or reads its settings), or the kit refused it. |
+| 3 | Marfa refused the key (401; 403 where the connector registers; 403 or 404 where it reads its settings), or the kit refused it. |
 | 4 | A required setting is not set, a value is not one the connector can use, or a run threw `SettingsRefused`. |
 
 ## Telemetry
 
-A connector can send its logs, and a trace of each run, to an OpenTelemetry collector over OTLP/HTTP. **Telemetry is off until `OTEL_EXPORTER_OTLP_ENDPOINT` is set.** A failed run is still recorded in Marfa.
+A connector can send its logs, and a trace of each run, to an OpenTelemetry collector over OTLP/HTTP. **Telemetry is off until `OTEL_EXPORTER_OTLP_ENDPOINT` is set.**
 
 | Setting | What it sets |
 | --- | --- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | The collector base URL. Traces go to `v1/traces` under it, logs to `v1/logs`. Unset means off. |
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | One signal's URL, used as written. Each needs the base endpoint. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | The collector's base URL. Traces go to `v1/traces` under it, logs to `v1/logs`. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | One signal's URL, used as written. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Headers on every export, as comma-separated `key=value` pairs. |
-| `OTEL_EXPORTER_OTLP_TRACES_HEADERS`, `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | Headers for one signal. They replace the shared headers. |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS`, `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | Headers for one signal, added to the shared headers; a same-named header replaces the shared one. |
 | `OTEL_SERVICE_NAME` | `service.name`. The default is the connector's `name`. |
 | `MARFA_OTEL_SAMPLE_RATIO` | From 0 to 1, the share of runs that did not fail whose trace is sent. A failed run's trace is always sent. The default is `1`. |
 
@@ -73,4 +73,4 @@ Each run is one span named `connector run`, with `marfa.connector.trigger` of `s
 
 `MARFA_API_KEY`, each secret, and a header value of 8 characters or more become `[redacted]` as they leave the process.
 
-Telemetry never fails a run or holds one up. An export longer than 1.5 seconds is dropped, and the first failure is warned of once. On exit the kit gives up after at most 3 seconds. A malformed setting, or a traces or logs endpoint without `OTEL_EXPORTER_OTLP_ENDPOINT`, stops the start with exit code 2 and names the setting, never its value.
+Telemetry never fails or holds up a run. An export longer than 1.5 seconds is dropped, and the first failure is warned of once. On exit the kit gives up after at most 3 seconds. A malformed setting, or a signal's endpoint without the base endpoint, stops the start with exit code 2, naming the setting and never its value.
