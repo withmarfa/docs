@@ -9,7 +9,7 @@ A **connector host** is the program that runs [a plugin's connectors](/use/run-a
 
 ## Redeem the link
 
-The owner gives the host a one-time link, such as `https://marfa.example.com/connect#marfa_l1_…`. The instance's address is the part before `/connect`, and the code is the part after the `#`. [Send the code](/reference/api/connector-hosts/redeemConnectorHostLink) with no credential:
+The owner gives the host a one-time link, such as `https://marfa.example.com/connect#marfa_l1_…`. The instance's address comes before `/connect`, and the code after the `#`. [Send the code](/reference/api/connector-hosts/redeemConnectorHostLink) with no credential:
 
 ```http
 POST /connector-hosts/redeem
@@ -27,7 +27,9 @@ GET /connector-hosts/self
 Authorization: Bearer $HOST_KEY
 ```
 
-`connectors` lists each plugin connector assigned to the host, with its `plugin`, `version`, the plugin's `connector` section, `key_minted`, and what the owner [asked of it](/use/pause-or-run-a-connector): `paused`, and `run_requested_at` when the owner asked for a run now. **Don't start a paused connector,** and start one with a run requested without waiting for its schedule. Ask on start and from time to time: the owner moves connectors between hosts, and one that leaves the list has lost its key.
+`connectors` lists each plugin connector assigned to the host, with its `plugin`, `version`, the plugin's `connector` section, `key_minted`, and what the owner [asked of it](/use/pause-or-run-a-connector): `paused`, and `run_requested_at` when the owner asked for a run now. **Don't start a paused connector,** and start one with a run requested at once. Ask on start and from time to time: a connector that leaves the list has moved, and lost its key.
+
+Where the section names `code`, fetch the connector from its `url`, and **run the file only when its SHA-256 matches `sha256`.**
 
 ## Get each connector's key
 
@@ -36,20 +38,20 @@ POST /connector-hosts/self/connectors/rss/key
 Authorization: Bearer $HOST_KEY
 ```
 
-The answer's `key` holds the connector's `source`, write on the type of each of its kinds, and write on each edge type its `edge_types` names. **Each mint revokes the key minted before,** so keep the key and mint again only when it's lost or refused. `404 plugin_not_found` means the connector no longer runs here.
+The answer's `key` holds the connector's `source`, and write on its kinds' types and its `edge_types`. **Each mint revokes the key minted before,** so keep the key and mint again only when it's lost or refused. `404 plugin_not_found` means the connector no longer runs here.
 
 ## Run the connector with it
 
 Start the connector with its key. It [registers](/reference/api/connectors/registerConnector) as any connector does, and then, on each run, it:
 
 1. **Reads what the owner asked** with [`GET /plugins/{name}/connector`](/reference/api/plugins/getPluginConnector), and stops if `paused` is `true`. Marfa still takes its writes, so a run under way finishes cleanly.
-2. **Reads its settings** with [`GET /connectors/{id}/settings`](/reference/api/connector-state/getConnectorSettings), which answers its secrets opened, and only to this key. A secret with `unreadable` `true` needs the owner to set it again.
+2. **Reads its settings** with [`GET /connectors/{id}/settings`](/reference/api/connector-state/getConnectorSettings), with its secrets opened to this key alone. A secret with `unreadable` `true` needs the owner to set it again.
 3. **Reads its mapping** with [`GET /plugins/{name}/connector/mapping`](/reference/api/plugins/getConnectorMapping), and writes each enabled kind as the type and tier it names, filling each field from its `from`, `fixed` or `template`.
-4. **Carries out each request under `rewrites`:** it rewrites its items on each kind's target type, then [sends the request's `number`](/reference/api/plugins/finishConnectorRewrite) to `POST /plugins/{name}/connector/mapping/rewrite/done`.
-5. **Answers each pending preview** from [`GET /plugins/{name}/connector/previews`](/reference/api/plugins/listMappingPreviews): it renders the preview's `kind` under its `mapping` on the item `item_id` names, or a recent one, and [sends](/reference/api/plugins/answerMappingPreview) `result`, at most 64 KiB: the target `type` it rendered under, the fields in `properties`, and optionally the `title` and the `source_item` it rendered. Otherwise it sends why as `error`. A preview lasts 10 minutes.
+4. **Carries out each request under `rewrites`:** it rewrites its items on each kind's target type, moving one of its own between the kind's type and the target with `retype: true`, then [sends the request's `number`](/reference/api/plugins/finishConnectorRewrite) to `POST /plugins/{name}/connector/mapping/rewrite/done`.
+5. **Answers each pending preview** from [`GET /plugins/{name}/connector/previews`](/reference/api/plugins/listMappingPreviews): it renders the preview's `kind` under its `mapping` on the item `item_id` names, or a recent one, and [sends](/reference/api/plugins/answerMappingPreview) what it filled as `result`, at most 64 KiB, or why it couldn't as `error`. A preview lasts 10 minutes.
 6. **Reports the run** with [`POST /connectors/{id}/runs`](/reference/api/connectors/reportConnectorRun), naming the `run_requested_at` it read, so the owner's request clears. A request made after it read one stays for the next run.
 
-**On a target type its key doesn't reach, the connector reads and writes only its own items,** and the links from them of edge types its key reads. It [lists](/reference/api/items/listItems) them with any filter, reads each one's edges, versions, extensions and table rows, follows their events and settles their tombstones. Search, views, exports, a working copy and MCP's read tools answer by its key alone.
+**On a target type its key doesn't reach, the connector reads and writes only its own items,** and the links from them of edge types its key reads. It [lists](/reference/api/items/listItems) them with any filter, reads each one's edges, versions, extensions and table rows, follows their events, keeps their agreements and settles their tombstones. Search, views, exports, a working copy and MCP's read tools answer by its key alone.
 
 Its state document, problems and agreements stay with its source on the instance, so a connector moved to another host resumes where it stopped ([Holds and retries](/build/connector-holds-and-retries)).
 
