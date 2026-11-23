@@ -1,0 +1,43 @@
+---
+title: Plugins
+headTitle: Plugins in the Swift SDK
+description: Install a Marfa plugin from its bundle bytes, and read a release before the install.
+job: A Swift builder looks up how an app installs a Marfa plugin from a release.
+---
+
+`install(pluginBundle:expecting:timeout:)` sends a bundle's bytes unchanged to [`installPlugin`](/reference/api/plugins/installPlugin). The instance records the SHA-256 of those bytes as the plugin's `fingerprint`, so bytes from a release record the digest the release lists. **The generated `installPlugin` decodes the bundle and encodes it again, and that fingerprint differs.** `timeout` defaults to 20 seconds. Pass `expecting:` as the other [server calls](/reference/swift-sdk#calls-on-the-server) do.
+
+It needs `schema.write`, write on each type and edge type, and `connectors.manage` when the bundle has a connector. The answer is a `PluginInstalled`, and `outcome` is `.installed`, `.updated` or `.unchanged`. [Install a plugin](/use/install-a-plugin) lists the other refusals. **`pluginInstallRefusal` names the two an app tells the owner about,** and is nil for every other error, including when the newer-server details are missing:
+
+| Case | Means |
+| --- | --- |
+| `.needsNewerServer(marfa:server:)` | `.server` for `409 plugin_needs_newer_server`. `marfa` is the oldest release the plugin works with, and `server` is the release this instance runs. |
+| `.carriesGuidance` | `.forbidden` for `403 forbidden` whose `details.changes` names `guidance`. An app's sign-in, or a key an app made, cannot install guidance or change it. The same plugin with the guidance left out installs. |
+
+## Read a release
+
+`PluginRelease(address:timeout:)` reads a release the way [the command line](https://github.com/withmarfa/marfa/blob/main/conformance/spec/cli.md#plugins) does. A failure throws `PluginReleaseError`, and nothing reaches your instance until you install. With no `address`, it reads the latest release of [withmarfa/plugins](https://github.com/withmarfa/plugins). Pass `address:` for the release `MARFA_PLUGINS_URL` names. `timeout` waits 30 seconds for more bytes, unless you set it.
+
+| `PluginReleaseError` | Means |
+| --- | --- |
+| `addressCarriesCredentials`, `addressUnreadable` | A bad address, thrown before any request. The error never contains the address. |
+| `unreachable(address:reason:)` | The release could not be read. The index must be format 1, and each bundle file `<name>.plugin.json`. |
+| `digestMismatch(file:found:listed:)` | The bundle's SHA-256 is not the one the index lists. |
+| `canceled` | The read was canceled. |
+
+`index()` returns the plugins in the release's order. Each `PluginIndexEntry` holds `name`, `title`, `description`, `mark`, `maker`, `version`, `marfa` (the oldest Marfa it works with), `hasConnector`, and the bundle's file and `sha256`. `bundle(for:)` returns a `ReleasedPlugin` only when the bytes match: install its `bytes`. Its `contents` read the types, edge types and connector, which an app can show before installing. **A type with `guidance` there means an app's install is refused** (`.carriesGuidance`).
+
+`PluginVersion` reads `MAJOR.MINOR.PATCH` with no leading zero, such as `0.0.13`. Any other string gives nil. **`0.0.0` is a development build:** `isDevelopment` is true, and `takes(_:)` accepts any plugin. Any other release accepts a plugin whose oldest Marfa is the same or older.
+
+```swift
+import MarfaAPI
+
+let release = try PluginRelease()
+let listed = try await release.index()
+if let tickets = listed.first(where: { $0.name == "tickets" }) {
+    let bundle = try await release.bundle(for: tickets)
+    _ = try await server.install(pluginBundle: bundle.bytes, expecting: instanceID)
+}
+```
+
+Installing follows the contract's [plugins](https://github.com/withmarfa/marfa/blob/main/conformance/spec/plugins.md#installing) chapter.
