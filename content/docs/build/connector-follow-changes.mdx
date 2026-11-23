@@ -1,169 +1,43 @@
 ---
 title: Make a connector follow changes
-description: Edit a ticket in Marfa and see the connector put it back, teach it to archive what the service drops, and read a failed run.
+description: Store a connector's setting in Marfa, and see that its process environment holds only the instance address, the key and telemetry.
+job: A builder stores a connector setting in Marfa.
+kind: tutorial
 ---
 
-- **You'll build** on the connector from [Build a connector](/build/connector). It will archive a ticket the service no longer lists, and you'll watch it follow a changed list.
-- **You need** that connector, built, with its key, and the ticket service still running. Keep the `plugins` checkout as your working folder.
-- **You'll have** a connector that keeps its items matching the service, and a failed run you can read on your instance.
+- **You'll build** on Concerts from [Build a Marfa plugin](/build/connector). You'll store the ticket list's address in Marfa, where the connector reads it.
+- **You need** that plugin installed, as that tutorial leaves it, and the `marfa` CLI signed in to the same instance.
+- **You'll have** the address stored on the plugin. The next run a host starts reads it. No tickets appear in this tutorial: the connector does not run until a host starts it.
 
 <Steps paged>
 <Step>
 
-### Edit a ticket in Marfa
+### Set the list address
 
-The ticket service owns these records, and this connector carries nothing back to it, so the connector holds its items **read only**. Change a ticket's title anyway, using an ID and version from your own instance:
-
-<Terminal>
-
-```bash
-marfa items update 01a1f16f-9c7c-74ba-ac82-919ada1113f9 --version 1 --prop title="Khruangbin, with support"
-```
-
-```text
-updated tickets.ticket 01a1f16f-9c7c-74ba-ac82-919ada1113f9 "Khruangbin, with support" (version 2)
-```
-
-</Terminal>
-
-Marfa takes the edit: `read_only` tells an app what the connector will do, and Marfa refuses nothing for it. Run the connector again, with the same settings as before:
+From any directory, set `concert_list` and read it back. The value is the address `run` fetches. It is not a secret, so it is an argument of the command. A secret is never an argument: [`marfa plugins secret`](/reference/connector-kit#settings-and-secrets) reads one from standard input and never prints it. Concerts declares none.
 
 <Terminal>
 
 ```bash
-MARFA_API_URL=http://localhost:8600 MARFA_API_KEY=<connector key> \
-  TICKETS_URL=http://127.0.0.1:4100 TICKETS_TOKEN=demo-token-1234 \
-  node connectors/tickets/dist/main.js --once
+marfa plugins settings concerts --set concert_list=https://concerts.example/tickets.json
+marfa plugins settings concerts
 ```
 
 ```text
-… warn title on 01a1f16f-9c7c-74ba-ac82-919ada1113f9 was changed in Marfa and put back from the vendor, which Marfa mirrors
-… info run succeeded: created 0, updated 1, archived 0, unchanged 2, skipped 0
+set concert_list for concerts
+concert_list: "https://concerts.example/tickets.json", required
 ```
 
 </Terminal>
-
-The kit read the edit from your instance's event log and put back the service's title. A connector that carries changes back sends the edit to the vendor instead, as [Carry changes back](/build/connector-push) shows.
 
 </Step>
 <Step>
 
-### Archive what the service dropped
+### Where the process reads it
 
-So far the connector only adds and updates. Open `connectors/tickets/src/main.ts`, and ask `run` for two more helpers, `held` and `archive`:
+The connector's environment holds `MARFA_API_URL`, `MARFA_API_KEY` and [telemetry](/reference/connector-kit#telemetry). Every other setting, this address included, comes from Marfa. The kit reads the declared settings at the start of each run, so a value you change here is the one the next run uses. Nothing has to be restarted.
 
-```ts title="connectors/tickets/src/main.ts"
-  async run({ env, signal, upsert, held, archive }) {
-```
-
-At the end of `run`, after the `upsert`, archive each item whose ticket the service no longer lists:
-
-```ts title="connectors/tickets/src/main.ts"
-    const listed = new Set(tickets.map((ticket) => `${account}:${ticket.id}`));
-    const gone = (await held(ticketType.id))
-      .map((row) => row.source_id)
-      .filter((id): id is string => typeof id === "string" && !listed.has(id));
-    await archive(ticketType.id, gone);
-```
-
-`held` returns the items the connector holds of a type. Reading a missing ticket as gone is safe only because **the service lists every ticket the account holds**. A vendor that answers part of its records, such as one page or open records only, says nothing about the rest.
-
-An archived item leaves everyday lists but keeps its history, and comes back if the vendor lists it again. The bin is for people, so a connector never moves an item there. Build the connector again:
-
-```bash
-pnpm exec tsc -b connectors/tickets
-```
-
-</Step>
-<Step>
-
-### Change the list and run it again
-
-In the service's `tickets.json`, change T-1041's venue, remove T-1187 and add a new ticket:
-
-```json title="ticket-service/tickets.json"
-[
-  { "id": "T-1041", "event": "Khruangbin", "venue": "O2 Academy Brixton, London", "starts": "2026-12-04T19:30:00Z" },
-  { "id": "T-1302", "event": "Arooj Aftab", "venue": "Union Chapel, London", "starts": "2027-02-20T19:00:00Z" }
-]
-```
-
-The service reads the file on every request, so it needs no restart. Run the connector, and list every ticket, archived ones included:
-
-<Terminal>
-
-```bash
-MARFA_API_URL=http://localhost:8600 MARFA_API_KEY=<connector key> \
-  TICKETS_URL=http://127.0.0.1:4100 TICKETS_TOKEN=demo-token-1234 \
-  node connectors/tickets/dist/main.js --once
-```
-
-```text
-… info cleared: title on 01a1f16f-9c7c-74ba-ac82-919ada1113f9 was changed in Marfa and put back from the vendor, which Marfa mirrors (this run reached its check and did not find it again)
-… info run succeeded: created 1, updated 1, archived 1, unchanged 0, skipped 0
-```
-
-```bash
-marfa items list --type tickets.ticket --state any
-```
-
-```text
-id                                    type            when                      title        state
-01a1f170-4a6d-7398-a70b-a93313fa3e19  tickets.ticket  2027-02-20T19:00:00.000Z  Arooj Aftab
-01a1f16f-9c7d-733a-ba51-db13974977de  tickets.ticket  2027-01-15T20:00:00.000Z  Nils Frahm   [archived]
-01a1f16f-9c7c-74ba-ac82-919ada1113f9  tickets.ticket  2026-12-04T19:30:00.000Z  Khruangbin
-```
-
-</Terminal>
-
-The kit compares each entry with the item it matches and writes only what differs, so a ticket the service didn't change is left alone and announces nothing. The kit also clears the earlier warning once a run finds no new edit.
-
-</Step>
-<Step>
-
-### Read a failed run
-
-Run the connector with a token the service refuses:
-
-<Terminal>
-
-```bash
-MARFA_API_URL=http://localhost:8600 MARFA_API_KEY=<connector key> \
-  TICKETS_URL=http://127.0.0.1:4100 TICKETS_TOKEN=wrong-token-1234 \
-  node connectors/tickets/dist/main.js --once
-```
-
-```text
-… error run failed: the ticket service answered 401; created 0, updated 0, archived 0, unchanged 0, skipped 0
-```
-
-</Terminal>
-
-The process exits with status 1. The kit reported the run to your instance, so you can read it from any computer:
-
-<Terminal>
-
-```bash
-marfa connectors list
-```
-
-```text
-id                                    source   name     last run  finished                  note
-01a1f16f-9c3d-7407-91a3-a55d024651ea  tickets  tickets  failed    2026-11-19T01:33:50.787Z  the ticket service answered 401
-```
-
-</Terminal>
-
-`marfa connectors runs` with the connector's ID lists its runs, newest first. The next run reads the service whole again, so a failure loses nothing.
-
-When you're done, stop the ticket service with Control-C.
-
-<Cards>
-  <Card title="Run a plugin's connector" href="/use/run-a-plugin-connector">Link a host and assign a plugin's connector.</Card>
-  <Card title="Pull from a vendor" href="/build/connector-pull">Write what a vendor holds, and connect the items it relates.</Card>
-  <Card title="Carry changes back" href="/build/connector-push">Carry changes made in Marfa back to the vendor.</Card>
-  <Card title="Receive vendor webhooks" href="/build/connector-webhooks">Let the vendor tell the connector what changed, as it happens.</Card>
-</Cards>
+A host mints the key, starts the process, and that run calls `env.concert_list`. Marfa doesn't publish a host yet, so the process stays unstarted and the list stays unread. [Give a connector its settings](/use/connector-settings) is the same command for a plugin you already run.
 
 </Step>
 </Steps>
