@@ -71,7 +71,7 @@ describe('buildDocsMap', () => {
       ...['about', 'attached-to', 'comments-on', 'derived-from', 'excerpt-of', 'in-collection', 'in-folder', 'in-thread', 'parent-of', 'references', 'supersedes'].map((title) => `  - ${title}]`),
       '- Events]',
       '- Permissions]',
-      '- Connectors]',
+      '- Plugins]',
       ...['GitHub', 'Google Calendar', 'Readwise', 'RSS', 'Todoist'].map((title) => `  - ${title}]`),
     ]);
     expect(catalog.some((line) => line.startsWith('  - [GitHub](/catalog/connectors/github)'))).toBe(true);
