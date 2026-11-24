@@ -42,20 +42,35 @@ const { data } = await marfa.POST("/views", {
 });
 ```
 
-The answer is the view as a `system.view` item at `version` 1. It holds no items: read them as [Read a view's items](#read-a-views-items) shows.
+The answer is the view, a `system.view` item at `version` 1, without its [items](#read-a-views-items).
 
 ## The settings
 
 - **`title`** is required, up to 500 characters.
 - **`query`** says which items the view lists: `types` (up to 100, each with the types beneath it), `state`, `tier`, a `filter` as [List, filter and search](/build/list-filter-search#filter-by-properties) describes, and `beneath`, an item and everything under it by `parent-of`.
 - **`sort`** is up to 10 keys of `by` and `direction`, applied in turn. A `by` is `title`, `created_at`, `updated_at`, `occurred_at`, `last_activity_at`, `type`, `state`, `tier`, `tags` or `properties.<name>`. A view with no sort lists the newest `occurred_at` first.
-- **`group`** has a `by` from the same fields except `last_activity_at`, which only sorts, or `edge[<type>]` or `backref[<type>]`. A `bucket` of `day`, `week`, `month` or `year` groups a date by period, `order` puts chosen groups first, and `hidden` leaves groups out.
+- **`group`** says how the items group, as [Group the items](#group-the-items) shows.
 
-A view never lists items of a [hidden type](/build/items-and-types#who-adds-types-where), under `system` or `app`, and a query that names one is refused. It never widens access: each app sees only the items its own credential reaches.
+A view never lists items of a [hidden type](/build/items-and-types#who-adds-types-where), under `system` or `app`, and a query that names one is refused.
+
+## Group the items
+
+A `group` names a `by`, and for some fields a `bucket`:
+
+| `group` | The groups |
+| --- | --- |
+| A sort field other than `last_activity_at` | One per value, or per tag |
+| `edge[<type>]` or `backref[<type>]` | One per item linked |
+| A date, `bucket` `day`, `week`, `month` or `year` | One per period |
+| `status_group` | `not_started`, `in_progress`, `completed`, `canceled` |
+| `source` | One per source |
+| `tags`, a property or an edge, `bucket` `presence` | `false`, no value, then `true` |
+
+**Items with no value form the null group,** last. `presence` has none, and counts an empty string or list as a value. `order` puts the groups it names first and `hidden` leaves groups out, with `null` naming the null group. Under `status_group` they take only the four groups and `null`, and under `presence` only `true` and `false`: anything else is refused `400 validation_error`.
 
 ## Change or delete a view
 
-[Update a view](/reference/api/views/updateView) with the `version` you read and the settings you change. Each setting you name is replaced whole, and `null` clears `group`, the one setting that takes it:
+[Update a view](/reference/api/views/updateView) with the `version` you read and the settings you change. Each setting you name is replaced whole, and `null` clears `group`, the one setting that takes it. **To change a grouping, send back all of `group` you read,** including a `bucket` your app doesn't know:
 
 ```bash tab="CLI" tab-group="client"
 marfa views update <view-id> --version 1 --group null
@@ -76,7 +91,7 @@ const { data } = await marfa.PATCH("/views/{id}", {
 });
 ```
 
-A change sent at an older version still applies when nobody has changed the same setting since. Otherwise Marfa answers `409 version_conflict`, with `conflicting_fields` and `current`: read it, decide, and send again at the new version, as [Update items without losing changes](/build/write-safely) shows. `marfa views delete` removes a view at once, with no bin. A view that sits under an item by `parent-of` is `revoked` when deleting that item cascades to it: the view still reads and deletes, and a change or a read of its items is refused `400 invalid_transition`.
+A change at an older version applies when nobody has changed the same setting since. Otherwise Marfa answers `409 version_conflict`, which [Update items without losing changes](/build/write-safely) handles. `marfa views delete` removes a view at once, with no bin. Deleting an item a view sits under by `parent-of` revokes the view: it still reads and deletes, and anything else is refused `400 invalid_transition`.
 
 ## Read a view's items
 
@@ -97,6 +112,6 @@ const { data } = await marfa.GET("/views/{id}/items", {
 });
 ```
 
-The answer holds the items in the view's order and a `next_cursor`: **stop only when it is `null`**, and `--all` follows it for you. A page holds 50 items, or 1 to 200 if you ask. The server lists only what the credential can read, no hidden items, and **no groups**: the app groups the items, or a [working copy](/build/write-in-a-working-copy#read-from-the-copy) does. An item missing a sorted field comes after every item that holds it, in either direction.
+The answer holds the items in the view's order and a `next_cursor`: **stop only when it is `null`**, and `--all` follows it for you. A page holds 50 items, or 1 to 200 if you ask. The server lists only what the credential can read, no hidden items, and **no groups**: the app groups the items, or a [working copy](/build/write-in-a-working-copy#read-from-the-copy) does. A copy that doesn't know a view's grouping still lists and searches it, and refuses only its groups. An item missing a sorted field comes after every item that holds it, in either direction.
 
 The rules are in the [views](https://github.com/withmarfa/marfa/blob/main/conformance/spec/views.md) chapter of the contract.
