@@ -6,6 +6,13 @@
 | `type` | `string` | The item's type identifier, such as `core.note`.                                                         |
 | `tier` | `enum`   | The item's tier. It doesn't apply to `system.*` items, which carry `library`. Values: `library`, `feed`. |
 
+### Links
+
+| Field     | Kind     | Description                                                                                                                                                               |
+| --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `web_url` | `string` | The item's page at this instance's sign-in address, then `/i/` and the item's ID. Marfa builds it when it answers the item, so it changes when the sign-in address moves. |
+| `app_url` | `string` | The item's address for apps on one device: `marfa://`, the instance's ID, then the item's ID. It stays the same when the sign-in address moves.                           |
+
 ### Content
 
 | Field        | Kind     | Description                                                                                                                                                                                                                                                |
