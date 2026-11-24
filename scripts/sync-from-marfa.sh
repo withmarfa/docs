@@ -1118,6 +1118,7 @@ def rows(props, enums=False, skip=()):
 # gains is refused until it has a group here, so none goes missing.
 ITEM_GROUPS = (
     ("Identity", ("id", "type", "tier")),
+    ("Links", ("web_url", "app_url")),
     ("Content", ("properties", "edges", "extensions")),
     ("Origin", ("source", "source_id", "capture_latitude", "capture_longitude")),
     ("State", ("state", "read_only", "trashed_at", "trashed_by_cascade", "trashed_with")),

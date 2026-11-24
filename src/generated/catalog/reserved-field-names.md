@@ -1,1 +1,1 @@
-`capture_latitude`, `capture_longitude`, `created_at`, `id`, `last_activity_at`, `occurred_at`, `properties`, `read_only`, `schema_version`, `source`, `source_id`, `state`, `tier`, `trashed_at`, `trashed_by_cascade`, `trashed_with`, `type`, `updated_at`, `version`
+`app_url`, `capture_latitude`, `capture_longitude`, `created_at`, `id`, `last_activity_at`, `occurred_at`, `properties`, `read_only`, `schema_version`, `source`, `source_id`, `state`, `tier`, `trashed_at`, `trashed_by_cascade`, `trashed_with`, `type`, `updated_at`, `version`, `web_url`
