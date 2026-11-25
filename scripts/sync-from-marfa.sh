@@ -1077,8 +1077,9 @@ def schema_kind(node, enums):
     if "allOf" in node:
         parts = node["allOf"]
         return schema_kind(next((p for p in parts if "$ref" in p), parts[0]), enums)
-    if "oneOf" in node:
-        return " or ".join(schema_kind(p, enums) for p in node["oneOf"])
+    for either in ("oneOf", "anyOf"):
+        if either in node:
+            return " or ".join(schema_kind(p, enums) for p in node[either])
     kinds = node.get("type")
     if kinds is None:
         refuse(spec_path, "has a property with no type")
@@ -1122,7 +1123,7 @@ ITEM_GROUPS = (
     ("Content", ("properties", "edges", "extensions")),
     ("Origin", ("source", "source_id", "capture_latitude", "capture_longitude")),
     ("State", ("state", "read_only", "trashed_at", "trashed_by_cascade", "trashed_with")),
-    ("Version", ("version", "schema_version")),
+    ("Version", ("version", "schema_version", "writer")),
     ("Time", ("occurred_at", "created_at", "updated_at", "last_activity_at")),
 )
 
