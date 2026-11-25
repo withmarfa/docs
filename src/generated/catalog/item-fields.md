@@ -42,10 +42,11 @@
 
 ### Version
 
-| Field            | Kind      | Description                                                                                                                                                                                                     |
-| ---------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `version`        | `integer` | The item's version. It starts at 1 and goes up by one on each update to the item's properties, `tier`, `occurred_at`, `source_id` or type. A change to its state, tags, extensions or edges leaves it as it is. |
-| `schema_version` | `integer` | The `version` the item's type had when the item was created. Marfa never changes it, even when the item moves to another type, and doesn't act on it.                                                           |
+| Field            | Kind               | Description                                                                                                                                                                                                      |
+| ---------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`        | `integer`          | The item's version. It starts at 1 and goes up by one on each update to the item's properties, `tier`, `occurred_at`, `source_id` or type. A change to its state, tags, extensions or edges leaves it as it is.  |
+| `schema_version` | `integer`          | The `version` the item's type had when the item was created. Marfa never changes it, even when the item moves to another type, and doesn't act on it.                                                            |
+| `writer`         | `object` or `null` | The sign-in that wrote the item's current version, named as it was then, even after it ends. `null` if no sign-in wrote it, such as when Marfa reads a file's text. Present only where `include` names `writer`. |
 
 ### Time
 
