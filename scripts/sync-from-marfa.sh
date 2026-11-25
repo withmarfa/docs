@@ -1122,7 +1122,7 @@ ITEM_GROUPS = (
     ("Links", ("web_url", "app_url")),
     ("Content", ("properties", "edges", "extensions")),
     ("Origin", ("source", "source_id", "capture_latitude", "capture_longitude")),
-    ("State", ("state", "read_only", "trashed_at", "trashed_by_cascade", "trashed_with")),
+    ("State", ("state", "state_writer", "read_only", "trashed_at", "trashed_by_cascade", "trashed_with")),
     ("Version", ("version", "schema_version", "writer")),
     ("Time", ("occurred_at", "created_at", "updated_at", "last_activity_at")),
 )
