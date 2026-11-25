@@ -442,7 +442,7 @@
           "id",
           "name"
         ],
-        "description": "A sign-in recorded as the one that wrote a version of an item or first installed a plugin, named as it was then."
+        "description": "The sign-in that wrote an item version, first installed a plugin, or last changed an item's lifecycle state, named as it was then."
       },
       "Item": {
         "type": "object",
@@ -587,6 +587,17 @@
               }
             ],
             "description": "The sign-in that wrote the item's current version, named as it was then, even after it ends. `null` if no sign-in wrote it, such as when Marfa reads a file's text. Present only where `include` names `writer`."
+          },
+          "state_writer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Writer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The sign-in that last changed the item's lifecycle state, named as it was then. `null` if the item has never moved, a server job moved it, or its last move predates this field. Present only where `include` names `writer`."
           }
         },
         "required": [
@@ -12746,6 +12757,67 @@
         ],
         "description": "An error response."
       },
+      "StateConflictRefusal": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "state_conflict"
+                ],
+                "description": "A machine-readable code for the error. Use it in your logic."
+              },
+              "message": {
+                "type": "string",
+                "description": "A description of the error for a person to read. It can change, so don't match on it."
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "More about the error, such as the field it concerns. Each code defines its own details.",
+                "properties": {
+                  "expected": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "archived",
+                      "trashed"
+                    ],
+                    "description": "The state `from` named."
+                  },
+                  "actual": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "archived",
+                      "trashed",
+                      "revoked"
+                    ],
+                    "description": "The state the item is in now."
+                  }
+                },
+                "required": [
+                  "expected",
+                  "actual"
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "description": "What went wrong."
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "description": "An error response."
+      },
       "RowBatchEntry": {
         "type": "object",
         "description": "A batch a table's change log holds.",
@@ -16885,6 +16957,91 @@
           "remaining_items"
         ],
         "additionalProperties": false
+      },
+      "FolderDirectory": {
+        "type": "object",
+        "description": "A directory below a folder's root, with how many placed files it holds.",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The directory's path from the folder's root, with `/` between names.",
+            "example": "notes/2026"
+          },
+          "direct_files": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many placed files sit directly in the directory.",
+            "example": 1
+          },
+          "all_files": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many placed files sit in the directory and in every directory beneath it.",
+            "example": 3
+          },
+          "has_directories": {
+            "type": "boolean",
+            "description": "`true` if a placed file sits in a directory beneath this one.",
+            "example": true
+          }
+        },
+        "required": [
+          "path",
+          "direct_files",
+          "all_files",
+          "has_directories"
+        ],
+        "additionalProperties": false
+      },
+      "FolderDirectories": {
+        "type": "object",
+        "description": "The directories directly under a path in a folder, with counts of placed files.",
+        "properties": {
+          "folder_id": {
+            "type": "string",
+            "description": "The ID of the folder.",
+            "example": "01920000-0000-7000-8000-000000000002"
+          },
+          "under": {
+            "type": "string",
+            "description": "The path the answer is for, tidied: empty for the top level, otherwise names joined by `/`.",
+            "example": "notes"
+          },
+          "direct_files": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many placed files sit directly at `under`.",
+            "example": 2
+          },
+          "total_files": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many placed files you can list in the entire folder, regardless of `under`.",
+            "example": 8
+          },
+          "unreadable_placements": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many placements you can read are left out of every count because the stored `path` is not a string or is a path no write would accept. It names no file or path, and counts nothing you cannot read.",
+            "example": 0
+          },
+          "directories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FolderDirectory"
+            },
+            "description": "The immediate subdirectories that contain a placed file you can list, sorted by the UTF-8 bytes of their paths."
+          }
+        },
+        "required": [
+          "folder_id",
+          "under",
+          "direct_files",
+          "total_files",
+          "unreadable_placements",
+          "directories"
+        ],
+        "additionalProperties": false
       }
     },
     "parameters": {},
@@ -18004,10 +18161,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "Comma-separated extras. `backrefs` adds inbound edges. `neighbors` adds the items at the other end of the returned edges. `versions` adds the first page of readable snapshots, oldest first. `writer` adds the current version's writer."
+              "description": "Comma-separated extras. `backrefs` adds inbound edges. `neighbors` adds items at the other end of returned edges. `versions` adds the first page of readable snapshots, oldest first. `writer` adds the current version's `writer` and `state_writer`."
             },
             "required": false,
-            "description": "Comma-separated extras. `backrefs` adds inbound edges. `neighbors` adds the items at the other end of the returned edges. `versions` adds the first page of readable snapshots, oldest first. `writer` adds the current version's writer.",
+            "description": "Comma-separated extras. `backrefs` adds inbound edges. `neighbors` adds items at the other end of returned edges. `versions` adds the first page of readable snapshots, oldest first. `writer` adds the current version's `writer` and `state_writer`.",
             "name": "include",
             "in": "query"
           },
@@ -20877,6 +21034,15 @@
                       "trashed"
                     ],
                     "description": "The state to move the item to."
+                  },
+                  "from": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "archived",
+                      "trashed"
+                    ],
+                    "description": "The state you read the item in. If the item is in another state now, nothing moves and Marfa returns `409 state_conflict`. Leave it out to move the item from whichever state it is in."
                   }
                 },
                 "required": [
@@ -20938,7 +21104,7 @@
             }
           },
           "400": {
-            "description": "- `invalid_transition`: the type's lifecycle doesn't allow the move, such as `trashed` to `archived`. Restore first.\n- `edge_constraint_violation`: a `block` edge holds an item that a move to `trashed` would take.\n- `validation_error`: `state` is invalid, or the body has a field this endpoint doesn't take.\n- `missing_required_field`: `state` is missing.\n- `invalid_id`: the ID is not valid.",
+            "description": "- `invalid_transition`: the type's lifecycle doesn't allow the move, such as `trashed` to `archived`. Restore first.\n- `edge_constraint_violation`: a `block` edge holds an item that a move to `trashed` would take.\n- `validation_error`: `state` or `from` is invalid, or the body has a field it doesn't take.\n- `missing_required_field`: `state` is missing.\n- `invalid_id`: the ID is not valid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -21049,13 +21215,16 @@
             }
           },
           "409": {
-            "description": "`version_conflict`: `version` differs from the item. `current` is the item now; nothing moved.",
+            "description": "- `version_conflict`: `version` differs from the item. `current` is the item now; nothing moved.\n- `state_conflict`: the item is no longer in the state `from` names. `details.actual` is its state now; nothing moved.",
             "content": {
               "application/json": {
                 "schema": {
                   "anyOf": [
                     {
                       "$ref": "#/components/schemas/ItemStaleVersion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/StateConflictRefusal"
                     },
                     {
                       "$ref": "#/components/schemas/InstanceChangedRefusal"
@@ -22337,7 +22506,7 @@
                         "hidden"
                       ]
                     },
-                    "description": "`edges`, `metadata` and `extensions` add that data to each item. `writer` adds the sign-in that wrote each item's current version. `hidden` also returns `system.*` and `app.*` items, which are left out by default."
+                    "description": "`edges`, `metadata` and `extensions` add that data to each item. `writer` adds each item's current version `writer` and `state_writer`. `hidden` also returns `system.*` and `app.*` items, which are left out by default."
                   }
                 },
                 "required": [
@@ -54806,6 +54975,274 @@
         "x-marfa-local-command": true
       }
     },
+    "/folders/{id}/directories": {
+      "get": {
+        "operationId": "getFolderDirectories",
+        "tags": [
+          "Folders"
+        ],
+        "summary": "Get folder directories",
+        "description": "Returns one level of a folder's directory tree with file counts. Counts include items you can list with an `in-folder` edge, archived ones too, and leave out the trash. `unreadable_placements` counts placements left out for a damaged path.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The ID of the folder."
+            },
+            "required": true,
+            "description": "The ID of the folder.",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The directory path from the folder's root, such as `notes/2026`. Omit it for the top level. Empty and `.` path components are ignored. A path with no visible placements returns an empty list."
+            },
+            "required": false,
+            "description": "The directory path from the folder's root, such as `notes/2026`. Omit it for the top level. Empty and `.` path components are ignored. A path with no visible placements returns an empty list.",
+            "name": "under",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the directories under the path, with the file counts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderDirectories"
+                },
+                "example": {
+                  "folder_id": "01920000-0000-7000-8000-000000000002",
+                  "under": "notes",
+                  "direct_files": 2,
+                  "total_files": 8,
+                  "unreadable_placements": 0,
+                  "directories": [
+                    {
+                      "path": "notes/2026",
+                      "direct_files": 1,
+                      "all_files": 3,
+                      "has_directories": true
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              }
+            }
+          },
+          "400": {
+            "description": "- `invalid_id`: the folder ID is malformed.\n- `validation_error`: `under` starts with a slash, contains a backslash, NUL, or `..` component, exceeds 1024 characters, or appears more than once. An unknown query parameter also causes this error unless its name starts with `_`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidIdOrValidationErrorRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthorized`: the request has no credential, or its credential is not valid. For a key that has expired, `details.expired_at` says when it expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "403": {
+            "description": "- `type_not_permitted`: your credential reads no type.\n- `edge_type_not_permitted`: you can't read the `in-folder` edge type.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EdgePermissionDeniedOrTypeNotPermittedRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "404": {
+            "description": "- `item_not_found`: the folder does not exist or you cannot read it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemNotFoundRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "412": {
+            "description": "`contract_mismatch`: `X-Marfa-Contract` names another contract version than this instance speaks, or is not a whole number. Nothing was done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractMismatchRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`: you sent too many requests. Wait for the number of seconds in `Retry-After`, then try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error`: Marfa failed in a way it didn't expect, and the request may not have completed. Read what you changed before you repeat a write.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalErrorRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          },
+          "503": {
+            "description": "`write_contention`: the database was busy, and Marfa couldn't complete the request in time. Nothing changed. Try the request again. While a restore runs, `details.reason` is `restore_running`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteContentionRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            }
+          },
+          "507": {
+            "description": "`insufficient_storage`: the disk that holds the instance's data has no room for the request, or the request would leave less free than the instance keeps in reserve. Nothing changed, unless `details.write_outcome` is `unknown`, which means the write may have landed: read what you changed before you repeat it. Free space on the disk, then try the request again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsufficientStorageRefusal"
+                }
+              }
+            },
+            "headers": {
+              "X-Marfa-Contract": {
+                "$ref": "#/components/headers/X-Marfa-Contract"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/X-Request-ID"
+              },
+              "X-Error-Code": {
+                "$ref": "#/components/headers/X-Error-Code"
+              }
+            }
+          }
+        },
+        "x-marfa-local-command": true
+      }
+    },
     "/views": {
       "post": {
         "operationId": "createView",
@@ -82116,7 +82553,8 @@
         "updateFolder",
         "revokeFolder",
         "reportFolderStatus",
-        "getFolderStatus"
+        "getFolderStatus",
+        "getFolderDirectories"
       ]
     },
     {
