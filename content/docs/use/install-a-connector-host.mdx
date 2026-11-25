@@ -1,0 +1,64 @@
+---
+title: Install a connector host on a machine
+sidebar_label: Install a connector host
+description: Put the connector host program on a machine with one command, find where it keeps its files, keep it up to date, and take it off the machine and out of your instance.
+job: An owner installs the connector host on a machine, keeps it updated and removes it.
+kind: how-to
+---
+
+WithMarfa publishes **`marfa-connector-host`**, the program that runs the connectors you assign to a machine. It carries the runtime it needs, so nothing else has to be installed. [Run a plugin's connector](/use/run-a-plugin-connector) is the half you do in Marfa: the host redeems your link and runs what you assign.
+
+## Put it on the machine
+
+Make the one-time link with `marfa hosts add`, then give it to the installer within 15 minutes. The machine needs `curl`:
+
+```bash
+curl -fsSL https://github.com/withmarfa/plugins/releases/latest/download/install-host.sh | sh -s -- '<link>'
+```
+
+The script downloads the newest release's archive for this machine (`darwin-arm64`, `darwin-x64`, `linux-arm64` or `linux-x64`) and **installs nothing unless its SHA-256 matches the release's `checksums.txt`**. It then links `marfa-connector-host` into `~/.local/bin` and redeems the link.
+
+On macOS it loads the LaunchAgent `so.marfa.connector-host`. On Linux it enables the user unit `marfa-connector-host.service` and prints the `loginctl enable-linger` command that keeps the host running while you're logged out.
+
+```bash
+marfa-connector-host status
+marfa-connector-host logs rss
+```
+
+The host asks your instance every minute what to run, so a connector you [assign](/use/run-a-plugin-connector#assign-a-connector) starts within a minute. To supervise the host yourself instead, redeem the link with `marfa-connector-host install '<link>' --no-service` and run `marfa-connector-host run`, restarting it on exit code `75`, which it uses once it has installed an update.
+
+## Where it keeps its files
+
+On macOS, `~/Library/Application Support/Marfa/Connector Host/`; on Linux, `$XDG_DATA_HOME/marfa/connector-host/`, by default `~/.local/share/marfa/connector-host/`. `MARFA_CONNECTOR_HOST_HOME` names another folder.
+
+| In that folder | What it holds |
+| --- | --- |
+| `versions/<version>/` | One installed release. `current` names the one running |
+| `host.json` | Your instance's address, and the host's name and ID |
+| `host.key`, `connectors/<plugin>/key` | The host's own key, and each connector's, readable only by you |
+| `connectors/<plugin>/code/` | Each connector's code, kept only when its SHA-256 matches |
+| `logs/` | The host's log and one for each connector |
+
+**No key is printed, logged or passed on a command line.**
+
+## Keep the host updated
+
+Once a day the running host asks which release is newest. When a newer one exists, it checks that archive, unpacks it beside the copy that is running, points `current` at it and exits, and the service starts the new one. **These requests carry no key and no name of the host, your instance or its connectors.**
+
+```bash
+marfa-connector-host update
+marfa-connector-host updates off
+```
+
+`update` installs a newer release now. `updates off`, and `on` again, writes `"updates"` in `host.json`, which the host reads before each check, and `update` still works while the check is off. `MARFA_CONNECTOR_HOST_NO_UPDATE=1` turns the check off only for a `run` you supervise yourself: the service doesn't take it from your shell.
+
+## Remove it
+
+```bash
+marfa-connector-host uninstall
+marfa hosts remove "Studio Mac"
+```
+
+`uninstall` lists the service, the `~/.local/bin` command and the host's folder, and asks before it removes them; `--yes` answers for a script. **The host stays listed in your instance until `marfa hosts remove`,** which frees its connectors for another machine.
+
+Redeeming a fresh link on the same machine replaces the host's identity and deletes every connector's key and code; the connectors themselves carry on where they stopped. [Fix a connector](/use/fix-a-connector) covers one that isn't running.
