@@ -1,5 +1,5 @@
 ```bash
-curl -fsSL https://github.com/withmarfa/marfa/releases/download/v0.0.112/marfa-0.0.112-darwin-arm64.tar.gz | tar -xz
+curl -fsSL https://github.com/withmarfa/marfa/releases/download/v0.0.113/marfa-0.0.113-darwin-arm64.tar.gz | tar -xz
 sudo mkdir -p /usr/local/bin
 sudo mv marfa marfa-server /usr/local/bin/
 marfa --version
