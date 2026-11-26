@@ -2,8 +2,8 @@
 title: Items, files and views in the Swift SDK
 sidebar_label: Items, files and views
 headTitle: Swift SDK items, files and views
-description: Read and write the items, edges, tags, table rows, files, saved views and folders that a working copy holds.
-job: A Swift builder looks up the calls that read and write items, edges, tags, rows, files, views and folder settings.
+description: Read and write the items, edges, tags, table rows, files and saved views that a working copy holds.
+job: A Swift builder looks up the calls that read and write items, edges, tags, rows, files and views.
 ---
 
 A working copy answers reads from its store with no request and **queues every write,** which shows at once and reaches the server at the next [drain](/reference/swift-sdk/working-copy#the-queue). Each write returns its `QueuedWrite`. [Write in a working copy](/build/write-in-a-working-copy) explains the model.
@@ -55,11 +55,11 @@ Call these on `copy.items`:
 | `create(_ Draft)` | A create, then **one `addTag` write for each tag.** |
 | `update(_:_ Edit)` | An update. **Throws `invalid` unless `baseVersion` is the held version.** |
 | `updateAsRead(_:_ Edit)` | An update on an older version, merged against what was read. Takes version `0` for an item this copy created once the server answers. |
-| `delete(_:)`, `restore(_:)`, `transition(_:to:)` | A move to the bin, a restore, or a change to `.active`, `.archived`, `.trashed` or `.revoked`. |
+| `delete(_:)`, `restore(_:)`, `transition(_:to:from:)` | A move to the bin, a restore, or a change to `.active`, `.archived`, `.trashed` or `.revoked`. **Pass `from`, the state the person saw,** to refuse a stale move. |
 | `bin(type:after:limit:)` | One `BinPage` of the server's bin, read online. |
 | `purge(_:version:)` | **Destroys a binned item on the server now.** Never queued. Needs `items.purge`. |
 
-`Draft` takes `type`, `properties`, `tags`, `tier`, `state`, `id`, `source`, `sourceId`, `occurredAt`, the capture coordinates and `edges`. `Edit` takes `properties`, `replaceProperties`, `clearProperties`, `baseVersion`, `sourceId`, `type`, `tier`, `occurredAt` and `clearOccurredAt`. **A `null` in `properties` clears nothing:** name the property in `clearProperties`. **The copy checks properties against the type** and throws `validation` with `invalid_properties`. `purge` throws `versionConflict` if the item changed since, `invalid` for an item with a write waiting, and `network` offline.
+`Draft` takes `type`, `properties`, `tags`, `tier`, `state`, `id`, `source`, `sourceId`, `occurredAt`, the capture coordinates and `edges`. `Edit` takes `properties`, `replaceProperties`, `clearProperties`, `baseVersion`, `sourceId`, `type`, `tier`, `occurredAt` and `clearOccurredAt`. **A `null` in `properties` clears nothing:** name the property in `clearProperties`. **The copy checks properties against the type** and throws `validation` with `invalid_properties`. `purge` throws `versionConflict` if the item changed since, `invalid` for an item with a write waiting, and `network` offline. A `transition` whose `from` isn't the held state throws `validation` with `state_conflict`, `details.expected` and `details.actual`, and queues nothing; one the server moved first comes back as a refused verdict.
 
 ## Edges
 
@@ -137,26 +137,3 @@ A saved view is a `system.view` item, a `SavedView`, never named `View`. **Hydra
 | `copy.createView(_ ViewSettings, idempotencyKey:)`, `changeView(_:_ ViewSettingsChange, baseVersion:idempotencyKey:)`, `deleteView(_:idempotencyKey:)` | Write a view **at once, never through the queue.** A delete is for good. |
 
 **A view's reads never answer in part:** they throw `hydrationIncomplete` while the copy fills or is stale, `notFound` for a view not held, and `invalid` where the copy can't answer the whole view, such as a type outside the slice or a revoked view. `ViewSettings` holds `title`, `query` (`types`, `tier`, `states`, `filter`, `beneath`), `sort` and `group` (`by`, `bucket`, `order`, `hidden`). A `filter` takes `status_group`. With no server a write throws `noServer`. **After a `network` failure retry with the same `idempotencyKey`.** A setting changed since `baseVersion` throws `versionConflict`. [Save and read a view](/build/views) shows a view on screen.
-
-## Folders
-
-`items.folder(_:)` reads a held `Folder` (a `system.folder` item). Its `FolderSettings` hold `title`, `query`, `defaults` for a new file, `include` and `ignore` gitignore patterns (**`ignore` wins**), `firstPlacement`, `outsideQuery` (`.send` or `.hold`), and two thresholds that make a change wait for confirmation.
-
-| `FolderSettings` field | Default |
-| --- | --- |
-| `removalThreshold`: `RemovalThreshold(files:fraction:ceiling:)` | 10 files and 0.25 of the folder's files, and **more files than the `ceiling` of 100 wait whatever their share.** |
-| `additionThreshold`: `AdditionThreshold(files:fraction:)` | 50 files and 0.25. |
-
-`copy.createFolder(_:idempotencyKey:)`, `changeFolder(_:_:baseVersion:idempotencyKey:)` and `revokeFolder(_:idempotencyKey:)` write at once, as view writes do. **A revoked folder changes no more.**
-
-`Folders(server:)` works the Mac's directories through the `marfa` command line's registry.
-
-| Call | Does |
-| --- | --- |
-| `add(_ directory:following:)`, `list()`, `status(of:)` | Make a directory follow a `system.folder`, list the registry, and read a folder's `FolderStatus` with no request. |
-| `sync(_:)` | One pass: sends disk changes, catches up, writes out what the query matches, sends placements. Returns a `FolderSyncResult`. |
-| `confirmFirstSync(in:)`, `confirmRemoval(in:)`, `restoreRemoval(in:)` | Let a first sync or a held removal go, or cancel a removal and write the files back. |
-| `watch(_:)` | Keeps the folder in step while the app runs: a `FolderWatch` sequence of `FolderEvent`s. **Leaving a loop early doesn't stop it:** call `stop()`. |
-| `pause(_:)`, `resume(_:)`, `remove(_:)` | Pause or resume a directory, or take the folder off the Mac, leaving plain files. `remove` returns a `FolderRemoval`, or throws `invalid` while writes wait. |
-
-**When another instance answers at the folder's server** ([after a restore](/run/keep-folder-edits-after-a-restore)), `remove(_:)` goes ahead and lists each file it couldn't send in `FolderRemoval.files`. Show every one: a moved or deleted file is in no file. **A first sync waits for the person:** `sync(_:)` returns `.awaitingConfirmation(FirstSyncPlan)` with what it will write and send, and `watch(_:)` throws `firstSyncWaiting`. **A paused directory sends and writes nothing,** and its sync calls throw `syncPaused`. **One process works a folder at a time:** a call asks a watch to let go and waits 10 seconds, then throws `readingHandle`. A `StorageCause` on `AddedFolder.storage` warns about iCloud Drive, a cloud service or a network file system: show it once for each folder. A pass reports its `FolderScan` and `FolderPull` counts, and `FolderStatus` gives each file a `FileState` of `.inStep`, `.waiting`, `.held`, `.unmatched`, `.unreached` or `.outside`, and lists in `directories` each directory it flagged, as a `FlaggedFile` with its `path`, `flag`, `reason` and `item`. [Folder sync status](/reference/folder-sync-status) and [How a synced folder treats files](/reference/folder-rules) hold the rules.
