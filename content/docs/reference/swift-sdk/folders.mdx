@@ -1,0 +1,38 @@
+---
+title: Synced folders in the Swift SDK
+sidebar_label: Synced folders
+headTitle: Swift SDK synced folders
+description: Read and change a synced folder's settings, and make a Mac directory follow it, sync, watch, pause and settle its files.
+job: A Swift builder looks up the calls that set up a synced folder and keep its directory in step on a Mac.
+---
+
+## Settings
+
+`items.folder(_:)` reads a held `Folder` (a `system.folder` item). Its `FolderSettings` hold `title`, `query`, `defaults` for a new file, `include` and `ignore` gitignore patterns (**`ignore` wins**), `firstPlacement`, `outsideQuery` (`.send` or `.hold`), `fullPassIntervalSeconds` (the seconds between a watch's reads of every file, 60 to 86400, `nil` for 600), and two thresholds that make a change wait for confirmation. A `FolderSettingsChange` leaves each `nil` setting as it is, and an interval outside the range throws `invalid` before anything is sent.
+
+| `FolderSettings` field | Default |
+| --- | --- |
+| `removalThreshold`: `RemovalThreshold(files:fraction:ceiling:)` | 10 files and 0.25 of the folder's files, and **more files than the `ceiling` of 100 wait whatever their share.** |
+| `additionThreshold`: `AdditionThreshold(files:fraction:)` | 50 files and 0.25. |
+
+`copy.createFolder(_:idempotencyKey:)`, `changeFolder(_:_:baseVersion:idempotencyKey:)` and `revokeFolder(_:idempotencyKey:)` write at once, as view writes do. **A revoked folder changes no more.**
+
+## The directory on the Mac
+
+`Folders(server:)` works the Mac's directories through the `marfa` command line's registry.
+
+| Call | Does |
+| --- | --- |
+| `add(_ directory:following:)`, `list()`, `status(of:)` | Make a directory follow a `system.folder`, list the registry, and read a folder's `FolderStatus` with no request. |
+| `sync(_:)` | One pass: sends disk changes, catches up, writes out what the query matches, sends placements. Returns a `FolderSyncResult`. |
+| `confirmFirstSync(in:)`, `confirmRemoval(in:)`, `restoreRemoval(in:)` | Let a first sync or a held removal go, or cancel a removal and write the files back. |
+| `watch(_:)` | Keeps the folder in step while the app runs: a `FolderWatch` sequence of `FolderEvent`s. **Leaving a loop early doesn't stop it:** call `stop()`. |
+| `pause(_:)`, `resume(_:)`, `remove(_:)` | Pause or resume a directory, or take the folder off the Mac, leaving plain files. `remove` returns a `FolderRemoval`, or throws `invalid` while writes wait. |
+| `removeUnmatched(in:paths:)` | Removes the named [unmatched](/reference/folder-rules#what-a-folder-does-with-each-file) files that are unchanged, leaving their items. Returns `UnmatchedRemoved`: `removed`, `kept` with each `reason`, and `ended`, the placements ended. |
+| `keptFiles(in:)`, `discardKept(in:)` | Read the files Marfa set aside, each a `KeptFile` with `path`, `from`, `writers`, `until` and `reason`, or discard the unchanged ones. `discardKept` returns `KeptDiscarded`: `discarded`, `putBack` and `kept`. |
+
+**When another instance answers at the folder's server** ([after a restore](/run/keep-folder-edits-after-a-restore)), `remove(_:)` goes ahead and lists each file it couldn't send in `FolderRemoval.files`. Show every one: a moved or deleted file is in no file. **A first sync waits for the person:** `sync(_:)` returns `.awaitingConfirmation(FirstSyncPlan)` with what it will write and send, and `watch(_:)` throws `firstSyncWaiting`. **A paused directory sends and writes nothing,** and its sync calls throw `syncPaused`. **One process works a folder at a time:** a call asks a watch to let go and waits 10 seconds, then throws `readingHandle`. `status(of:)` and `keptFiles(in:)` answer beside a watch. **Ask the person before `removeUnmatched` or `discardKept`.** A `StorageCause` on `AddedFolder.storage` warns about iCloud Drive, a cloud service or a network file system: show it once for each folder. `AddedFolder.gitTracked` says Git tracks files there, and `ListedFolder.storeId` is the ID the folder's status on the server reports. A pass reports its `FolderScan` and `FolderPull` counts, and `FolderStatus` gives each file a `FileState` of `.inStep`, `.waiting`, `.held`, `.unmatched`, `.unreached` or `.outside`, a held file's `hold` with its `reason` (`.unsure` for a delete that waits until the person settles it with `marfa folders held`, `.removing` for an interrupted `removeUnmatched` whose file a scan can't tell), and lists in `directories` each directory it flagged, as a `FlaggedFile` with its `path`, `flag`, `reason` and `item`. [Folder sync status](/reference/folder-sync-status) and [How a synced folder treats files](/reference/folder-rules) hold the rules.
+
+## Directories and tests
+
+`Client.folderDirectories(_:under:)` in `MarfaAPI` reads [one level of a folder's directories](/reference/api/folders/getFolderDirectories) with their file counts, from the top when `under` is `nil`. Code that takes a `FolderFileManaging` in place of `Folders`, or a `FolderDirectoryReading` in place of `Client`, can be tested with no directory or server: `FakeCopy.folders(removeUnmatched:keptFiles:discardKept:)` scripts `removeUnmatched`, `keptFiles` and `discardKept`, each throwing `unsupported` when left out, and `folderClient(directories:)` scripts `folderDirectories` ([Test against a fake copy](/reference/swift-sdk/errors-and-testing#test-against-a-fake-copy)).
