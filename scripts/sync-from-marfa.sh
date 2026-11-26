@@ -309,7 +309,7 @@ def options(body):
             refuse(f"has an option row this sync cannot read: {line.strip()[:60]}")
         entry = {}
         for part in cell.group(1).split(", "):
-            match = re.fullmatch(r"(-[A-Za-z]|--[a-z0-9][a-z0-9-]*)( <[^>]+>)?", part)
+            match = re.fullmatch(r"(-[A-Za-z]|--[a-z0-9][a-z0-9-]*)( <[^>]+>(?:\.\.\.)?)?", part)
             if not match:
                 refuse(f"has an option this sync cannot read: {part}")
             if match.group(1).startswith("--"):

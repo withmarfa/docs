@@ -137,6 +137,10 @@ marfa search items [OPTIONS] <QUERY>
 marfa search many [OPTIONS] <QUERIES>...
 ```
 
+| Option | Description |
+| --- | --- |
+| `--type <TYPE>...` | Search only these types. |
+
 EOF
 )"
 cli_global_expected="$(cat <<'EOF'
@@ -817,7 +821,7 @@ check "only the two sections are written, and the stale command files are gone" 
 check "the folder can be read by anyone who can read the checkout" \
   755 "$(python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "${cli}")"
 check "the command tree holds each command with its options, and the global options apart" \
-  '{"commands": {"": {"options": [], "subcommands": true}, "owner": {"options": [], "subcommands": true}, "owner recover": {"options": [{"flag": "--stdin"}]}, "owner show": {"options": []}, "search items": {"options": [], "positional": true}, "search many": {"options": [], "positional": true}, "status": {"options": []}}, "global": [{"flag": "--json"}]}' \
+  '{"commands": {"": {"options": [], "subcommands": true}, "owner": {"options": [], "subcommands": true}, "owner recover": {"options": [{"flag": "--stdin"}]}, "owner show": {"options": []}, "search items": {"options": [], "positional": true}, "search many": {"options": [{"flag": "--type", "value": true}], "positional": true}, "status": {"options": []}}, "global": [{"flag": "--json"}]}' \
   "$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1])), sort_keys=True))' "${work}/good/docs/src/generated/cli-commands.json")"
 check "the command tree ends with exactly one newline" True \
   "$(python3 -c 'import sys; t = open(sys.argv[1]).read(); print(t.endswith("}\n") and not t.endswith("\n\n"))' "${work}/good/docs/src/generated/cli-commands.json")"
