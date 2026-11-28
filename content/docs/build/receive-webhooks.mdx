@@ -4,9 +4,9 @@ description: Register a webhook, check that each webhook delivery came from your
 job: A builder registers a webhook, checks each delivery came from the instance, and handles repeats, order and failures.
 ---
 
-A webhook lets a service react to changes without holding a connection open: you register a URL, and Marfa posts each event you chose to it. [Events](/build/events) says when to use one rather than the [event stream](/build/keep-in-sync).
+A webhook lets a service react to changes without holding a connection open: Marfa posts each event you chose to your URL. [Events](/build/events) says when to use one rather than the [event stream](/build/keep-in-sync).
 
-The receiving service needs a key that holds `webhooks.manage` and reads the types its webhook is told about ([Manage keys](/use/manage-keys)). **A webhook belongs to the key or app that registered it**, and Marfa sends it nothing once that key expires, is revoked or loses `webhooks.manage`. A key that holds `keys.manage`, such as the owner's, can also see and delete any webhook.
+The receiving service needs a key that holds `webhooks.manage` and reads the types its webhook is told about ([Manage keys](/use/manage-keys)). **A webhook belongs to the key or app that registered it**, and Marfa sends it nothing once that key expires, is revoked or loses `webhooks.manage`. A key with `keys.manage` can also see and delete any webhook.
 
 ## Register a webhook
 
@@ -33,7 +33,7 @@ Marfa answers with the webhook and its `secret`, **shown only once**, which sign
 
 ## Check each webhook delivery
 
-A delivery is a `POST` whose body is the event as the stream sends it, plus `event_id`, `delivered_at` and a `delivery_id` that is the same on every attempt. Anyone can post to your URL, so check `X-Marfa-Signature` first: it reads `t=<unix seconds>,v1=<hex>`, where `v1` is the HMAC-SHA-256, under your webhook's secret, of `t`, a period and the raw body. **Compute it over the bytes exactly as they arrived:** parsing the JSON again changes them. This check refuses a signature more than five minutes old; a repeat inside that window still verifies, so the table below is keyed by `delivery_id`:
+A delivery is a `POST` whose body is the event as the stream sends it, plus `event_id`, `delivered_at` and a `delivery_id` that is the same on every attempt. Anyone can post to your URL, so check `X-Marfa-Signature` first: it reads `t=<unix seconds>,v1=<hex>`, where `v1` is the HMAC-SHA-256, under your webhook's secret, of `t`, a period and the raw body. **Compute it over the bytes exactly as they arrived:** parsing the JSON again changes them. It refuses a signature over five minutes old; a repeat within that still verifies, so the table below is keyed by `delivery_id`:
 
 ```ts title="verify-signature.mts"
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -49,7 +49,7 @@ export function verifySignature(rawBody: Buffer, header: string | undefined, sec
 }
 ```
 
-The receiver **stores each delivery before it answers**, so a crash after the `2xx` can't lose an event. The delivery's ID is the table's key, so a repeat changes nothing, and a separate worker handles the stored rows:
+The receiver **stores each delivery before it answers**, so a crash after the `2xx` can't lose an event. With the delivery's ID as the key, a repeat changes nothing, and a separate worker handles the stored rows:
 
 ```ts title="receiver.mts"
 import { createServer } from "node:http";
@@ -81,7 +81,7 @@ createServer((request, response) => {
 
 ## Handle repeats and order
 
-Answer webhooks with `2xx` **within 10 seconds**, so do slow work afterward. **Marfa promises neither order nor once:** an event can come twice with the same `delivery_id`, and a failed delivery waits for its retry while newer ones go through, so event 16 can arrive before 15. `event_id` is a decimal string that can pass 2^53: **compare it as a `BigInt`**.
+Answer webhooks with `2xx` **within 10 seconds**, so do slow work afterward. **Marfa promises neither order nor once:** an event can come twice with the same `delivery_id`, and a failed delivery waits for its retry while newer ones pass it. `event_id` is a decimal string that can pass 2^53: **compare it as a `BigInt`**.
 
 - **A copy of the latest state** keeps the highest `event_id` applied for each item and ignores a lower one.
 - **A worker that must act on every change** records the delivery as done in the same transaction as its effect, or makes the effect safe to repeat:
@@ -102,9 +102,9 @@ for (const row of todo.all() as { delivery_id: string; body: string }[]) {
 
 Marfa makes eight attempts at each delivery, trying again when your receiver can't be reached, is too slow, or answers `5xx`, `408` or `429`, and waiting longer when `Retry-After` asks. Any other `4xx`, or a redirect, ends it at once. A delivery Marfa gives up on is `failed`, and its record later expires. **A webhook whose every attempt has failed for a day appears in `marfa attention`** until an attempt succeeds, or you change its `url`, turn it off or delete it.
 
-**A webhook's pending deliveries are capped** by the `webhook_backlog_deliveries` and `webhook_backlog_bytes` [settings](/reference/instance-settings#stored-settings): a new delivery past either is recorded `canceled` and never sent, while those already pending still go.
+**A webhook's pending deliveries are capped** by the `webhook_backlog_deliveries` and `webhook_backlog_bytes` [settings](/reference/instance-settings#stored-settings): a new delivery past either is recorded `canceled` and never sent.
 
-**The highest `event_id` you stored is no cursor:** if event 25 arrives while 22 waits for its retry, resuming after 25 skips 22. A receiver that must not miss a change keeps a cursor that only the [event stream](/build/keep-in-sync) advances, in order, and reads the stream after an outage. An `attention.raised` sent from memory has no `event_id` and can't be replayed ([the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md#eventsattention-memory-body)).
+**The highest `event_id` you stored is no cursor:** if event 25 arrives while 22 waits for its retry, resuming after 25 skips 22. A receiver that must miss nothing reads the [event stream](/build/keep-in-sync) after an outage, from a cursor only the stream advances. An `attention.raised` sent from memory has no `event_id` and can't be replayed ([the contract](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md#eventsattention-memory-body)).
 
 [List webhook deliveries](/reference/api/webhooks/listWebhookDeliveries), or `marfa webhooks deliveries`, shows each one's `status` and your receiver's last answer. Once the fault is fixed, [redeliver](/reference/api/webhooks/redeliverWebhookDelivery) a `failed` delivery, with the same `delivery_id`:
 
@@ -122,11 +122,13 @@ Marfa answers `202`, or refuses `409 conflict` with a `details.reason`:
 - **`webhook_inactive`:** the webhook is turned off.
 - **`credential_unavailable`:** the webhook's key or app is no longer valid.
 - **`delivery_not_failed`:** the delivery isn't `failed`.
-- **`delivery_expired`:** the delivery record has expired.
+- **`delivery_expired`:** its record expired.
 - **`backlog_full`:** the webhook's pending deliveries are at their limit.
 
 ## Change what a webhook sends
 
 [Update a webhook](/reference/api/webhooks/updateWebhook) to change its `url`, `events`, `type_filter` or `active`. A deleted webhook sends no pending deliveries.
+
+**Send the `version` you read,** which each change to those fields raises. If the webhook changed since, Marfa changes nothing and answers `409 version_conflict`: read it again and make your change over that.
 
 The rules are in the [events](https://github.com/withmarfa/marfa/blob/main/conformance/spec/events.md) chapter of the contract.
